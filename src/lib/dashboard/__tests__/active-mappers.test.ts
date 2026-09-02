@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapRecentReviews, mapReviewVelocity, toIsoWeekStart } from '../active-mappers';
+import { mapRecentReviews, mapRecentReviewsWithLocation, mapReviewVelocity, toIsoWeekStart } from '../active-mappers';
 
 describe('dashboard active mappers', () => {
   it('maps recent review row nulls and dates to dashboard shape', () => {
@@ -200,6 +200,42 @@ describe('dashboard active mappers', () => {
       expect(toIsoWeekStart(undefined)).toBe('');
       expect(toIsoWeekStart('not a date')).toBe('');
       expect(toIsoWeekStart(new Date('nope'))).toBe('');
+    });
+  });
+
+  describe('mapRecentReviewsWithLocation', () => {
+    const row = {
+      id: 'rev-1',
+      reviewer_name: 'Ana',
+      star_rating: 5,
+      review_text: 'Great',
+      review_date: '2026-07-22T00:00:00.000Z',
+      status: 'new',
+      response_text: null,
+      response_status: null,
+      approval_method: null,
+      auto_post_scheduled_at: null,
+      escalation_id: null,
+      location_id: 'loc-1',
+      location_name: 'Bristol Bay Coffee',
+      location_display_label: null,
+    };
+
+    it('adds the location chip fields on top of the feed item', () => {
+      const [item] = mapRecentReviewsWithLocation([row]);
+      expect(item).toMatchObject({
+        id: 'rev-1',
+        reviewerName: 'Ana',
+        locationId: 'loc-1',
+        locationDisplayName: 'Bristol Bay Coffee',
+      });
+    });
+
+    it('prefers the owner display label over the Google name', () => {
+      const [item] = mapRecentReviewsWithLocation([
+        { ...row, location_display_label: 'Harbor St' },
+      ]);
+      expect(item!.locationDisplayName).toBe('Harbor St');
     });
   });
 });

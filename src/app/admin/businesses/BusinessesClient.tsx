@@ -142,6 +142,152 @@ function sameFilters(a: Filters, b: Filters): boolean {
   return a.search === b.search && a.status === b.status && a.health === b.health;
 }
 
+function anyFilterActive(filters: Filters): boolean {
+  return filters.search !== '' || filters.status !== '' || filters.health !== '';
+}
+
+/** The GET the route parses with `parseBusinessListFilters` — only present filters are sent. */
+async function fetchBusinessesPage(page: number, filters: Filters): Promise<BusinessListData> {
+  const params = new URLSearchParams({
+    limit: String(PAGE_SIZE),
+    offset: String(page * PAGE_SIZE),
+  });
+  if (filters.search) params.set('q', filters.search);
+  if (filters.status) params.set('status', filters.status);
+  if (filters.health) params.set('health', filters.health);
+  const res = await fetch(`/api/admin/businesses?${params.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch businesses: ${res.status}`);
+  return res.json() as Promise<BusinessListData>;
+}
+
+/** One removable chip per active select filter; the search box is its own chip-less control. */
+function filterChips(filters: Filters, applyFilter: (patch: Partial<Filters>) => void): FilterChip[] {
+  const chips: FilterChip[] = [];
+  if (filters.status) {
+    chips.push({
+      id: 'status',
+      label: `Status: ${statusLabel('subscription', filters.status)}`,
+      onRemove: () => applyFilter({ status: '' }),
+    });
+  }
+  if (filters.health) {
+    chips.push({
+      id: 'health',
+      label: `Health: ${HEALTH_BADGE_LABELS[filters.health]}`,
+      onRemove: () => applyFilter({ health: '' }),
+    });
+  }
+  return chips;
+}
+
+/** Search box + status/health selects + chips + the "N businesses" count (X5). */
+function BusinessesFilterBar({
+  searchInput,
+  onSearchChange,
+  filters,
+  applyFilter,
+  total,
+}: {
+  searchInput: string;
+  onSearchChange: (value: string) => void;
+  filters: Filters;
+  applyFilter: (patch: Partial<Filters>) => void;
+  total: number;
+}) {
+  return (
+    <FilterBar
+      search={searchInput}
+      onSearchChange={onSearchChange}
+      searchPlaceholder="Search by name…"
+      searchLabel="Search businesses by name"
+      rowCount={total}
+      rowNoun="businesses"
+      chips={filterChips(filters, applyFilter)}
+      controls={
+        <>
+          <select
+            aria-label="Status"
+            value={filters.status}
+            onChange={(event) => applyFilter({ status: event.target.value as Filters['status'] })}
+            className={FILTER_SELECT_CLASS}
+          >
+            <option value="">All statuses</option>
+            {Object.values(SubscriptionStatus).map((status) => (
+              <option key={status} value={status}>
+                {statusLabel('subscription', status)}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Health"
+            value={filters.health}
+            onChange={(event) => applyFilter({ health: event.target.value as Filters['health'] })}
+            className={FILTER_SELECT_CLASS}
+          >
+            <option value="">All health levels</option>
+            {BUSINESS_HEALTH_FILTERS.map((level) => (
+              <option key={level} value={level}>
+                {HEALTH_BADGE_LABELS[level]}
+              </option>
+            ))}
+          </select>
+        </>
+      }
+    />
+  );
+}
+
+/** The loaded page: an optional stale-data notice above the bounded, server-paginated table. */
+function BusinessesTable({
+  data,
+  page,
+  onPageChange,
+  filtered,
+  refetchFailed,
+  onRetry,
+}: {
+  data: BusinessListData;
+  page: number;
+  onPageChange: (page: number) => void;
+  filtered: boolean;
+  refetchFailed: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      {refetchFailed && (
+        <div className="mb-4">
+          <ErrorState
+            title="Last refresh failed"
+            detail="GET /api/admin/businesses failed — showing the last loaded data."
+            onRetry={onRetry}
+          />
+        </div>
+      )}
+      <DataTable
+        columns={buildColumns(data.responseMetricsWindowDays)}
+        rows={data.businesses}
+        rowKey={(b) => b.id}
+        rowHref={(b) => `/admin/businesses/${b.id}`}
+        maxHeight="70vh"
+        serverPagination={{
+          page,
+          pageSize: PAGE_SIZE,
+          totalRows: data.total,
+          onPageChange,
+        }}
+        emptyState={
+          filtered ? (
+            <EmptyState title="No businesses match" detail="Clear a filter or try a shorter name." />
+          ) : (
+            <EmptyState title="No businesses found" detail="Add one with + Add Business." />
+          )
+        }
+      />
+    </>
+  );
+}
+
 export function BusinessesClient({
   initialData,
   initialFilters,
@@ -178,82 +324,18 @@ export function BusinessesClient({
 
   const { data, isLoading, isError, refetch } = useQuery<BusinessListData>({
     queryKey: ['admin-businesses', page, filters.search, filters.status, filters.health],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        limit: String(PAGE_SIZE),
-        offset: String(page * PAGE_SIZE),
-      });
-      if (filters.search) params.set('q', filters.search);
-      if (filters.status) params.set('status', filters.status);
-      if (filters.health) params.set('health', filters.health);
-      const res = await fetch(`/api/admin/businesses?${params.toString()}`);
-      if (!res.ok) throw new Error(`Failed to fetch businesses: ${res.status}`);
-      return res.json() as Promise<BusinessListData>;
-    },
+    queryFn: () => fetchBusinessesPage(page, filters),
     staleTime: 30_000,
     initialData: page === 0 && sameFilters(filters, serverFilters) ? initialData : undefined,
   });
 
-  const chips: FilterChip[] = [
-    ...(filters.status
-      ? [
-          {
-            id: 'status',
-            label: `Status: ${statusLabel('subscription', filters.status)}`,
-            onRemove: () => applyFilter({ status: '' }),
-          },
-        ]
-      : []),
-    ...(filters.health
-      ? [
-          {
-            id: 'health',
-            label: `Health: ${HEALTH_BADGE_LABELS[filters.health]}`,
-            onRemove: () => applyFilter({ health: '' }),
-          },
-        ]
-      : []),
-  ];
-
   const filterBar = (
-    <FilterBar
-      search={searchInput}
+    <BusinessesFilterBar
+      searchInput={searchInput}
       onSearchChange={onSearchChange}
-      searchPlaceholder="Search by name…"
-      searchLabel="Search businesses by name"
-      rowCount={data?.total ?? 0}
-      rowNoun="businesses"
-      chips={chips}
-      controls={
-        <>
-          <select
-            aria-label="Status"
-            value={filters.status}
-            onChange={(event) => applyFilter({ status: event.target.value as Filters['status'] })}
-            className={FILTER_SELECT_CLASS}
-          >
-            <option value="">All statuses</option>
-            {Object.values(SubscriptionStatus).map((status) => (
-              <option key={status} value={status}>
-                {statusLabel('subscription', status)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Health"
-            value={filters.health}
-            onChange={(event) => applyFilter({ health: event.target.value as Filters['health'] })}
-            className={FILTER_SELECT_CLASS}
-          >
-            <option value="">All health levels</option>
-            {BUSINESS_HEALTH_FILTERS.map((level) => (
-              <option key={level} value={level}>
-                {HEALTH_BADGE_LABELS[level]}
-              </option>
-            ))}
-          </select>
-        </>
-      }
+      filters={filters}
+      applyFilter={applyFilter}
+      total={data?.total ?? 0}
     />
   );
 
@@ -279,39 +361,16 @@ export function BusinessesClient({
   }
   if (!data) return null;
 
-  const filtered = filters.search !== '' || filters.status !== '' || filters.health !== '';
-
   return (
     <>
       {filterBar}
-      {isError && (
-        <div className="mb-4">
-          <ErrorState
-            title="Last refresh failed"
-            detail="GET /api/admin/businesses failed — showing the last loaded data."
-            onRetry={() => void refetch()}
-          />
-        </div>
-      )}
-      <DataTable
-        columns={buildColumns(data.responseMetricsWindowDays)}
-        rows={data.businesses}
-        rowKey={(b) => b.id}
-        rowHref={(b) => `/admin/businesses/${b.id}`}
-        maxHeight="70vh"
-        serverPagination={{
-          page,
-          pageSize: PAGE_SIZE,
-          totalRows: data.total,
-          onPageChange: setPage,
-        }}
-        emptyState={
-          filtered ? (
-            <EmptyState title="No businesses match" detail="Clear a filter or try a shorter name." />
-          ) : (
-            <EmptyState title="No businesses found" detail="Add one with + Add Business." />
-          )
-        }
+      <BusinessesTable
+        data={data}
+        page={page}
+        onPageChange={setPage}
+        filtered={anyFilterActive(filters)}
+        refetchFailed={isError}
+        onRetry={() => void refetch()}
       />
     </>
   );

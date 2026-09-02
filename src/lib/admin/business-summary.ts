@@ -47,6 +47,7 @@ import type { Sql } from 'postgres';
 import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
 import { isSubscriptionStatus, type SubscriptionStatusValue } from '@/lib/shared/subscription-status';
+import { buildBusinessFilter, capByHealth, resolveBusinessListParams } from './business-summary-filters';
 
 // Response-rate and average-response-time are reported over a trailing window so
 // the admin churn view reflects RECENT responsiveness rather than a lifetime
@@ -325,15 +326,6 @@ export function parseBusinessListFilters(params: URLSearchParams): BusinessSumma
 }
 
 /**
- * Escapes the three LIKE metacharacters so an operator typing `100%` searches
- * for the literal text. The bound value is a parameter (never interpolated),
- * so this is about pattern semantics, not injection.
- */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
-/**
  * One page of admin business summaries — or every business when `opts` is
  * omitted — plus the total under the same filters and the response-metrics
  * window.
@@ -351,6 +343,11 @@ function escapeLike(value: string): string {
  * list uses (CONTEXT.md → At-risk list) and the same cost Overview already
  * pays on every render; fine at the capacity target (250 locations).
  *
+ * The pure steps — request normalisation (`resolveBusinessListParams`), the
+ * WHERE fragment (`buildBusinessFilter`) and the health filter-then-cap
+ * (`capByHealth`) — live in ./business-summary-filters.ts with their own
+ * tests; this function owns the STATEMENTS and their dispatch order.
+ *
  * @param sql  Postgres.js client (composition root supplies the singleton —
  *   this module never imports @/lib/db/server).
  */
@@ -358,31 +355,20 @@ export async function getBusinessSummaries(
   sql: Sql,
   opts?: BusinessSummariesPage,
 ): Promise<BusinessSummariesResult> {
-  const search = opts?.search?.trim() ?? '';
-  const status = opts?.status ?? '';
-  const health = opts?.health ?? '';
+  const params = resolveBusinessListParams(opts);
 
   // Filter predicates live INSIDE the page CTE (before ORDER BY / LIMIT) and are
-  // reused verbatim by the COUNT, so the total and the page agree. Two clauses
-  // at most, so the AND-join is spelled out rather than reduced.
-  const searchClause = search ? sql`b.name ILIKE ${`%${escapeLike(search)}%`}` : null;
-  const statusClause = status ? sql`a.subscription_status = ${status}` : null;
-  const whereClause =
-    searchClause && statusClause
-      ? sql`WHERE ${searchClause} AND ${statusClause}`
-      : searchClause
-        ? sql`WHERE ${searchClause}`
-        : statusClause
-          ? sql`WHERE ${statusClause}`
-          : sql``;
+  // reused verbatim by the COUNT, so the total and the page agree.
+  const whereClause = buildBusinessFilter(sql, params);
 
   // The page is taken in SQL unless a health filter needs every scored row
   // first (see the doc comment). Empty fragment when unpaginated: Overview reads
   // every row because the churn sort is computed in app code from the pure
   // churn-score formula (single owner: churn-score.ts), so ranking can only
   // happen after scoring. Fine at the capacity target (250 locations).
-  const pageInSql = opts !== undefined && health === '';
-  const pageClause = pageInSql ? sql`LIMIT ${opts.limit} OFFSET ${opts.offset}` : sql``;
+  const pageClause = params.sqlPage
+    ? sql`LIMIT ${params.sqlPage.limit} OFFSET ${params.sqlPage.offset}`
+    : sql``;
 
   // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a
   // Promise.all of these queries here (#505/#773). These run on the SHARED
@@ -452,7 +438,7 @@ export async function getBusinessSummaries(
   // page query GROUPs, so a window total would count grouped page rows instead
   // — a different number.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- the awaits ARE independent; that is the point. Parallelising them is the #773 fan-out this module exists to avoid — the shared `sql` pool is 3 connections on Vercel, and a pipelined response wedges a backend permanently.
-  const countRows = pageInSql
+  const countRows = params.sqlPage
     ? await sql<{ total: number }[]>`
         SELECT COUNT(*)::int AS total FROM businesses b
         JOIN accounts a ON a.id = b.account_id
@@ -472,20 +458,12 @@ export async function getBusinessSummaries(
   const metricsMap = new Map(metricsRows.map((r) => [r.business_id, r]));
   const scored = businessRows.map((row) => buildBusinessSummary(row, metricsMap.get(row.id)));
 
-  if (opts !== undefined && health !== '') {
-    // Health filter: FILTER on the scored level, THEN cap to the page — never
-    // the other way round (the same rule as the At-risk list).
-    const matching = scored.filter((b) => b.churnScore.level === health);
-    return {
-      businesses: matching.slice(opts.offset, opts.offset + opts.limit),
-      total: matching.length,
-      responseMetricsWindowDays: RESPONSE_METRICS_WINDOW_DAYS,
-    };
-  }
+  // Under a health filter the page is cut HERE, after scoring (filter THEN
+  // cap); otherwise the rows are already the page and the total is the COUNT
+  // (paginated) or the row count (unpaginated).
+  const { businesses, total } = params.healthPage
+    ? capByHealth(scored, params.healthPage)
+    : { businesses: scored, total: params.sqlPage ? (countRows[0]?.total ?? 0) : scored.length };
 
-  return {
-    businesses: scored,
-    total: pageInSql ? (countRows[0]?.total ?? 0) : scored.length,
-    responseMetricsWindowDays: RESPONSE_METRICS_WINDOW_DAYS,
-  };
+  return { businesses, total, responseMetricsWindowDays: RESPONSE_METRICS_WINDOW_DAYS };
 }

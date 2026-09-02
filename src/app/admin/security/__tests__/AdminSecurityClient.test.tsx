@@ -76,3 +76,40 @@ describe('AdminSecurityClient — removing a factor (X35)', () => {
     expect(unenrollMock).not.toHaveBeenCalled();
   });
 });
+
+// The enrollment half: rendered only while `enrollment` is set, so the removal
+// suite above never reaches it — pinned here so the QR / manual-key / verify
+// branches are exercised rather than dead at the gate.
+describe('AdminSecurityClient — enrolling a factor', () => {
+  const enrollment = { factorId: 'f-new', qrCode: 'data:image/png;base64,QUJD', secret: 'JBSWY3DPEHPK3PXP' };
+
+  it('shows the QR code and the manual key, and keeps Verify disabled until a code is typed', () => {
+    mockUseMfaEnrollment.mockReturnValue({ ...hookState([]), enrollment });
+    render(<AdminSecurityClient />);
+
+    expect(screen.getByRole('img', { name: 'Authenticator setup QR code' })).toBeInTheDocument();
+    expect(screen.getByText('JBSWY3DPEHPK3PXP')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Add authenticator app' })).toBeNull();
+  });
+
+  it('omits the QR image when the provider returned no data: URL', () => {
+    mockUseMfaEnrollment.mockReturnValue({ ...hookState([]), enrollment: { ...enrollment, qrCode: null, secret: null } });
+    render(<AdminSecurityClient />);
+
+    expect(screen.queryByRole('img')).toBeNull();
+    expect(screen.queryByText(/Manual key/)).toBeNull();
+  });
+
+  it('submits the typed code to verifyEnrollment and lets Cancel abandon the enrollment', async () => {
+    const state = { ...hookState([]), enrollment, code: '123456' };
+    mockUseMfaEnrollment.mockReturnValue(state);
+    render(<AdminSecurityClient />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    expect(state.verifyEnrollment).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(state.cancelEnrollment).toHaveBeenCalledTimes(1);
+  });
+});

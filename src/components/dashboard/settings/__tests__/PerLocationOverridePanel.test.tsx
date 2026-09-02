@@ -3,10 +3,10 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   PerLocationOverridePanel,
-  removeOverrideConsequence,
   type PerLocationOverride,
   type LocationOption,
 } from '@/components/dashboard/settings/PerLocationOverridePanel';
+import { removeOverrideConsequence } from '@/components/dashboard/settings/PerLocationOverridePanel.helpers';
 import type { ChannelId } from '@/lib/notifications/channels/types';
 
 const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));

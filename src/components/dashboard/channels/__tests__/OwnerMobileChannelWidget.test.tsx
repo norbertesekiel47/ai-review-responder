@@ -27,10 +27,10 @@ vi.mock('next/image', () => ({
 }));
 
 import {
-  DISCONNECT_CONSEQUENCE,
   OwnerMobileChannelWidget,
   type OwnerChannelPresentation,
 } from '../OwnerMobileChannelWidget';
+import { DISCONNECT_CONSEQUENCE } from '../OwnerMobileChannelWidget.helpers';
 
 const PRESENTATION: OwnerChannelPresentation = {
   channel: 'telegram',

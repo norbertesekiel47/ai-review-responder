@@ -4,17 +4,10 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
 import { BusinessWizardClient } from './BusinessWizardClient';
-import { resolveWizardDestination, shouldUseDemoWizard, type WizardGuardRow } from './guard';
+import { resolveWizardDestination, wizardClientProps, type WizardPageRow } from './guard';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
 
 export const dynamic = 'force-dynamic';
-
-interface BusinessDataRow extends WizardGuardRow {
-  category: string | null;
-  website: string | null;
-  name: string;
-  subscription_tier: string | null;
-}
 
 // Bare page name — the root layout's `title.template` appends '· RepWorth' (A26).
 export const metadata: Metadata = { title: 'Set up your business' };
@@ -50,7 +43,7 @@ export default async function OnboardingBusinessPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const [row] = await sql<BusinessDataRow[]>`
+  const [row] = await sql<WizardPageRow[]>`
     SELECT u.role, a.subscription_status, a.subscription_tier,
            b.place_id_verified, b.google_maps_url,
            b.category, b.website, b.name
@@ -62,25 +55,12 @@ export default async function OnboardingBusinessPage() {
   `;
 
   // demoFlowEnabled is true ONLY when the demo is enabled AND the location was
-  // already captured (pre-pay demo flow). A card-up-front trial arrives subscribed
-  // with no location → demoFlowEnabled=false → non-demo wizard (which captures the
-  // location), instead of being bounced to /onboarding/start (→ infinite loop).
-  const demoFlowEnabled = shouldUseDemoWizard(
-    onboardingDemoEnabled(),
-    row,
-  );
-  const decision = resolveWizardDestination(row, { demoFlowEnabled });
+  // already captured (pre-pay demo flow) — see `wizardClientProps`. A
+  // card-up-front trial arrives subscribed with no location → non-demo wizard
+  // (which captures the location), instead of the /onboarding/start bounce loop.
+  const props = wizardClientProps(row, onboardingDemoEnabled());
+  const decision = resolveWizardDestination(row, { demoFlowEnabled: props.demoFlowEnabled });
   if (decision.kind === 'redirect') redirect(decision.path);
 
-  return (
-    <BusinessWizardClient
-      initialValues={{
-        category: row?.category ?? '',
-        website: row?.website ?? '',
-        businessName: row?.name ?? '',
-      }}
-      demoFlowEnabled={demoFlowEnabled}
-      subscriptionTier={row?.subscription_tier ?? null}
-    />
-  );
+  return <BusinessWizardClient {...props} />;
 }

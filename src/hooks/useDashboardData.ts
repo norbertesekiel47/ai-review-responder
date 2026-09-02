@@ -74,11 +74,59 @@ function extractScopeFallback(json: DashboardOrAggregate): ScopeFallbackInfo | n
   return null;
 }
 
+type DashboardLoad =
+  | { ok: true; data: DashboardOrAggregate; fallback: ScopeFallbackInfo | null }
+  | { ok: false; error: string };
+
+/**
+ * One round trip for a (scope, window): the payload plus its scopeFallback
+ * indicator, or the owner-facing error line (the API's message for a non-OK
+ * response, a generic one for anything else). Never throws.
+ */
+async function loadDashboard(
+  scope: LocationScope | null,
+  window: DashboardWindow,
+): Promise<DashboardLoad> {
+  try {
+    const res = await fetch(buildDashboardUrl(scope, window));
+    if (!res.ok) {
+      throw new Error(await readResponseError(res));
+    }
+    const data = (await res.json()) as DashboardOrAggregate;
+    return { ok: true, data, fallback: extractScopeFallback(data) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to load dashboard' };
+  }
+}
+
 interface DataState {
   scope: LocationScope | null;
   window: DashboardWindow;
   data: DashboardOrAggregate | null;
   fallback: ScopeFallbackInfo | null;
+}
+
+/** Whether committed data was fetched for exactly this (scope, window). */
+function isForRequest(
+  state: DataState,
+  scope: LocationScope | null,
+  window: DashboardWindow,
+): boolean {
+  return state.scope === scope && state.window === window;
+}
+
+/**
+ * What the consumer may see for the requested (scope, window): the committed
+ * data and fallback when they were fetched for it, otherwise nothing — stale
+ * data from a previous scope OR window is never surfaced (VAL-DASH-025).
+ */
+function visibleFor(
+  state: DataState,
+  scope: LocationScope | null,
+  window: DashboardWindow,
+): Pick<UseDashboardDataResult, 'data' | 'scopeFallback'> {
+  if (!isForRequest(state, scope, window)) return { data: null, scopeFallback: null };
+  return { data: state.data, scopeFallback: state.fallback };
 }
 
 /**
@@ -147,38 +195,26 @@ export function useDashboardData(
     const myReqId = ++reqIdRef.current;
     const fetchScope = scopeRef.current;
     const fetchWindow = windowRef.current;
-    // Discard a response whose request was superseded or whose owner unmounted.
-    const isStale = () => myReqId !== reqIdRef.current || unmountedRef.current;
     const current = dataStateRef.current;
     const hasDataOnScreen =
-      current.data !== null && current.scope === fetchScope && current.window === fetchWindow;
+      current.data !== null && isForRequest(current, fetchScope, fetchWindow);
     setError(null);
     if (hasDataOnScreen) {
       setRefreshing(true);
     } else {
       setLoading(true);
     }
-    try {
-      const res = await fetch(buildDashboardUrl(fetchScope, fetchWindow));
-      if (isStale()) return;
-      if (!res.ok) {
-        throw new Error(await readResponseError(res));
-      }
-      const json: DashboardOrAggregate = await res.json();
-      if (isStale()) return;
-
-      const fallback = extractScopeFallback(json);
-      if (fallback) onFallbackRef.current?.(fallback);
-
-      setDataState({ scope: fetchScope, window: fetchWindow, data: json, fallback });
-      setLoading(false);
-      setRefreshing(false);
-    } catch (err) {
-      if (isStale()) return;
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
-      setLoading(false);
-      setRefreshing(false);
+    const result = await loadDashboard(fetchScope, fetchWindow);
+    // Discard a response whose request was superseded or whose owner unmounted.
+    if (myReqId !== reqIdRef.current || unmountedRef.current) return;
+    if (result.ok) {
+      if (result.fallback) onFallbackRef.current?.(result.fallback);
+      setDataState({ scope: fetchScope, window: fetchWindow, data: result.data, fallback: result.fallback });
+    } else {
+      setError(result.error);
     }
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
   // Re-fetch when scope OR window changes. No synchronous state reset here —
@@ -197,11 +233,5 @@ export function useDashboardData(
     };
   }, [scope, dashboardWindow, refresh]);
 
-  // Stale data from a previous scope OR window is never surfaced (VAL-DASH-025).
-  const matchesRequest =
-    dataState.scope === scope && dataState.window === dashboardWindow;
-  const data = matchesRequest ? dataState.data : null;
-  const scopeFallback = matchesRequest ? dataState.fallback : null;
-
-  return { data, error, loading, refreshing, refresh, scopeFallback };
+  return { ...visibleFor(dataState, scope, dashboardWindow), error, loading, refreshing, refresh };
 }

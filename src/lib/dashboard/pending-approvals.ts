@@ -18,12 +18,11 @@
 
 import type { Sql } from 'postgres';
 import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
-import { getDisplayLabel } from '@/lib/locations/display-label';
 import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import { RECENT_REVIEW_DISPLAY_STATUSES } from '@/lib/shared/response-status';
 import { statusArraySql } from '@/lib/shared/response-status-sql';
-import { mapRecentReviews } from './active-mappers';
+import { mapRecentReviews, mapRecentReviewsWithLocation } from './active-mappers';
 import { getPendingApprovalCount, getPendingApprovalCountsForAccount } from './pending-count';
 import type { DashboardDataActive } from './types';
 
@@ -113,17 +112,8 @@ export async function listPendingApprovals(
     LIMIT ${limit} OFFSET ${offset}
   `;
 
-  const base = mapRecentReviews(rows);
-  const items: PendingApprovalItem[] = scope.kind === 'account'
-    ? base.map((item, index) => ({
-        ...item,
-        locationId: rows[index]!.location_id as string,
-        locationDisplayName: getDisplayLabel({
-          name: rows[index]!.location_name as string,
-          display_label: (rows[index]!.location_display_label as string | null) ?? null,
-        }),
-      }))
-    : base;
+  const items: PendingApprovalItem[] =
+    scope.kind === 'account' ? mapRecentReviewsWithLocation(rows) : mapRecentReviews(rows);
 
   return {
     items,

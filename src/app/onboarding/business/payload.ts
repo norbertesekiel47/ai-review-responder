@@ -71,3 +71,33 @@ export function buildBusinessWizardPayload(
     ...voiceFields(data, opts.skipVoice),
   };
 }
+
+/** Server-seeded Profile fields — the `businesses` row the page already read. */
+export interface WizardInitialValues {
+  category: string;
+  website: string;
+  businessName: string;
+}
+
+// The wizard's starting form state: Profile fields seeded from the server,
+// Location empty (the legacy flow captures it; the post-pay flow never shows
+// it), Voice at its default tone.
+export function initialWizardFormData(
+  initialValues?: WizardInitialValues,
+): BusinessWizardPayloadData {
+  return {
+    inputMode: 'autocomplete',
+    googlePlaceId: '',
+    googlePlaceAddress: '',
+    googleMapsUrl: '',
+    businessName: initialValues?.businessName ?? '',
+    category: initialValues?.category ?? '',
+    website: initialValues?.website ?? '',
+    tone: 'professional and friendly',
+    productsServices: '',
+    staffNames: '',
+    highlightFacts: '',
+    avoidFacts: '',
+    sampleResponses: '',
+  };
+}

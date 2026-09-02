@@ -79,3 +79,40 @@ export function resolveWizardDestination(
   }
   return { kind: 'render' };
 }
+
+/** The page's SELECT: the guard columns plus the wizard's seed values. */
+export interface WizardPageRow extends WizardGuardRow {
+  category: string | null;
+  website: string | null;
+  name: string;
+  subscription_tier: string | null;
+}
+
+export interface WizardClientProps {
+  initialValues: { category: string; website: string; businessName: string };
+  demoFlowEnabled: boolean;
+  subscriptionTier: string | null;
+}
+
+/**
+ * Everything `BusinessWizardClient` needs from the row, resolved in one place.
+ * `demoFlowEnabled` is `shouldUseDemoWizard` — true ONLY when the demo lane is
+ * on AND the location was already captured — so a card-up-front trial (no
+ * location yet) gets the non-demo wizard instead of the /onboarding/start
+ * bounce loop described on `WizardGuardOptions`. A missing row yields empty
+ * seeds; the caller still runs `resolveWizardDestination`, which redirects it.
+ */
+export function wizardClientProps(
+  row: WizardPageRow | null | undefined,
+  envDemoEnabled: boolean,
+): WizardClientProps {
+  return {
+    initialValues: {
+      category: row?.category ?? '',
+      website: row?.website ?? '',
+      businessName: row?.name ?? '',
+    },
+    demoFlowEnabled: shouldUseDemoWizard(envDemoEnabled, row),
+    subscriptionTier: row?.subscription_tier ?? null,
+  };
+}

@@ -7,21 +7,34 @@
 // reveal per-location channel overrides.
 //
 // Commit model: add/remove apply immediately. Removal is consequential, so it
-// confirms through SettingsModal with the consequence spelled out; failures
+// confirms through ConfirmDialog with the consequence spelled out; failures
 // render inline beside the row they belong to, never in a browser dialog
 // (UX audit S14). Successes confirm through the shared Console toast.
+//
+// The mutation state machine (in-flight ids, per-row errors, the add error)
+// lives in useOverrideMutations; the groupings and the endpoint call are pure
+// functions in PerLocationOverridePanel.helpers.ts.
 //
 // VAL-SETTINGS-013: Per-location override panel collapsed by default.
 // VAL-SETTINGS-014: Adding per-location override clones default values.
 // VAL-SETTINGS-015: Per-location override displays location name label.
 // VAL-SETTINGS-016: Removing override reverts to org-default.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
-import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { ConfirmDialog } from '@/components/dashboard/settings/ConfirmDialog';
 import { useToast } from '@/components/dashboard/shell/toast/ToastProvider';
 import type { PerLocationOverride } from '@/lib/channels/overrides-view';
 import type { ChannelId } from '@/lib/notifications/channels/types';
+import {
+  channelIcon,
+  channelLabel,
+  formatOverrideLocationLabel,
+  groupInactiveOverrides,
+  groupOverridesByLocation,
+  mutateOverride,
+  removeOverrideConsequence,
+} from './PerLocationOverridePanel.helpers';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -45,52 +58,72 @@ interface Props {
   onOverrideRemoved?: () => void;
 }
 
-// ── Channel display labels ──────────────────────────────────────────────
+// ── Mutation state ───────────────────────────────────────────────────────
 
-const CHANNEL_LABELS: Record<string, string> = {
-  email: 'Email',
-  telegram: 'Telegram',
-  whatsapp: 'WhatsApp',
-};
+/**
+ * Add/remove overrides against the endpoint and hold the UI state each leaves
+ * behind: which rows are mid-removal, the last removal failure per row, and
+ * the last add failure. Success confirms through the toast and the parent
+ * refetch callback; failure stays inline (S14).
+ */
+function useOverrideMutations({
+  onOverrideAdded,
+  onOverrideRemoved,
+}: Pick<Props, 'onOverrideAdded' | 'onOverrideRemoved'>) {
+  const { toast } = useToast();
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+  const [removeErrors, setRemoveErrors] = useState<Record<string, string>>({});
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addingFor, setAddingFor] = useState<string | null>(null);
 
-const CHANNEL_ICONS: Record<string, string> = {
-  email: '✉️',
-  telegram: '💬',
-  whatsapp: '🟢',
-};
+  const remove = useCallback(async (override: PerLocationOverride) => {
+    const { enrollmentId, locationId, channel } = override;
+    setRemovingIds((prev) => new Set(prev).add(enrollmentId));
+    setRemoveErrors((prev) => {
+      if (!(enrollmentId in prev)) return prev;
+      const next = { ...prev };
+      delete next[enrollmentId];
+      return next;
+    });
 
-function channelLabel(channel: string): string {
-  return CHANNEL_LABELS[channel] ?? channel;
-}
+    try {
+      await mutateOverride('DELETE', 'Remove', locationId, channel);
+      toast({
+        tone: 'success',
+        title: 'Override removed',
+        body: removeOverrideConsequence(override),
+      });
+      onOverrideRemoved?.();
+    } catch (err) {
+      setRemoveErrors((prev) => ({
+        ...prev,
+        [enrollmentId]: err instanceof Error ? err.message : 'Failed to remove override',
+      }));
+    } finally {
+      setRemovingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(enrollmentId);
+        return next;
+      });
+    }
+  }, [onOverrideRemoved, toast]);
 
-function formatOverrideLocationLabel(override: PerLocationOverride): string {
-  return override.archived ? `${override.locationName} (archived)` : override.locationName;
-}
+  const add = useCallback(async (locationId: string, channel: string) => {
+    setAddingFor(locationId + ':' + channel);
+    setAddError(null);
 
-/** The sentence the owner confirms before an override is removed. */
-export function removeOverrideConsequence(override: PerLocationOverride): string {
-  return `${override.locationName} will go back to your account-wide ${channelLabel(override.channel)} setting.`;
-}
+    try {
+      await mutateOverride('POST', 'Add', locationId, channel);
+      toast({ tone: 'success', title: `${channelLabel(channel)} override added` });
+      onOverrideAdded?.();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add override');
+    } finally {
+      setAddingFor(null);
+    }
+  }, [onOverrideAdded, toast]);
 
-// Shared add/remove call to the override endpoint — POST creates, DELETE
-// removes. Throws with the server's error string (or a status fallback) so
-// each caller owns only its own UI failure handling.
-async function mutateOverride(
-  method: 'POST' | 'DELETE',
-  failVerb: 'Add' | 'Remove',
-  locationId: string,
-  channel: string,
-): Promise<void> {
-  const res = await fetch('/api/settings/channels/override', {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ locationId, channel }),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `${failVerb} failed (${res.status})`);
-  }
+  return { removingIds, removeErrors, addError, addingFor, remove, add };
 }
 
 // ── Sub-component: Single Override Row ───────────────────────────────────
@@ -113,7 +146,7 @@ function OverrideRow({
   return (
     <div className="channel-row selected override-row">
       <div className="channel-icon" aria-hidden>
-        {CHANNEL_ICONS[override.channel] ?? '📡'}
+        {channelIcon(override.channel)}
       </div>
       <div className="channel-meta">
         <div className="channel-name">
@@ -145,6 +178,110 @@ function OverrideRow({
   );
 }
 
+// ── Sub-components: per-location groups ──────────────────────────────────
+
+const GROUP_LABEL_STYLE = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--rw-app-text)',
+  marginBottom: 4,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+} as const;
+
+/** One active location: its overrides, then an "Add … override" per channel still on the org default. */
+function ActiveLocationGroup({
+  location,
+  rows,
+  availableChannels,
+  canAddOverrides,
+  addingFor,
+  onAdd,
+}: {
+  location: LocationOption;
+  rows: ReactNode[];
+  /** Channels with a verified org-default but no override for this location yet. */
+  availableChannels: string[];
+  canAddOverrides: boolean;
+  addingFor: string | null;
+  onAdd: (locationId: string, channel: string) => void;
+}) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={GROUP_LABEL_STYLE}>
+        <Icon name="location" size={14} />
+        {location.displayName}
+        {location.isPrimary && (
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--rw-sage-deep)', background: 'var(--rw-sage-soft)', padding: '1px 6px', borderRadius: 4 }}>
+            Primary
+          </span>
+        )}
+      </div>
+
+      {/* Existing overrides for this location */}
+      {rows}
+
+      {/* VAL-SETTINGS-014: Add override button per location per channel.
+          Creation is gated on canAddOverrides — ineligible owners can
+          still view and delete existing overrides, just not add new ones. */}
+      {canAddOverrides && availableChannels.map((channel) => {
+        const adding = addingFor === location.id + ':' + channel;
+        return (
+          <button
+            key={channel}
+            type="button"
+            className="list-add"
+            style={{ marginTop: 4, fontSize: 12 }}
+            onClick={() => onAdd(location.id, channel)}
+            disabled={adding}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            {adding ? 'Adding…' : `Add ${channelLabel(channel)} override`}
+          </button>
+        );
+      })}
+
+      {/* No overrides and no org-defaults to clone */}
+      {availableChannels.length === 0 && rows.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--rw-app-text-soft)', padding: '4px 0' }}>
+          No overrides, uses default channels
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * E4/E5: overrides on archived locations (DTO archived flag). These stay
+ * listable + deletable but get NO "Add override" buttons — you cannot add an
+ * override to an inactive location. The " (archived)" suffix is derived from
+ * the flag at render time.
+ */
+function InactiveLocationGroup({
+  locationId,
+  overrides,
+  rows,
+}: {
+  locationId: string;
+  overrides: PerLocationOverride[];
+  rows: ReactNode[];
+}) {
+  const firstOverride = overrides[0];
+  const label = firstOverride ? formatOverrideLocationLabel(firstOverride) : locationId;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={GROUP_LABEL_STYLE}>
+        <Icon name="location" size={14} />
+        {label}
+      </div>
+      {rows}
+    </div>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────────────
 
 export function PerLocationOverridePanel({
@@ -155,71 +292,9 @@ export function PerLocationOverridePanel({
   onOverrideAdded,
   onOverrideRemoved,
 }: Props) {
-  const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
-  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
-  const [removeErrors, setRemoveErrors] = useState<Record<string, string>>({});
   const [pendingRemoval, setPendingRemoval] = useState<PerLocationOverride | null>(null);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [addingFor, setAddingFor] = useState<string | null>(null);
-
-  // Group overrides by location
-  const overridesByLocation = new Map<string, PerLocationOverride[]>();
-  for (const o of overrides) {
-    const list = overridesByLocation.get(o.locationId) ?? [];
-    list.push(o);
-    overridesByLocation.set(o.locationId, list);
-  }
-
-  // Remove an override — only ever reached from the confirmation dialog.
-  const handleRemove = useCallback(async (override: PerLocationOverride) => {
-    const { enrollmentId, locationId, channel } = override;
-    setPendingRemoval(null);
-    setRemovingIds((prev) => new Set(prev).add(enrollmentId));
-    setRemoveErrors((prev) => {
-      if (!(enrollmentId in prev)) return prev;
-      const next = { ...prev };
-      delete next[enrollmentId];
-      return next;
-    });
-
-    try {
-      await mutateOverride('DELETE', 'Remove', locationId, channel);
-      toast({
-        tone: 'success',
-        title: 'Override removed',
-        body: removeOverrideConsequence(override),
-      });
-      onOverrideRemoved?.();
-    } catch (err) {
-      setRemoveErrors((prev) => ({
-        ...prev,
-        [enrollmentId]: err instanceof Error ? err.message : 'Failed to remove override',
-      }));
-    } finally {
-      setRemovingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(enrollmentId);
-        return next;
-      });
-    }
-  }, [onOverrideRemoved, toast]);
-
-  // Add an override for a location
-  const handleAdd = useCallback(async (locationId: string, channel: string) => {
-    setAddingFor(locationId + ':' + channel);
-    setAddError(null);
-
-    try {
-      await mutateOverride('POST', 'Add', locationId, channel);
-      toast({ tone: 'success', title: `${channelLabel(channel)} override added` });
-      onOverrideAdded?.();
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add override');
-    } finally {
-      setAddingFor(null);
-    }
-  }, [onOverrideAdded, toast]);
+  const mutations = useOverrideMutations({ onOverrideAdded, onOverrideRemoved });
 
   // The panel owns its visibility: hidden only when there is nothing to list
   // AND nothing can be added. Once overrides exist they must remain
@@ -230,31 +305,28 @@ export function PerLocationOverridePanel({
     return null;
   }
 
-  // Classification is driven by the DTO `archived` flag — NOT membership in
-  // locationOptions — so an override on a still-active sole location renders
-  // in the active section. Non-archived overrides whose location is missing
-  // from the active options (defensive) also render in the inactive section
-  // below so they never become invisible.
-  const activeLocationIds = new Set(locationOptions.map((l) => l.id));
-  const inactiveOverridesByLocation = new Map<string, PerLocationOverride[]>();
-  for (const o of overrides) {
-    if (!o.archived && activeLocationIds.has(o.locationId)) continue;
-    const list = inactiveOverridesByLocation.get(o.locationId) ?? [];
-    list.push(o);
-    inactiveOverridesByLocation.set(o.locationId, list);
-  }
-
+  const overridesByLocation = groupOverridesByLocation(overrides);
+  const inactiveOverridesByLocation = groupInactiveOverrides(
+    overrides,
+    new Set(locationOptions.map((l) => l.id)),
+  );
   const overrideCount = overrides.length;
 
-  const renderRow = (o: PerLocationOverride) => (
+  const renderRows = (rows: PerLocationOverride[]) => rows.map((o) => (
     <OverrideRow
       key={o.enrollmentId}
       override={o}
       onRemove={setPendingRemoval}
-      removing={removingIds.has(o.enrollmentId)}
-      error={removeErrors[o.enrollmentId] ?? null}
+      removing={mutations.removingIds.has(o.enrollmentId)}
+      error={mutations.removeErrors[o.enrollmentId] ?? null}
     />
-  );
+  ));
+
+  // Remove an override — only ever reached from the confirmation dialog.
+  const confirmRemoval = (override: PerLocationOverride) => {
+    setPendingRemoval(null);
+    void mutations.remove(override);
+  };
 
   return (
     <div className="set-section" style={{ marginTop: 16 }}>
@@ -289,107 +361,48 @@ export function PerLocationOverridePanel({
 
       {expanded && (
         <div id="per-location-overrides-content" style={{ marginTop: 8 }}>
-          {/* Show existing overrides per location */}
           {locationOptions.map((loc) => {
             const locOverrides = overridesByLocation.get(loc.id) ?? [];
             const overriddenChannels = new Set<string>(locOverrides.map((o) => o.channel));
-
-            // Channels that have verified org-defaults but no per-location override yet
-            const availableChannels = verifiedOrgChannels.filter(
-              (ch) => !overriddenChannels.has(ch),
-            );
-
             return (
-              <div key={loc.id} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Icon name="location" size={14} />
-                  {loc.displayName}
-                  {loc.isPrimary && (
-                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--rw-sage-deep)', background: 'var(--rw-sage-soft)', padding: '1px 6px', borderRadius: 4 }}>
-                      Primary
-                    </span>
-                  )}
-                </div>
-
-                {/* Existing overrides for this location */}
-                {locOverrides.map(renderRow)}
-
-                {/* VAL-SETTINGS-014: Add override button per location per channel.
-                    Creation is gated on canAddOverrides — ineligible owners can
-                    still view and delete existing overrides, just not add new ones. */}
-                {canAddOverrides && availableChannels.map((channel) => (
-                  <button
-                    key={channel}
-                    type="button"
-                    className="list-add"
-                    style={{ marginTop: 4, fontSize: 12 }}
-                    onClick={() => handleAdd(loc.id, channel)}
-                    disabled={addingFor === loc.id + ':' + channel}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                      <path d="M12 5v14M5 12h14" />
-                    </svg>
-                    {addingFor === loc.id + ':' + channel
-                      ? 'Adding…'
-                      : `Add ${channelLabel(channel)} override`}
-                  </button>
-                ))}
-
-                {/* No overrides and no org-defaults to clone */}
-                {availableChannels.length === 0 && locOverrides.length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--rw-app-text-soft)', padding: '4px 0' }}>
-                    No overrides, uses default channels
-                  </div>
-                )}
-              </div>
+              <ActiveLocationGroup
+                key={loc.id}
+                location={loc}
+                rows={renderRows(locOverrides)}
+                availableChannels={verifiedOrgChannels.filter((ch) => !overriddenChannels.has(ch))}
+                canAddOverrides={canAddOverrides}
+                addingFor={mutations.addingFor}
+                onAdd={mutations.add}
+              />
             );
           })}
 
-          {/* E4/E5: overrides on archived locations (DTO archived flag). These
-              stay listable + deletable but get NO "Add override" buttons — you
-              cannot add an override to an inactive location. The " (archived)"
-              suffix is derived from the flag at render time. */}
-          {[...inactiveOverridesByLocation.entries()].map(([locId, locOverrides]) => {
-            const firstOverride = locOverrides[0];
-            const label = firstOverride ? formatOverrideLocationLabel(firstOverride) : locId;
-            return (
-              <div key={locId} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--rw-app-text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Icon name="location" size={14} />
-                  {label}
-                </div>
-                {locOverrides.map(renderRow)}
-              </div>
-            );
-          })}
+          {[...inactiveOverridesByLocation.entries()].map(([locId, locOverrides]) => (
+            <InactiveLocationGroup
+              key={locId}
+              locationId={locId}
+              overrides={locOverrides}
+              rows={renderRows(locOverrides)}
+            />
+          ))}
 
-          {addError && (
-            <p role="alert" className="settings-error-copy settings-error-copy--after">{addError}</p>
+          {mutations.addError && (
+            <p role="alert" className="settings-error-copy settings-error-copy--after">{mutations.addError}</p>
           )}
         </div>
       )}
 
       {pendingRemoval && (
-        <SettingsModal
+        <ConfirmDialog
           title="Remove override"
           closeLabel="Keep this override"
-          onClose={() => setPendingRemoval(null)}
-        >
-          <div className="set-section-title" style={{ marginBottom: 8 }}>
-            Remove the {channelLabel(pendingRemoval.channel)} override for {pendingRemoval.locationName}?
-          </div>
-          <p className="settings-body-copy" style={{ marginBottom: 16 }}>
-            {removeOverrideConsequence(pendingRemoval)} You can add it back at any time.
-          </p>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => setPendingRemoval(null)}>
-              Keep override
-            </button>
-            <button type="button" className="btn-danger" onClick={() => void handleRemove(pendingRemoval)}>
-              Remove override
-            </button>
-          </div>
-        </SettingsModal>
+          heading={`Remove the ${channelLabel(pendingRemoval.channel)} override for ${pendingRemoval.locationName}?`}
+          body={`${removeOverrideConsequence(pendingRemoval)} You can add it back at any time.`}
+          cancelLabel="Keep override"
+          confirmLabel="Remove override"
+          onCancel={() => setPendingRemoval(null)}
+          onConfirm={() => confirmRemoval(pendingRemoval)}
+        />
       )}
     </div>
   );

@@ -29,3 +29,35 @@ const WIZARD_TOTAL_STEPS = 3;
 export function wizardStepLabel(step: number, name: string): string {
   return `Step ${step} of ${WIZARD_TOTAL_STEPS} — ${name}`;
 }
+
+export type WizardStep = 1 | 2 | 3;
+
+/**
+ * Everything about the wizard that reads differently per flow. Both flows are
+ * three steps; only the names, the subtitle and the Voice primary differ —
+ * "Finish setup" when Voice is the last step (legacy), "Continue →" when
+ * Connect follows (demo), because a button must never promise to finish when
+ * it only advances (A11).
+ */
+export interface WizardFlowCopy {
+  stepNames: Record<WizardStep, string>;
+  subtitle: string;
+  voiceSubmitLabel: string;
+}
+
+const DEMO_FLOW_COPY: WizardFlowCopy = {
+  stepNames: { 1: 'Profile', 2: 'Voice', 3: 'Connect' },
+  subtitle:
+    'You’re in. A few quick details so replies sound like you, then we connect your reviews.',
+  voiceSubmitLabel: 'Continue →',
+};
+
+const LEGACY_FLOW_COPY: WizardFlowCopy = {
+  stepNames: { 1: 'Location', 2: 'Profile', 3: 'Voice' },
+  subtitle: 'A few quick details so we can start fetching your reviews.',
+  voiceSubmitLabel: 'Finish setup',
+};
+
+export function wizardFlowCopy(demoFlowEnabled: boolean): WizardFlowCopy {
+  return demoFlowEnabled ? DEMO_FLOW_COPY : LEGACY_FLOW_COPY;
+}

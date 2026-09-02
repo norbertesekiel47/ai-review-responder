@@ -21,20 +21,27 @@ interface AuthCardShellProps {
   children: ReactNode;
   /** Island width — 'sm' for single-field forms, 'md' (default) otherwise. */
   width?: 'sm' | 'md';
+  /**
+   * Decorative layer painted behind the island (the MFA challenge's blurred
+   * brand cards). Rendered inside the sage <main>, before the card, so the
+   * card's `z-10` stacks above it.
+   */
+  background?: ReactNode;
 }
 
 /**
  * Sage page + centered white island card for single-card owner auth flows
- * (forgot/reset/check-email/finish-signup). Mirrors the MFA island
- * (MfaChallengeForm). No overflow:hidden (iOS Safari rule); motion respects
+ * (forgot/reset/check-email/finish-signup) and the MFA challenge island
+ * (MfaChallengeForm, via the `background` slot). No overflow:hidden (iOS Safari rule); motion respects
  * prefers-reduced-motion. Admin portals must NOT use this shell — they keep
  * the utilitarian internal style.
  */
-export function AuthCardShell({ children, width = 'md' }: AuthCardShellProps) {
+export function AuthCardShell({ children, width = 'md', background }: AuthCardShellProps) {
   const reduce = usePrefersReducedMotion();
   return (
     <LazyMotion features={domAnimation}>
       <main id="main-content" className="min-h-screen bg-rw-sage relative flex items-center justify-center px-4 py-16">
+        {background}
         <m.div
           className={`relative z-10 w-full ${width === 'sm' ? 'max-w-sm' : 'max-w-md'} bg-white rounded-[3rem] shadow-2xl p-8 sm:p-10`}
           initial={reduce ? false : { opacity: 0, y: 24, scale: 0.97 }}

@@ -34,22 +34,13 @@ export function LocationPicker({ locations }: Props) {
     if (busy || cancelling) return;
     setCancelling(true);
     setError(null);
-    try {
-      const res = await fetch('/api/zernio/connect/cancel', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(friendlyMessage(body.error ?? `cancel_failed_${res.status}`));
-        setCancelling(false);
-        return;
-      }
-      router.push('/dashboard/connect');
-    } catch {
-      setError('Network error — please try again.');
+    const failure = await postConnectRoute('/api/zernio/connect/cancel', 'cancel_failed');
+    if (failure !== null) {
+      setError(failure);
       setCancelling(false);
+      return;
     }
+    router.push('/dashboard/connect');
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -57,23 +48,17 @@ export function LocationPicker({ locations }: Props) {
     if (!selected || busy) return;
     setBusy(true);
     setError(null);
-    try {
-      const res = await fetch('/api/zernio/connect/select-location', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ locationId: selected }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(friendlyMessage(body.error ?? `select_location_failed_${res.status}`));
-        setBusy(false);
-        return;
-      }
-      router.push('/dashboard');
-    } catch {
-      setError('Network error — please try again.');
+    const failure = await postConnectRoute(
+      '/api/zernio/connect/select-location',
+      'select_location_failed',
+      { locationId: selected },
+    );
+    if (failure !== null) {
+      setError(failure);
       setBusy(false);
+      return;
     }
+    router.push('/dashboard');
   }
 
   return (
@@ -168,4 +153,28 @@ const FRIENDLY_MESSAGES = new Map<string, string>([
 
 function friendlyMessage(code: string): string {
   return FRIENDLY_MESSAGES.get(code) ?? `Unable to connect (${code}).`;
+}
+
+/**
+ * POST to one connect route. Resolves to null on success, otherwise to the
+ * owner-facing message: the API's error code mapped through `friendlyMessage`
+ * (`<fallbackCode>_<status>` when the body carries none), or the network line.
+ */
+async function postConnectRoute(
+  path: string,
+  fallbackCode: string,
+  body?: Record<string, unknown>,
+): Promise<string | null> {
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    if (res.ok) return null;
+    const payload: { error?: string } = await res.json().catch(() => ({}));
+    return friendlyMessage(payload.error ?? `${fallbackCode}_${res.status}`);
+  } catch {
+    return 'Network error — please try again.';
+  }
 }

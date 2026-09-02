@@ -221,6 +221,26 @@ function NotificationsContent({
   );
 }
 
+interface NotificationFilters {
+  businessId: string;
+  channel: string;
+  status: string;
+}
+
+/** The GET `src/app/api/admin/notifications/route.ts` parses — only present filters are sent. */
+async function fetchNotificationsPage(page: number, filters: NotificationFilters): Promise<NotifData> {
+  const sp = new URLSearchParams();
+  sp.set('limit', String(PAGE_SIZE));
+  sp.set('offset', String(page * PAGE_SIZE));
+  if (filters.businessId) sp.set('business_id', filters.businessId);
+  if (filters.channel) sp.set('channel', filters.channel);
+  if (filters.status) sp.set('status', filters.status);
+
+  const res = await fetch(`/api/admin/notifications?${sp.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch notifications: ${res.status}`);
+  return res.json() as Promise<NotifData>;
+}
+
 export function NotificationsClient({ initialData }: { initialData: NotifData }) {
   const [page, setPage] = useState(0);
   const [businessId, setBusinessId] = useState('');
@@ -233,18 +253,7 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
 
   const { data, isLoading, isError, refetch } = useQuery<NotifData>({
     queryKey: ['admin-notifications', page, businessId, channel, status],
-    queryFn: async () => {
-      const sp = new URLSearchParams();
-      sp.set('limit', String(PAGE_SIZE));
-      sp.set('offset', String(page * PAGE_SIZE));
-      if (businessId) sp.set('business_id', businessId);
-      if (channel) sp.set('channel', channel);
-      if (status) sp.set('status', status);
-
-      const res = await fetch(`/api/admin/notifications?${sp.toString()}`);
-      if (!res.ok) throw new Error(`Failed to fetch notifications: ${res.status}`);
-      return res.json() as Promise<NotifData>;
-    },
+    queryFn: () => fetchNotificationsPage(page, { businessId, channel, status }),
     staleTime: 30_000,
     initialData: page === 0 && noFilters ? initialData : undefined,
   });
@@ -266,42 +275,42 @@ export function NotificationsClient({ initialData }: { initialData: NotifData })
 
   // Page chrome (group/title/description) lives on the server page so it
   // renders in the RSC payload, never behind this client's loading state.
+  if (isLoading && !data) return <TableSkeleton />;
+  if (isError && !data) {
+    return (
+      <ErrorState
+        title="Couldn't load notifications"
+        detail="GET /api/admin/notifications failed"
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+  if (!data) return null;
+
   return (
     <>
-      {isLoading && !data ? (
-        <TableSkeleton />
-      ) : isError && !data ? (
-        <ErrorState
-          title="Couldn't load notifications"
-          detail="GET /api/admin/notifications failed"
-          onRetry={() => void refetch()}
-        />
-      ) : data ? (
-        <>
-          {isError && (
-            <div className="mb-4">
-              <ErrorState
-                title="Last refresh failed"
-                detail="GET /api/admin/notifications failed — showing the last loaded data."
-                onRetry={() => void refetch()}
-              />
-            </div>
-          )}
-          <NotificationsContent
-            data={data}
-            page={page}
-            onPageChange={setPage}
-            businessId={businessId}
-            onBusinessIdChange={handleFilterChange(setBusinessId)}
-            channel={channel}
-            onChannelChange={handleFilterChange(setChannel)}
-            status={status}
-            onStatusChange={handleFilterChange(setStatus)}
-            onReset={handleReset}
-            pickerKey={pickerKey}
+      {isError && (
+        <div className="mb-4">
+          <ErrorState
+            title="Last refresh failed"
+            detail="GET /api/admin/notifications failed — showing the last loaded data."
+            onRetry={() => void refetch()}
           />
-        </>
-      ) : null}
+        </div>
+      )}
+      <NotificationsContent
+        data={data}
+        page={page}
+        onPageChange={setPage}
+        businessId={businessId}
+        onBusinessIdChange={handleFilterChange(setBusinessId)}
+        channel={channel}
+        onChannelChange={handleFilterChange(setChannel)}
+        status={status}
+        onStatusChange={handleFilterChange(setStatus)}
+        onReset={handleReset}
+        pickerKey={pickerKey}
+      />
     </>
   );
 }

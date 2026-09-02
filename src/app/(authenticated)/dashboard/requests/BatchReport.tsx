@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { Vertical, WithholdReason } from '@/lib/solicitation/restraint-policy';
 import type { AskRow, BatchView, WithholdGroup } from '@/lib/solicitation/batch-view';
 import { LIVE_DELIVERY_STATUSES } from '@/lib/solicitation/delivery-status';
+import { formatDay, parseTimestamp } from './timestamps';
 import './requests.css';
 
 /**
@@ -246,34 +247,10 @@ function evidenceLine(row: AskRow): string {
 /** Module-scope formatters: building an Intl formatter per render is the
  *  no-locale-format-in-render hotspot (ContactList.tsx follows the same rule). */
 const NUMBER_FORMAT = new Intl.NumberFormat();
-const DAY_FORMAT = new Intl.DateTimeFormat(undefined, {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
 const RELATIVE_FORMAT = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
-
-/**
- * Timestamps arrive as Postgres `::text` ("2026-07-22 12:00:00+00") or as ISO
- * strings from the stored evidence; evidence dates are plain `YYYY-MM-DD`.
- * Returns null rather than an Invalid Date so callers render the raw value.
- */
-function parseTimestamp(value: string): Date | null {
-  const iso = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? `${value}T00:00:00Z`
-    : value.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatDay(value: string): string {
-  const parsed = parseTimestamp(value);
-  return parsed === null ? value : DAY_FORMAT.format(parsed);
-}
 
 /**
  * "Built 3 days ago". Deliberately relative and deliberately unconditional:

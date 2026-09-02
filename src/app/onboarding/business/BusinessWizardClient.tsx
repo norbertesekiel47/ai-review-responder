@@ -6,8 +6,13 @@ import { StepLocation } from './StepLocation';
 import { StepProfile } from './StepProfile';
 import { StepVoice } from './StepVoice';
 import { StepConnect } from './StepConnect';
-import { wizardStepLabel } from './StepHeading';
-import { buildBusinessWizardPayload } from './payload';
+import { wizardFlowCopy, wizardStepLabel, type WizardStep } from './StepHeading';
+import {
+  buildBusinessWizardPayload,
+  initialWizardFormData,
+  type BusinessWizardPayloadData,
+  type WizardInitialValues,
+} from './payload';
 import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { errorBannerClass } from '../_shared/field-styles';
@@ -16,34 +21,13 @@ import {
   mapOnboardingApiError,
 } from '../_shared/onboarding-error-copy';
 
-export interface WizardFormData {
-  // Location (legacy 3-step only — empty/unused in post-pay flow)
-  inputMode: 'autocomplete' | 'url';
-  googlePlaceId: string;
-  googlePlaceAddress: string;
-  googleMapsUrl: string;
-
-  // Profile
-  businessName: string;
-  category: string;
-  website: string;
-
-  // Voice (all optional/skippable)
-  tone: string;
-  productsServices: string;
-  staffNames: string;
-  highlightFacts: string;
-  avoidFacts: string;
-  sampleResponses: string;
-}
+// The form state IS the payload input — one shape, owned by payload.ts.
+// Location fields are legacy-3-step only (empty/unused in the post-pay flow).
+export type WizardFormData = BusinessWizardPayloadData;
 
 interface BusinessWizardClientProps {
   /** Pre-filled values from server-side businesses row. */
-  initialValues?: {
-    category: string;
-    website: string;
-    businessName: string;
-  };
+  initialValues?: WizardInitialValues;
   /**
    * When true, the wizard runs as 3-step (Profile, Voice, Connect Zernio) —
    * location was already captured at /onboarding/start. When false, the
@@ -59,10 +43,8 @@ interface BusinessWizardClientProps {
   subscriptionTier?: string | null;
 }
 
-type Step = 1 | 2 | 3;
-
 interface WizardState {
-  step: Step;
+  step: WizardStep;
   submitting: boolean;
   error: string;
   voiceSkipped: boolean;
@@ -76,7 +58,7 @@ const initialWizardState: WizardState = {
 };
 
 type WizardAction =
-  | { type: 'goToStep'; step: Step }
+  | { type: 'goToStep'; step: WizardStep }
   | { type: 'submitStart' }
   | { type: 'setSubmitting'; submitting: boolean }
   | { type: 'setError'; error: string }
@@ -99,10 +81,6 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   }
 }
 
-// Sub-step names per flow. Both flows are 3-step; only the names differ.
-const DEMO_STEP_NAMES: Record<Step, string> = { 1: 'Profile', 2: 'Voice', 3: 'Connect' };
-const LEGACY_STEP_NAMES: Record<Step, string> = { 1: 'Location', 2: 'Profile', 3: 'Voice' };
-
 export function BusinessWizardClient({
   initialValues,
   demoFlowEnabled = false,
@@ -112,25 +90,12 @@ export function BusinessWizardClient({
   const { step, submitting, error, voiceSkipped } = state;
   const router = useRouter();
 
-  const stepNames = demoFlowEnabled ? DEMO_STEP_NAMES : LEGACY_STEP_NAMES;
-  const label = (n: Step) => wizardStepLabel(n, stepNames[n]);
+  const copy = wizardFlowCopy(demoFlowEnabled);
+  const label = (n: WizardStep) => wizardStepLabel(n, copy.stepNames[n]);
+  const goToStep = (n: WizardStep) => () => dispatch({ type: 'goToStep', step: n });
   const autopilot = tierGrantsAutopilot(subscriptionTier);
 
-  const [data, setData] = useState<WizardFormData>({
-    inputMode: 'autocomplete',
-    googlePlaceId: '',
-    googlePlaceAddress: '',
-    googleMapsUrl: '',
-    businessName: initialValues?.businessName ?? '',
-    category: initialValues?.category ?? '',
-    website: initialValues?.website ?? '',
-    tone: 'professional and friendly',
-    productsServices: '',
-    staffNames: '',
-    highlightFacts: '',
-    avoidFacts: '',
-    sampleResponses: '',
-  });
+  const [data, setData] = useState<WizardFormData>(() => initialWizardFormData(initialValues));
 
   const update = (patch: Partial<WizardFormData>) =>
     setData((prev) => ({ ...prev, ...patch }));
@@ -240,11 +205,7 @@ export function BusinessWizardClient({
       <h1 className="text-3xl md:text-4xl font-medium text-center text-rw-ink mb-2">
         Set up your business
       </h1>
-      <p className="text-center text-rw-ink-soft mb-8">
-        {demoFlowEnabled
-          ? 'You\u2019re in. A few quick details so replies sound like you, then we connect your reviews.'
-          : 'A few quick details so we can start fetching your reviews.'}
-      </p>
+      <p className="text-center text-rw-ink-soft mb-8">{copy.subtitle}</p>
 
       {error && <div className={`${errorBannerClass} mb-4`}>{error}</div>}
 
@@ -256,7 +217,7 @@ export function BusinessWizardClient({
               data={data}
               update={update}
               dirtyRef={dirtyRef}
-              onNext={() => dispatch({ type: 'goToStep', step: 2 })}
+              onNext={goToStep(2)}
             />
           )}
           {step === 2 && (
@@ -264,19 +225,19 @@ export function BusinessWizardClient({
               stepLabel={label(2)}
               data={data}
               update={update}
-              onBack={() => dispatch({ type: 'goToStep', step: 1 })}
+              onBack={goToStep(1)}
               onSubmit={() => advanceToConnect()}
               onSkip={() => advanceToConnect({ skipVoice: true })}
               submitting={submitting}
               // Voice is NOT the last step here — Connect follows (A11).
-              submitLabel="Continue →"
+              submitLabel={copy.voiceSubmitLabel}
             />
           )}
           {step === 3 && (
             <StepConnect
               stepLabel={label(3)}
               autopilot={autopilot}
-              onBack={() => dispatch({ type: 'goToStep', step: 2 })}
+              onBack={goToStep(2)}
               onConnect={handleConnectZernio}
               onSkip={handleSkipConnect}
               submitting={submitting}
@@ -291,7 +252,7 @@ export function BusinessWizardClient({
               data={data}
               update={update}
               dirtyRef={dirtyRef}
-              onNext={() => dispatch({ type: 'goToStep', step: 2 })}
+              onNext={goToStep(2)}
             />
           )}
           {step === 2 && (
@@ -300,8 +261,8 @@ export function BusinessWizardClient({
               data={data}
               update={update}
               dirtyRef={dirtyRef}
-              onBack={() => dispatch({ type: 'goToStep', step: 1 })}
-              onNext={() => dispatch({ type: 'goToStep', step: 3 })}
+              onBack={goToStep(1)}
+              onNext={goToStep(3)}
             />
           )}
           {step === 3 && (
@@ -309,11 +270,11 @@ export function BusinessWizardClient({
               stepLabel={label(3)}
               data={data}
               update={update}
-              onBack={() => dispatch({ type: 'goToStep', step: 2 })}
+              onBack={goToStep(2)}
               onSubmit={() => legacySubmit()}
               onSkip={() => legacySubmit({ skipVoice: true })}
               submitting={submitting}
-              submitLabel="Finish setup"
+              submitLabel={copy.voiceSubmitLabel}
             />
           )}
         </>

@@ -16,13 +16,13 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+import { SecurityClient } from '../SecurityClient';
 import {
   CHANGE_PASSWORD_HREF,
-  SecurityClient,
   STEP_UP_HREF,
   factorSummary,
   isStepUpRequiredError,
-} from '../SecurityClient';
+} from '../SecuritySections';
 
 const FACTOR: MfaFactor = {
   id: 'factor-1',

@@ -7,13 +7,12 @@ import {
   useReducer,
   useRef,
   type FormEvent,
-  type ReactNode,
 } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LazyMotion, m, domAnimation, useReducedMotion } from 'motion/react';
+import { m, useReducedMotion } from 'motion/react';
 import { createBrowserSupabaseClient } from '@/lib/db/browser';
-import { BrandLogo } from '@/components/ui/BrandLogo';
+import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import { normalizeChallengeFactors, type ChallengeFactor } from '@/lib/auth/mfa';
 
 const SUPPORT_EMAIL = 'support@repworth.net';
@@ -73,32 +72,6 @@ function BrandBackground() {
         </div>
       </div>
     </div>
-  );
-}
-
-// Sage page + centered white island card. No overflow-hidden (iOS Safari rule).
-function MfaShell({ children }: { children: ReactNode }) {
-  const reduce = useReducedMotion();
-  return (
-    <LazyMotion features={domAnimation}>
-    <main className="min-h-screen bg-rw-sage relative flex items-center justify-center px-4 py-16">
-      <BrandBackground />
-      <m.div
-        className="relative z-10 w-full max-w-md bg-white rounded-[3rem] shadow-2xl p-8 sm:p-10"
-        initial={reduce ? false : { opacity: 0, y: 24, scale: 0.97 }}
-        animate={reduce ? undefined : { opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
-      >
-        <div className="flex items-center gap-2 mb-8">
-          <BrandLogo size={32} />
-          <span className="text-sm tracking-wider uppercase text-rw-teal-strong">
-            RepWorth
-          </span>
-        </div>
-        {children}
-      </m.div>
-    </main>
-    </LazyMotion>
   );
 }
 
@@ -279,7 +252,7 @@ export function MfaChallengeForm() {
   }
 
   return (
-    <MfaShell>
+    <AuthCardShell background={<BrandBackground />}>
       <h1 className="text-2xl sm:text-3xl font-medium text-rw-ink mb-2">
         Verify it&apos;s you
       </h1>
@@ -389,7 +362,7 @@ export function MfaChallengeForm() {
           </a>
         </form>
       )}
-    </MfaShell>
+    </AuthCardShell>
   );
 }
 
@@ -398,14 +371,14 @@ export function MfaChallengeScreen() {
   return (
     <Suspense
       fallback={
-        <MfaShell>
+        <AuthCardShell background={<BrandBackground />}>
           <h1 className="text-2xl sm:text-3xl font-medium text-rw-ink mb-2">
             Verify it&apos;s you
           </h1>
           <p aria-live="polite" className="text-rw-ink-soft">
             Loading…
           </p>
-        </MfaShell>
+        </AuthCardShell>
       }
     >
       <MfaChallengeForm />

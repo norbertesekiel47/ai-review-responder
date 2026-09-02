@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState, type MouseEvent } from 'react';
 import { Icon, type IconName } from '@/components/dashboard/shell/Icon';
 import { SETTINGS_DEFAULT_HREF } from '@/components/dashboard/shell/active-nav';
-import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { ConfirmDialog } from '@/components/dashboard/settings/ConfirmDialog';
 import { useHasUnsavedChanges } from '@/hooks/useUnsavedChangesGuard';
 
 /**
@@ -192,26 +192,17 @@ export function SettingsSidebar({ showLocations }: Props) {
       </div>
 
       {pendingHref !== null && (
-        <SettingsModal
+        <ConfirmDialog
           title="Leave without saving?"
           closeLabel="Stay on this page"
-          onClose={() => setPendingHref(null)}
-        >
-          <div className="set-section-title" style={{ marginBottom: 8 }}>
-            Leave without saving?
-          </div>
-          <p className="settings-body-copy" style={{ marginBottom: 16 }}>
-            You have unsaved changes on this page. If you leave now they are lost.
-          </p>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => setPendingHref(null)}>
-              Keep editing
-            </button>
-            <button type="button" className="btn btn-primary" onClick={leaveAnyway}>
-              Leave without saving
-            </button>
-          </div>
-        </SettingsModal>
+          heading="Leave without saving?"
+          body="You have unsaved changes on this page. If you leave now they are lost."
+          cancelLabel="Keep editing"
+          confirmLabel="Leave without saving"
+          confirmTone="primary"
+          onCancel={() => setPendingHref(null)}
+          onConfirm={leaveAnyway}
+        />
       )}
     </nav>
   );

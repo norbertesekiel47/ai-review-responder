@@ -24,6 +24,20 @@ describe('AuthCardShell', () => {
     expect(container.innerHTML).toContain('max-w-sm');
   });
 
+  it('paints an optional background layer inside the sage page, behind the island', () => {
+    render(
+      <AuthCardShell background={<div data-testid="atmosphere" />}>
+        <p>card body</p>
+      </AuthCardShell>,
+    );
+    const main = screen.getByRole('main');
+    const atmosphere = screen.getByTestId('atmosphere');
+    expect(atmosphere.parentElement).toBe(main);
+    // Before the card in DOM order, so the card's z-10 stacks above it.
+    expect(main.firstElementChild).toBe(atmosphere);
+    expect(screen.getByText('card body').closest('.z-10')).not.toBeNull();
+  });
+
   it('exports 16px field styling (iOS zoom rule) and an accessible teal primary button', () => {
     render(
       <form>

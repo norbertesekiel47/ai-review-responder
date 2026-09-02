@@ -9,9 +9,13 @@
 // are thin wrappers that supply their channel's presentation.
 //
 // Commit model: every action here applies immediately (no save bar). The
-// consequential one — Disconnect — confirms through SettingsModal with the
+// consequential one — Disconnect — confirms through ConfirmDialog with the
 // consequence spelled out, and both connect + disconnect confirm through the
 // shared Console toast (UX audit S11/S13).
+//
+// The per-state copy, the transition toasts and the SSR snapshot derivation are
+// pure functions in OwnerMobileChannelWidget.helpers.ts; this file composes them
+// with the QR panel and the per-state action control.
 
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
@@ -21,8 +25,16 @@ import type {
   EnrollmentState,
 } from '@/lib/notifications/channels/enrollment-reducer';
 import type { MobileChannel } from '@/lib/channels/mobile-enrollment';
-import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { ConfirmDialog } from '@/components/dashboard/settings/ConfirmDialog';
 import { useToast } from '@/components/dashboard/shell/toast/ToastProvider';
+import {
+  DISCONNECT_CONSEQUENCE,
+  channelHandleText,
+  enrollmentTransitionToast,
+  formatQrTtl,
+  isConnectableState,
+  rowToInitialSnapshot,
+} from './OwnerMobileChannelWidget.helpers';
 
 export interface OwnerChannelInitialRow {
   channel: string;
@@ -49,41 +61,6 @@ export interface OwnerChannelPresentation {
   endpoints: { start: string; cancel: string; disable: string; status: string };
 }
 
-/** What the owner is left with after disconnecting either mobile channel. */
-export const DISCONNECT_CONSEQUENCE = "You'll get approval requests by email only.";
-
-/**
- * Derives an EnrollmentSnapshot for SSR hydration from the server-loaded row.
- * Only `verified` rows produce a snapshot — other statuses still need a fresh
- * fetch to avoid stale-state risks (e.g. an expired pending token).
- */
-function rowToInitialSnapshot(row: OwnerChannelInitialRow | null): EnrollmentSnapshot | undefined {
-  if (!row || row.status !== 'verified') return undefined;
-  return {
-    state: 'verified',
-    previousState: null,
-    handle: row.handle,
-    deepLink: null,
-    qrDataUrl: null,
-    expiresAt: null,
-    unsubscribedReason: null,
-    errorMessage: null,
-  };
-}
-
-function maskHandle(handle: string | null): string {
-  if (!handle || handle.length <= 4) return '•••';
-  return `••• ${handle.slice(-4)}`;
-}
-
-/** States from which the owner can start (or restart) a connection. */
-const CONNECTABLE_STATES: ReadonlySet<EnrollmentState> = new Set<EnrollmentState>([
-  'idle',
-  'disabled',
-  'unsubscribed',
-  'expired',
-]);
-
 export interface OwnerMobileChannelWidgetProps {
   presentation: OwnerChannelPresentation;
   /** Server-loaded enrollment row for SSR hydration. Verified rows skip the first fetch. */
@@ -99,61 +76,67 @@ export interface OwnerMobileChannelWidgetProps {
   onStateChange?: (state: EnrollmentState) => void;
 }
 
-export function OwnerMobileChannelWidget({
-  presentation,
-  initialEnrollment,
-  blockedReason = null,
-  onStateChange,
-}: OwnerMobileChannelWidgetProps) {
-  const { snapshot, actions, ttl } = useEnrollment({
-    channel: presentation.channel,
-    endpoints: presentation.endpoints,
-    postBody: {},
-    initialSnapshot: rowToInitialSnapshot(initialEnrollment ?? null),
-  });
+/**
+ * Toasts the two transitions the owner waits on. Both are read off the reducer,
+ * not the action call, so a verification that arrives via polling still gets
+ * its confirmation.
+ */
+function useEnrollmentTransitionToast(state: EnrollmentState, label: string): void {
   const { toast } = useToast();
-  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-
-  useEffect(() => {
-    onStateChange?.(snapshot.state);
-  }, [onStateChange, snapshot.state]);
-
-  // Toast the two transitions the owner waits on: the QR scan landing
-  // (awaiting_scan → verified) and the disconnect (verified → disabled). Both
-  // are read off the reducer, not the action call, so a verification that
-  // arrives via polling still gets its confirmation.
-  const previousStateRef = useRef<EnrollmentState>(snapshot.state);
+  const previousStateRef = useRef<EnrollmentState>(state);
   useEffect(() => {
     const previous = previousStateRef.current;
-    previousStateRef.current = snapshot.state;
-    if (previous === snapshot.state) return;
-    if (previous === 'awaiting_scan' && snapshot.state === 'verified') {
-      toast({ tone: 'success', title: `${presentation.label} connected` });
-    }
-    if (previous === 'verified' && snapshot.state === 'disabled') {
-      toast({
-        tone: 'success',
-        title: `${presentation.label} disconnected`,
-        body: DISCONNECT_CONSEQUENCE,
-      });
-    }
-  }, [presentation.label, snapshot.state, toast]);
+    previousStateRef.current = state;
+    const notice = enrollmentTransitionToast(previous, state, label);
+    if (notice) toast(notice);
+  }, [label, state, toast]);
+}
 
-  async function confirmDisconnect() {
-    setDisconnecting(true);
-    try {
-      await actions.disable();
-    } finally {
-      setDisconnecting(false);
-      setConfirmingDisconnect(false);
-    }
-  }
+/** QR panel — expands inline below the handle text while a scan is awaited. */
+function ChannelQrPanel({
+  snapshot,
+  presentation,
+  secondsRemaining,
+}: {
+  snapshot: EnrollmentSnapshot;
+  presentation: Pick<OwnerChannelPresentation, 'qrAlt' | 'openOnPhoneLabel'>;
+  secondsRemaining: number | null;
+}) {
+  if (snapshot.state !== 'awaiting_scan' || !snapshot.qrDataUrl || !snapshot.deepLink) return null;
+  return (
+    <div className="channel-qr">
+      <Image src={snapshot.qrDataUrl} alt={presentation.qrAlt} width={160} height={160} unoptimized />
+      <a
+        href={snapshot.deepLink}
+        target="_blank"
+        rel="noreferrer"
+        className="btn btn-secondary channel-qr-open"
+      >
+        {presentation.openOnPhoneLabel}
+      </a>
+      {secondsRemaining !== null && (
+        <p className="channel-qr-ttl">Expires in {formatQrTtl(secondsRemaining)}</p>
+      )}
+    </div>
+  );
+}
 
-  const isConnected = snapshot.state === 'verified';
-  const connectBlocked = blockedReason !== null && CONNECTABLE_STATES.has(snapshot.state);
-  const blockedNoteId = `${presentation.channel}-connect-blocked`;
+type EnrollmentActions = ReturnType<typeof useEnrollment>['actions'];
 
+/** The one action control (or status badge) each enrollment state offers. */
+function ChannelAction({
+  state,
+  actions,
+  connectBlocked,
+  blockedNoteId,
+  onDisconnect,
+}: {
+  state: EnrollmentState;
+  actions: EnrollmentActions;
+  connectBlocked: boolean;
+  blockedNoteId: string;
+  onDisconnect: () => void;
+}) {
   const connectAction = (label: string, className: string) => (
     <button
       type="button"
@@ -166,104 +149,106 @@ export function OwnerMobileChannelWidget({
     </button>
   );
 
+  switch (state) {
+    case 'idle':
+      return connectAction('Connect', 'btn btn-primary');
+    case 'generating':
+      return <span className="channel-status cs-soon">Working…</span>;
+    case 'verified':
+      return (
+        <button type="button" onClick={onDisconnect} className="btn btn-secondary">
+          Disconnect
+        </button>
+      );
+    case 'disabled':
+    case 'unsubscribed':
+      return connectAction('Reconnect', 'btn btn-secondary');
+    case 'expired':
+      return connectAction('New link', 'btn btn-secondary');
+    case 'awaiting_scan':
+      return <button type="button" onClick={actions.cancel} className="btn btn-secondary">Cancel</button>;
+    case 'error':
+      return <button type="button" onClick={actions.dismissError} className="btn btn-secondary">Try again</button>;
+    default:
+      return null;
+  }
+}
+
+export function OwnerMobileChannelWidget({
+  presentation,
+  initialEnrollment,
+  blockedReason = null,
+  onStateChange,
+}: OwnerMobileChannelWidgetProps) {
+  const { snapshot, actions, ttl } = useEnrollment({
+    channel: presentation.channel,
+    endpoints: presentation.endpoints,
+    postBody: {},
+    initialSnapshot: rowToInitialSnapshot(initialEnrollment ?? null),
+  });
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  useEffect(() => {
+    onStateChange?.(snapshot.state);
+  }, [onStateChange, snapshot.state]);
+
+  useEnrollmentTransitionToast(snapshot.state, presentation.label);
+
+  async function confirmDisconnect() {
+    setDisconnecting(true);
+    try {
+      await actions.disable();
+    } finally {
+      setDisconnecting(false);
+      setConfirmingDisconnect(false);
+    }
+  }
+
+  const isConnected = snapshot.state === 'verified';
+  const connectBlocked = blockedReason !== null && isConnectableState(snapshot.state);
+  const blockedNoteId = `${presentation.channel}-connect-blocked`;
+
   return (
     <div className={`channel-row${isConnected ? ' selected' : ''}`}>
       <div className={`channel-icon ${presentation.iconClass}`} aria-hidden>{presentation.iconGlyph}</div>
       <div className="channel-meta">
         <div className="channel-name">{presentation.label}</div>
-        <div className="channel-handle">
-          {snapshot.state === 'idle' && presentation.idleText}
-          {snapshot.state === 'verified' && `Connected · ${maskHandle(snapshot.handle)}`}
-          {snapshot.state === 'generating' && 'Generating link…'}
-          {snapshot.state === 'awaiting_scan' && 'Scan the QR code below, or open the link on this phone.'}
-          {snapshot.state === 'disabled' && 'Disconnected — reconnect to get approval requests here.'}
-          {snapshot.state === 'unsubscribed' && presentation.unsubscribedText}
-          {snapshot.state === 'expired' && 'This QR code expired. Ask for a new link to try again.'}
-          {snapshot.state === 'error' && (snapshot.errorMessage ?? 'Something went wrong.')}
-        </div>
+        <div className="channel-handle">{channelHandleText(snapshot, presentation)}</div>
 
         {connectBlocked && (
           <p id={blockedNoteId} className="channel-blocked-note">{blockedReason}</p>
         )}
 
-        {/* QR panel — expands inline below the handle text */}
-        {snapshot.state === 'awaiting_scan' && snapshot.qrDataUrl && snapshot.deepLink && (
-          <div className="channel-qr">
-            <Image src={snapshot.qrDataUrl} alt={presentation.qrAlt} width={160} height={160} unoptimized />
-            <a
-              href={snapshot.deepLink}
-              target="_blank"
-              rel="noreferrer"
-              className="btn btn-secondary channel-qr-open"
-            >
-              {presentation.openOnPhoneLabel}
-            </a>
-            {ttl.secondsRemaining !== null && (
-              <p className="channel-qr-ttl">
-                Expires in {Math.floor(ttl.secondsRemaining / 60)}m {ttl.secondsRemaining % 60}s
-              </p>
-            )}
-          </div>
-        )}
+        <ChannelQrPanel
+          snapshot={snapshot}
+          presentation={presentation}
+          secondsRemaining={ttl.secondsRemaining}
+        />
       </div>
 
-      {/* Action button / status badge */}
       <div className="channel-action">
-        {snapshot.state === 'idle' && connectAction('Connect', 'btn btn-primary')}
-        {snapshot.state === 'generating' && (
-          <span className="channel-status cs-soon">Working…</span>
-        )}
-        {snapshot.state === 'verified' && (
-          <button
-            type="button"
-            onClick={() => setConfirmingDisconnect(true)}
-            className="btn btn-secondary"
-          >
-            Disconnect
-          </button>
-        )}
-        {(snapshot.state === 'disabled' || snapshot.state === 'unsubscribed') &&
-          connectAction('Reconnect', 'btn btn-secondary')}
-        {snapshot.state === 'expired' && connectAction('New link', 'btn btn-secondary')}
-        {snapshot.state === 'awaiting_scan' && (
-          <button type="button" onClick={actions.cancel} className="btn btn-secondary">Cancel</button>
-        )}
-        {snapshot.state === 'error' && (
-          <button type="button" onClick={actions.dismissError} className="btn btn-secondary">Try again</button>
-        )}
+        <ChannelAction
+          state={snapshot.state}
+          actions={actions}
+          connectBlocked={connectBlocked}
+          blockedNoteId={blockedNoteId}
+          onDisconnect={() => setConfirmingDisconnect(true)}
+        />
       </div>
 
       {confirmingDisconnect && (
-        <SettingsModal
+        <ConfirmDialog
           title={`Disconnect ${presentation.label}`}
           closeLabel="Keep this channel connected"
-          onClose={() => setConfirmingDisconnect(false)}
-        >
-          <div className="set-section-title" style={{ marginBottom: 8 }}>
-            Disconnect {presentation.label}?
-          </div>
-          <p className="settings-body-copy" style={{ marginBottom: 16 }}>
-            {DISCONNECT_CONSEQUENCE} You can connect {presentation.label} again at any time.
-          </p>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setConfirmingDisconnect(false)}
-              disabled={disconnecting}
-            >
-              Keep connected
-            </button>
-            <button
-              type="button"
-              className="btn-danger"
-              onClick={() => void confirmDisconnect()}
-              disabled={disconnecting}
-            >
-              {disconnecting ? 'Disconnecting…' : `Disconnect ${presentation.label}`}
-            </button>
-          </div>
-        </SettingsModal>
+          heading={`Disconnect ${presentation.label}?`}
+          body={`${DISCONNECT_CONSEQUENCE} You can connect ${presentation.label} again at any time.`}
+          cancelLabel="Keep connected"
+          confirmLabel={disconnecting ? 'Disconnecting…' : `Disconnect ${presentation.label}`}
+          busy={disconnecting}
+          onCancel={() => setConfirmingDisconnect(false)}
+          onConfirm={() => void confirmDisconnect()}
+        />
       )}
     </div>
   );

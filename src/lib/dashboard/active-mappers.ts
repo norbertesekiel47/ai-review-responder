@@ -1,5 +1,6 @@
 import type { DashboardDataActive } from './types';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
+import { getDisplayLabel } from '@/lib/locations/display-label';
 import type { OpenEscalationStatus } from '@/lib/escalations/types';
 import type { TriageSeverity } from '@/lib/reviews/triage-schema';
 
@@ -75,5 +76,31 @@ export function mapRecentReviews(
           severity: row.escalation_severity as TriageSeverity,
         }
       : null,
+  }));
+}
+
+/** A feed item plus the location chip fields an account-wide list renders. */
+export type RecentReviewWithLocation = DashboardDataActive['recentReviews'][number] & {
+  locationId: string;
+  locationDisplayName: string;
+};
+
+/**
+ * `mapRecentReviews` for an account-scoped read: each row also carries
+ * `b.id AS location_id`, `b.name AS location_name`, and
+ * `b.display_label AS location_display_label`, mapped to the chip fields.
+ * Shared by the aggregate feed and the Needs Action queue so a row's chip reads
+ * identically on both.
+ */
+export function mapRecentReviewsWithLocation(
+  rows: Array<Record<string, unknown>>,
+): RecentReviewWithLocation[] {
+  return mapRecentReviews(rows).map((item, index) => ({
+    ...item,
+    locationId: rows[index]!.location_id as string,
+    locationDisplayName: getDisplayLabel({
+      name: rows[index]!.location_name as string,
+      display_label: (rows[index]!.location_display_label as string | null) ?? null,
+    }),
   }));
 }

@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DashboardSettings } from '@/lib/dashboard/types';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   buildAccountSettingsPatch,
@@ -78,15 +79,7 @@ export function useSettingsForm(): UseSettingsForm {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-    },
-    [],
-  );
+  const { savedFlash, flashSaved } = useSavedFlash();
 
   useEffect(() => {
     let cancelled = false;
@@ -159,9 +152,7 @@ export function useSettingsForm(): UseSettingsForm {
         throw new Error(body.error ?? `Save failed (${res.status})`);
       }
       setInitial({ ...form });
-      setSavedFlash(true);
-      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-      flashTimeoutRef.current = setTimeout(() => setSavedFlash(false), 1800);
+      flashSaved();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {

@@ -44,16 +44,16 @@ export function liveStatusLabel(input: {
   return `Live · updated ${input.minutesSinceRefresh} min ago`;
 }
 
-export function TopBar({
-  title,
-  subtitle,
-  showLive,
-  refresh,
-  refreshing = false,
-  rightLink,
-  businessName,
-  children,
-}: Props) {
+/**
+ * The 60 s auto-refresh THIS bar drives, plus the manual refresh it exposes.
+ * Owns the in-flight guard, the 800 ms spin tail, and the minutes-since label
+ * input; while a row holds the refresh a tick only ages the label.
+ */
+function useLiveRefresh(
+  showLive: boolean | undefined,
+  refresh: (() => void | Promise<void>) | undefined,
+  held: boolean,
+) {
   const [spinning, setSpinning] = useState(false);
   // Whole minutes since the last refresh THIS bar drove. Only grows while a
   // hold skips ticks; the next refresh resets it.
@@ -61,15 +61,11 @@ export function TopBar({
   const refreshRef = useRef(refresh);
   const inflightRef = useRef(false);
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const held = useRefreshHeld();
   // Keep refreshRef current so the stable doRefresh (deps []) calls the latest
   // refresh prop. Assigned in an effect, not during render, per react-hooks/refs.
   useEffect(() => {
     refreshRef.current = refresh;
   });
-
-  // Read from LocationContext — on mobile, TopBar shows the LocationPicker
-  const { isMultiLocation } = useLocationScope();
 
   const doRefresh = useCallback(async () => {
     if (inflightRef.current) return;
@@ -105,7 +101,58 @@ export function TopBar({
     };
   }, [showLive]);
 
-  const isRefreshing = refreshing || spinning;
+  return { spinning, minutesSinceRefresh, doRefresh };
+}
+
+/** The live pill and the manual Refresh button. */
+function LiveControls({
+  held,
+  spinning,
+  refreshing,
+  minutesSinceRefresh,
+  onRefresh,
+}: {
+  held: boolean;
+  spinning: boolean;
+  refreshing: boolean;
+  minutesSinceRefresh: number;
+  onRefresh: () => void;
+}) {
+  return (
+    <>
+      <span className="live-pill" role="status">
+        <span className="live-dot" aria-hidden="true" />
+        {liveStatusLabel({ held, refreshing: refreshing || spinning, minutesSinceRefresh })}
+      </span>
+      <button
+        type="button"
+        className={`refresh-btn ${spinning ? 'spinning' : ''}`}
+        onClick={onRefresh}
+      >
+        <span className="refresh-icon" style={{ display: 'inline-flex' }}>
+          <Icon name="refresh" size={14} />
+        </span>
+        Refresh
+      </button>
+    </>
+  );
+}
+
+export function TopBar({
+  title,
+  subtitle,
+  showLive,
+  refresh,
+  refreshing = false,
+  rightLink,
+  businessName,
+  children,
+}: Props) {
+  const held = useRefreshHeld();
+  const { spinning, minutesSinceRefresh, doRefresh } = useLiveRefresh(showLive, refresh, held);
+
+  // Read from LocationContext — on mobile, TopBar shows the LocationPicker
+  const { isMultiLocation } = useLocationScope();
 
   return (
     <div className="topbar">
@@ -132,22 +179,13 @@ export function TopBar({
         <div className="topbar-controls">
           {children && <div className="topbar-actions">{children}</div>}
           {showLive && (
-            <>
-              <span className="live-pill" role="status">
-                <span className="live-dot" aria-hidden="true" />
-                {liveStatusLabel({ held, refreshing: isRefreshing, minutesSinceRefresh })}
-              </span>
-              <button
-                type="button"
-                className={`refresh-btn ${spinning ? 'spinning' : ''}`}
-                onClick={() => void doRefresh()}
-              >
-                <span className="refresh-icon" style={{ display: 'inline-flex' }}>
-                  <Icon name="refresh" size={14} />
-                </span>
-                Refresh
-              </button>
-            </>
+            <LiveControls
+              held={held}
+              spinning={spinning}
+              refreshing={refreshing}
+              minutesSinceRefresh={minutesSinceRefresh}
+              onRefresh={() => void doRefresh()}
+            />
           )}
           {rightLink && (
             <Link href={rightLink.href} className="refresh-btn">
