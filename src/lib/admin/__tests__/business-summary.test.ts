@@ -108,7 +108,9 @@ describe('getBusinessSummaries — bounded metrics fetch', () => {
     const [rowsCall, countCall, metricsCall] = harness.sqlCalls;
     expect(rowsCall!.text).toContain('LIMIT');
     expect(rowsCall!.text).toContain('OFFSET');
-    expect(rowsCall!.values.slice(-2)).toEqual([2, 2]);
+    // LIMIT/OFFSET are the FIRST two binds: the page CTE precedes the response
+    // window + handled-status binds of the aggregate that follows it.
+    expect(rowsCall!.values.slice(0, 2)).toEqual([2, 2]);
 
     expect(countCall!.text).toContain('SELECT COUNT(*)::int AS total FROM businesses');
 
@@ -193,6 +195,82 @@ describe('getBusinessSummaries — bounded metrics fetch', () => {
 
     expect(result.businesses).toEqual([]);
     expect(result.total).toBe(7);
+  });
+});
+
+// PAGE-FIRST base query (2026-09 audit). Before this, the base query LEFT
+// JOINed and aggregated EVERY non-superseded response for EVERY business and
+// only then applied LIMIT/OFFSET to the grouped result — `LIMIT` bounded the
+// rows returned, not the work done, so one /admin/businesses render cost
+// O(total responses). The mock cannot measure plan cost, so the property is
+// pinned as a QUERY CONTRACT: the page is taken in a CTE that precedes the
+// `responses` join, the aggregate is driven FROM that CTE, and the ordering
+// carries a total-order tie-breaker so LIMIT/OFFSET pages cannot overlap.
+describe('getBusinessSummaries — page-first base query (SQL contract)', () => {
+  it('takes the page in a CTE BEFORE joining responses, and orders by name then id on both sides', async () => {
+    harness.sqlReturnQueue.push([businessRow('biz-1', 'Cafe One')]);
+    harness.sqlReturnQueue.push([{ total: 9 }]);
+    harness.sqlReturnQueue.push([]);
+
+    const result = await getBusinessSummaries(mockSql, { limit: 20, offset: 40 });
+
+    const { text, values } = harness.sqlCalls[0]!;
+
+    // The candidate set is `businesses` × `accounts`, ordered and paged inside
+    // the CTE — LIMIT/OFFSET appear BEFORE the responses join, not after the
+    // GROUP BY.
+    expect(text).toContain('WITH page AS (');
+    const limitAt = text.indexOf('LIMIT');
+    const joinAt = text.indexOf('LEFT JOIN responses resp');
+    const groupAt = text.indexOf('GROUP BY');
+    expect(limitAt).toBeGreaterThan(-1);
+    expect(limitAt).toBeLessThan(joinAt);
+    expect(joinAt).toBeLessThan(groupAt);
+    expect(text.indexOf('LIMIT', groupAt)).toBe(-1);
+
+    // The aggregate is driven FROM the page, so the responses scan is bounded
+    // by the page's ids — never `FROM businesses b ... LEFT JOIN responses`
+    // over the whole table.
+    expect(text).toContain('FROM page b');
+    expect(text).toContain('LEFT JOIN responses resp ON resp.business_id = b.id');
+
+    // Total order on both the page CTE and the final projection: name, then
+    // id. Without the id tie-breaker two same-named businesses can straddle a
+    // page boundary and be repeated or skipped.
+    const orderClauses = text.match(/ORDER BY b\.name ASC, b\.id ASC/g) ?? [];
+    expect(orderClauses).toHaveLength(2);
+
+    // LIMIT/OFFSET bound first (the CTE is emitted first).
+    expect(values.slice(0, 2)).toEqual([20, 40]);
+
+    // `total` still comes from the unfiltered COUNT, not from the page.
+    expect(result.total).toBe(9);
+    expect(result.businesses.map((b) => b.id)).toEqual(['biz-1']);
+  });
+
+  it('unpaginated: the same CTE with no LIMIT/OFFSET still yields one row per business', async () => {
+    // Overview's path. The page CTE is EVERY business (no page clause) and the
+    // returned rows are exactly what the query produced, in query order —
+    // nothing is sliced or dropped in TS on the way to the at-risk ranking.
+    harness.sqlReturnQueue.push([
+      businessRow('biz-1', 'Cafe One'),
+      businessRow('biz-2', 'Cafe Two'),
+      businessRow('biz-3', 'Cafe Three'),
+      businessRow('biz-4', 'Cafe Four'),
+    ]);
+    harness.sqlReturnQueue.push([]);
+
+    const result = await getBusinessSummaries(mockSql);
+
+    const { text, values } = harness.sqlCalls[0]!;
+    expect(text).toContain('WITH page AS (');
+    expect(text).not.toContain('LIMIT');
+    expect(text).not.toContain('OFFSET');
+    // No page binds: the leading bind is the response window.
+    expect(values[0]).toBe(30);
+
+    expect(result.businesses.map((b) => b.id)).toEqual(['biz-1', 'biz-2', 'biz-3', 'biz-4']);
+    expect(result.total).toBe(4);
   });
 });
 
@@ -286,9 +364,9 @@ describe('getBusinessSummaries — page mapping (folded from getAdminBusinessesL
     expect(harness.sqlCalls[0]!.text).toContain("resp.status != 'superseded'");
     expect(harness.sqlCalls[0]!.text).toContain("resp.status = 'pending_approval'");
     expect(harness.sqlCalls[0]!.text).toContain('ORDER BY b.name ASC');
-    // LIMIT/OFFSET are the last two binds; the leading binds are the response
-    // window + handled-status array the merged base query adds.
-    expect(harness.sqlCalls[0]!.values.slice(-2)).toEqual([20, 0]);
+    // LIMIT/OFFSET are the FIRST two binds: the page CTE is bound before the
+    // response window + handled-status array the aggregate adds after it.
+    expect(harness.sqlCalls[0]!.values.slice(0, 2)).toEqual([20, 0]);
 
     expect(harness.sqlCalls[1]!.text).toContain('SELECT COUNT(*)::int AS total FROM businesses');
   });
@@ -300,7 +378,7 @@ describe('getBusinessSummaries — page mapping (folded from getAdminBusinessesL
     const result = await getBusinessSummaries(mockSql, { limit: 20, offset: 40 });
 
     expect(result).toEqual({ businesses: [], total: 0, responseMetricsWindowDays: 30 });
-    expect(harness.sqlCalls[0]!.values.slice(-2)).toEqual([20, 40]);
+    expect(harness.sqlCalls[0]!.values.slice(0, 2)).toEqual([20, 40]);
   });
 });
 
