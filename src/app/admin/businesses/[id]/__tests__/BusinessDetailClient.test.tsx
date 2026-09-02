@@ -143,10 +143,73 @@ describe('BusinessDetailClient', () => {
     expect(screen.getAllByText('12')).toHaveLength(2);
     // Also echoed by ProfileEditor's read-only summary, hence getAllByText.
     expect(screen.getAllByText('restaurant').length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: /Back to Businesses/ })).toHaveAttribute(
-      'href',
-      '/admin/businesses',
-    );
+    // X28: the breadcrumb on AdminPage is the ONE way back — no ad-hoc back link.
+    expect(screen.queryByRole('link', { name: /Back to Businesses/ })).not.toBeInTheDocument();
+  });
+
+  // X8: the meta row's subscription status and tier render through the shared
+  // StatusBadge vocabularies — humanized, coloured, never the raw token in gray.
+  it('renders subscription status and tier through StatusBadge in the meta row', () => {
+    const data = detail();
+    data.business.subscriptionStatus = 'past_due';
+    renderClient(data);
+
+    const status = screen.getByText('Past due');
+    expect(status).toHaveAttribute('data-vocab', 'subscription');
+    expect(status.className).toContain('bg-red-100');
+    expect(screen.queryByText('past due')).not.toBeInTheDocument();
+    expect(screen.getByText('Copilot')).toHaveAttribute('data-vocab', 'tier');
+  });
+
+  // X27: wayfinding for twelve stacked panels.
+  it('renders a sticky jump-link row whose anchors resolve to sections on the page', () => {
+    renderClient(detail());
+
+    const nav = screen.getByRole('navigation', { name: 'Sections' });
+    expect(nav.className).toContain('sticky');
+    const hrefs = Array.from(nav.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['#profile', '#reviews', '#engagement', '#keywords', '#ranking', '#channels', '#zernio']);
+    for (const href of hrefs) {
+      expect(document.getElementById(href!.slice(1)), `${href} has no target`).not.toBeNull();
+    }
+    // No audit rows in the fixture → no dead link to an absent section.
+    expect(hrefs).not.toContain('#audit');
+  });
+
+  it('adds the Audit log jump link only when an audit log renders', () => {
+    const data = detail();
+    data.accountAuditLog = [
+      {
+        id: 'acct-audit-1',
+        eventType: 'past_due_extension_granted',
+        actorUserId: null,
+        locationId: null,
+        payload: null,
+        createdAt: '2026-07-01T10:00:00.000Z',
+      },
+    ];
+    renderClient(data);
+    expect(screen.getByRole('link', { name: 'Audit log' })).toHaveAttribute('href', '#audit');
+    expect(document.getElementById('audit')).not.toBeNull();
+  });
+
+  it('default-collapses Engagement, Keywords and Ranking, and a jump link opens its section', () => {
+    renderClient(detail());
+
+    const collapsed = ['engagement', 'keywords', 'ranking'].map((id) => document.getElementById(id) as HTMLDetailsElement);
+    for (const details of collapsed) {
+      expect(details.tagName).toBe('DETAILS');
+      expect(details.open).toBe(false);
+    }
+    // The heading outline survives the collapse: each summary carries the h2.
+    expect(screen.getByRole('heading', { name: 'Tracked Keywords' }).closest('summary')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: 'Ranking' }).closest('summary')).not.toBeNull();
+
+    // A browser scrolls to a closed <details> without opening it, so the jump
+    // link opens the target first.
+    fireEvent.click(screen.getByRole('link', { name: 'Ranking' }));
+    expect((document.getElementById('ranking') as HTMLDetailsElement).open).toBe(true);
+    expect((document.getElementById('keywords') as HTMLDetailsElement).open).toBe(false);
   });
 
   it('renders one chip per location for a multi-location account, marking the current one', () => {

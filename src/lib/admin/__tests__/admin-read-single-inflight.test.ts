@@ -66,9 +66,10 @@ const CASES: Case[] = [
     run: (sql) => getAdminOffboardings(sql, PAGE),
   },
   {
+    // Summary → failed page → failed count → distinct failed topics (X15).
     name: 'getAdminJobsData',
-    queries: 3,
-    rest: [[], [{ total: 0 }]],
+    queries: 4,
+    rest: [[], [{ total: 0 }], []],
     run: (sql) => getAdminJobsData(sql, PAGE),
   },
   {

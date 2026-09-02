@@ -4,12 +4,13 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { MarginData, MarginRiskLevel } from '@/lib/admin/margin-service';
+import type { MarginData } from '@/lib/admin/margin-service';
 import type { CostData as CostReportData } from '@/lib/admin/cost-report-service';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
+import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
-import { formatAdminCount } from '@/components/admin/ui/format';
+import { formatAdminCount, formatAdminDate } from '@/components/admin/ui/format';
 
 import { COSTS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 const DEFAULT_DAYS = 30;
@@ -25,7 +26,13 @@ type AccountMarginRow = MarginData['topAccountsByCost'][number];
 // the API merges detail rows (<90d) with rollup rows (>=90d archived).
 const DAY_OPTIONS = [7, 30, 90, 180, 365] as const;
 
-function fmtUsd(value: number): string {
+/**
+ * ONE money precision on this page (X20): cents. The provider/day tables used
+ * to print four decimals beside two-decimal totals, so the same $12.50 read as
+ * two different numbers one column apart.
+ */
+function fmtUsd(value: number | null): string {
+  if (value == null) return '—';
   return `$${value.toFixed(2)}`;
 }
 
@@ -34,24 +41,13 @@ function fmtPct(value: number | null): string {
   return `${value}%`;
 }
 
-const RISK_BADGE_STYLES: Record<MarginRiskLevel, string> = {
-  action: 'bg-red-100 text-red-700',
-  warning: 'bg-yellow-100 text-yellow-800',
-  none: 'bg-green-100 text-green-800',
-};
-const RISK_BADGE_LABELS: Record<MarginRiskLevel, string> = {
-  action: 'Action',
-  warning: 'Warning',
-  none: 'OK',
-};
+/** The daily-limit share above which a business's spend is called out. */
+const DAILY_LIMIT_HOT_PCT = 80;
 
-function RiskBadge({ level }: { level: MarginRiskLevel }) {
-  return (
-    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${RISK_BADGE_STYLES[level]}`}>
-      {RISK_BADGE_LABELS[level]}
-    </span>
-  );
-}
+// Two constants rather than one ternary inside a className: no single class
+// string mixes a coloured background with gray text.
+const PCT_OF_LIMIT_HOT = 'bg-red-100 text-red-700';
+const PCT_OF_LIMIT_OK = 'bg-gray-100 text-gray-600';
 
 // Shared shape of the By-Provider and By-Day mini tables — same three columns
 // (name, cost, calls), differing only in the row identity/label and the
@@ -101,7 +97,7 @@ function CostMiniTable<T>({
           {rows.map((row) => (
             <tr key={rowKey(row)} className="hover:bg-gray-50">
               <td className={`px-4 py-2 ${primaryClassName}`}>{primaryLabel(row)}</td>
-              <td className="px-4 py-2 text-right text-gray-700">${totalUsd(row).toFixed(4)}</td>
+              <td className="px-4 py-2 text-right text-gray-700">{fmtUsd(totalUsd(row))}</td>
               <td className="px-4 py-2 text-right text-gray-500">{formatAdminCount(callCount(row))}</td>
             </tr>
           ))}
@@ -122,13 +118,13 @@ function byBusinessColumns(days: number): DataTableColumn<ByBusinessRow>[] {
     {
       key: 'tier',
       header: 'Tier',
-      render: (row) => <span className="capitalize text-gray-600">{row.subscriptionTier}</span>,
+      render: (row) => <StatusBadge vocab="tier" value={row.subscriptionTier} />,
     },
     {
       key: 'total',
       header: `Period Total (${days}d)`,
       className: 'text-right',
-      render: (row) => `$${row.totalUsd.toFixed(2)}`,
+      render: (row) => fmtUsd(row.totalUsd),
       sortValue: (row) => row.totalUsd,
     },
     {
@@ -143,8 +139,8 @@ function byBusinessColumns(days: number): DataTableColumn<ByBusinessRow>[] {
       header: 'Today',
       className: 'text-right',
       render: (row) => (
-        <span className={row.pctOfDailyLimit >= 80 ? 'font-medium text-red-700' : 'text-gray-700'}>
-          ${row.todayUsd.toFixed(2)}
+        <span className={row.pctOfDailyLimit >= DAILY_LIMIT_HOT_PCT ? 'font-medium text-red-700' : 'text-gray-700'}>
+          {fmtUsd(row.todayUsd)}
         </span>
       ),
       sortValue: (row) => row.todayUsd,
@@ -153,7 +149,7 @@ function byBusinessColumns(days: number): DataTableColumn<ByBusinessRow>[] {
       key: 'dailyLimit',
       header: 'Daily Limit',
       className: 'text-right',
-      render: (row) => `$${row.dailyLimitUsd.toFixed(2)}`,
+      render: (row) => fmtUsd(row.dailyLimitUsd),
     },
     {
       key: 'pctOfLimit',
@@ -162,7 +158,7 @@ function byBusinessColumns(days: number): DataTableColumn<ByBusinessRow>[] {
       render: (row) => (
         <span
           className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-            row.pctOfDailyLimit >= 80 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+            row.pctOfDailyLimit >= DAILY_LIMIT_HOT_PCT ? PCT_OF_LIMIT_HOT : PCT_OF_LIMIT_OK
           }`}
         >
           {row.pctOfDailyLimit}%
@@ -174,6 +170,11 @@ function byBusinessColumns(days: number): DataTableColumn<ByBusinessRow>[] {
 }
 
 function MarginSection({ margin }: { margin: MarginData }) {
+  // The three ratio columns ($/Response, Fallback %, Flagged %) are diagnostic
+  // depth, not the triage read (X19): nine numeric columns hid the Risk column
+  // that the table exists for. They stay one click away.
+  const [showRatios, setShowRatios] = useState(false);
+  const columnCount = showRatios ? 9 : 6;
   return (
     <div className="mt-8">
       <div className="mb-4 flex items-center gap-3">
@@ -190,7 +191,7 @@ function MarginSection({ margin }: { margin: MarginData }) {
             <p className="text-sm font-semibold text-gray-700">Platform Overview</p>
             <p className="mt-0.5 text-xs text-gray-400">API/LLM variable COGS vs MRR</p>
           </div>
-          <RiskBadge level={margin.platform.riskLevel} />
+          <StatusBadge vocab="marginRisk" value={margin.platform.riskLevel} />
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -220,45 +221,59 @@ function MarginSection({ margin }: { margin: MarginData }) {
 
       {/* Top accounts table */}
       <div className="mt-4 rounded-lg border border-gray-200 bg-white">
-        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
           <h3 className="text-sm font-semibold text-gray-700">Top Accounts by API Cost</h3>
-          <span className="text-xs text-gray-400">
-            Warning ≥{margin.thresholds.accountWarningPct}% &nbsp;·&nbsp; Action ≥
-            {margin.thresholds.accountActionPct}% of MRR
-          </span>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-gray-400">
+              Warning ≥{margin.thresholds.accountWarningPct}% &nbsp;·&nbsp; Action ≥
+              {margin.thresholds.accountActionPct}% of MRR
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowRatios((current) => !current)}
+              aria-expanded={showRatios}
+              aria-controls="margin-accounts-table"
+              className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {showRatios ? 'Hide ratios' : 'Show ratios'}
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-100 text-sm">
+          <table id="margin-accounts-table" className="min-w-full divide-y divide-gray-100 text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Account</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Tier</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">MRR</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">API Cost</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">Cost % MRR</th>
-                <th className="px-4 py-3 text-center font-medium text-gray-500">Risk</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">$/Response</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">Fallback %</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500">Flagged %</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">Account</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">Tier</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-600">MRR</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-600">API Cost</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-600">Cost % MRR</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-600">Risk</th>
+                {showRatios && (
+                  <>
+                    <th className="px-4 py-3 text-right font-medium text-gray-600">$/Response</th>
+                    <th className="px-4 py-3 text-right font-medium text-gray-600">Fallback %</th>
+                    <th className="px-4 py-3 text-right font-medium text-gray-600">Flagged %</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {margin.topAccountsByCost.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan={columnCount} className="px-4 py-6 text-center text-gray-400">
                     No account cost data for this window.
                   </td>
                 </tr>
               )}
+              {/* No row tint (X19): the Risk badge already says it, and a tinted
+                  row fought the hover state and put gray text on a colour. */}
               {margin.topAccountsByCost.map((row: AccountMarginRow) => (
-                <tr
-                  key={row.accountId}
-                  className={`hover:bg-gray-50 ${
-                    row.riskLevel === 'action' ? 'bg-red-50' : row.riskLevel === 'warning' ? 'bg-yellow-50' : ''
-                  }`}
-                >
+                <tr key={row.accountId} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-800">{row.displayName}</td>
-                  <td className="px-4 py-3 capitalize text-gray-600">{row.subscriptionTier}</td>
+                  <td className="px-4 py-3">
+                    <StatusBadge vocab="tier" value={row.subscriptionTier} />
+                  </td>
                   <td className="px-4 py-3 text-right text-gray-700">{fmtUsd(row.mrrUsd)}</td>
                   <td className="px-4 py-3 text-right text-gray-700">{fmtUsd(row.variableApiCostUsd)}</td>
                   <td
@@ -273,13 +288,15 @@ function MarginSection({ margin }: { margin: MarginData }) {
                     {fmtPct(row.costPctOfMrr)}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <RiskBadge level={row.riskLevel} />
+                    <StatusBadge vocab="marginRisk" value={row.riskLevel} />
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-600">
-                    {row.avgCostPerResponseUsd != null ? `$${row.avgCostPerResponseUsd.toFixed(4)}` : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-600">{fmtPct(row.fallbackRatePct)}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{fmtPct(row.flaggedRatePct)}</td>
+                  {showRatios && (
+                    <>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmtUsd(row.avgCostPerResponseUsd)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmtPct(row.fallbackRatePct)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmtPct(row.flaggedRatePct)}</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -331,7 +348,7 @@ function CostsContent({
         <div className="flex items-baseline justify-between">
           <p className="text-sm font-semibold text-gray-700">Today&apos;s Platform Spend</p>
           <p className={`text-sm font-medium ${globalBarRed ? 'text-red-700' : 'text-gray-600'}`}>
-            ${data.todayTotalUsd.toFixed(2)} / ${data.globalDailyLimitUsd.toFixed(2)}
+            {fmtUsd(data.todayTotalUsd)} / {fmtUsd(data.globalDailyLimitUsd)}
           </p>
         </div>
         <div className="mt-2 h-3 w-full rounded-full bg-gray-100">
@@ -356,13 +373,15 @@ function CostsContent({
           totalUsd={(row) => row.totalUsd}
           callCount={(row) => row.callCount}
         />
+        {/* The header carries the zone (X20): `formatAdminDate` is bare by
+            design, and a per-row "UTC" would be noise in a date-only column. */}
         <CostMiniTable
           title="By Day"
-          columnLabel="Date"
+          columnLabel="Date (UTC)"
           days={days}
           rows={data.byDay}
           rowKey={(row) => row.day}
-          primaryLabel={(row) => row.day}
+          primaryLabel={(row) => formatAdminDate(row.day, row.day)}
           primaryClassName="text-gray-700"
           totalUsd={(row) => row.totalUsd}
           callCount={(row) => row.callCount}

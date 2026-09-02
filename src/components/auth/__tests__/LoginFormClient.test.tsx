@@ -122,6 +122,37 @@ describe('LoginFormClient (admin)', () => {
     expect(screen.getByText(/owner portal/i)).toBeInTheDocument();
   });
 
+  // X32: behind the admin door everything is gray-900; the sign-in button and
+  // focus rings were the only blue on the way in.
+  it('themes the admin variant with the console primary and no blue', () => {
+    const html = renderToStaticMarkup(
+      createElement(LoginFormInner, {
+        portal: 'admin',
+        brandName: 'RepWorth Admin',
+        showGoogleButton: false,
+        defaultRoute: '/admin/overview',
+        allowedRoles: ['admin'] as const,
+      }),
+    );
+    expect(html).not.toMatch(/\bblue-\d/);
+    expect(html).toContain('bg-gray-900');
+    expect(html).toContain('focus:ring-gray-900');
+  });
+
+  it('keeps the owner variant on its own accent', () => {
+    const html = renderToStaticMarkup(
+      createElement(LoginFormInner, {
+        portal: 'owner',
+        brandName: 'RepWorth',
+        showGoogleButton: false,
+        defaultRoute: '/dashboard',
+        allowedRoles: ['owner'] as const,
+      }),
+    );
+    expect(html).toContain('bg-blue-600');
+    expect(html).not.toContain('bg-gray-900');
+  });
+
   it('renders the Google button when showGoogleButton is true', () => {
     const html = renderToStaticMarkup(
       createElement(LoginFormInner, {

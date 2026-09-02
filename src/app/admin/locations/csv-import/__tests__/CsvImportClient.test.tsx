@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { CsvImportClient } from '../CsvImportClient';
+import { CSV_IMPORT_MACRO_PATH, CsvImportClient } from '../CsvImportClient';
 import { validateLocationsCsvClient } from '../csv-validation';
 
 describe('CsvImportClient', () => {
@@ -56,10 +56,11 @@ describe('CsvImportClient', () => {
     expect(await screen.findByText('1 of 2 imported')).toBeInTheDocument();
     expect(screen.getByText('Line 3: Missing placeId.')).toBeInTheDocument();
     expect(screen.getByText('Row 2: Missing placeId.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /contact support/i })).toHaveAttribute(
-      'href',
-      '/help/contact',
-    );
+    // X24: the operator IS support — the report points at the internal runbook,
+    // not at the customer-facing contact form.
+    expect(screen.queryByRole('link', { name: /contact support/i })).not.toBeInTheDocument();
+    expect(screen.getByText(CSV_IMPORT_MACRO_PATH)).toBeInTheDocument();
+    expect(screen.getByText(CSV_IMPORT_MACRO_PATH).tagName).toBe('CODE');
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/locations/csv-import',
       expect.objectContaining({
@@ -67,6 +68,55 @@ describe('CsvImportClient', () => {
         body: expect.any(FormData),
       }),
     );
+  });
+
+  // X24: no more pasting a UUID from a database console.
+  it('finds the account by business name and fills the Account ID from the picked match', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/businesses?')) {
+        return new Response(
+          JSON.stringify({
+            businesses: [
+              {
+                id: 'biz-1',
+                accountId: '11111111-2222-4333-8444-555555555555',
+                name: 'Northstar Dental',
+                subscriptionStatus: 'active',
+              },
+            ],
+            total: 1,
+            responseMetricsWindowDays: 30,
+            limit: 8,
+            offset: 0,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CsvImportClient />);
+
+    await user.type(screen.getByRole('combobox', { name: /find the account by business name/i }), 'North');
+
+    const match = await screen.findByRole('button', { name: /Northstar Dental/ });
+    // The search reuses the Businesses list's `q` search — one owner of name lookup.
+    const searchUrl = String(fetchMock.mock.calls[0]![0]);
+    expect(searchUrl).toBe('/api/admin/businesses?q=North&limit=8');
+    // Debounced: one request for the settled term, not one per keystroke.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(match);
+
+    expect(screen.getByLabelText(/^account id$/i)).toHaveValue('11111111-2222-4333-8444-555555555555');
+    expect(screen.getByText('The billing account for Northstar Dental.')).toBeInTheDocument();
+    // The picked list closes.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Northstar Dental/ })).not.toBeInTheDocument();
+    });
   });
 
   it('prevents duplicate submits while an import is in flight', async () => {

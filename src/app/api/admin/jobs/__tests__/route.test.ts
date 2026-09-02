@@ -14,7 +14,12 @@ const { mockSql, sqlReturnQueue, mockGetServerConfig, configState, mockFetch } =
   return {
     sqlReturnQueue,
     configState,
-    mockSql: vi.fn((_s: TemplateStringsArray, ..._v: unknown[]) => {
+    mockSql: vi.fn((s: TemplateStringsArray, ..._v: unknown[]) => {
+      // The service composes an inline fragment (the optional topic predicate,
+      // empty when no topic is asked for) into its page + count queries. A
+      // fragment is not a round-trip, so it must not consume a seeded result.
+      const text = s.join('').trim();
+      if (text === '' || text.startsWith('AND jo.topic')) return { fragment: text };
       const r = sqlReturnQueue.shift() ?? [];
       return Promise.resolve(Array.isArray(r) ? r : [r]);
     }),
@@ -36,10 +41,13 @@ const SECRET = 'a'.repeat(64);
 const WORKER_URL = 'https://worker.example.com';
 
 function seedOutboxRows(): void {
+  // Summary, failed page, failed count, distinct failed topics — the four
+  // sequential reads getAdminJobsData makes (X15 added the topics read).
   sqlReturnQueue.push(
     [{ pending: 1, dispatching: 0, dispatched: 2, failed: 3, completed_today: 4 }],
     [],
     [{ total: 3 }],
+    [],
   );
 }
 

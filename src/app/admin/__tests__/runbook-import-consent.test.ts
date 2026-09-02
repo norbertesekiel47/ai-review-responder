@@ -56,6 +56,42 @@ function fixText(block: string): string {
   return block.slice(start);
 }
 
+// X34: the quick reference is a list of cards with labelled First check / Fix
+// step lists, and every database column or enum value is set in `code`.
+describe('admin runbook renders scenarios as labelled cards', () => {
+  const source = readFileSync(RUNBOOK_PAGE, 'utf8');
+
+  it('has no four-column table any more', () => {
+    expect(source).not.toContain('<table');
+    expect(source).not.toContain('<th');
+  });
+
+  it('renders each scenario as a card with labelled First check and Fix lists', () => {
+    expect(source).toContain('<h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600">First check</h4>');
+    expect(source).toContain('<h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600">Fix</h4>');
+    expect(source).toContain('{s.firstCheck.map((step, index) => (');
+    expect(source).toContain('{s.fix.map((step, index) => (');
+    // Every scenario carries both lists as ordered steps.
+    const scenarios = scenariosArray(source);
+    expect(scenarios.match(/firstCheck: steps\(/g)).toHaveLength(5);
+    expect(scenarios.match(/fix: steps\(/g)).toHaveLength(5);
+  });
+
+  it('sets column names in code via <Col>, never as bare prose', () => {
+    expect(source).toContain('function Col(');
+    const scenarios = scenariosArray(source);
+    for (const column of [
+      'owner_email_bounced',
+      'awaiting_owner_connect',
+      'accounts.weekly_summary_enabled',
+      'zernio_backfill_runs.completed_at',
+      'businesses.import_decision',
+    ]) {
+      expect(scenarios, `${column} is not wrapped in <Col>`).toContain(`<Col>${column}</Col>`);
+    }
+  });
+});
+
 describe('admin runbook A5 reflects the Import consent gate', () => {
   it('runbook A5 conditions the backfill re-enqueue instruction on accepted import consent', () => {
     const block = scenarioBlock(readFileSync(RUNBOOK_PAGE, 'utf8'), 'A5');

@@ -1,10 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
+import { LastUpdated } from '@/components/admin/ui/LastUpdated';
 
 interface Rate {
   numerator: number;
@@ -62,7 +64,11 @@ function RecoveryForm({
   onUnsuspend: (input: { accountId: string; note: string }) => void;
 }) {
   const [note, setNote] = useState('');
+  // Collapsed until asked for (X21): a textarea on every row made the table a
+  // wall of forms. The button is the row's one affordance; the form is the act.
+  const [open, setOpen] = useState(false);
   const trimmedNote = note.trim();
+  const formId = `unsuspend-${suspension.policyId}`;
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -78,8 +84,23 @@ function RecoveryForm({
     );
   }
 
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-expanded="false"
+        aria-controls={formId}
+        aria-label={`Unsuspend ${suspension.accountName}…`}
+        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+      >
+        Unsuspend…
+      </button>
+    );
+  }
+
   return (
-    <form onSubmit={submit} className="grid min-w-64 gap-2">
+    <form id={formId} onSubmit={submit} className="grid min-w-64 gap-2">
       <label
         htmlFor={`note-${suspension.policyId}`}
         className="text-xs font-semibold text-gray-900"
@@ -95,16 +116,38 @@ function RecoveryForm({
         required
         className="min-h-20 resize-y rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900"
       />
-      <button
-        type="submit"
-        disabled={pending || !trimmedNote}
-        aria-label={`Unsuspend ${suspension.accountName}`}
-        className="min-h-11 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {pending ? 'Unsuspending…' : 'Unsuspend account'}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="submit"
+          disabled={pending || !trimmedNote}
+          aria-label={`Unsuspend ${suspension.accountName}`}
+          className="min-h-11 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {pending ? 'Unsuspending…' : 'Unsuspend account'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          disabled={pending}
+          className="min-h-11 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
     </form>
   );
+}
+
+/**
+ * Where the account name goes (X21). A location-scoped row has a detail page;
+ * an account-scoped row has no page of its own, so it deep-links the
+ * Businesses list pre-filtered to the account's name (the `q` param the list's
+ * server page honours).
+ */
+function accountHref(item: Pick<SuspensionItem, 'locationId' | 'accountName'>): string {
+  return item.locationId
+    ? `/admin/businesses/${item.locationId}`
+    : `/admin/businesses?q=${encodeURIComponent(item.accountName)}`;
 }
 
 async function fetchSuspensions(): Promise<SuspensionListResponse> {
@@ -164,7 +207,11 @@ function SuspensionRow({
   return (
     <tr className="align-top">
       <td className="px-4 py-4">
-        <p className="font-semibold text-gray-900">{item.accountName}</p>
+        <p className="font-semibold text-gray-900">
+          <Link href={accountHref(item)} className="rounded underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-gray-900">
+            {item.accountName}
+          </Link>
+        </p>
         <p className="mt-1 text-xs text-gray-500">
           {item.locationName ?? 'All locations'} · {item.scope} scope
         </p>
@@ -310,6 +357,11 @@ export function AutonomySuspensionsClient({
   });
   return (
     <section aria-label="Suspended autonomy policies">
+      <LastUpdated
+        updatedAt={query.dataUpdatedAt}
+        refreshing={query.isFetching}
+        onRefresh={() => void query.refetch()}
+      />
       <LiveRegion message={outcome} />
       {outcome && (
         <p className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">

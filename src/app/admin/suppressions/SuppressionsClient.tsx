@@ -11,7 +11,7 @@ import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
-import { StatusBadge } from '@/components/admin/ui/StatusBadge';
+import { StatusBadge, statusLabel } from '@/components/admin/ui/StatusBadge';
 
 /**
  * The §7.2 daily mailbox-servicing surface (#645). Three regions, in the order
@@ -75,12 +75,14 @@ function errorSentence(code: string | undefined, fallback: string): string {
 const ENTRY_NOTE_HELPER =
   "Where this opt-out came from — the reply's subject, date, or message id. Required: this is the audit trail.";
 
+// The console primary (X26): gray-900, like every other admin page — this file
+// used to be the one blue-buttoned surface, outside the palette sweep.
 const PRIMARY_BUTTON =
-  'min-h-11 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
+  'min-h-11 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
 const SECONDARY_BUTTON =
   'min-h-11 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50';
 const FIELD =
-  'w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200';
+  'w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none transition focus:border-gray-900 focus:ring-1 focus:ring-gray-900';
 const SECTION = 'rounded-md border border-gray-200 bg-white p-5';
 const SECTION_TITLE = 'text-sm font-semibold text-gray-900';
 
@@ -201,13 +203,13 @@ function LookupResults({
     {
       key: 'scope',
       header: 'Scope',
-      render: (row) => <StatusBadge status={row.scope} />,
+      render: (row) => <StatusBadge vocab="suppressionScope" value={row.scope} />,
       sortValue: (row) => row.scope,
     },
     {
       key: 'source',
       header: 'Source',
-      render: (row) => <StatusBadge status={row.source} />,
+      render: (row) => <StatusBadge vocab="suppressionSource" value={row.source} />,
       sortValue: (row) => row.source,
     },
     {
@@ -248,8 +250,8 @@ function LookupResults({
       render: (row) => formatTimestamp(row.createdAt),
       sortValue: (row) => row.createdAt,
     },
-    { key: 'scope', header: 'Scope', render: (row) => <StatusBadge status={row.scope} /> },
-    { key: 'source', header: 'Source', render: (row) => <StatusBadge status={row.source} /> },
+    { key: 'scope', header: 'Scope', render: (row) => <StatusBadge vocab="suppressionScope" value={row.scope} /> },
+    { key: 'source', header: 'Source', render: (row) => <StatusBadge vocab="suppressionSource" value={row.source} /> },
     { key: 'reason', header: 'Reason', render: (row) => row.reason },
     {
       key: 'removedBy',
@@ -330,8 +332,8 @@ function CorrectionPanel({
   return (
     <form onSubmit={submit} className="grid gap-3">
       <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
-        {target.normalizedHandle} · {target.scope} · {target.source} ·{' '}
-        {formatTimestamp(target.suppressedAt)}
+        {target.normalizedHandle} · {statusLabel('suppressionScope', target.scope)} ·{' '}
+        {statusLabel('suppressionSource', target.source)} · {formatTimestamp(target.suppressedAt)}
       </p>
       <p className="text-sm font-medium text-gray-900">{CORRECTION_CONFIRM_COPY}</p>
       <label htmlFor="correction-reason" className="text-xs font-semibold text-gray-900">
@@ -587,10 +589,11 @@ function CorrectionSection({
       )}
       {state.isSuccess && state.data === 'already_removed' && (
         // Not green: nothing this admin did took effect, and the recipient
-        // is mailable again. Not red either — no failure occurred.
+        // is mailable again. Not red either — no failure occurred. Yellow is the
+        // console's "attention" colour (amber is off-palette, X26).
         <p
           role="alert"
-          className="mt-3 rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+          className="mt-3 rounded border border-yellow-200 bg-yellow-50 px-4 py-2 text-sm text-yellow-900"
         >
           {CORRECTION_ALREADY_REMOVED_COPY}
         </p>

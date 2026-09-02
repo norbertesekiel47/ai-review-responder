@@ -2,7 +2,7 @@
 //
 // Single owner of the admin nav-badge counts fetch (GET /api/admin/nav-counts)
 // and its react-query wiring. AdminSidebar's Flagged/failed-job badges and
-// OverviewClient's needs-attention strip must read the SAME cache entry — same
+// OverviewClient's "Flagged Open" tile must read the SAME cache entry — same
 // query key, same fetcher, same poll cadence — or the two can disagree on
 // screen at once. Consumers spread `navCountsQueryOptions` into their own
 // `useQuery` call (OverviewClient adds `initialData` seeded from its

@@ -89,8 +89,13 @@ describe('AutonomySuspensionsClient', () => {
     vi.stubGlobal('fetch', fetchMock);
     renderClient();
 
-    const note = await screen.findByLabelText(/unsuspend note for northstar dental/i);
-    const button = screen.getByRole('button', { name: /unsuspend northstar dental/i });
+    // X21: the form is behind one button per row, not open on every row.
+    const reveal = await screen.findByRole('button', { name: 'Unsuspend Northstar Dental…' });
+    expect(screen.queryByLabelText(/unsuspend note for northstar dental/i)).not.toBeInTheDocument();
+    await user.click(reveal);
+
+    const note = screen.getByLabelText(/unsuspend note for northstar dental/i);
+    const button = screen.getByRole('button', { name: 'Unsuspend Northstar Dental' });
     expect(button).toBeDisabled();
     await user.type(note, '  Reviewed with owner.  ');
     await user.click(button);
@@ -105,6 +110,41 @@ describe('AutonomySuspensionsClient', () => {
       }),
     });
     await waitFor(() => expect(button).not.toBeDisabled());
+  });
+
+  // X21: the account name goes somewhere. A location-scoped row has a detail
+  // page; an account-scoped row deep-links the Businesses list filtered to it.
+  it('links the account name to the location detail page or to the filtered Businesses list', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ suspensions: [suspension, locationSuspension] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })));
+    renderClient();
+
+    const links = await screen.findAllByRole('link', { name: 'Northstar Dental' });
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/admin/businesses?q=Northstar%20Dental',
+      `/admin/businesses/${locationSuspension.locationId}`,
+    ]);
+  });
+
+  it('lets the operator cancel a revealed form without submitting', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ suspensions: [suspension] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderClient();
+
+    await user.click(await screen.findByRole('button', { name: 'Unsuspend Northstar Dental…' }));
+    await user.type(screen.getByLabelText(/unsuspend note/i), 'draft');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByLabelText(/unsuspend note/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unsuspend Northstar Dental…' })).toHaveAttribute('aria-expanded', 'false');
+    const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit | undefined]>;
+    expect(calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   });
 
   it('keeps the cached suspension rows visible and adds a last-refresh-failed notice when a background refetch fails', async () => {

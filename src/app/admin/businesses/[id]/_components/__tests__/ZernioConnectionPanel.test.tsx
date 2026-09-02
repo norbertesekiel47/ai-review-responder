@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZernioConnectionPanel } from '../ZernioConnectionPanel';
 import type { ZernioPanelData } from '@/app/admin/businesses/[id]/types';
@@ -75,8 +76,8 @@ describe('ZernioConnectionPanel — reconnect-queue actions', () => {
     expect(screen.getByText(/Drain becomes available once the owner reconnects/i)).toBeInTheDocument();
   });
 
-  it('dismisses a queued response after confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('Dismiss arms an inline confirm that states the consequence and needs a reason before the POST (X4)', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm');
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(JSON.stringify({ ok: true, action: 'dismiss' }), {
@@ -89,25 +90,37 @@ describe('ZernioConnectionPanel — reconnect-queue actions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
 
+    expect(screen.getByText(/Permanently discards this approved reply/)).toBeInTheDocument();
+    const discard = screen.getByRole('button', { name: 'Discard reply' });
+    expect(discard).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText(/Reason \(one line, required\)/), 'Owner asked us to drop it');
+    expect(discard).toBeEnabled();
+    fireEvent.click(discard);
+
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // The route's body is `{action, responseId}` — the reason is a client-side gate, not sent.
     expect(fetchMock).toHaveBeenCalledWith(`/api/admin/businesses/${BUSINESS_ID}/zernio-queue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'dismiss', responseId: RESPONSE_ID }),
     });
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it('does not call the API when dismiss is cancelled', () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+  it('does not call the API when the inline dismiss is cancelled', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     render(<ZernioConnectionPanel businessId={BUSINESS_ID} zernio={panelData()} onChanged={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('button', { name: 'Discard reply' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('renders an inline error and does not refetch on failure', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ error: 'not_awaiting' }), {
         status: 409,
@@ -117,7 +130,52 @@ describe('ZernioConnectionPanel — reconnect-queue actions', () => {
     const onChanged = vi.fn();
     render(<ZernioConnectionPanel businessId={BUSINESS_ID} zernio={panelData()} onChanged={onChanged} />);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    await userEvent.type(screen.getByLabelText(/Reason \(one line, required\)/), 'test');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard reply' }));
     await waitFor(() => expect(screen.getByText('not_awaiting')).toBeInTheDocument());
     expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('ZernioConnectionPanel — manual disconnect', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('arms an inline confirm with the consequence and only then POSTs the disconnect (X4)', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    const onChanged = vi.fn();
+    render(<ZernioConnectionPanel businessId={BUSINESS_ID} zernio={panelData()} onChanged={onChanged} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manually disconnect' }));
+    expect(screen.getByText(/Severs this business's Google connection/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect from Zernio' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith('/api/zernio/disconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId: BUSINESS_ID }),
+    });
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('Cancel disarms the disconnect without a request', () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    render(<ZernioConnectionPanel businessId={BUSINESS_ID} zernio={panelData()} onChanged={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Manually disconnect' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('button', { name: 'Disconnect from Zernio' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Manually disconnect' })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -1,11 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { createBrowserSupabaseClient } from '@/lib/db/browser';
+import { mfaChallengePath } from '@/lib/auth/mfa';
+import type { AdminShellIdentity } from '@/lib/admin/shell-context';
 import { ADMIN_NAV_GROUPS, type AdminNavItem } from './nav-config';
 import { navCountsQueryOptions, type NavCounts } from './nav-counts-query';
+
+// The admin console is DESKTOP-FIRST. Operators work it from a laptop against
+// logs and dashboards; the phone layout below (top bar + full-screen drawer)
+// exists so a page can be READ on call, not so the console can be operated
+// from a phone. Data tables scroll inside their own container, forms keep
+// their desktop measure, and no phone-specific affordance beyond this drawer
+// is owed. Treat a phone-only admin bug as a phone-only bug.
 
 function isActive(pathname: string | null, href: string): boolean {
   return pathname === href || Boolean(pathname?.startsWith(`${href}/`));
@@ -45,7 +55,8 @@ function NavGroups({ pathname, counts, onNavigate }: {
     <nav className="flex-1 space-y-4 overflow-y-auto px-2 pb-4">
       {ADMIN_NAV_GROUPS.map((group) => (
         <div key={group.label}>
-          <div className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-widest text-gray-500">
+          {/* 11px / gray-400: the smallest legible step on gray-900 (X31). */}
+          <div className="px-2.5 pb-1 text-[11px] font-medium uppercase tracking-widest text-gray-400">
             {group.label}
           </div>
           <div className="space-y-0.5">
@@ -59,7 +70,72 @@ function NavGroups({ pathname, counts, onNavigate }: {
   );
 }
 
-export function AdminSidebar() {
+/**
+ * Who is signed in, whether the session is stepped up, and the way out (X7).
+ * The only sign-out under /admin — the same Supabase browser sign-out the owner
+ * `AccountMenu` uses, landing on the ADMIN login (an admin sent to `/login`
+ * dead-ends: that form is owner-only).
+ */
+function SidebarFooter({ identity, pathname }: { identity: AdminShellIdentity | null; pathname: string | null }) {
+  const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!identity) return null;
+
+  async function signOut() {
+    setError(null);
+    setSigningOut(true);
+    try {
+      const { error: signOutError } = await createBrowserSupabaseClient().auth.signOut();
+      if (signOutError) throw signOutError;
+      router.push('/admin/login');
+      router.refresh();
+    } catch {
+      setSigningOut(false);
+      setError('Sign out failed. You are still signed in.');
+    }
+  }
+
+  return (
+    <div className="border-t border-gray-800 px-4 py-3 text-xs">
+      <p className="truncate font-medium text-gray-200" title={identity.email ?? undefined}>
+        {identity.email ?? 'Signed in'}
+      </p>
+      <p className="mt-0.5 flex items-center gap-1.5 text-gray-400">
+        <span
+          aria-hidden="true"
+          className={`inline-block size-1.5 rounded-full ${identity.aal2 ? 'bg-green-400' : 'bg-gray-500'}`}
+        />
+        {identity.aal2 ? (
+          'Step-up verified (AAL2)'
+        ) : (
+          <>
+            Step-up not verified ·{' '}
+            <Link href={mfaChallengePath(pathname ?? '/admin/overview')} className="text-gray-200 underline hover:text-white">
+              Verify
+            </Link>
+          </>
+        )}
+      </p>
+      <button
+        type="button"
+        onClick={() => { void signOut(); }}
+        disabled={signingOut}
+        className="mt-2 rounded-md border border-gray-700 px-2.5 py-1 text-xs font-medium text-gray-200 hover:bg-gray-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {signingOut ? 'Signing out…' : 'Sign out'}
+      </button>
+      {error && (
+        <p role="alert" className="mt-2 text-red-300">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function AdminSidebar({ identity = null }: { identity?: AdminShellIdentity | null }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
@@ -105,6 +181,7 @@ export function AdminSidebar() {
           RepWorth <span className="align-top text-[10px] font-semibold text-red-400">ADMIN</span>
         </Link>
         <NavGroups pathname={pathname} counts={counts} />
+        <SidebarFooter identity={identity} pathname={pathname} />
       </aside>
 
       {/* Mobile top bar + drawer */}
@@ -117,6 +194,8 @@ export function AdminSidebar() {
           type="button"
           onClick={() => setMobileOpen((open) => !open)}
           aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={mobileOpen}
+          aria-controls="admin-mobile-nav"
           className="rounded-md p-2 text-gray-300 hover:bg-gray-800"
         >
           <svg className="size-5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" aria-hidden="true">
@@ -129,12 +208,19 @@ export function AdminSidebar() {
         </button>
       </div>
       {mobileOpen && (
+        // A full-screen drawer that traps focus and locks scroll IS a modal
+        // dialog; say so, or a screen reader announces a bare focused div (X33).
         <div
+          id="admin-mobile-nav"
           ref={mobilePanelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Admin navigation"
           tabIndex={-1}
           className="fixed inset-0 top-12 z-40 flex flex-col bg-gray-900 pt-2 outline-none md:hidden"
         >
           <NavGroups pathname={pathname} counts={counts} onNavigate={() => setMobileOpen(false)} />
+          <SidebarFooter identity={identity} pathname={pathname} />
         </div>
       )}
       {/* No in-flow mobile spacer here: this component is a flex-row sibling of

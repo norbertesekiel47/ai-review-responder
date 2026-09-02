@@ -8,7 +8,19 @@ import { FormSchema, type FormData } from './schema';
 import { BusinessInfoSection } from './_components/BusinessInfoSection';
 import { OwnerInfoSection } from './_components/OwnerInfoSection';
 
-export function NewBusinessClient() {
+/**
+ * The one-line Beta comp notice (X10). The operator inviting a founding
+ * customer needs to know, before they click, whether the comp coupon will ride
+ * on this owner's checkout — `BETA_COMP_COUPON_ID` is a kill switch read at
+ * checkout time, and "did I just invite them without the comp?" has no answer
+ * on this screen otherwise. The boolean comes from the server page.
+ */
+export const BETA_COMP_ON_COPY =
+  'Beta comp is on: this owner’s checkout carries the beta coupon (admin-invited accounts only).';
+export const BETA_COMP_OFF_COPY =
+  'Beta comp is off: this owner pays full price at checkout. Set BETA_COMP_COUPON_ID before inviting a founding customer.';
+
+export function NewBusinessClient({ betaCompActive }: { betaCompActive: boolean }) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -44,7 +56,9 @@ export function NewBusinessClient() {
         return;
       }
 
-      router.push(`/admin/businesses/${json.id}`);
+      // `invited=1` makes the detail page flash "Invite email sent to …" (X11);
+      // the address itself comes from the detail read, not the URL.
+      router.push(`/admin/businesses/${json.id}?invited=1`);
     } catch {
       setServerError('Network error — please try again');
     } finally {
@@ -57,6 +71,17 @@ export function NewBusinessClient() {
     // AdminPage owns the page width/padding, but a form stretched across the
     // full console width is unreadable even at three fields.
     <form onSubmit={handleSubmit(onSubmit)} className="flex max-w-2xl flex-col gap-6">
+      <p
+        data-testid="beta-comp-notice"
+        className={`rounded-md border px-4 py-2.5 text-sm ${
+          betaCompActive
+            ? 'border-green-200 bg-green-50 text-green-800'
+            : 'border-yellow-200 bg-yellow-50 text-yellow-900'
+        }`}
+      >
+        {betaCompActive ? BETA_COMP_ON_COPY : BETA_COMP_OFF_COPY}
+      </p>
+
       {/* Section 1 — Business Info */}
       <BusinessInfoSection register={register} errors={errors} />
 

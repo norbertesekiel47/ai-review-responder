@@ -8,25 +8,51 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminSidebar } from '../AdminSidebar';
 import { ADMIN_NAV_GROUPS } from '../nav-config';
 
-const { mockUsePathname } = vi.hoisted(() => ({ mockUsePathname: vi.fn() }));
-vi.mock('next/navigation', () => ({ usePathname: mockUsePathname }));
+const { mockUsePathname, pushMock, refreshMock, signOutMock } = vi.hoisted(() => ({
+  mockUsePathname: vi.fn(),
+  pushMock: vi.fn(),
+  refreshMock: vi.fn(),
+  signOutMock: vi.fn(),
+}));
+vi.mock('next/navigation', () => ({
+  usePathname: mockUsePathname,
+  useRouter: () => ({ push: pushMock, refresh: refreshMock }),
+}));
+vi.mock('@/lib/db/browser', () => ({
+  createBrowserSupabaseClient: () => ({ auth: { signOut: signOutMock } }),
+}));
 
-function renderSidebar() {
+type SidebarProps = Parameters<typeof AdminSidebar>[0];
+
+function renderSidebar(props: SidebarProps = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <AdminSidebar />
+      <AdminSidebar {...props} />
     </QueryClientProvider>,
   );
 }
 
+const IDENTITY = { email: 'ops@repworth.com', aal2: true };
+
 describe('AdminSidebar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    pushMock.mockClear();
+    refreshMock.mockClear();
+    signOutMock.mockReset().mockResolvedValue({ error: null });
     mockUsePathname.mockReturnValue('/admin/overview');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ flaggedOpen: 3, failedJobs: 1 }), { status: 200 }),
     ));
+  });
+
+  it('renders group labels at 11px in gray-400 — the legible floor on gray-900 (X31)', () => {
+    renderSidebar();
+    const label = screen.getByText(ADMIN_NAV_GROUPS[0].label);
+    expect(label.className).toContain('text-[11px]');
+    expect(label.className).toContain('text-gray-400');
+    expect(label.className).not.toContain('text-[10px]');
   });
 
   it('renders every nav item from every group', () => {
@@ -61,9 +87,13 @@ describe('AdminSidebar', () => {
     const trigger = screen.getByRole('button', { name: /open navigation/i });
     await user.click(trigger);
 
-    expect(screen.getByRole('button', { name: /close navigation/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /close navigation/i })).toHaveAttribute('aria-expanded', 'true');
     const panel = container.querySelector('[tabindex="-1"]');
     expect(panel).not.toBeNull();
+    // A focus-trapping, scroll-locking full-screen drawer is a modal dialog (X33).
+    expect(panel).toHaveAttribute('role', 'dialog');
+    expect(panel).toHaveAttribute('aria-modal', 'true');
+    expect(panel).toHaveAttribute('aria-label', 'Admin navigation');
     expect(document.body.style.overflow).toBe('hidden');
     await waitFor(() => expect(panel).toHaveFocus());
 
@@ -74,6 +104,64 @@ describe('AdminSidebar', () => {
     });
     expect(document.body.style.overflow).toBe('');
     expect(trigger).toHaveFocus();
+  });
+});
+
+describe('AdminSidebar footer (X7)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    pushMock.mockClear();
+    refreshMock.mockClear();
+    signOutMock.mockReset().mockResolvedValue({ error: null });
+    mockUsePathname.mockReturnValue('/admin/flagged');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ flaggedOpen: 0, failedJobs: 0 }), { status: 200 }),
+    ));
+  });
+
+  it('renders no footer without an identity (signed-out shell renders)', () => {
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
+  });
+
+  it('shows the signed-in email and a verified step-up state', () => {
+    renderSidebar({ identity: IDENTITY });
+    const aside = screen.getByRole('complementary');
+    expect(aside).toHaveTextContent('ops@repworth.com');
+    expect(aside).toHaveTextContent('Step-up verified (AAL2)');
+    expect(screen.queryByRole('link', { name: 'Verify' })).toBeNull();
+  });
+
+  it('offers a Verify link back to the current page when the session is not stepped up', () => {
+    renderSidebar({ identity: { email: 'ops@repworth.com', aal2: false } });
+    expect(screen.getByRole('complementary')).toHaveTextContent('Step-up not verified');
+    expect(screen.getByRole('link', { name: 'Verify' })).toHaveAttribute(
+      'href',
+      '/mfa/challenge?next=%2Fadmin%2Fflagged',
+    );
+  });
+
+  it('signs out through the Supabase browser client and lands on the ADMIN login', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ identity: IDENTITY });
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+
+    await waitFor(() => expect(signOutMock).toHaveBeenCalledTimes(1));
+    expect(pushMock).toHaveBeenCalledWith('/admin/login');
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed sign-out inline and stays signed in', async () => {
+    const user = userEvent.setup();
+    signOutMock.mockResolvedValue({ error: new Error('network') });
+    renderSidebar({ identity: IDENTITY });
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign out failed');
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
   });
 });
 

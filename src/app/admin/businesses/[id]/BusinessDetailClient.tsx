@@ -4,12 +4,13 @@
 // server page additionally gates with requireAdminPage and supplies both reads
 // as react-query initialData, so first paint has data (spec §4).
 
-import Link from 'next/link';
+import { type ReactNode } from 'react';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState } from '@/components/admin/ui/states';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
 import { HealthBadge } from '@/components/admin/ui/HealthBadge';
+import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { ProfileEditor } from './_components/ProfileEditor';
 import { TrackedKeywordsSection } from './_components/TrackedKeywordsSection';
 import { ManualRankingSection } from './_components/ManualRankingSection';
@@ -17,6 +18,7 @@ import { ReviewsList } from './_components/ReviewsList';
 import { ChannelsPanel } from './_components/ChannelsPanel';
 import { ZernioConnectionPanel } from './_components/ZernioConnectionPanel';
 import { PastDueExtensionPanel } from './_components/PastDueExtensionPanel';
+import { OwnerEmailBounceNotice } from './_components/OwnerEmailBounceNotice';
 import { AutoApprovalDiagnosticsPanel } from './_components/AutoApprovalDiagnosticsPanel';
 import { SolicitationBatchPanel } from './_components/SolicitationBatchPanel';
 import { useBusinessDetail } from './_hooks/useBusinessDetail';
@@ -32,6 +34,87 @@ import type {
 
 /** Audit tables were hand-sliced to 10 rows; DataTable now pages at the same size. */
 const AUDIT_PAGE_SIZE = 10;
+
+/**
+ * The page's sections, in page order, as the sticky jump-link row renders them
+ * (X27). Twelve stacked panels in one column had no wayfinding — the Zernio
+ * panel the runbook sends an operator to sat about eight screens down. Each id
+ * is the anchor on the section's wrapper; `scroll-mt-*` on the wrapper keeps
+ * the heading clear of the sticky row after the jump.
+ */
+const SECTION_ANCHORS = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'reviews', label: 'Reviews' },
+  { id: 'engagement', label: 'Engagement' },
+  { id: 'keywords', label: 'Keywords' },
+  { id: 'ranking', label: 'Ranking' },
+  { id: 'channels', label: 'Channels' },
+  { id: 'zernio', label: 'Zernio' },
+  { id: 'audit', label: 'Audit log' },
+] as const;
+
+type SectionId = (typeof SECTION_ANCHORS)[number]['id'];
+
+const ANCHOR_CLASS = 'scroll-mt-14';
+
+function JumpLinks({ available }: { available: ReadonlySet<SectionId> }) {
+  return (
+    <nav
+      aria-label="Sections"
+      className="sticky top-0 z-20 -mx-4 mt-4 flex gap-1 overflow-x-auto border-b border-gray-200 bg-gray-50/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6"
+    >
+      {SECTION_ANCHORS.filter((section) => available.has(section.id)).map((section) => (
+        <a
+          key={section.id}
+          href={`#${section.id}`}
+          onClick={() => {
+            // A jump into a collapsed section opens it first; a browser scrolls
+            // to a closed <details> but does not expand it.
+            const target = document.getElementById(section.id);
+            if (target instanceof HTMLDetailsElement) target.open = true;
+          }}
+          className="whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+        >
+          {section.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * A default-collapsed card (X27) for the sections an operator opens on purpose
+ * rather than on every visit — Engagement, Keywords, Ranking. A native
+ * <details>, so the state needs no JS and the jump row can open it by setting
+ * `.open`. The <summary> carries the section's h2 so the heading outline is
+ * unchanged whether the card is open or closed.
+ */
+function CollapsibleSection({
+  id,
+  title,
+  aside,
+  children,
+}: {
+  id: SectionId;
+  title: string;
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <details id={id} className={`group mt-8 rounded-lg border border-gray-200 bg-white ${ANCHOR_CLASS}`}>
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-6 py-4 [&::-webkit-details-marker]:hidden">
+        <span aria-hidden="true" className="text-gray-400 transition-transform group-open:rotate-90">
+          ›
+        </span>
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        {aside}
+        <span className="ml-auto text-xs text-gray-500 group-open:hidden">Show</span>
+        <span className="ml-auto hidden text-xs text-gray-500 group-open:inline">Hide</span>
+      </summary>
+      <div className="px-6 pb-6">{children}</div>
+    </details>
+  );
+}
 
 /**
  * "Resend invite" (plan step 9 / T7). Visible only while the Account is
@@ -165,6 +248,7 @@ export function BusinessDetailClient({
     channelsError,
     invalidate,
     clearBounceFlag,
+    bounceFlagState,
     resendInvite,
     resendInviteState,
   } = useBusinessDetail(businessId, { initialDetail, initialChannels });
@@ -207,6 +291,12 @@ export function BusinessDetailClient({
     ? `https://www.google.com/maps/place/?q=place_id:${business.googlePlaceId}`
     : null;
 
+  // Only sections that render get a jump link — a link to nothing is worse
+  // than no link.
+  const availableSections = new Set<SectionId>(['profile', 'reviews', 'keywords', 'ranking', 'channels', 'zernio']);
+  if (business.churnScore) availableSections.add('engagement');
+  if (approvalAuditLog.length > 0 || accountAuditLog.length > 0) availableSections.add('audit');
+
   return (
     <>
       {isError && (
@@ -218,27 +308,14 @@ export function BusinessDetailClient({
         </div>
       )}
 
-      {/* Back link + meta row — AdminPage owns the title/eyebrow above this. */}
-      <Link
-        href="/admin/businesses"
-        className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
-      >
-        <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-        </svg>
-        Back to Businesses
-      </Link>
-
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+      {/* Meta row — AdminPage owns the title, eyebrow and the breadcrumb back to
+          the list (X28), so nothing here repeats the wayfinding. */}
+      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
         {business.churnScore && (
           <HealthBadge level={business.churnScore.level} score={business.churnScore.score} />
         )}
-        <span className="rounded bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
-          {business.subscriptionStatus.replace(/_/g, ' ')}
-        </span>
-        <span className="rounded bg-gray-100 px-2 py-0.5 font-medium text-gray-700">
-          {business.subscriptionTier}
-        </span>
+        <StatusBadge vocab="subscription" value={business.subscriptionStatus} />
+        <StatusBadge vocab="tier" value={business.subscriptionTier} />
         {business.category && <span>{business.category}</span>}
         {mapsUrl && (
           <a
@@ -253,28 +330,13 @@ export function BusinessDetailClient({
       </div>
 
       {business.ownerEmailBounced && (
-        <div className="mt-4 mb-4 rounded-lg border border-red-300 bg-red-50 p-4">
-          <p className="text-sm font-semibold text-red-800">
-            ⚠ Owner email is bouncing
-          </p>
-          <p className="mt-1 text-sm text-red-700">
-            Approval emails, weekly reports, monthly impact, drip emails, and owner nudges
-            are skipped for <code className="rounded bg-red-100 px-1">{business.ownerEmail}</code>.
-            Partner/admin alerts still send.
-          </p>
-          <p className="mt-2 text-sm text-red-700">
-            Verify the email address with the owner. If it changed, update it in the
-            Business Profile section below (Edit → Owner Email), then clear the flag with
-            the button below. See <code>docs/email-deliverability.md</code> for the full runbook.
-          </p>
-          <button
-            type="button"
-            onClick={() => { void clearBounceFlag(); }}
-            className="mt-3 rounded bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800"
-          >
-            Clear bounce flag (after verifying address)
-          </button>
-        </div>
+        <OwnerEmailBounceNotice
+          ownerEmail={business.ownerEmail}
+          state={bounceFlagState}
+          onClear={() => {
+            void clearBounceFlag();
+          }}
+        />
       )}
 
       {/* Account context — multi-location info (VAL-ADMIN-001) */}
@@ -284,12 +346,8 @@ export function BusinessDetailClient({
             <h2 className="text-sm font-semibold text-gray-900">
               Account ({account.locations.length} locations)
             </h2>
-            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-              {account.subscriptionTier}
-            </span>
-            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-              {account.subscriptionStatus.replace(/_/g, ' ')}
-            </span>
+            <StatusBadge vocab="tier" value={account.subscriptionTier} />
+            <StatusBadge vocab="subscription" value={account.subscriptionStatus} />
           </div>
           <div className="flex flex-wrap gap-2">
             {account.locations.map((loc) => (
@@ -337,23 +395,30 @@ export function BusinessDetailClient({
         onHalted={invalidate}
       />
 
+      <JumpLinks available={availableSections} />
+
       {/* Profile editor */}
-      <ProfileEditor
-        business={business}
-        businessId={businessId}
-        onSaved={invalidate}
-      />
+      <div id="profile" className={ANCHOR_CLASS}>
+        <ProfileEditor
+          business={business}
+          businessId={businessId}
+          onSaved={invalidate}
+        />
+      </div>
 
       {/* Review list */}
-      <ReviewsList reviews={reviews} totalCount={reviewsTotal} />
+      <div id="reviews" className={ANCHOR_CLASS}>
+        <ReviewsList reviews={reviews} totalCount={reviewsTotal} />
+      </div>
 
-      {/* Engagement / churn risk */}
+      {/* Engagement / churn risk — collapsed by default (X27): the badge in the
+          meta row already carries the verdict; the breakdown is for a deep look. */}
       {business.churnScore && (
-        <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Engagement</h2>
-            <HealthBadge level={business.churnScore.level} score={business.churnScore.score} />
-          </div>
+        <CollapsibleSection
+          id="engagement"
+          title="Engagement"
+          aside={<HealthBadge level={business.churnScore.level} score={business.churnScore.score} />}
+        >
           <div className="space-y-3">
             {business.churnScore.breakdown.map((item) => (
               <div key={item.signal} className="flex items-center justify-between text-sm">
@@ -376,34 +441,46 @@ export function BusinessDetailClient({
               </div>
             ))}
           </div>
-        </section>
+        </CollapsibleSection>
       )}
 
-      {/* Tracked Keywords */}
-      <TrackedKeywordsSection businessId={businessId} keywords={business.trackedKeywords} />
+      {/* Tracked Keywords — collapsed by default (X27) */}
+      <CollapsibleSection
+        id="keywords"
+        title="Tracked Keywords"
+        aside={<span className="text-xs text-gray-500">{business.trackedKeywords.length} of 5</span>}
+      >
+        <TrackedKeywordsSection businessId={businessId} keywords={business.trackedKeywords} />
+      </CollapsibleSection>
 
-      {/* Ranking */}
-      <ManualRankingSection businessId={businessId} snapshots={rankingSnapshots ?? []} />
+      {/* Ranking — collapsed by default (X27) */}
+      <CollapsibleSection id="ranking" title="Ranking">
+        <ManualRankingSection businessId={businessId} snapshots={rankingSnapshots ?? []} />
+      </CollapsibleSection>
 
       {/* Channels (table + flag-gated Telegram / WhatsApp enrollment) */}
-      <ChannelsPanel
-        business={business}
-        businessId={businessId}
-        enrollments={enrollments}
-        channelsLoading={channelsLoading}
-        channelsError={channelsError}
-      />
+      <div id="channels" className={ANCHOR_CLASS}>
+        <ChannelsPanel
+          business={business}
+          businessId={businessId}
+          enrollments={enrollments}
+          channelsLoading={channelsLoading}
+          channelsError={channelsError}
+        />
+      </div>
 
       {/* Zernio connection panel — auto-publishing state, queued reconnects, ops incidents */}
-      <ZernioConnectionPanel
-        businessId={businessId}
-        zernio={zernio}
-        onChanged={invalidate}
-      />
+      <div id="zernio" className={ANCHOR_CLASS}>
+        <ZernioConnectionPanel
+          businessId={businessId}
+          zernio={zernio}
+          onChanged={invalidate}
+        />
+      </div>
 
       {/* Approval Audit Log (VAL-ADMIN-004) */}
       {approvalAuditLog.length > 0 && (
-        <section className="mt-8">
+        <section id="audit" className={`mt-8 ${ANCHOR_CLASS}`}>
           <h2 className="mb-3 text-lg font-semibold text-gray-900">Approval Audit Log</h2>
           <DataTable
             columns={approvalAuditColumns}
@@ -418,7 +495,7 @@ export function BusinessDetailClient({
 
       {/* Account Audit Log — account-level state changes */}
       {accountAuditLog.length > 0 && (
-        <section className="mt-8">
+        <section id={approvalAuditLog.length > 0 ? undefined : 'audit'} className={`mt-8 ${ANCHOR_CLASS}`}>
           <h2 className="mb-3 text-lg font-semibold text-gray-900">Account Audit Log</h2>
           <DataTable
             columns={accountAuditColumns(account)}

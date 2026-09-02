@@ -30,6 +30,14 @@ interface DataTableProps<T> {
   emptyState: ReactNode;
   /** Controlled mode: rows are ONE server page; the caller owns fetching. Client-side sort stays within the page. */
   serverPagination?: ServerPagination;
+  /**
+   * Bounds the scrolling body (any CSS length, e.g. `'70vh'`). The header is
+   * `sticky` but only pins once SOMETHING bounds this container's height — with
+   * no bound the table grows with its rows and the header scrolls away with
+   * them (X30). Pass it on tables whose rows can be tall (expandable errors)
+   * or long (a full page of 50); leave it off for a short audit table.
+   */
+  maxHeight?: string;
 }
 
 interface SortState {
@@ -142,7 +150,16 @@ export function PaginationFooter({
   );
 }
 
-export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, emptyState, serverPagination }: DataTableProps<T>) {
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  rowHref,
+  pageSize = 20,
+  emptyState,
+  serverPagination,
+  maxHeight,
+}: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(0);
 
@@ -225,11 +242,15 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
       {rows.length === 0 ? (
         emptyState
       ) : (
-        <div className="overflow-x-auto">
+        <div
+          className={maxHeight ? 'overflow-auto' : 'overflow-x-auto'}
+          style={maxHeight ? { maxHeight } : undefined}
+          data-testid="data-table-scroll"
+        >
           <table className="w-full text-left text-sm">
-            {/* Sticky within the overflow-x-auto wrapper above; only pins visually
-                once a consumer bounds this container's height (e.g. max-h-*) —
-                Phase 2 decides that per page. */}
+            {/* Sticky within the scroll wrapper above; pins visually only when the
+                consumer passes `maxHeight` (X30) — otherwise the wrapper is as tall
+                as the table and there is nothing to stick against. */}
             <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50">
               <tr>
                 {/* Header cell: sort button + optional direction indicator drives this
@@ -243,7 +264,9 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
                     aria-sort={
                       col.sortValue && sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined
                     }
-                    className={`px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${col.className ?? ''}`}
+                    // 11px / gray-600, not 10px / gray-500: uppercase tracking at
+                    // 10px on the gray-50 header was below AA contrast (X31).
+                    className={`px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-gray-600 ${col.className ?? ''}`}
                   >
                     {col.sortValue ? (
                       <button type="button" onClick={() => toggleSort(col.key)} className="inline-flex items-center gap-1 hover:text-gray-900">

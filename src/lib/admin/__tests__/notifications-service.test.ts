@@ -110,6 +110,33 @@ describe('getAdminNotifications', () => {
     expect(sqlCalls[0]!.text).toContain('nd.failed_at IS NOT NULL');
   });
 
+  // X17: every channel the single owner (CHANNEL_IDS) knows filters; the old
+  // `=== 'email'` dropped a Telegram filter on the floor and returned all rows.
+  it.each(['telegram', 'whatsapp'])('binds a %s channel filter', async (channel) => {
+    resetMockSql();
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ total: '0' }]);
+    sqlReturnQueue.push([]);
+
+    await getAdminNotifications(sql, { limit: 20, offset: 0, channel });
+
+    expect(sqlCalls[0]!.text).toContain('nd.channel = $1');
+    expect(sqlCalls[0]!.values[0]).toBe(channel);
+  });
+
+  it('drops an unknown channel rather than binding it', async () => {
+    resetMockSql();
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([{ total: '0' }]);
+    sqlReturnQueue.push([]);
+
+    await getAdminNotifications(sql, { limit: 20, offset: 0, channel: 'carrier_pigeon' });
+
+    // The SELECT list always projects `nd.channel`; the FILTER is what must not appear.
+    expect(sqlCalls[0]!.text).not.toContain('nd.channel = $');
+    expect(sqlCalls[0]!.values).toEqual([20, 0]);
+  });
+
   it('returns zeroed defaults for empty results', async () => {
     resetMockSql();
     sqlReturnQueue.push([]);

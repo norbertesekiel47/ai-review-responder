@@ -1,8 +1,11 @@
 'use client';
 
 import Image from 'next/image';
-import type { FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useMfaEnrollment } from '@/components/auth/useMfaEnrollment';
+
+/** The pages that stop opening once the last authenticator is gone. */
+const AAL2_PAGES = 'Flagged, Autonomy, Offboardings, Suppressions, Send breaker, and Support';
 
 export function AdminSecurityClient() {
   const {
@@ -19,6 +22,12 @@ export function AdminSecurityClient() {
     cancelEnrollment,
     unenrollFactor,
   } = useMfaEnrollment();
+  // Removing a factor arms an inline confirm on that row (X35). Removing the
+  // LAST one locks this admin out of every AAL2 page until a new factor is
+  // enrolled — a consequence that must be read before the act, not discovered
+  // on the next Safety page.
+  const [armedFactorId, setArmedFactorId] = useState<string | null>(null);
+  const lastFactor = verifiedFactors.length === 1;
 
   function onVerifySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,26 +51,59 @@ export function AdminSecurityClient() {
         ) : verifiedFactors.length > 0 ? (
           <div className="grid gap-2.5">
             {verifiedFactors.map((factor) => (
-              <div
-                key={factor.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-gray-200 p-3"
-              >
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">
-                    {factor.friendlyName ?? 'Authenticator app'}
+              <div key={factor.id} className="grid gap-3 rounded-md border border-gray-200 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {factor.friendlyName ?? 'Authenticator app'}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {factor.factorType.toUpperCase()} · {factor.status}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {factor.factorType.toUpperCase()} · {factor.status}
-                  </div>
+                  {armedFactorId !== factor.id && (
+                    <button
+                      type="button"
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      disabled={busy}
+                      onClick={() => setArmedFactorId(factor.id)}
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                  disabled={busy}
-                  onClick={() => void unenrollFactor(factor.id)}
-                >
-                  Remove
-                </button>
+                {armedFactorId === factor.id && (
+                  <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                    <p className="text-sm text-gray-800">
+                      {lastFactor
+                        ? `This is your only authenticator. Removing it locks you out of every step-up (AAL2) page — ${AAL2_PAGES} — until you enroll a new one.`
+                        : `Removes this authenticator. Your ${verifiedFactors.length - 1} other${
+                            verifiedFactors.length - 1 === 1 ? '' : 's'
+                          } keep step-up (AAL2) access working.`}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={busy}
+                        onClick={() => {
+                          setArmedFactorId(null);
+                          void unenrollFactor(factor.id);
+                        }}
+                      >
+                        {busy ? 'Removing…' : 'Remove authenticator'}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        disabled={busy}
+                        onClick={() => setArmedFactorId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

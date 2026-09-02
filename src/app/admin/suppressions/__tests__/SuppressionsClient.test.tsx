@@ -342,7 +342,10 @@ describe('SuppressionsClient', () => {
     });
     // The row must survive the failure: an admin who believes an opt-out was
     // removed when it was not will re-enter it and mail the person twice.
-    expect(screen.getByText('unsubscribe_one_click')).toBeInTheDocument();
+    // The source renders through the shared StatusBadge vocabulary (X9): the
+    // humanized label, never the raw token.
+    expect(screen.getByText('One-click unsubscribe')).toBeInTheDocument();
+    expect(screen.queryByText('unsubscribe_one_click')).toBeNull();
     expect(screen.getByRole('button', { name: 'Correct this record' })).toBeInTheDocument();
   });
 

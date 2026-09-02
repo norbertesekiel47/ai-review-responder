@@ -40,7 +40,13 @@ import {
   createMockSql,
   type MockSqlHarness,
 } from '../../../../worker/__tests__/helpers/mock-sql';
-import { getBusinessSummaries } from '../business-summary';
+import {
+  BUSINESS_HEALTH_FILTERS,
+  BUSINESS_SEARCH_MAX_LENGTH,
+  getBusinessSummaries,
+  isBusinessHealthFilter,
+  parseBusinessListFilters,
+} from '../business-summary';
 
 interface BusinessRowFixture {
   id: string;
@@ -744,6 +750,140 @@ describe('churn derivation has one owner across both admin surfaces', () => {
       expect(detail!.business.churnScore).toEqual(summary.businesses[0]!.churnScore);
     });
   }
+});
+
+// X5: name search + status filter are SQL predicates inside the page CTE and
+// the COUNT; the health filter cannot be (the churn level is scored in TS), so
+// it takes the unpaginated path and filters THEN caps — the At-risk rule.
+describe('getBusinessSummaries — filters (X5)', () => {
+  it('binds the name search as an escaped ILIKE inside the page CTE and reuses it in the COUNT', async () => {
+    harness.sqlReturnQueue.push([businessRow('biz-1', 'Cafe 100%')]);
+    harness.sqlReturnQueue.push([{ total: 1 }]);
+    harness.sqlReturnQueue.push([]);
+
+    const result = await getBusinessSummaries(mockSql, { limit: 20, offset: 0, search: ' 100% ' });
+
+    const [rowsCall, countCall] = harness.sqlCalls;
+    // Inside the CTE: after the JOIN, before ORDER BY / LIMIT.
+    const cte = rowsCall!.text.slice(rowsCall!.text.indexOf('WITH page AS ('), rowsCall!.text.indexOf('ORDER BY'));
+    expect(cte).toContain('JOIN accounts a ON a.id = b.account_id');
+    expect(cte).toContain('WHERE b.name ILIKE ?');
+    // Trimmed, LIKE-metacharacters escaped, wrapped in wildcards — the FIRST
+    // bind, ahead of LIMIT/OFFSET.
+    expect(rowsCall!.values[0]).toBe('%100\\%%');
+    expect(rowsCall!.values.slice(1, 3)).toEqual([20, 0]);
+
+    // The COUNT joins accounts and carries the SAME predicate with the SAME bind,
+    // so the footer total is the filtered total.
+    expect(countCall!.text).toContain('SELECT COUNT(*)::int AS total FROM businesses b');
+    expect(countCall!.text).toContain('JOIN accounts a ON a.id = b.account_id');
+    expect(countCall!.text).toContain('WHERE b.name ILIKE ?');
+    expect(countCall!.values).toEqual(['%100\\%%']);
+
+    expect(result.total).toBe(1);
+  });
+
+  it('ANDs status onto search, and binds status alone when it is the only filter', async () => {
+    harness.sqlReturnQueue.push([]);
+    harness.sqlReturnQueue.push([{ total: 0 }]);
+    await getBusinessSummaries(mockSql, { limit: 20, offset: 0, search: 'Cafe', status: 'past_due' });
+    expect(harness.sqlCalls[0]!.text).toContain('WHERE b.name ILIKE ? AND a.subscription_status = ?');
+    expect(harness.sqlCalls[0]!.values.slice(0, 2)).toEqual(['%Cafe%', 'past_due']);
+
+    harness.resetMockSql();
+    harness.sqlReturnQueue.push([]);
+    harness.sqlReturnQueue.push([{ total: 0 }]);
+    await getBusinessSummaries(mockSql, { limit: 20, offset: 0, status: 'past_due' });
+    expect(harness.sqlCalls[0]!.text).toContain('WHERE a.subscription_status = ?');
+    expect(harness.sqlCalls[0]!.text).not.toContain('ILIKE');
+    expect(harness.sqlCalls[0]!.values[0]).toBe('past_due');
+  });
+
+  it('emits no WHERE at all when the filters are blank — the unfiltered contract is unchanged', async () => {
+    harness.sqlReturnQueue.push([]);
+    harness.sqlReturnQueue.push([{ total: 0 }]);
+    await getBusinessSummaries(mockSql, { limit: 20, offset: 0, search: '   ', status: '', health: '' });
+    const rowsText = harness.sqlCalls[0]!.text;
+    // The page CTE (the aggregate below it legitimately carries `FILTER (WHERE …)`).
+    const cte = rowsText.slice(rowsText.indexOf('WITH page AS ('), rowsText.indexOf('ORDER BY'));
+    expect(cte).not.toContain('WHERE');
+    expect(harness.sqlCalls[0]!.values.slice(0, 2)).toEqual([20, 0]);
+    expect(harness.sqlCalls[1]!.text).not.toContain('WHERE');
+  });
+
+  it('health: reads every filtered row unpaginated, scores, FILTERS on level, THEN slices the page', async () => {
+    // Five businesses; three come back healthy (no metrics → new-account
+    // default), two carry metrics that score them as at_risk. Page size 1,
+    // offset 1 must land on the SECOND at-risk business, not on row 2 of 5.
+    harness.sqlReturnQueue.push([
+      businessRow('biz-1', 'A'),
+      businessRow('biz-2', 'B'),
+      businessRow('biz-3', 'C'),
+      businessRow('biz-4', 'D'),
+      businessRow('biz-5', 'E'),
+    ]);
+    harness.sqlReturnQueue.push([
+      { ...metricsFixture(), business_id: 'biz-2', approval_rate: 0.1, notified_count: 10, pending_count: 8, days_since_approval: 40, account_age_days: 400 },
+      { ...metricsFixture(), business_id: 'biz-4', approval_rate: 0.1, notified_count: 10, pending_count: 8, days_since_approval: 40, account_age_days: 400 },
+    ]);
+
+    const result = await getBusinessSummaries(mockSql, { limit: 1, offset: 1, health: 'at_risk' });
+
+    // Two queries, not three: no LIMIT/OFFSET in SQL and no COUNT — the total is
+    // the post-filter length.
+    expect(harness.sqlCalls).toHaveLength(2);
+    expect(harness.sqlCalls[0]!.text).not.toContain('LIMIT');
+    expect(harness.sqlCalls.some((call) => call.text.includes('COUNT(*)::int AS total'))).toBe(false);
+    // Metrics for EVERY row read — scoring needs all of them before filtering.
+    expect(harness.sqlCalls[1]!.values[0]).toEqual(['biz-1', 'biz-2', 'biz-3', 'biz-4', 'biz-5']);
+
+    expect(result.total).toBe(2);
+    expect(result.businesses.map((b) => b.id)).toEqual(['biz-4']);
+    expect(result.businesses[0]!.churnScore.level).toBe('at_risk');
+  });
+
+  it('health combines with search/status in SQL, still without a page clause', async () => {
+    harness.sqlReturnQueue.push([]);
+    await getBusinessSummaries(mockSql, { limit: 20, offset: 0, search: 'Cafe', health: 'watch' });
+    expect(harness.sqlCalls).toHaveLength(1);
+    expect(harness.sqlCalls[0]!.text).toContain('WHERE b.name ILIKE ?');
+    expect(harness.sqlCalls[0]!.text).not.toContain('LIMIT');
+  });
+
+  it('carries accountId on every summary so a name search can resolve an account', async () => {
+    harness.sqlReturnQueue.push([{ ...businessRow('biz-1', 'Cafe'), account_id: 'acct-9' }]);
+    harness.sqlReturnQueue.push([{ total: 1 }]);
+    harness.sqlReturnQueue.push([]);
+    const result = await getBusinessSummaries(mockSql, { limit: 20, offset: 0 });
+    expect(result.businesses[0]!.accountId).toBe('acct-9');
+    expect(harness.sqlCalls[0]!.text).toContain('b.account_id');
+  });
+});
+
+describe('parseBusinessListFilters', () => {
+  it('returns only present, valid filters', () => {
+    expect(parseBusinessListFilters(new URLSearchParams(''))).toEqual({});
+    expect(parseBusinessListFilters(new URLSearchParams('q=%20Cafe%20&status=active&health=watch'))).toEqual({
+      search: 'Cafe',
+      status: 'active',
+      health: 'watch',
+    });
+  });
+
+  it('drops a non-canonical status or level rather than forwarding it', () => {
+    expect(parseBusinessListFilters(new URLSearchParams('status=deleted&health=imploding'))).toEqual({});
+  });
+
+  it('caps the search at BUSINESS_SEARCH_MAX_LENGTH', () => {
+    const { search } = parseBusinessListFilters(new URLSearchParams(`q=${'x'.repeat(500)}`));
+    expect(search).toHaveLength(BUSINESS_SEARCH_MAX_LENGTH);
+  });
+
+  it('is the runtime twin of the churn-level union', () => {
+    expect(BUSINESS_HEALTH_FILTERS).toEqual(['healthy', 'watch', 'at_risk']);
+    expect(isBusinessHealthFilter('at_risk')).toBe(true);
+    expect(isBusinessHealthFilter('At Risk')).toBe(false);
+  });
 });
 
 describe('both admin surfaces embed the same churn-metrics statement', () => {

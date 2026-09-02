@@ -1,8 +1,9 @@
 'use client';
 
-import { FormEvent, useRef, useState } from 'react';
-import Link from 'next/link';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import type { BusinessSummariesResult } from '@/lib/admin/business-summary';
 import { useAdminActionForm } from '@/hooks/useAdminActionForm';
+import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import {
   validateLocationsCsvClient,
   type ClientCsvValidationError,
@@ -26,6 +27,123 @@ const MAX_CLIENT_FILE_SIZE = 5 * 1024 * 1024;
 // The sibling template download lives on the server page's AdminPage actions.
 const CSV_README_HREF = '/csv-templates/README.md';
 
+/** Where an operator reads about failed rows — the operator IS support (X24). */
+export const CSV_IMPORT_MACRO_PATH = 'docs/support/macros/csv-import.md';
+
+/** Keystrokes settle for this long before the account search round-trips. */
+const ACCOUNT_SEARCH_DEBOUNCE_MS = 300;
+const ACCOUNT_SEARCH_LIMIT = 8;
+
+interface AccountMatch {
+  businessId: string;
+  accountId: string;
+  name: string;
+  subscriptionStatus: string;
+}
+
+/**
+ * Type-to-search for the billing account (X24). Reuses the Businesses list's
+ * name search (`GET /api/admin/businesses?q=` — single owner
+ * `getBusinessSummaries`, which carries `accountId` on every row for exactly
+ * this) so an operator no longer pastes a raw UUID from a database console.
+ * Picking a match fills the Account ID field below; the field stays editable
+ * for the case where the id is already in hand.
+ */
+function AccountSearch({ onPick }: { onPick: (match: AccountMatch) => void }) {
+  const [term, setTerm] = useState('');
+  const [matches, setMatches] = useState<AccountMatch[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const query = term.trim();
+    if (query === '') return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const params = new URLSearchParams({ q: query, limit: String(ACCOUNT_SEARCH_LIMIT) });
+        const res = await fetch(`/api/admin/businesses?${params.toString()}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`Search failed (${res.status}).`);
+        const body = (await res.json()) as BusinessSummariesResult;
+        setMatches(
+          body.businesses.map((b) => ({
+            businessId: b.id,
+            accountId: b.accountId,
+            name: b.name,
+            subscriptionStatus: b.subscriptionStatus,
+          })),
+        );
+        setError(null);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setMatches([]);
+        setError(err instanceof Error ? err.message : 'Search failed.');
+      } finally {
+        if (!controller.signal.aborted) setSearching(false);
+      }
+    }, ACCOUNT_SEARCH_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [term]);
+
+  const listId = 'csv-import-account-matches';
+  return (
+    <div>
+      <label htmlFor="csv-import-account-search" className="block text-sm font-medium text-gray-700">
+        Find the account by business name
+      </label>
+      <input
+        id="csv-import-account-search"
+        type="search"
+        role="combobox"
+        aria-expanded={matches.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        value={term}
+        onChange={(event) => {
+          const next = event.target.value;
+          setTerm(next);
+          if (next.trim() === '') {
+            setMatches([]);
+            setError(null);
+          }
+        }}
+        placeholder="Start typing a business name…"
+        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+      />
+      <ul id={listId} role="listbox" aria-label="Matching businesses" className="mt-1 divide-y divide-gray-100 rounded-md border border-gray-200 bg-white empty:hidden">
+        {matches.map((match) => (
+          <li key={match.businessId} role="option" aria-selected="false">
+            <button
+              type="button"
+              onClick={() => {
+                onPick(match);
+                setTerm('');
+                setMatches([]);
+              }}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+            >
+              <span className="font-medium text-gray-900">{match.name}</span>
+              <span className="flex items-center gap-2 text-xs text-gray-500">
+                <StatusBadge vocab="subscription" value={match.subscriptionStatus} />
+                <span className="font-mono">{match.accountId.slice(0, 8)}…</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {searching && <p className="mt-1 text-xs text-gray-500">Searching…</p>}
+      {!searching && term.trim() !== '' && matches.length === 0 && !error && (
+        <p className="mt-1 text-xs text-gray-500">No business matches that name.</p>
+      )}
+      {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+    </div>
+  );
+}
+
 interface CsvImportFields {
   accountId: string;
 }
@@ -42,6 +160,9 @@ export function CsvImportClient() {
   // never set. Cleared at the top of a submit alongside the shared outcome,
   // which is what this surface's own reducer cleared for all three at once.
   const [validationErrors, setValidationErrors] = useState<ClientCsvValidationError[]>([]);
+  // The business whose account was picked from the search, for the confirmation
+  // line under the Account ID field. Cleared when the id is edited by hand.
+  const [pickedAccount, setPickedAccount] = useState<AccountMatch | null>(null);
   const fileRef = useRef<File | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -117,6 +238,13 @@ export function CsvImportClient() {
         className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
       >
         <div className="space-y-5">
+          <AccountSearch
+            onPick={(match) => {
+              form.set('accountId', match.accountId);
+              setPickedAccount(match);
+            }}
+          />
+
           <div>
             <label
               htmlFor="csv-import-account-id"
@@ -128,10 +256,18 @@ export function CsvImportClient() {
               id="csv-import-account-id"
               type="text"
               value={accountId}
-              onChange={(event) => form.set('accountId', event.target.value)}
+              onChange={(event) => {
+                form.set('accountId', event.target.value);
+                setPickedAccount(null);
+              }}
               placeholder="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             />
+            <p className="mt-1 text-xs text-gray-500">
+              {pickedAccount
+                ? `The billing account for ${pickedAccount.name}.`
+                : 'Filled by the search above, or paste the account id if you already have it.'}
+            </p>
           </div>
 
           <div>
@@ -213,12 +349,13 @@ export function CsvImportClient() {
                   </li>
                 ))}
               </ul>
-              <Link
-                href="/help/contact"
-                className="mt-4 inline-block text-sm font-medium text-gray-900 underline hover:text-gray-700"
-              >
-                Contact support
-              </Link>
+              {/* The operator IS support (X24): point at the runbook, not at the
+                  customer-facing contact form. */}
+              <p className="mt-4 text-sm text-gray-700">
+                Failed rows are not retried. Work through the internal checks in{' '}
+                <code className="rounded bg-gray-100 px-1 text-xs">{CSV_IMPORT_MACRO_PATH}</code>, fix
+                those rows, and upload a new file with only them — the imported rows are already in place.
+              </p>
             </>
           ) : null}
         </div>

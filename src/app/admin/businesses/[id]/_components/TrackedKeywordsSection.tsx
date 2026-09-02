@@ -57,8 +57,9 @@ export function TrackedKeywordsSection({ businessId, keywords: initialKeywords }
   };
 
   return (
-    <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
-      <h2 className="text-lg font-semibold text-gray-800 mb-1">Tracked Keywords</h2>
+    // No card or heading of its own: BusinessDetailClient's CollapsibleSection
+    // owns both (X27), so this renders only the section body.
+    <div>
       <p className="text-sm text-gray-500 mb-4">
         Keywords used for local ranking checks. Maximum 5.
       </p>
@@ -102,6 +103,6 @@ export function TrackedKeywordsSection({ businessId, keywords: initialKeywords }
         </button>
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-    </section>
+    </div>
   );
 }

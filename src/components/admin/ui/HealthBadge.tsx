@@ -15,7 +15,8 @@ const HEALTH_BADGE_STYLES: Record<ChurnScore['level'], string> = {
   at_risk: 'bg-red-100 text-red-800',
 };
 
-const HEALTH_BADGE_LABELS: Record<ChurnScore['level'], string> = {
+/** Exported for the Businesses health filter's `<select>` options — one spelling of each level. */
+export const HEALTH_BADGE_LABELS: Record<ChurnScore['level'], string> = {
   healthy: 'Healthy',
   watch: 'Watch',
   at_risk: 'At Risk',

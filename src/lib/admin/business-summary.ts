@@ -46,6 +46,7 @@
 import type { Sql } from 'postgres';
 import { computeChurnRiskScore, type ChurnScore } from '@/lib/shared/churn-score';
 import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { isSubscriptionStatus, type SubscriptionStatusValue } from '@/lib/shared/subscription-status';
 
 // Response-rate and average-response-time are reported over a trailing window so
 // the admin churn view reflects RECENT responsiveness rather than a lifetime
@@ -59,6 +60,7 @@ const RESPONSE_METRICS_WINDOW_DAYS = 30;
 
 interface BusinessRow {
   id: string;
+  account_id: string;
   name: string;
   category: string | null;
   subscription_status: string;
@@ -91,6 +93,13 @@ export interface BusinessChurnMetricsRow {
 
 export interface BusinessSummary {
   id: string;
+  /**
+   * The billing parent (invariant #9). Carried so a name search on
+   * `GET /api/admin/businesses?q=` can resolve a business to the account id an
+   * admin form needs (the CSV import today; impersonation's account lookup is
+   * the natural next consumer) without a second endpoint.
+   */
+  accountId: string;
   name: string;
   category: string | null;
   subscriptionStatus: string;
@@ -114,8 +123,10 @@ export interface BusinessSummary {
 export interface BusinessSummariesResult {
   businesses: BusinessSummary[];
   /**
-   * The UNFILTERED business count: the COUNT query when a page was requested,
-   * `businesses.length` when not (the caller already read every row).
+   * The business count under the caller's FILTERS (all businesses when none):
+   * the COUNT query when a page was requested, `businesses.length` when not
+   * (the caller already read every row), the post-score filtered length when a
+   * health filter forced the unpaginated path.
    */
   total: number;
   /** Trailing window (days) that responseRate + avgResponseTimeHours cover. */
@@ -243,6 +254,7 @@ function buildBusinessSummary(row: BusinessRow, m: BusinessChurnMetricsRow | und
 
   return {
     id: row.id,
+    accountId: row.account_id,
     name: row.name,
     category: row.category ?? null,
     subscriptionStatus: row.subscription_status,
@@ -259,24 +271,118 @@ function buildBusinessSummary(row: BusinessRow, m: BusinessChurnMetricsRow | und
 }
 
 /**
- * One page of admin business summaries — or every business when `opts` is
- * omitted — plus the unfiltered total and the response-metrics window.
+ * The churn levels `/admin/businesses` can filter on — `ChurnScore['level']`'s
+ * members as a runtime tuple, `satisfies`-checked against the union so a new
+ * level upstream is a compile error here, and the route's allowlist for the
+ * `health` query param (X5).
+ */
+export const BUSINESS_HEALTH_FILTERS = ['healthy', 'watch', 'at_risk'] as const satisfies readonly ChurnScore['level'][];
+export type BusinessHealthFilter = (typeof BUSINESS_HEALTH_FILTERS)[number];
+
+export function isBusinessHealthFilter(value: string): value is BusinessHealthFilter {
+  return (BUSINESS_HEALTH_FILTERS as readonly string[]).includes(value);
+}
+
+/** Search / filter inputs for the paginated `/admin/businesses` read (X5). */
+export interface BusinessSummariesFilters {
+  /** Case-insensitive substring match on `businesses.name`; blank = no filter. Pre-trimmed by the route. */
+  search?: string;
+  /** Exact `accounts.subscription_status`; blank = no filter. Validated by the route. */
+  status?: SubscriptionStatusValue | '';
+  /** Churn level; blank = no filter. Applied AFTER scoring — see below. */
+  health?: BusinessHealthFilter | '';
+}
+
+export interface BusinessSummariesPage extends BusinessSummariesFilters {
+  limit: number;
+  offset: number;
+}
+
+/** Longest name search forwarded to SQL; anything longer is an accident or a probe. */
+export const BUSINESS_SEARCH_MAX_LENGTH = 100;
+
+/**
+ * The `q` / `status` / `health` query params → validated filters. Shared by
+ * `GET /api/admin/businesses` and `businesses/page.tsx` (which reads the same
+ * params off `searchParams` for its server-rendered first page), so the two
+ * composition roots cannot disagree on what `?status=` means. A value that is
+ * not a canonical subscription status or churn level is DROPPED, never
+ * forwarded; only present filters appear in the result, so an unfiltered call
+ * is byte-identical to `{ limit, offset }`.
  *
- * `limit`/`offset` are already-clamped numbers: query-param parsing stays in
- * the route that owns it.
+ * `limit`/`offset` deliberately stay in the route: their clamping is an HTTP
+ * concern the server page never has (it always renders page 0).
+ */
+export function parseBusinessListFilters(params: URLSearchParams): BusinessSummariesFilters {
+  const q = (params.get('q') ?? '').trim().slice(0, BUSINESS_SEARCH_MAX_LENGTH);
+  const rawStatus = params.get('status') ?? '';
+  const rawHealth = params.get('health') ?? '';
+  return {
+    ...(q ? { search: q } : {}),
+    ...(isSubscriptionStatus(rawStatus) ? { status: rawStatus } : {}),
+    ...(isBusinessHealthFilter(rawHealth) ? { health: rawHealth } : {}),
+  };
+}
+
+/**
+ * Escapes the three LIKE metacharacters so an operator typing `100%` searches
+ * for the literal text. The bound value is a parameter (never interpolated),
+ * so this is about pattern semantics, not injection.
+ */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * One page of admin business summaries — or every business when `opts` is
+ * omitted — plus the total under the same filters and the response-metrics
+ * window.
+ *
+ * `limit`/`offset` are already-clamped numbers and `search`/`status`/`health`
+ * are already validated: query-param parsing stays in the route that owns it.
+ *
+ * FILTERS (X5). `search` and `status` are SQL predicates inside the `page`
+ * CTE, so they bound the page before `responses` is joined and the COUNT
+ * counts the same set. `health` cannot be: the churn level is computed in
+ * TypeScript from the metrics follow-up (the model is TS, not SQL — §5.1), so
+ * a health filter takes the UNPAGINATED path — every row under `search`/
+ * `status`, metrics for all of them, score, FILTER on level, THEN slice
+ * `limit`/`offset` in TS. That is the same filter-then-cap order the At-risk
+ * list uses (CONTEXT.md → At-risk list) and the same cost Overview already
+ * pays on every render; fine at the capacity target (250 locations).
  *
  * @param sql  Postgres.js client (composition root supplies the singleton —
  *   this module never imports @/lib/db/server).
  */
 export async function getBusinessSummaries(
   sql: Sql,
-  opts?: { limit: number; offset: number },
+  opts?: BusinessSummariesPage,
 ): Promise<BusinessSummariesResult> {
-  // Empty fragment when unpaginated: Overview reads every row because the churn
-  // sort is computed in app code from the pure churn-score formula (single
-  // owner: churn-score.ts), so ranking can only happen after scoring. Fine at
-  // the capacity target (250 locations).
-  const pageClause = opts ? sql`LIMIT ${opts.limit} OFFSET ${opts.offset}` : sql``;
+  const search = opts?.search?.trim() ?? '';
+  const status = opts?.status ?? '';
+  const health = opts?.health ?? '';
+
+  // Filter predicates live INSIDE the page CTE (before ORDER BY / LIMIT) and are
+  // reused verbatim by the COUNT, so the total and the page agree. Two clauses
+  // at most, so the AND-join is spelled out rather than reduced.
+  const searchClause = search ? sql`b.name ILIKE ${`%${escapeLike(search)}%`}` : null;
+  const statusClause = status ? sql`a.subscription_status = ${status}` : null;
+  const whereClause =
+    searchClause && statusClause
+      ? sql`WHERE ${searchClause} AND ${statusClause}`
+      : searchClause
+        ? sql`WHERE ${searchClause}`
+        : statusClause
+          ? sql`WHERE ${statusClause}`
+          : sql``;
+
+  // The page is taken in SQL unless a health filter needs every scored row
+  // first (see the doc comment). Empty fragment when unpaginated: Overview reads
+  // every row because the churn sort is computed in app code from the pure
+  // churn-score formula (single owner: churn-score.ts), so ranking can only
+  // happen after scoring. Fine at the capacity target (250 locations).
+  const pageInSql = opts !== undefined && health === '';
+  const pageClause = pageInSql ? sql`LIMIT ${opts.limit} OFFSET ${opts.offset}` : sql``;
 
   // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a
   // Promise.all of these queries here (#505/#773). These run on the SHARED
@@ -318,14 +424,15 @@ export async function getBusinessSummaries(
   // (CONTEXT.md → At-risk list, §5.1) and is not what this shape optimises.
   const businessRows = await sql<BusinessRow[]>`
     WITH page AS (
-      SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at
+      SELECT b.id, b.account_id, b.name, b.category, a.subscription_status, b.last_sync_at
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
+      ${whereClause}
       ORDER BY b.name ASC, b.id ASC
       ${pageClause}
     )
     SELECT
-      b.id, b.name, b.category, b.subscription_status, b.last_sync_at,
+      b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at,
       COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count,
       COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count,
       COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses,
@@ -334,18 +441,23 @@ export async function getBusinessSummaries(
       MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity
     FROM page b
     LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded'
-    GROUP BY b.id, b.name, b.category, b.subscription_status, b.last_sync_at
+    GROUP BY b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at
     ORDER BY b.name ASC, b.id ASC
   `;
 
-  // Paginated callers only: the unpaginated caller already holds every row, so
-  // `total` is `businesses.length` and this query never runs (§5.3 "drops one
-  // query"). Not collapsed into a window `COUNT(*) OVER ()`: this page query
-  // GROUPs and the count is over unfiltered `businesses`, so a window total
-  // would count grouped page rows instead — a different number.
+  // SQL-paginated callers only: an unpaginated caller already holds every row,
+  // so `total` is `businesses.length` and this query never runs (§5.3 "drops
+  // one query"). Same JOIN + WHERE as the page CTE so the count is over the
+  // same filtered set. Not collapsed into a window `COUNT(*) OVER ()`: this
+  // page query GROUPs, so a window total would count grouped page rows instead
+  // — a different number.
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- the awaits ARE independent; that is the point. Parallelising them is the #773 fan-out this module exists to avoid — the shared `sql` pool is 3 connections on Vercel, and a pipelined response wedges a backend permanently.
-  const countRows = opts
-    ? await sql<{ total: number }[]>`SELECT COUNT(*)::int AS total FROM businesses`
+  const countRows = pageInSql
+    ? await sql<{ total: number }[]>`
+        SELECT COUNT(*)::int AS total FROM businesses b
+        JOIN accounts a ON a.id = b.account_id
+        ${whereClause}
+      `
     : [];
 
   // Keyed on the ids the base query ACTUALLY RETURNED (post-LIMIT/OFFSET) —
@@ -358,11 +470,22 @@ export async function getBusinessSummaries(
     : [];
 
   const metricsMap = new Map(metricsRows.map((r) => [r.business_id, r]));
-  const businesses = businessRows.map((row) => buildBusinessSummary(row, metricsMap.get(row.id)));
+  const scored = businessRows.map((row) => buildBusinessSummary(row, metricsMap.get(row.id)));
+
+  if (opts !== undefined && health !== '') {
+    // Health filter: FILTER on the scored level, THEN cap to the page — never
+    // the other way round (the same rule as the At-risk list).
+    const matching = scored.filter((b) => b.churnScore.level === health);
+    return {
+      businesses: matching.slice(opts.offset, opts.offset + opts.limit),
+      total: matching.length,
+      responseMetricsWindowDays: RESPONSE_METRICS_WINDOW_DAYS,
+    };
+  }
 
   return {
-    businesses,
-    total: opts ? (countRows[0]?.total ?? 0) : businesses.length,
+    businesses: scored,
+    total: pageInSql ? (countRows[0]?.total ?? 0) : scored.length,
     responseMetricsWindowDays: RESPONSE_METRICS_WINDOW_DAYS,
   };
 }

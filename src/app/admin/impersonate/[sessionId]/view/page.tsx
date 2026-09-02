@@ -10,7 +10,7 @@ import {
 } from '@/lib/admin/impersonation/view';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
-import { EndImpersonationButton } from './EndImpersonationButton';
+import { EndImpersonationButton } from '@/components/admin/EndImpersonationButton';
 import {
   ImpersonationLocationsTable,
   type ImpersonationLocationRow,
