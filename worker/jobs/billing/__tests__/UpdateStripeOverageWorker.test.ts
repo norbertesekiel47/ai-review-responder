@@ -1266,3 +1266,77 @@ describe('UpdateStripeOverageWorker — confidence gate + outbox isolation', () 
     );
   });
 });
+
+// ── Replica-safe same-account serialization ──────────────────────────────────
+//
+// The correctness argument for the operation-scoped idempotency keys is the
+// per-account advisory xact lock, NOT concurrency:1 / a single worker instance.
+// These pin the two properties that make the lock load-bearing: the Stripe
+// calls run INSIDE the locked transaction, and the lock key is account-scoped.
+describe('UpdateStripeOverageWorker — same-account serialization is the lock, not the replica count', () => {
+  const ACCOUNT_A = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const ACCOUNT_B = '11111111-2222-3333-4444-555555555555';
+
+  function queueTrustedOverageSub() {
+    mockStripeSubscriptionsRetrieve.mockResolvedValueOnce({
+      items: {
+        data: [
+          { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+          { id: 'si_overage', price: { id: 'price_copilot_overage' }, quantity: 1 },
+        ],
+      },
+    });
+  }
+
+  it('runs the Stripe retrieve AND mutation inside the locked transaction', async () => {
+    queueAccountRow();
+    queueOverageTx(3);
+
+    let retrieveInTx: boolean | null = null;
+    let updateInTx: boolean | null = null;
+    mockStripeSubscriptionsRetrieve.mockImplementationOnce(async () => {
+      retrieveInTx = harness.isInTransaction();
+      return {
+        items: {
+          data: [
+            { id: 'si_base', price: { id: 'price_copilot' }, quantity: 1 },
+            { id: 'si_overage', price: { id: 'price_copilot_overage' }, quantity: 1 },
+          ],
+        },
+      };
+    });
+    mockStripeSubscriptionItemsUpdate.mockImplementationOnce(async () => {
+      updateInTx = harness.isInTransaction();
+      return { id: 'si_overage' };
+    });
+
+    await handleUpdateStripeOverage(mockSql, mockJob({ account_id: ACCOUNT_A }));
+
+    expect(retrieveInTx).toBe(true);
+    expect(updateInTx).toBe(true);
+    // And the lock query precedes the first Stripe call.
+    const lockIdx = harness.sqlCalls.findIndex((c) => c.text.includes('pg_advisory_xact_lock'));
+    expect(lockIdx).toBeGreaterThanOrEqual(0);
+    expect(harness.sqlCalls[lockIdx]!.inTransaction).toBe(true);
+    expect(mockStripeSubscriptionItemsUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('lock key is account-scoped: two accounts take two different advisory locks', async () => {
+    queueAccountRow({ id: ACCOUNT_A });
+    queueOverageTx(3);
+    queueTrustedOverageSub();
+    await handleUpdateStripeOverage(mockSql, mockJob({ account_id: ACCOUNT_A }));
+
+    queueAccountRow({ id: ACCOUNT_B });
+    queueOverageTx(3);
+    queueTrustedOverageSub();
+    await handleUpdateStripeOverage(mockSql, mockJob({ account_id: ACCOUNT_B, outbox_id: 'outbox-2' }));
+
+    const lockCalls = harness.sqlCalls.filter((c) => c.text.includes('pg_advisory_xact_lock'));
+    expect(lockCalls).toHaveLength(2);
+    const [lockA, lockB] = lockCalls;
+    expect(lockA!.values[0]).toBe(`${ACCOUNT_A}:overage_sync`);
+    expect(lockB!.values[0]).toBe(`${ACCOUNT_B}:overage_sync`);
+    expect(lockA!.values[0]).not.toBe(lockB!.values[0]);
+  });
+});

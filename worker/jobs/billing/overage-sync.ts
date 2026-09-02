@@ -8,10 +8,12 @@
 // orchestrate, modules own behavior).
 //
 // Idempotency keys stay operation-scoped (per-outbox via operationScope) on
-// purpose. This worker is single-consumer (concurrency:1 + one Railway
-// instance), so BullMQ's bounded retry window (~3 attempts over ~15s) never
-// overlaps the 1h outbox watchdog — a per-job key safely dedups the retry
-// burst. A stable per-subscription create key was rejected: a delete→re-add
+// purpose. Same-account runs are serialized by the per-account
+// `pg_advisory_xact_lock` (`acquireBillingLock`) that the handler holds around
+// this whole call (replica-safe — NOT by concurrency:1 or a single Railway
+// instance, which are defense in depth), so BullMQ's bounded retry window
+// (~3 attempts over ~15s) never overlaps the 1h outbox watchdog — a per-job
+// key safely dedups the retry burst. A stable per-subscription create key was rejected: a delete→re-add
 // within Stripe's ~24h key TTL would 400 `idempotency_error` deterministically
 // (same key, different params), permanently failing a legitimate re-add. The
 // per-outbox scope gives every distinct recompute a fresh key.
