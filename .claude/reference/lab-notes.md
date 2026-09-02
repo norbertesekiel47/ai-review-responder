@@ -602,6 +602,9 @@ AND archived_at IS NULL`. See `src/lib/db/auth.ts:readSelf` and
 `users_self_select` RLS policy works unchanged because it gates on
 `auth_id = auth.uid()`, not on the column being selected.
 
+### Stripe overage: same-account serialization is the in-tx lock, not the replica count
+- [2026-09-02] Comments claimed `concurrency:1` + one Railway instance guaranteed no two overage jobs per account overlap → stale: `acquireBillingLock` (`pg_advisory_xact_lock`) + the account `FOR UPDATE` already hold across the Stripe call inside `sql.begin` → cite the in-tx lock as the replica-safe guarantee; keep `concurrency:1` as defense in depth (`overage-account-lock.integration.test.ts`).
+
 ### CSV bulk-import: enqueue ONE aggregate Stripe overage job, not one-per-row
 [2026-05-09] The first cut of admin CSV import called
 `addLocationTransaction` for each row, which inserts a

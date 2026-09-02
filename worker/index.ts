@@ -427,12 +427,17 @@ const updateStripeOverageWorker = new Worker<UpdateStripeOveragePayload>(
   { ...workerOpts, concurrency: 1 },
 );
 
-// Single-consumer invariant: the operation-scoped Stripe idempotency keys
+// Same-account serialization: the operation-scoped Stripe idempotency keys
 // (overage-sync.ts) assume no two overage jobs for the same account run
-// concurrently. The explicit concurrency:1 literal above plus a single
-// Railway worker instance guarantees this — keep both. The boot guard reads
-// the EFFECTIVE worker options, so any future edit of the options object that
-// drops concurrency:1 fails the boot instead of silently double-running jobs.
+// concurrently. The guarantee of record is the per-account
+// `pg_advisory_xact_lock` taken by `acquireBillingLock` INSIDE the handler's
+// `sql.begin` — the Stripe retrieve + mutation run inside that same
+// transaction, so two runs for one account serialize even across worker
+// replicas (proved by overage-account-lock.integration.test.ts). The explicit
+// concurrency:1 literal above and the boot guard are defense in depth (they
+// also bound Stripe rate pressure); keep both. The boot guard reads the
+// EFFECTIVE worker options, so an edit of the options object that drops
+// concurrency:1 fails the boot instead of silently widening the lane.
 assertSingleConcurrencyWorker(QUEUE_NAMES.UPDATE_STRIPE_OVERAGE, updateStripeOverageWorker.opts);
 
 const stripeCheckoutReconcileWorker = new Worker<StripeCheckoutReconcilePayload>(
