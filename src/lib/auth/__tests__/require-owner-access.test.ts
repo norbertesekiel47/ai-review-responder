@@ -63,7 +63,23 @@ const LOCATION_ID = 'b0000000-0000-0000-0000-000000000001' as LocationId;
 const EMAIL = 'owner@example.com';
 
 function defaultOwnerRow() {
-  return [{ role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL }];
+  return [ownerRow({})];
+}
+
+// The LEFT JOIN row shape (RenderOwnerRow). `has_account: true` is the join hit;
+// the pre-memo inner JOIN expressed a miss as "no row", which is now
+// `has_account: false` — see the dedicated test below.
+function ownerRow(overrides: Record<string, unknown>) {
+  return {
+    id: 'u-1',
+    role: 'owner',
+    account_id: ACCOUNT_ID,
+    name: 'Owner',
+    email: EMAIL,
+    subscription_status: 'active',
+    has_account: true,
+    ...overrides,
+  };
 }
 
 let harness: MockSqlHarness;
@@ -145,9 +161,17 @@ describe('requireOwnerAccess', () => {
     expect(redirect).toHaveBeenCalledWith('/admin/login');
   });
 
+  it('redirects when the users row has no matching account (former inner-JOIN miss)', async () => {
+    harness.sqlReturnQueue.push([ownerRow({ account_id: null, subscription_status: null, has_account: false })]);
+
+    const { redirect } = await import('next/navigation');
+    await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirect).toHaveBeenCalledWith('/admin/login');
+  });
+
   it('redirects when role is not owner', async () => {
     harness.sqlReturnQueue.push([
-      { role: 'admin', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL },
+      ownerRow({ role: 'admin', subscription_status: 'active' }),
     ]);
 
     const { redirect } = await import('next/navigation');
@@ -157,7 +181,7 @@ describe('requireOwnerAccess', () => {
 
   it('redirects sales_partner to owner login instead of admin overview', async () => {
     harness.sqlReturnQueue.push([
-      { role: 'sales_partner', account_id: ACCOUNT_ID, subscription_status: 'active', email: EMAIL },
+      ownerRow({ role: 'sales_partner', subscription_status: 'active' }),
     ]);
 
     const { redirect } = await import('next/navigation');
@@ -167,7 +191,7 @@ describe('requireOwnerAccess', () => {
 
   it('allows past_due owners to view read-only pages', async () => {
     harness.sqlReturnQueue.push([
-      { role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'past_due', email: EMAIL },
+      ownerRow({ role: 'owner', subscription_status: 'past_due' }),
     ]);
 
     const result = await requireOwnerAccess(mockSql);
@@ -178,7 +202,7 @@ describe('requireOwnerAccess', () => {
 
   it('allows trialing owners (treated like active)', async () => {
     harness.sqlReturnQueue.push([
-      { role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'trialing', email: EMAIL },
+      ownerRow({ role: 'owner', subscription_status: 'trialing' }),
     ]);
 
     const result = await requireOwnerAccess(mockSql);
@@ -189,7 +213,7 @@ describe('requireOwnerAccess', () => {
 
   it('redirects when subscription_status is neither active nor past_due', async () => {
     harness.sqlReturnQueue.push([
-      { role: 'owner', account_id: ACCOUNT_ID, subscription_status: 'pending_payment', email: EMAIL },
+      ownerRow({ role: 'owner', subscription_status: 'pending_payment' }),
     ]);
 
     const { redirect } = await import('next/navigation');
@@ -205,5 +229,9 @@ describe('requireOwnerAccess', () => {
     const queryString = harness.sqlCalls[0]!.text;
     expect(queryString).toContain('account_id');
     expect(queryString).not.toContain('u.business_id');
+    // LEFT JOIN + has_account: the layout needs the row even when it is about
+    // to redirect on role, so a dangling account must not drop the row.
+    expect(queryString).toContain('LEFT JOIN accounts');
+    expect(queryString).toContain('has_account');
   });
 });
