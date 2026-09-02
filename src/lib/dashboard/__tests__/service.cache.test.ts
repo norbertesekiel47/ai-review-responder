@@ -43,10 +43,10 @@ let mockSql: Sql;
 
 const BUSINESS_ID = 'biz-cache-1';
 
-// getActiveDashboardData main Promise.all sql call order (no reputation flag):
-// 0 business, 1 totalReviews, 2 totalResponded, 3 velocity, 4 ranking,
+// getActiveDashboardData sequential sql call order (no reputation flag):
+// 0 business, 1 reviewCounts, 2 totalResponded, 3 weeklySeries, 4 ranking,
 // 5 recentReviews, 6 monthlyBrief, 7 weeklyBrief, 8 zernioConn,
-// 9 queuedReconnect, 10 unresolvedIncident, 11 ratingBreakdown.
+// 9 queuedReconnect, 10 unresolvedIncident.
 function seedDashboardQueries(overrides?: {
   business?: unknown[];
   recentReviews?: unknown[];
@@ -54,12 +54,11 @@ function seedDashboardQueries(overrides?: {
   harness.resetMockSql();
   harness.sqlReturnQueue.push(
     overrides?.business ?? [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }],
-    [{ count: 0 }],
+    [],
     [{ count: 0 }],
     [],
     [],
     overrides?.recentReviews ?? [],
-    [],
     [],
     [],
     [],
@@ -137,7 +136,7 @@ describe('getActiveDashboardData — read cache (#478)', () => {
   });
 
   it('key varies by includeReputationMetrics (rep vs norep) — but never by opts.business', async () => {
-    // The reputation branch fires its own inner Promise.all, so pass a
+    // The reputation branch issues its own inner statements, so pass a
     // pre-fetched `business` row to skip the business query and keep the compute
     // independent of queue-order alignment. `business` must NOT enter the key —
     // both sub-cases pass it, yet only the rep flag flips the suffix.

@@ -12,8 +12,8 @@
 // wait_event=ClientRead and is never read — a PERMANENT Connection wedge that no
 // server-side timeout heals, leaking a pool slot per render until the pool
 // starves. The same defect took the admin portal down on staging 2026-08-10;
-// these were the owner-facing instances of it (13-member main wave, 8-member
-// aggregate wave, 5-query reputation batch).
+// these were the owner-facing instances of it (12-member main wave, 8-member
+// aggregate wave, 4-query reputation batch).
 //
 // SEAM HONESTY: the pipelining effect is a live-pooler behavior a unit test
 // CANNOT reproduce. The max-observed-concurrency === 1 assertion is the closest
@@ -77,17 +77,17 @@ function makeConcurrencyTrackingSql(rows: unknown[] = []) {
 }
 
 describe('#505 sequential execution — owner dashboard (pool = DB_POOL_MAX = 3)', () => {
-  it('getActiveDashboardData runs its 13-member wave one query at a time', async () => {
+  it('getActiveDashboardData runs its 12-member wave one query at a time', async () => {
     // First result feeds the FATAL business read; the rest degrade to empty.
     const { sql, getMaxConcurrency } = makeConcurrencyTrackingSql([
       [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }],
     ]);
 
     // includeReputationMetrics exercises the reputation batch INSIDE the wave —
-    // the widest path, and the one that nests a 5-query bundle in a wave member.
+    // the widest path, and the one that nests a 4-query bundle in a wave member.
     await getActiveDashboardData(sql, 'biz-fanout-1', { includeReputationMetrics: true });
 
-    // 1, not 13. A concurrent driver here wedges the pool permanently on Vercel.
+    // 1, not 12. A concurrent driver here wedges the pool permanently on Vercel.
     expect(getMaxConcurrency()).toBe(1);
   });
 

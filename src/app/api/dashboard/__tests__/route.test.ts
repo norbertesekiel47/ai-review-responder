@@ -171,18 +171,23 @@ const DEFAULT_SUB_ROW = {
  * Call 0: fetchLocationAccountRow — the merged preflight row (IDOR/archived
  *   checks + DashboardBusinessRow fields; the service's business query is
  *   SKIPPED because the route passes this row in as opts.business).
- * Calls 1–7: the Promise.all heavy queries (totals/velocity/ranking/reviews/briefs).
+ * Call 1: reviewCounts — ONE `GROUP BY star_rating` scan carrying the all-time
+ *   total per bucket (`total_count`) and the windowed 1–5★ breakdown (`count`,
+ *   #405).
+ * Calls 2–7: the sequential heavy queries (responded/weekly series/ranking/
+ *   reviews/briefs). The weekly series carries velocity `count` AND the
+ *   reputation sentiment `avg_score` in one scan.
  * Calls 8–10: the Zernio banner queries (zernio_connections, queued reconnects,
  *   unresolved incidents).
- * Call 11: the windowed reviews-by-rating breakdown GROUP BY (#405).
- * Calls 12–15: the reputation windows (rate/star/timeSaved/sentiment trend) —
- *   these run in the SAME Promise.all wave; the queue leaves them unset so they
- *   fall back to [] (fetchReputationRows substitutes zeroed defaults).
- * Call 16: pendingApprovalCount (src/lib/dashboard/pending-count.ts) — also []
+ * Calls 11–13: the reputation windows (rate/star/timeSaved) — these run in the
+ *   SAME sequential wave; the queue leaves them unset so they fall back to []
+ *   (fetchReputationRows substitutes zeroed defaults). The sentiment trend is
+ *   projected from call 3, not queried.
+ * Call 14: pendingApprovalCount (src/lib/dashboard/pending-count.ts) — also []
  *   by default → 0.
  *
- * The Promise.all also includes the Redis pending-marker read, but that
- * resolves through `mockRedisGet`, not through the sql proxy.
+ * The wave also includes the Redis pending-marker read, but that resolves
+ * through `mockRedisGet`, not through the sql proxy.
  *
  * `subRow` / `businessRows` overrides are both merged into call 0 (an
  * explicitly empty `subRow: []` simulates "location not found").
@@ -190,7 +195,8 @@ const DEFAULT_SUB_ROW = {
 function setDbResults(overrides?: {
   subRow?: unknown[];
   businessRows?: unknown[];
-  totalReviewRows?: unknown[];
+  /** `GROUP BY star_rating` rows: `{ stars, total_count, count }`. */
+  reviewCountRows?: unknown[];
   totalRespondedRows?: unknown[];
   velocityRows?: unknown[];
   rankingRows?: unknown[];
@@ -200,7 +206,6 @@ function setDbResults(overrides?: {
   zernioConnectionRows?: unknown[];
   queuedReconnectRows?: unknown[];
   unresolvedIncidentRows?: unknown[];
-  ratingBreakdownRows?: unknown[];
 }) {
   mockSqlResults.length = 0;
   sqlCallCounter.value = 0;
@@ -218,9 +223,10 @@ function setDbResults(overrides?: {
     ]);
   }
 
-  // Calls 1–11 (only reached when the preflight row passes all gates)
+  // Calls 1–10 (only reached when the preflight row passes all gates)
   mockSqlResults.push(
-    overrides?.totalReviewRows ?? [{ count: 20 }],
+    // 20 reviews all time (the response-rate denominator); none in the window.
+    overrides?.reviewCountRows ?? [{ stars: 5, total_count: 20, count: 0 }],
     overrides?.totalRespondedRows ?? [{ count: 15 }],
     overrides?.velocityRows ?? [
       { week_start: '2025-03-03', count: 4 },
@@ -250,8 +256,6 @@ function setDbResults(overrides?: {
     overrides?.zernioConnectionRows ?? [],
     overrides?.queuedReconnectRows ?? [{ count: 0 }],
     overrides?.unresolvedIncidentRows ?? [{ count: 0 }],
-    // Call 11: windowed reviews-by-rating breakdown (#405). Empty by default.
-    overrides?.ratingBreakdownRows ?? [],
   );
 }
 
@@ -500,10 +504,10 @@ describe('GET /api/dashboard', () => {
   it('returns the windowed reviews-by-rating breakdown in the active payload (#405)', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
     setDbResults({
-      ratingBreakdownRows: [
-        { stars: 5, count: 4 },
-        { stars: 4, count: 1 },
-        { stars: 2, count: 3 },
+      reviewCountRows: [
+        { stars: 5, total_count: 4, count: 4 },
+        { stars: 4, total_count: 1, count: 1 },
+        { stars: 2, total_count: 3, count: 3 },
       ],
     });
 

@@ -20,19 +20,23 @@ let mockSql: Sql;
 
 const BUSINESS_ID = 'biz-rating-1';
 
-// getActiveDashboardData main Promise.all sql call order (no reputation flag):
-// 0 business, 1 totalReviews, 2 totalResponded, 3 velocity, 4 ranking,
+// getActiveDashboardData sequential sql call order (no reputation flag):
+// 0 business, 1 reviewCounts (all-time total + windowed rating breakdown in
+// ONE GROUP BY scan), 2 totalResponded, 3 weeklySeries, 4 ranking,
 // 5 recentReviews, 6 monthlyBrief, 7 weeklyBrief, 8 zernioConn,
-// 9 queuedReconnect, 10 unresolvedIncident, 11 ratingBreakdown.
-const RATING_BREAKDOWN_CALL = 11;
+// 9 queuedReconnect, 10 unresolvedIncident.
+const RATING_BREAKDOWN_CALL = 1;
 
-function seed(ratingRows: Array<{ stars: number; count: number }>) {
+/** A `GROUP BY star_rating` row: `total_count` all-time, `count` windowed. */
+type ReviewCountSeed = { stars: number | null; total_count: number; count: number };
+
+function seed(ratingRows: ReviewCountSeed[], totalResponded = 0) {
   harness.resetMockSql();
   harness.sqlReturnQueue.push(
     [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }], // 0 business
-    [{ count: 0 }], // 1 totalReviews
-    [{ count: 0 }], // 2 totalResponded
-    [], // 3 velocity
+    ratingRows, // 1 reviewCounts
+    [{ count: totalResponded }], // 2 totalResponded
+    [], // 3 weeklySeries
     [], // 4 ranking
     [], // 5 recentReviews
     [], // 6 monthlyBrief
@@ -40,7 +44,6 @@ function seed(ratingRows: Array<{ stars: number; count: number }>) {
     [], // 8 zernioConn
     [], // 9 queuedReconnect
     [], // 10 unresolvedIncident
-    ratingRows, // 11 ratingBreakdown
   );
 }
 
@@ -56,9 +59,9 @@ describe('getActiveDashboardData — ratingBreakdown (#405)', () => {
 
   it('returns zero-filled 5★→1★ counts and total from the GROUP BY rows', async () => {
     seed([
-      { stars: 5, count: 3 },
-      { stars: 4, count: 1 },
-      { stars: 1, count: 2 },
+      { stars: 5, total_count: 3, count: 3 },
+      { stars: 4, total_count: 1, count: 1 },
+      { stars: 1, total_count: 2, count: 2 },
     ]);
     const data = await getActiveDashboardData(mockSql, BUSINESS_ID);
     expect(data.ratingBreakdown.counts).toEqual([
@@ -78,8 +81,34 @@ describe('getActiveDashboardData — ratingBreakdown (#405)', () => {
     expect(data.ratingBreakdown.counts.map((c) => c.count)).toEqual([0, 0, 0, 0, 0]);
   });
 
+  it('derives the all-time total from EVERY group, the breakdown from the rated groups\' windowed counts', async () => {
+    // 5★: 10 all time, 3 in window. 1★: 4 all time, 0 in window (old reviews).
+    // NULL stars: 2 unrated reviews — they count toward the total, never the
+    // breakdown. Total = 16 regardless of window; breakdown total = 3. The
+    // all-time total surfaces only as the response-rate denominator:
+    // 4 responded / 16 total = 25%.
+    seed(
+      [
+        { stars: 5, total_count: 10, count: 3 },
+        { stars: 1, total_count: 4, count: 0 },
+        { stars: null, total_count: 2, count: 0 },
+      ],
+      4,
+    );
+    const data = await getActiveDashboardData(mockSql, BUSINESS_ID);
+    expect(data.valueSummary.currentResponseRate).toBe(25);
+    expect(data.ratingBreakdown.total).toBe(3);
+    expect(data.ratingBreakdown.counts).toEqual([
+      { stars: 5, count: 3 },
+      { stars: 4, count: 0 },
+      { stars: 3, count: 0 },
+      { stars: 2, count: 0 },
+      { stars: 1, count: 0 },
+    ]);
+  });
+
   it('scopes the breakdown query by business_id and excludes deleted/unrated rows', async () => {
-    seed([{ stars: 5, count: 1 }]);
+    seed([{ stars: 5, total_count: 1, count: 1 }]);
     await getActiveDashboardData(mockSql, BUSINESS_ID);
     const text = ratingBreakdownSql();
     expect(text).toContain('business_id = ?');
@@ -92,7 +121,7 @@ describe('getActiveDashboardData — ratingBreakdown (#405)', () => {
   });
 
   it('windows the breakdown via a bound make_interval(days => ?) param, not interpolated text', async () => {
-    seed([{ stars: 5, count: 1 }]);
+    seed([{ stars: 5, total_count: 1, count: 1 }]);
     await getActiveDashboardData(mockSql, BUSINESS_ID, { window: '30d' });
     const text = ratingBreakdownSql();
     expect(text).toContain('make_interval(days => ?)');
@@ -102,11 +131,11 @@ describe('getActiveDashboardData — ratingBreakdown (#405)', () => {
   });
 
   it('honors the selected window (7d / 90d) as the bound interval days', async () => {
-    seed([{ stars: 5, count: 1 }]);
+    seed([{ stars: 5, total_count: 1, count: 1 }]);
     await getActiveDashboardData(mockSql, BUSINESS_ID, { window: '7d' });
     expect(harness.sqlCalls[RATING_BREAKDOWN_CALL]?.values).toContain(7);
 
-    seed([{ stars: 5, count: 1 }]);
+    seed([{ stars: 5, total_count: 1, count: 1 }]);
     await getActiveDashboardData(mockSql, BUSINESS_ID, { window: '90d' });
     expect(harness.sqlCalls[RATING_BREAKDOWN_CALL]?.values).toContain(90);
   });
