@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BusinessesClient } from '../BusinessesClient';
 import { BUSINESSES_PAGE_SIZE as PAGE_SIZE } from '@/app/admin/page-sizes';
@@ -15,6 +16,7 @@ type InitialData = Props['initialData'];
  * distinctive ones.
  */
 const summaryMetrics = {
+  accountId: 'acct-1',
   pendingReconnectCount: 0,
   totalResponses: 0,
   completedResponses: 0,
@@ -67,8 +69,8 @@ const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString(
  * across the whole table, so a getByText hit can only have come from the
  * column under test — except the em-dash, which is counted instead.
  *
- * `responseMetricsWindowDays` is deliberately NOT 30: the two window-labelled
- * headers must derive their N from the DTO, so a hardcoded `30` fails here.
+ * `responseMetricsWindowDays` is deliberately NOT 30: the window-labelled
+ * header must derive its N from the DTO, so a hardcoded `30` fails here.
  */
 const metricBusinesses: InitialData = {
   businesses: [
@@ -79,6 +81,7 @@ const metricBusinesses: InitialData = {
       subscriptionStatus: 'active',
       lastSyncAt: '2026-08-01T12:30:00.000Z',
       pendingApprovalCount: 2,
+      accountId: 'acct-red',
       pendingReconnectCount: 4, // >= 3 → red
       totalResponses: 50,
       completedResponses: 41,
@@ -94,6 +97,7 @@ const metricBusinesses: InitialData = {
       subscriptionStatus: 'active',
       lastSyncAt: '2026-08-02T12:30:00.000Z',
       pendingApprovalCount: 5,
+      accountId: 'acct-grey',
       pendingReconnectCount: 1, // > 0 → grey
       totalResponses: 20,
       completedResponses: 11,
@@ -109,11 +113,12 @@ const metricBusinesses: InitialData = {
       subscriptionStatus: 'active',
       lastSyncAt: '2026-08-03T12:30:00.000Z',
       pendingApprovalCount: 0,
+      accountId: 'acct-none',
       pendingReconnectCount: 0, // 0 → em-dash
       totalResponses: 4,
       completedResponses: 4,
       responseRate: 100,
-      avgResponseTimeHours: null, // → em-dash
+      avgResponseTimeHours: null, // → no sub-line
       lastActivity: null, // → em-dash
       churnScore: { score: 3, level: 'healthy' as const, breakdown: [] },
     },
@@ -132,36 +137,43 @@ const emptyData: InitialData = {
   offset: 0,
 };
 
-function renderClient(initialData: InitialData) {
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function renderClient(initialData: InitialData, initialFilters?: Props['initialFilters']) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <BusinessesClient initialData={initialData} />
+      <BusinessesClient initialData={initialData} initialFilters={initialFilters} />
     </QueryClientProvider>,
   );
 }
 
+function fetchUrls(): string[] {
+  return (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((call) => String(call[0]));
+}
+
 describe('BusinessesClient', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify(oneBusiness), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          }),
-      ),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(oneBusiness)));
   });
 
-  it("renders a business row with its name and the shared status badge's raw status", () => {
+  it('renders a business row with its name and the humanized status badge (X8)', () => {
     renderClient(oneBusiness);
 
     expect(screen.getByText('Test Cafe')).toBeInTheDocument();
-    // Shared StatusBadge renders the raw status (not the old "past due" label).
-    expect(screen.getByText('past_due')).toBeInTheDocument();
-    expect(screen.getByText('3')).toBeInTheDocument();
+    // The shared StatusBadge vocabulary, never the raw token. Scoped to the
+    // table: the Status filter's <option>s echo the same labels above it.
+    const table = within(screen.getByRole('table'));
+    const badge = table.getByText('Past due');
+    expect(badge).toHaveAttribute('data-vocab', 'subscription');
+    expect(badge).not.toHaveAttribute('data-unmapped');
+    expect(table.queryByText('past_due')).not.toBeInTheDocument();
+    expect(table.getByText('3')).toBeInTheDocument();
   });
 
   it('renders the shared pagination footer for a multi-page result', () => {
@@ -172,43 +184,53 @@ describe('BusinessesClient', () => {
     expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
   });
 
-  it('renders the metric columns absorbed from Overview', () => {
+  it('renders the metric columns, with Category and Avg time folded under their neighbours (X5)', () => {
     renderClient(metricBusinesses);
 
     // Reconnect ladder: >= 3 is red, > 0 is grey, 0 is an em-dash.
     expect(screen.getByText('4').className).toContain('bg-red-100');
     expect(screen.getByText('1').className).toContain('bg-gray-100');
-    // Three em-dashes total: the 0-reconnect cell plus Quiet Bar's null
-    // Avg time and null Last activity. Every category here is non-null, so
-    // nothing else contributes one.
-    expect(screen.getAllByText('—')).toHaveLength(3);
+    // Two em-dashes: the 0-reconnect cell and Quiet Bar's null Last activity.
+    // A null Avg time renders NO sub-line rather than a dash.
+    expect(screen.getAllByText('—')).toHaveLength(2);
 
-    // Response rate.
+    // Response rate, with the average folded underneath it.
     expect(screen.getByText('82%')).toBeInTheDocument();
-    expect(screen.getByText('55%')).toBeInTheDocument();
+    expect(screen.getByText('avg 6h to reply')).toBeInTheDocument();
+    expect(screen.getByText('avg 12h to reply')).toBeInTheDocument();
     expect(screen.getByText('100%')).toBeInTheDocument();
 
-    // Avg time.
-    expect(screen.getByText('6h')).toBeInTheDocument();
-    expect(screen.getByText('12h')).toBeInTheDocument();
+    // Category rides under the name — still readable, no longer a column.
+    expect(screen.getByText('bakery')).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Category' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /Avg time/ })).not.toBeInTheDocument();
 
-    // Last activity, relative.
+    // Last activity, relative (RelativeTime captures now after mount — X29).
     expect(screen.getByText('3h ago')).toBeInTheDocument();
     expect(screen.getByText('45m ago')).toBeInTheDocument();
 
-    // Health renders through the shared HealthBadge (label + score).
-    expect(screen.getByText('At Risk')).toBeInTheDocument();
-    expect(screen.getByText('71')).toBeInTheDocument();
-    expect(screen.getByText('Watch')).toBeInTheDocument();
-    expect(screen.getByText('33')).toBeInTheDocument();
-    expect(screen.getByText('Healthy')).toBeInTheDocument();
+    // Health renders through the shared HealthBadge (label + score). Scoped to
+    // the table because the Health filter's <option>s carry the same labels.
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('At Risk')).toBeInTheDocument();
+    expect(table.getByText('71')).toBeInTheDocument();
+    expect(table.getByText('Watch')).toBeInTheDocument();
+    expect(table.getByText('33')).toBeInTheDocument();
+    expect(table.getByText('Healthy')).toBeInTheDocument();
 
-    // Both window-labelled headers come from responseMetricsWindowDays, never
-    // a literal 30.
+    // The window-labelled header comes from responseMetricsWindowDays, never a
+    // literal 30.
     expect(screen.getByText('Response rate (14d)')).toBeInTheDocument();
-    expect(screen.getByText('Avg time (14d)')).toBeInTheDocument();
     expect(screen.queryByText('Response rate (30d)')).not.toBeInTheDocument();
-    expect(screen.queryByText('Avg time (30d)')).not.toBeInTheDocument();
+
+    // Eight data columns (+ the View column).
+    expect(screen.getAllByRole('columnheader')).toHaveLength(9);
+  });
+
+  // X30: the sticky header only sticks once something bounds the scroll body.
+  it('bounds the table so its sticky header pins', () => {
+    renderClient(oneBusiness);
+    expect(screen.getByTestId('data-table-scroll')).toHaveStyle({ maxHeight: '70vh' });
   });
 
   it('renders the empty state when no businesses exist', () => {
@@ -216,5 +238,76 @@ describe('BusinessesClient', () => {
 
     expect(screen.getByText('No businesses found')).toBeInTheDocument();
     expect(screen.getByText('Add one with + Add Business.')).toBeInTheDocument();
+  });
+
+  // ── X5: search + filter chips ────────────────────────────────────────
+
+  it('debounces the name search into a server `q` param and shows the total noun', async () => {
+    const user = userEvent.setup();
+    renderClient(oneBusiness);
+    expect(screen.getByText('1 businesses')).toBeInTheDocument();
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search businesses by name' }), 'Nor');
+
+    await waitFor(() => {
+      expect(fetchUrls().some((url) => url.includes('q=Nor'))).toBe(true);
+    });
+    // One request for the settled value, not one per keystroke.
+    expect(fetchUrls().filter((url) => url.includes('q='))).toEqual([
+      `/api/admin/businesses?limit=${PAGE_SIZE}&offset=0&q=Nor`,
+    ]);
+  });
+
+  it('filters by status through a select, echoes it as a removable chip, and clears it', async () => {
+    const user = userEvent.setup();
+    renderClient(oneBusiness);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Status' }), 'past_due');
+
+    await waitFor(() => {
+      expect(fetchUrls().some((url) => url.includes('status=past_due'))).toBe(true);
+    });
+    expect(screen.getByText('Status: Past due')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Remove filter Status: Past due' }));
+    expect(screen.queryByText('Status: Past due')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveValue('');
+  });
+
+  it('filters by health level with the HealthBadge vocabulary', async () => {
+    const user = userEvent.setup();
+    renderClient(oneBusiness);
+
+    const health = screen.getByRole('combobox', { name: 'Health' });
+    expect(Array.from((health as HTMLSelectElement).options).map((o) => o.textContent)).toEqual([
+      'All health levels',
+      'Healthy',
+      'Watch',
+      'At Risk',
+    ]);
+    await user.selectOptions(health, 'at_risk');
+
+    await waitFor(() => {
+      expect(fetchUrls().some((url) => url.includes('health=at_risk'))).toBe(true);
+    });
+    expect(screen.getByText('Health: At Risk')).toBeInTheDocument();
+  });
+
+  it('starts from the server-rendered filters without refetching (deep links)', () => {
+    renderClient(oneBusiness, { search: 'Test', status: 'past_due' });
+
+    expect(screen.getByRole('searchbox', { name: 'Search businesses by name' })).toHaveValue('Test');
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveValue('past_due');
+    expect(screen.getByText('Status: Past due')).toBeInTheDocument();
+    expect(screen.getByText('Test Cafe')).toBeInTheDocument();
+    // initialData matched the filters, so nothing was fetched on mount.
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('says "no match" rather than "no businesses" when a filter is active', () => {
+    renderClient(emptyData, { search: 'zzz' });
+
+    expect(screen.getByText('No businesses match')).toBeInTheDocument();
+    expect(screen.queryByText('No businesses found')).not.toBeInTheDocument();
   });
 });

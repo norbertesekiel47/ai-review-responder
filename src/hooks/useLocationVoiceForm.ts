@@ -10,7 +10,9 @@
 // VAL-SETTINGS-018: Voice config for each location is independently editable.
 // VAL-SETTINGS-036: Voice tab for single-location account.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { useSavedFlash } from '@/hooks/useSavedFlash';
 import {
   buildVoiceFieldsPatch,
   countDirtyFields,
@@ -143,6 +145,57 @@ function updateEntry(
   return next;
 }
 
+type EntriesState = Map<string, LocationFormEntry>;
+
+function getSelectedEntry(entries: EntriesState, selectedLocationId: string | null): LocationFormEntry | null {
+  return selectedLocationId ? entries.get(selectedLocationId) ?? null : null;
+}
+
+/** Everything the tab reads off the selected entry, with the nothing-selected defaults in one place. */
+function selectedEntryView(
+  entry: LocationFormEntry | null,
+): Pick<UseLocationVoiceForm, 'form' | 'saving' | 'saveError' | 'selectedDisplayName'> {
+  return {
+    form: entry?.form ?? null,
+    saving: entry?.saving ?? false,
+    saveError: entry?.saveError ?? null,
+    selectedDisplayName: entry?.config.displayName ?? null,
+  };
+}
+
+/** Rewrite the selected location's entry through `setEntries`; a no-op with nothing selected. */
+function updateSelectedEntry(
+  setEntries: Dispatch<SetStateAction<EntriesState>>,
+  selectedLocationId: string | null,
+  update: (entry: LocationFormEntry) => LocationFormEntry,
+): void {
+  if (!selectedLocationId) return;
+  setEntries((prev) => updateEntry(prev, selectedLocationId, update));
+}
+
+// The four ways a location's entry changes, as pure transitions so the hook's
+// save/discard read as the sequence of transitions and nothing else.
+const markSaving = (entry: LocationFormEntry): LocationFormEntry => ({
+  ...entry,
+  saving: true,
+  saveError: null,
+});
+const markSaved = (entry: LocationFormEntry): LocationFormEntry => ({
+  ...entry,
+  initial: { ...entry.form },
+  saving: false,
+  saveError: null,
+});
+const markSaveFailed = (err: unknown) => (entry: LocationFormEntry): LocationFormEntry => ({
+  ...entry,
+  saving: false,
+  saveError: err instanceof Error ? err.message : 'Failed to save',
+});
+const discardEdits = (entry: LocationFormEntry): LocationFormEntry => ({
+  ...entry,
+  form: { ...entry.initial },
+});
+
 /**
  * GET every location's voice config and index it by location id, plus which
  * location the tab should open on (primary, else the first).
@@ -182,60 +235,88 @@ async function fetchLocationEntries(): Promise<{
   };
 }
 
+/**
+ * PUT one location's changed voice fields. Throws with the server's error
+ * string (or a status fallback) so the hook owns only its own state writes.
+ */
+async function putVoicePatch(locationId: string, patch: Record<string, unknown>): Promise<void> {
+  const res = await fetch('/api/settings/voice', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locationId, ...patch }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Save failed (${res.status})`);
+  }
+}
+
+/** Whether (and how much of) an entry's form differs from its saved state; nothing selected → clean. */
+function dirtyStateOf(entry: LocationFormEntry | null | undefined): { dirty: boolean; dirtyCount: number } {
+  if (!entry) return { dirty: false, dirtyCount: 0 };
+  return {
+    dirty: buildPatchInternal(entry.initial, entry.form) !== null,
+    dirtyCount: countDirtyFields(entry.initial, entry.form),
+  };
+}
+
+/**
+ * Mount-only fetch of every location's voice config. This hook OWNS the entries
+ * map and the selected-location id: the fetch resolves straight into that
+ * state inside the effect's promise chain (never after unmount, via the
+ * `cancelled` flag), so no callback crosses the hook boundary and no state
+ * updater carries a nested update. The fetch, the error shape and the indexing
+ * live in fetchLocationEntries; loading / fetch-error are the effect's own.
+ */
+function useVoiceEntriesLoader(): {
+  entries: EntriesState;
+  setEntries: Dispatch<SetStateAction<EntriesState>>;
+  selectedLocationId: string | null;
+  setSelectedLocationId: Dispatch<SetStateAction<string | null>>;
+  loading: boolean;
+  fetchError: string | null;
+} {
+  const [entries, setEntries] = useState<EntriesState>(new Map());
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchLocationEntries()
+      .then((loaded) => {
+        if (cancelled) return;
+        setEntries(loaded.entries);
+        // Keep an id the owner already picked; seed the server default otherwise.
+        setSelectedLocationId((current) => current ?? loaded.defaultLocationId ?? null);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setFetchError(err instanceof Error ? err.message : 'Failed to load voice settings');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, []);
+
+  return { entries, setEntries, selectedLocationId, setSelectedLocationId, loading, fetchError };
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────
 
 export function useLocationVoiceForm(
   { multiLocationEnabled }: UseLocationVoiceFormOptions,
 ): UseLocationVoiceForm {
-  const [entries, setEntries] = useState<Map<string, LocationFormEntry>>(new Map());
-  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Cleanup flash timeout on unmount
-  useEffect(
-    () => () => {
-      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-    },
-    [],
-  );
-
-  // Fetch all location voice configs on mount
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        // The fetch, the error shape and the indexing live in
-        // fetchLocationEntries; what stays here is only the effect's own
-        // concern — do not touch state after unmount.
-        const { entries: loaded, defaultLocationId } = await fetchLocationEntries();
-
-        if (cancelled) return;
-
-        setEntries(loaded);
-        if (defaultLocationId && !selectedLocationId) {
-          setSelectedLocationId(defaultLocationId);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setFetchError(err instanceof Error ? err.message : 'Failed to load voice settings');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => { cancelled = true; };
-    // exhaustive-deps: mount-only initial fetch — load voice settings once; the
-    // `cancelled` flag prevents a state update after unmount. Not re-run per render.
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fetch all location voice configs on mount; the loader owns the entries
+  // map and the selected-location id.
+  const { entries, setEntries, selectedLocationId, setSelectedLocationId, loading, fetchError } =
+    useVoiceEntriesLoader();
+  const { savedFlash, flashSaved } = useSavedFlash();
 
   // Current entry
-  const currentEntry = selectedLocationId ? entries.get(selectedLocationId) : null;
+  const currentEntry = getSelectedEntry(entries, selectedLocationId);
 
   // Derived state
   const locations = useMemo(
@@ -248,26 +329,20 @@ export function useLocationVoiceForm(
   // account with the feature flag OFF.
   const isMultiLocation = multiLocationEnabled;
 
-  const selectedDisplayName = currentEntry?.config.displayName ?? null;
+  const { dirty, dirtyCount } = useMemo(() => dirtyStateOf(currentEntry), [currentEntry]);
 
-  const dirty = useMemo(() => {
-    if (!currentEntry) return false;
-    return buildPatchInternal(currentEntry.initial, currentEntry.form) !== null;
-  }, [currentEntry]);
-
-  const dirtyCount = useMemo(() => {
-    if (!currentEntry) return 0;
-    return countDirtyFields(currentEntry.initial, currentEntry.form);
-  }, [currentEntry]);
+  // The CURRENT location's dirty state is the whole truth: VoiceClient refuses
+  // to switch locations while dirty (discard first), so no other entry can be
+  // holding edits behind the selector.
+  useUnsavedChangesGuard(dirty);
 
   // Set a form field
   const set = useCallback(<K extends keyof VoiceFormState>(key: K, value: VoiceFormState[K]) => {
-    if (!selectedLocationId) return;
-    setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
+    updateSelectedEntry(setEntries, selectedLocationId, (entry) => ({
       ...entry,
       form: { ...entry.form, [key]: value },
-    })));
-  }, [selectedLocationId]);
+    }));
+  }, [selectedLocationId, setEntries]);
 
   // Save the current form
   const save = useCallback(async () => {
@@ -275,63 +350,28 @@ export function useLocationVoiceForm(
     const patch = buildPatchInternal(currentEntry.initial, currentEntry.form);
     if (!patch) return;
 
-    // Mark saving
-    setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
-      ...entry,
-      saving: true,
-      saveError: null,
-    })));
-
+    updateSelectedEntry(setEntries, selectedLocationId, markSaving);
     try {
-      const res = await fetch('/api/settings/voice', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationId: selectedLocationId, ...patch }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Save failed (${res.status})`);
-      }
-
-      // Update initial to match current form (mark as saved)
-      setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
-        ...entry,
-        initial: { ...entry.form },
-        saving: false,
-        saveError: null,
-      })));
-
-      setSavedFlash(true);
-      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-      flashTimeoutRef.current = setTimeout(() => setSavedFlash(false), 1800);
+      await putVoicePatch(selectedLocationId, patch);
+      updateSelectedEntry(setEntries, selectedLocationId, markSaved);
+      flashSaved();
     } catch (err) {
-      setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
-        ...entry,
-        saving: false,
-        saveError: err instanceof Error ? err.message : 'Failed to save',
-      })));
+      updateSelectedEntry(setEntries, selectedLocationId, markSaveFailed(err));
     }
-  }, [selectedLocationId, currentEntry]);
+  }, [selectedLocationId, currentEntry, flashSaved, setEntries]);
 
   // Discard changes
   const discard = useCallback(() => {
-    if (!selectedLocationId) return;
-    setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
-      ...entry,
-      form: { ...entry.initial },
-    })));
-  }, [selectedLocationId]);
+    updateSelectedEntry(setEntries, selectedLocationId, discardEdits);
+  }, [selectedLocationId, setEntries]);
 
   return {
     locations,
     selectedLocationId,
     setSelectedLocationId,
-    form: currentEntry?.form ?? null,
+    ...selectedEntryView(currentEntry),
     dirty,
     dirtyCount,
-    saving: currentEntry?.saving ?? false,
-    saveError: currentEntry?.saveError ?? null,
     savedFlash,
     set,
     save,
@@ -339,6 +379,5 @@ export function useLocationVoiceForm(
     loading,
     fetchError,
     isMultiLocation,
-    selectedDisplayName,
   };
 }

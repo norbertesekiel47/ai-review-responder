@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { SiteFooter } from '@/components/ui/SiteFooter';
-import type { LegalDoc } from '@/lib/legal/content';
+import { formatLegalDate, type LegalDoc } from '@/lib/legal/content';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 
@@ -39,8 +39,11 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
           <h1 className="mb-2 text-5xl md:text-6xl lg:text-7xl font-medium leading-tight text-rw-ink">
             {doc.title}
           </h1>
+          {/* One date, said once. The version only appears when it differs from the
+              effective date; today they are the same string, so it stays out. */}
           <p className="mb-10 text-sm text-rw-teal-strong">
-            Version {doc.version} - Effective {doc.effectiveDate}
+            Effective {formatLegalDate(doc.effectiveDate)}
+            {doc.version !== doc.effectiveDate && <> · Version {doc.version}</>}
           </p>
 
           {doc.sections.length > 1 && (

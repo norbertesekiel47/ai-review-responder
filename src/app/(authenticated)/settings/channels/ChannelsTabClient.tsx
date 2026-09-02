@@ -12,6 +12,14 @@
 // via PUT /api/settings — preserving the patch-shape contract that the legacy
 // Settings General form used.
 //
+// Two commit models share this page and each section SAYS which one it uses
+// (UX audit S13): sections 1–2 apply instantly (connect/disconnect, add/remove
+// override — each confirms with the shared toast); sections 3–4 go through the
+// save bar because the toggles and the phone number ride one PUT patch, and
+// set-a's unsaved-changes guard already protects that edit. Auto-saving the
+// toggles would need a second save path that could race a phone edit in the
+// same patch, so the label is the honest fix.
+//
 // VAL-SETTINGS-012: Channels tab shows org-level defaults at top.
 // VAL-SETTINGS-013: Per-location override panel collapsed by default.
 // VAL-SETTINGS-032: Channels tab org-default section shows only Telegram and email.
@@ -21,6 +29,7 @@ import { useSettingsForm } from '@/hooks/useSettingsForm';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { useToast } from '@/components/dashboard/shell/toast/ToastProvider';
 import { ChannelsClient, type ChannelsClientProps } from './ChannelsClient';
 import {
   PerLocationOverridePanel,
@@ -29,6 +38,9 @@ import {
 } from '@/components/dashboard/settings/PerLocationOverridePanel';
 import type { ChannelOverridesView } from '@/lib/channels/overrides-view';
 import type { ChannelId } from '@/lib/notifications/channels/types';
+
+/** Rendered in the header of every save-bar section so the commit model is stated, not inferred. */
+export const SAVE_BAR_COMMIT_NOTE = 'Saved with the Save button below.';
 
 interface Props extends ChannelsClientProps {
   /** Computed once by the page: multi-location mode AND >1 active location. */
@@ -40,6 +52,7 @@ interface Props extends ChannelsClientProps {
 
 export function ChannelsTabClient(props: Props) {
   const f = useSettingsForm();
+  const { toast } = useToast();
 
   // Track the override view in local state so we can update after add/remove
   // without a full page reload. The initial values come from SSR.
@@ -72,8 +85,14 @@ export function ChannelsTabClient(props: Props) {
       setLocationOptions(view.locations.filter((location) => !location.archived));
       setVerifiedOrgChannels(view.verifiedOrgChannels);
     } catch {
-      // Fallback: full page reload
-      window.location.reload();
+      // The change itself already landed (the caller only refreshes after a
+      // 2xx); only the list is stale. Say so instead of yanking the page away
+      // with a reload the owner did not ask for.
+      toast({
+        tone: 'error',
+        title: "Saved, but the list didn't refresh",
+        body: 'Reload the page to see the latest overrides.',
+      });
     }
   };
 
@@ -134,7 +153,8 @@ export function ChannelsTabClient(props: Props) {
           <div>
             <div className="set-section-title">Reports &amp; summaries</div>
             <div className="set-section-sub">
-              Optional digests delivered to {f.data.settings.ownerEmail}.
+              Optional digests delivered to {f.data.settings.ownerEmail}.{' '}
+              <span className="set-commit-note">{SAVE_BAR_COMMIT_NOTE}</span>
             </div>
           </div>
         </div>
@@ -171,7 +191,10 @@ export function ChannelsTabClient(props: Props) {
           </div>
           <div>
             <div className="set-section-title">Contact details</div>
-            <div className="set-section-sub">Used only for urgent system alerts, never marketing.</div>
+            <div className="set-section-sub">
+              Used only for urgent system alerts, never marketing.{' '}
+              <span className="set-commit-note">{SAVE_BAR_COMMIT_NOTE}</span>
+            </div>
           </div>
         </div>
 

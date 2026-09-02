@@ -40,6 +40,19 @@ describe('MobileTabBar', () => {
     expect(linkByName(/reviews/i)).not.toHaveClass('active');
   });
 
+  // UX audit D30: Home is the catch-all for /dashboard/* like the sidebar's
+  // Dashboard row, so connect and add-location light the same tab in both navs.
+  it.each(['/dashboard/connect', '/dashboard/add-location/wizard'])(
+    'marks Home active on %s, matching the sidebar',
+    (pathname) => {
+      pathnameMock.mockReturnValue(pathname);
+      render(<MobileTabBar solicitationEnabled={false} />);
+      expect(linkByName(/home/i)).toHaveClass('active');
+      expect(linkByName(/home/i)).toHaveAttribute('aria-current', 'page');
+      expect(linkByName(/reviews/i)).not.toHaveClass('active');
+    },
+  );
+
   it('renders the Analytics tab (final set: Home · Reviews · Analytics · Settings)', () => {
     pathnameMock.mockReturnValue('/dashboard');
     render(<MobileTabBar solicitationEnabled={false} />);

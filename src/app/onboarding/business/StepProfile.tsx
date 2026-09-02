@@ -2,6 +2,7 @@
 
 import type { RefObject } from 'react';
 import type { WizardFormData } from './BusinessWizardClient';
+import { StepHeading } from './StepHeading';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   fieldClass,
@@ -12,6 +13,7 @@ import {
 } from '../_shared/field-styles';
 
 interface StepProfileProps {
+  stepLabel: string;
   data: WizardFormData;
   update: (patch: Partial<WizardFormData>) => void;
   dirtyRef: RefObject<{ category: boolean; website: boolean }>;
@@ -20,6 +22,7 @@ interface StepProfileProps {
 }
 
 export function StepProfile({
+  stepLabel,
   data,
   update,
   dirtyRef,
@@ -31,7 +34,7 @@ export function StepProfile({
   return (
     <LazyMotion features={domAnimation}>
     <div className="space-y-4">
-      <h2 className="text-xl font-medium text-rw-ink">Business profile</h2>
+      <StepHeading stepLabel={stepLabel}>Business profile</StepHeading>
       <p className="text-sm text-rw-ink-soft">
         We may have pre-filled some of these from Google Maps. Feel free to
         edit.
@@ -39,7 +42,7 @@ export function StepProfile({
 
       <div>
         <label htmlFor="biz-name" className={labelClass}>
-          Business name <span className="text-red-500">*</span>
+          Business name <span className="text-rw-error" aria-hidden="true">*</span>
         </label>
         <input
           id="biz-name"

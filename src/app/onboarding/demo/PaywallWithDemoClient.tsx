@@ -9,6 +9,10 @@ import type { GenerationResult } from '@/lib/responses/types';
 import { m } from 'motion/react';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { infoBannerClass, primaryButtonClass, buttonMotion } from '../_shared/field-styles';
+import {
+  ONBOARDING_CONNECTION_FAILED,
+  mapOnboardingApiError,
+} from '../_shared/onboarding-error-copy';
 
 interface DemoPayload {
   id: string;
@@ -27,6 +31,28 @@ interface PaywallWithDemoClientProps {
 
 const MAX_POLLS = 15;
 
+// Owner copy for the two codes only `/api/onboarding/demo/regenerate` emits;
+// every other code falls through to the shared onboarding map, and an unknown
+// one to its plain fallback — a raw code never reaches the screen (A14).
+const DEMO_REGENERATE_ERROR_COPY: Record<string, string> = {
+  cost_ceiling:
+    "We've hit today's limit for sample demos. You can still choose a plan — this doesn't affect your live replies.",
+  no_demo_to_regenerate:
+    "There's no finished demo to redo yet. You can still choose a plan.",
+  subscription_inactive: 'Your account is already past the demo. Head to your dashboard.',
+};
+
+function readErrorCode(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null || !('error' in body)) return undefined;
+  const code = (body as { error?: unknown }).error;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function mapDemoRegenerateError(body: unknown): string {
+  const code = readErrorCode(body);
+  return (code && DEMO_REGENERATE_ERROR_COPY[code]) || mapOnboardingApiError(body);
+}
+
 // Onboarding paywall + live demo poller in one island; the branch count is
 // the demo-status vocabulary. Pre-existing size (already acknowledged in
 // .fallowrc.jsonc's duplication backlog) — the perf pass only swapped the
@@ -42,6 +68,11 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   const demo = initialDemo;
   const [pollCount, setPollCount] = useState(0);
   const [nowMs, setNowMs] = useState<number | null>(null);
+  // Regenerate lifecycle. `busy` stays true after a SUCCESSFUL request until
+  // router.refresh() swaps the status to queued and this control unmounts —
+  // resetting it early let the button re-enable for a frame and double-fire.
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState('');
 
   // Postgres.js + PgBouncer can hand back JSONB columns as strings — guard
   // both shapes here rather than coupling the SSR layer to a specific driver.
@@ -98,9 +129,23 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   }, []);
 
   async function handleRegenerate() {
-    const res = await fetch('/api/onboarding/demo/regenerate', { method: 'POST' });
-    if (res.ok) {
+    if (regenerating) return;
+    setRegenerating(true);
+    setRegenerateError('');
+    try {
+      const res = await fetch('/api/onboarding/demo/regenerate', { method: 'POST' });
+      const body: unknown = await res.json().catch(() => ({}));
+      // The route answers a spent daily budget with 200 + { error: 'cost_ceiling' }
+      // — an OK status with no new demo — so a body-level code is a failure too.
+      if (!res.ok || readErrorCode(body)) {
+        setRegenerateError(mapDemoRegenerateError(body));
+        setRegenerating(false);
+        return;
+      }
       router.refresh();
+    } catch {
+      setRegenerateError(ONBOARDING_CONNECTION_FAILED);
+      setRegenerating(false);
     }
   }
 
@@ -128,7 +173,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
   return (
     <OnboardingFunnelShell step="preview">
       <h1 className="text-3xl md:text-4xl font-medium text-center text-rw-ink mb-2">
-        Your AI-powered review responses
+        Your AI-powered review replies
       </h1>
       <p className="text-center text-rw-ink-soft mb-8">
         Here&apos;s what RepWorth would write for {demo.business_name}
@@ -187,11 +232,19 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
                   We couldn&apos;t generate a sample demo this time.
                 </p>
                 <button
+                  type="button"
                   onClick={handleRegenerate}
-                  className="bg-white border border-rw-teal/30 text-rw-ink font-medium py-2 px-6 rounded-full hover:bg-rw-cream mb-2 transition"
+                  disabled={regenerating}
+                  aria-busy={regenerating}
+                  className="bg-white border border-rw-teal/30 text-rw-ink font-medium py-2 px-6 rounded-full hover:bg-rw-cream mb-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Try the demo again
+                  {regenerating ? 'Starting a new demo…' : 'Try the demo again'}
                 </button>
+                {regenerateError && (
+                  <p role="alert" className="mt-2 text-sm text-rw-error">
+                    {regenerateError}
+                  </p>
+                )}
               </>
             ) : (
               <p className="text-rw-ink-soft">
@@ -207,7 +260,7 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               Choose your RepWorth plan
             </h2>
             <p className="text-rw-ink-soft mb-6 max-w-md mx-auto">
-              Subscribe to start automatically generating responses for every
+              Subscribe to start automatically drafting replies for every
               review.
             </p>
             <m.a
@@ -239,8 +292,8 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
               Want this for every review?
             </h2>
             <p className="text-rw-ink-soft mb-6 max-w-md mx-auto">
-              Subscribe to RepWorth and we&apos;ll automatically generate
-              responses for all your reviews.
+              Subscribe to RepWorth and we&apos;ll automatically draft
+              replies for all your reviews.
             </p>
             <m.a
               href="/onboarding/pay"
@@ -256,11 +309,19 @@ export function PaywallWithDemoClient({ initialDemo, isStale }: PaywallWithDemoC
 
           <div className="text-center">
             <button
+              type="button"
               onClick={handleRegenerate}
-              className="text-sm text-rw-teal hover:text-rw-teal-hover underline"
+              disabled={regenerating}
+              aria-busy={regenerating}
+              className="text-sm text-rw-teal-strong hover:text-rw-teal-strong-hover underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
             >
-              Regenerate demo
+              {regenerating ? 'Regenerating…' : 'Regenerate demo'}
             </button>
+            {regenerateError && (
+              <p role="alert" className="mt-2 text-sm text-rw-error">
+                {regenerateError}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -343,8 +404,8 @@ function ReviewCard({
       </div>
       {response && (
         <div className="bg-rw-cream border-t border-rw-teal/15 p-4 sm:p-5">
-          <p className="text-xs font-semibold text-rw-teal uppercase tracking-wider mb-2">
-            RepWorth draft response
+          <p className="text-xs font-semibold text-rw-teal-strong uppercase tracking-wider mb-2">
+            RepWorth draft reply
           </p>
           <p className="text-rw-ink-soft text-sm leading-relaxed">
             {response.responseText}

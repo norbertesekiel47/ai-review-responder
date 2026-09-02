@@ -299,7 +299,12 @@ describe('/u/<token> unsubscribe landing', () => {
 
     render(await renderLanding(token));
 
-    expect(screen.getByRole('button', { name: /unsubscribe me/i })).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: /unsubscribe me/i });
+    expect(button).toBeInTheDocument();
+    // A25: the page's only control gets the actionable-teal focus ring (ADR
+    // 0004) — decorative rw-teal is ~2.2:1 against the page and invisible.
+    expect(button.className).toContain('focus-visible:outline-rw-teal-strong');
+    expect(button.className).not.toMatch(/focus-visible:outline-rw-teal\b(?!-)/);
     expect(ledger.redemptionWrites()).toBe(0);
     expect(ledger.isSuppressed(token)).toBe(false);
     expect(mockBegin).not.toHaveBeenCalled();

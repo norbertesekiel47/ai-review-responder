@@ -13,23 +13,23 @@
  * lands in one place. This file holds only the strings that exist nowhere else.
  */
 
+import { PRODUCT_BLURB } from '@/components/ui/marketing-links';
+
 /** The published contact address, matching `src/lib/legal/content.ts` — which
  *  names it as the contact of record in the privacy notice. If that changes,
  *  change it there first; the legal document is the authority, not this file. */
 export const SUPPORT_EMAIL = 'support@repworth.net';
 
 /**
- * One line, and deliberately the page's argument rather than a feature list:
- * a footer blurb is read last, by someone deciding whether this is a serious
- * product. "Supervised" is the whole claim the page has spent nine sections
- * earning, so it is the word that belongs here.
- *
- * Present tense is safe in this sentence because it describes what the fleet
- * is, not what it covers. It says nothing about Solicitor, CRM, social or
- * multi-platform, all of which are unbuilt — see future-copy.ts.
+ * The blurb is the SAME sentence SiteFooter shows on every other page —
+ * `PRODUCT_BLURB` in marketing-links.ts owns it, so the two footers describe
+ * one product. It keeps the page's argument rather than a feature list:
+ * "supervised" is the whole claim the page has spent nine sections earning,
+ * and "Google reviews" is the shipped scope, stated plainly. It says nothing
+ * about Solicitor, CRM, social or multi-platform, all of which are unbuilt —
+ * see future-copy.ts.
  */
-export const BLURB =
-  'A supervised fleet of agents for your business’s reputation. Every action recorded, nothing published outside the bounds you set.';
+export const BLURB = PRODUCT_BLURB;
 
 /** Rendered as the outlined display graphic. Uppercased in CSS rather than in
  *  the string, so the accessible copy of the brand name elsewhere on the page

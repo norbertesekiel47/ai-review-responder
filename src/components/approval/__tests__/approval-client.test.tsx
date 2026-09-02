@@ -109,7 +109,7 @@ describe('ApprovalClient', () => {
 
     // Second tap actually posts.
     fireEvent.click(confirm);
-    expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    expect(await screen.findByText('Reply approved!')).toBeInTheDocument();
     expect(
       screen.getByText('Approved — posting to Google has started.'),
     ).toBeInTheDocument();
@@ -122,8 +122,8 @@ describe('ApprovalClient', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: 'Approve & post to Google' }),
     );
-    // Arming surfaces a Cancel affordance; clicking it disarms.
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    // Arming relabels the ghost button by outcome; clicking it disarms (A16).
+    fireEvent.click(screen.getByRole('button', { name: "Don't post yet" }));
 
     // Back to the resting primary label, and nothing was posted.
     expect(
@@ -169,7 +169,7 @@ describe('ApprovalClient', () => {
     renderClient('raw-token');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-    expect(screen.getByLabelText('Edit your response')).toBeInTheDocument();
+    expect(screen.getByLabelText('Edit your reply')).toBeInTheDocument();
   });
 
   it('shows an action-aware success state with a demoted dashboard link after approving', async () => {
@@ -187,7 +187,7 @@ describe('ApprovalClient', () => {
       await screen.findByRole('button', { name: 'Tap again to post to Google' }),
     );
 
-    expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    expect(await screen.findByText('Reply approved!')).toBeInTheDocument();
     expect(
       screen.getByText('Approved — posting to Google has started.'),
     ).toBeInTheDocument();
@@ -201,7 +201,7 @@ describe('ApprovalClient', () => {
     ).toHaveAttribute('href', '/dashboard');
   });
 
-  it('shows the regenerate heading after requesting a new draft', async () => {
+  it('shows the regenerate heading after a confirmed regenerate request', async () => {
     stubFetch({
       ok: true,
       status: 200,
@@ -209,12 +209,167 @@ describe('ApprovalClient', () => {
     });
     renderClient('raw-token');
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate this draft' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tap again to regenerate' }));
 
     expect(await screen.findByText('New draft on the way')).toBeInTheDocument();
     expect(
       screen.getByText('Generating a new response - check your email in a few minutes.'),
     ).toBeInTheDocument();
+  });
+
+  describe('regenerate is a two-tap text link (A3)', () => {
+    it('renders Regenerate as a text link, not a pill styled like Edit', async () => {
+      stubFetch();
+      renderClient('raw-token');
+
+      const regenerate = await screen.findByRole('button', { name: 'Regenerate this draft' });
+      const edit = screen.getByRole('button', { name: 'Edit' });
+      expect(regenerate.className).toContain('underline');
+      expect(regenerate.className).not.toContain('rounded-full');
+      expect(edit.className).toContain('rounded-full');
+    });
+
+    it('does not consume the link on the first tap — it arms and states the consequence', async () => {
+      const fetchMock = stubFetch();
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Regenerate this draft' }));
+
+      expect(
+        fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/regenerate')).length,
+      ).toBe(0);
+      expect(
+        screen.getByText('Discards this draft. A new link is sent to you.'),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Tap again to regenerate' })).toBeInTheDocument();
+    });
+
+    it('lets the owner keep the draft and back out without posting anything', async () => {
+      const fetchMock = stubFetch();
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Regenerate this draft' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Keep this draft' }));
+
+      expect(
+        await screen.findByRole('button', { name: 'Regenerate this draft' }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/discards this draft/i)).not.toBeInTheDocument();
+      expect(
+        fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/regenerate')).length,
+      ).toBe(0);
+    });
+
+    it('arming publish hides the regenerate link so the two confirms never coexist', async () => {
+      stubFetch();
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Approve & post to Google' }));
+
+      expect(screen.queryByRole('button', { name: 'Regenerate this draft' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Tap again to regenerate' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('outcome-labelled secondary buttons and a wrapping chip (A16)', () => {
+    it('labels the edit-mode ghost button "Discard changes", then "Keep editing" once armed', async () => {
+      stubFetch();
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+      expect(screen.getByRole('button', { name: 'Discard changes' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save & post to Google' }));
+      const keepEditing = await screen.findByRole('button', { name: 'Keep editing' });
+      expect(screen.getByText(/tap “Keep editing” to change it/i)).toBeInTheDocument();
+
+      fireEvent.click(keepEditing);
+      // Back to editable, still in edit mode.
+      expect(await screen.findByRole('button', { name: 'Discard changes' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Edit your reply')).not.toHaveAttribute('readonly');
+      expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    });
+
+    it('lets a long location label wrap instead of truncating it', async () => {
+      const longLabel = 'Springfield Riverside Boulevard — North Entrance (Kiosk 2)';
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.endsWith('/session')) {
+            return { ok: true, status: 200, json: async () => ({}) } as Response;
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ...REVIEW_DATA, locationLabel: longLabel }),
+          } as Response;
+        }),
+      );
+      renderClient('raw-token');
+
+      const chip = await screen.findByText(longLabel);
+      expect(chip.className).not.toContain('truncate');
+      expect(chip.className).not.toContain('whitespace-nowrap');
+      expect(chip.className).not.toMatch(/max-w-\[180px\]/);
+    });
+  });
+
+  it('uses a 16px edit textarea so iOS Safari does not zoom on focus (A6)', async () => {
+    stubFetch();
+    renderClient('raw-token');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const textarea = screen.getByLabelText('Edit your reply');
+    expect(textarea.className).toContain('text-base');
+    expect(textarea.className).not.toMatch(/(?:^|\s)text-sm(?:\s|$)/);
+  });
+
+  describe('accessible loading, reload recovery, no internal version (A24)', () => {
+    it('announces the loading state with role=status and sr-only text', () => {
+      // Never resolves: the spinner stays up for the whole test.
+      vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+      renderClient('raw-token');
+
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent(/loading your draft reply/i);
+    });
+
+    it('never exposes the draft version number', async () => {
+      stubFetch();
+      renderClient('raw-token');
+
+      await screen.findByText('Draft reply');
+      expect(screen.queryByText(/\(v\d+\)/)).not.toBeInTheDocument();
+    });
+
+    it('offers a working Reload control on a 409 and none on other failures', async () => {
+      const reload = vi.fn();
+      vi.stubGlobal('location', { ...window.location, reload });
+      stubFetch({ ok: false, status: 409, body: { error: 'stale' } });
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Approve & post to Google' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Tap again to post to Google' }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(/reload to see the latest version/i);
+      expect(alert).not.toHaveTextContent(/refresh/i);
+      fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not offer Reload for a 5xx (nothing on the page is stale)', async () => {
+      stubFetch({ ok: false, status: 500, body: { error: 'Internal Server Error' } });
+      renderClient('raw-token');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Approve & post to Google' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Tap again to post to Google' }));
+
+      await screen.findByRole('alert');
+      expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+    });
   });
 
   it('still shows the success view when the API returns an empty message', async () => {
@@ -230,7 +385,7 @@ describe('ApprovalClient', () => {
 
     // An empty message must not suppress the success state (the view gates on
     // successMessage truthiness); it falls back to the default copy.
-    expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    expect(await screen.findByText('Reply approved!')).toBeInTheDocument();
     expect(
       screen.getByText('Your request has been processed.'),
     ).toBeInTheDocument();
@@ -333,7 +488,7 @@ describe('ApprovalClient', () => {
     renderClient('raw-token');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-    fireEvent.change(screen.getByLabelText('Edit your response'), {
+    fireEvent.change(screen.getByLabelText('Edit your reply'), {
       target: { value: 'Thank you so much, Alex!' },
     });
 
@@ -348,7 +503,7 @@ describe('ApprovalClient', () => {
       await screen.findByRole('button', { name: 'Tap again to post to Google' }),
     );
 
-    expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+    expect(await screen.findByText('Reply approved!')).toBeInTheDocument();
     expect(
       screen.getByText('Approved with your edits — posting to Google has started.'),
     ).toBeInTheDocument();
@@ -405,7 +560,7 @@ describe('ApprovalClient', () => {
 
       // Release the in-flight POST so the test ends in a settled state.
       releaseApprove({ success: true, message: 'Approved.' });
-      expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+      expect(await screen.findByText('Reply approved!')).toBeInTheDocument();
     });
 
     it('shows a disabled "Saving…" pill while the edit POST is in flight', async () => {
@@ -413,7 +568,7 @@ describe('ApprovalClient', () => {
       renderClient('raw-token');
 
       fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-      fireEvent.change(screen.getByLabelText('Edit your response'), {
+      fireEvent.change(screen.getByLabelText('Edit your reply'), {
         target: { value: 'Thank you so much, Alex!' },
       });
       fireEvent.click(screen.getByRole('button', { name: 'Save & post to Google' }));
@@ -426,7 +581,7 @@ describe('ApprovalClient', () => {
       expect(busyButton).toHaveAttribute('aria-busy', 'true');
 
       releaseEdit({ success: true, message: 'Approved with your edits.' });
-      expect(await screen.findByText('Response approved!')).toBeInTheDocument();
+      expect(await screen.findByText('Reply approved!')).toBeInTheDocument();
     });
   });
 
@@ -644,7 +799,7 @@ describe('ApprovalClient', () => {
     renderClient('raw-token');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-    const textarea = screen.getByLabelText('Edit your response') as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText('Edit your reply') as HTMLTextAreaElement;
     // The client maxLength must match the server's authoritative cap — this
     // assertion fails if the restated client mirror ever drifts from it.
     expect(textarea.maxLength).toBe(MAX_EDIT_LENGTH);

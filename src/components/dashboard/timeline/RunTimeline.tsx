@@ -1,6 +1,8 @@
+import Link from 'next/link';
 import type { ReviewTimelineOutcome, ReviewTimelineRun } from '@/lib/agents/read';
 import { RunStateBadge } from './RunStateBadge';
 import { formatIdentifier, formatOutcomeKind } from './format';
+import { runDecisionHeadline } from './step-facts';
 import { PersonaMark, TimelineStepRow } from './TimelineStepRow';
 
 const RUN_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
@@ -10,6 +12,12 @@ const RUN_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   hour: 'numeric',
   minute: '2-digit',
 });
+
+/** Where "Waiting on you" is answered: the queue owns approve/edit (D21). */
+const WAITING_ON_OWNER_CTA = {
+  href: '/dashboard/reviews',
+  label: 'Approve or edit the draft',
+} as const;
 
 export function RunTimeline({
   run,
@@ -21,6 +29,7 @@ export function RunTimeline({
   const headingId = `timeline-run-${run.id}`;
   const outcomes = collapseAutoPostedPair(run.outcomes);
   const failureReason = run.displayState === 'failed' ? describeRunFailure(run.error) : null;
+  const decision = runDecisionHeadline(run.steps);
 
   return (
     <article className="card timeline-run" aria-labelledby={headingId}>
@@ -31,6 +40,20 @@ export function RunTimeline({
         </div>
         <RunStateBadge displayState={run.displayState} startedAt={run.startedAt} />
       </header>
+
+      {/* The decision this run reached — the sentence the page exists to give
+          (D19) — sits ABOVE the step list, not buried in a fact grid. */}
+      {decision !== null && <p className="timeline-run__decision">{decision}</p>}
+
+      {/* "Waiting on you" offered no action (D21): the verb lives in the queue. */}
+      {run.displayState === 'waiting_on_owner' && (
+        <div className="timeline-run__cta">
+          <p>This reply is waiting for you — nothing posts until you approve it.</p>
+          <Link className="btn btn-primary" href={WAITING_ON_OWNER_CTA.href}>
+            {WAITING_ON_OWNER_CTA.label}
+          </Link>
+        </div>
+      )}
 
       {failureReason && <p className="timeline-run__error">{failureReason}</p>}
 

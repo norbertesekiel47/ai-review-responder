@@ -7,6 +7,19 @@ import { useLoginSubmit } from '@/components/auth/hooks/useLoginSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
 import { mapInitialQueryError } from '@/components/auth/shared/mapLoginError';
 
+const INPUT_BASE = 'w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:border-transparent';
+const SUBMIT_BASE = 'w-full text-white font-medium py-2 rounded-md text-sm disabled:opacity-50 transition-colors';
+
+/** Per-portal accent: the admin console is gray-900 throughout, so its sign-in door is too (X32). */
+const ADMIN_THEME = {
+  input: `${INPUT_BASE} focus:ring-gray-900`,
+  submit: `${SUBMIT_BASE} bg-gray-900 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2`,
+} as const;
+const OWNER_THEME = {
+  input: `${INPUT_BASE} focus:ring-blue-500`,
+  submit: `${SUBMIT_BASE} bg-blue-600 hover:bg-blue-700`,
+} as const;
+
 export interface LoginFormProps {
   portal: AuthFlow;
   brandName: string;
@@ -56,6 +69,9 @@ export function LoginFormInner({
   }
 
   const forgotPath = portal === 'owner' ? '/forgot-password' : '/admin/forgot-password';
+  // The admin console's primary is gray-900 everywhere behind this door (X32);
+  // a blue button and focus ring here were the only blue on the way in.
+  const theme = portal === 'admin' ? ADMIN_THEME : OWNER_THEME;
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -76,7 +92,7 @@ export function LoginFormInner({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={theme.input}
             />
           </div>
           <div>
@@ -90,14 +106,14 @@ export function LoginFormInner({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={theme.input}
             />
           </div>
           {displayError && <p className="text-sm text-red-600">{displayError}</p>}
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white font-medium py-2 rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className={theme.submit}
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>

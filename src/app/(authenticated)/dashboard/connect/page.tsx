@@ -262,12 +262,11 @@ function ConnectPageInner() {
       ) : urlError && zernio.status === 'pending' ? (
         <InterruptedPendingView onCancel={handleCancel} busy={busy} />
       ) : zernio.status === 'pending' ? (
-        zernio.pendingFlow?.status === 'finalizing' ||
-        zernio.pendingFlow?.status === 'starting' ? (
-          <FinalizingView />
-        ) : (
-          <PendingView onCancel={handleCancel} busy={busy} />
-        )
+        <PendingFlowView
+          flowStatus={zernio.pendingFlow?.status ?? null}
+          onCancel={handleCancel}
+          busy={busy}
+        />
       ) : zernio.status === 'disconnected' ? (
         <ReconnectView
           onConnect={handleConnect}
@@ -439,7 +438,40 @@ function ReconnectView({
   );
 }
 
-function PendingView({
+type PendingFlowStatus = NonNullable<
+  DashboardDataActive['zernioConnection']['pendingFlow']
+>['status'];
+
+/**
+ * The pending state, split by what is actually happening (UX audit D22). The
+ * old single view said "We're finishing the connection" with a spinner for
+ * every sub-status — including the owner who had just closed the Google tab,
+ * for whom nothing was finishing and nothing would.
+ *
+ *   `oauth_in_progress` — the ball is in the owner's court: Google is open in
+ *                          another tab. No spinner; the verb is to cancel.
+ *   `starting` / `finalizing` — we ARE working; spinner, no cancel (cancel
+ *                          would 409 during finalize anyway, spec §3.3.5).
+ *   `finalize_unknown`   — the manual-review copy, same as the connection
+ *                          status of that name.
+ *   null (no marker)     — the attempt expired without finishing; clear it.
+ */
+function PendingFlowView({
+  flowStatus,
+  onCancel,
+  busy,
+}: {
+  flowStatus: PendingFlowStatus | null;
+  onCancel: () => void;
+  busy: boolean;
+}) {
+  if (flowStatus === 'finalizing' || flowStatus === 'starting') return <FinalizingView />;
+  if (flowStatus === 'finalize_unknown') return <FinalizeUnknownView />;
+  if (flowStatus === 'oauth_in_progress') return <AwaitingGoogleView onCancel={onCancel} busy={busy} />;
+  return <InterruptedPendingView onCancel={onCancel} busy={busy} />;
+}
+
+function AwaitingGoogleView({
   onCancel,
   busy,
 }: {
@@ -448,13 +480,13 @@ function PendingView({
 }) {
   return (
     <div className="card">
-      <div style={SPINNER_ROW}>
-        <Spinner />
-        <h1 style={{ ...HEADING, margin: 0 }}>Connecting…</h1>
-      </div>
+      <h1 style={HEADING}>Finish connecting in the Google window</h1>
       <p style={MUTED}>
-        We&apos;re finishing the connection with Google. If you closed the
-        Google window before authorizing, you can cancel and start over.
+        We opened Google in another tab so you can grant access. Once you pick
+        a location there, you&apos;ll come back here automatically.
+      </p>
+      <p style={{ ...MUTED, marginTop: 8 }}>
+        Closed that tab before finishing? Cancel this attempt and start again.
       </p>
       <button
         type="button"
@@ -463,7 +495,7 @@ function PendingView({
         className="btn btn-secondary disabled:opacity-50"
         style={CTA_SPACING}
       >
-        {busy ? 'Cancelling…' : 'Cancel'}
+        {busy ? 'Cancelling…' : 'Cancel this attempt'}
       </button>
     </div>
   );
@@ -478,10 +510,10 @@ function InterruptedPendingView({
 }) {
   return (
     <div className="card">
-      <h1 style={HEADING}>Connection could not be completed</h1>
+      <h1 style={HEADING}>This connection didn&apos;t finish</h1>
       <p style={MUTED}>
-        This connection attempt is no longer valid. Clear it, then start a new
-        Google Business connection.
+        An earlier attempt was left open and is no longer valid. Clear it, then
+        start a new Google Business connection.
       </p>
       <button
         type="button"

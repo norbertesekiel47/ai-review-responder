@@ -25,6 +25,7 @@ const baseData: OverviewData = {
   atRisk: [
     {
       id: 'biz-1',
+      accountId: 'acct-1',
       name: 'Acme Coffee',
       category: 'Cafe',
       subscriptionStatus: 'active',
@@ -86,29 +87,62 @@ describe('OverviewClient', () => {
     expect(screen.getByText('98%')).toBeInTheDocument();
   });
 
-  it('shows the needs-attention strip with a failed-jobs link when failedJobs > 0', () => {
-    renderClient({
-      ...baseData,
-      systemHealth: { ...baseData.systemHealth, failedJobs: 2 },
-    });
-
-    expect(screen.getByText('Needs attention')).toBeInTheDocument();
-    expect(screen.getByText('2 failed job(s)')).toBeInTheDocument();
-  });
-
-  it('hides the needs-attention strip when every condition is clear', () => {
-    renderClient(baseData);
+  // X13: the red tile IS the alert and links to the page that resolves it; the
+  // "Needs attention" strip that restated the same tiles in prose is gone.
+  it('renders every tile as a link to its page and reddens the breached ones', () => {
+    renderClient(
+      {
+        ...baseData,
+        systemHealth: { ...baseData.systemHealth, failedJobs: 2 },
+      },
+      3,
+    );
 
     expect(screen.queryByText('Needs attention')).not.toBeInTheDocument();
+
+    const failed = screen.getByRole('link', { name: /Failed Jobs/ });
+    expect(failed).toHaveAttribute('href', '/admin/jobs');
+    expect(failed).toHaveTextContent('2');
+    expect(failed.className).toContain('border-red-300');
+
+    // Flagged moved from the strip onto a tile of its own, seeded from the
+    // server prop and reading the same cache entry as the sidebar badge.
+    const flagged = screen.getByRole('link', { name: /Flagged Open/ });
+    expect(flagged).toHaveAttribute('href', '/admin/flagged');
+    expect(flagged).toHaveTextContent('3');
+    expect(flagged.className).toContain('border-red-300');
+
+    // A clear tile is still a link, just not red.
+    const cost = screen.getByRole('link', { name: /Today's API Cost/ });
+    expect(cost).toHaveAttribute('href', '/admin/costs');
+    expect(cost.className).not.toContain('border-red-300');
+    expect(screen.getByRole('link', { name: /Email Health/ })).toHaveAttribute('href', '/admin/notifications');
   });
 
-  it('renders an at-risk row with the shared HealthBadge, linking to the business detail page', () => {
-    renderClient(baseData);
+  it('renders an at-risk row with status, last activity and the shared HealthBadge, linking to the detail page', () => {
+    renderClient({
+      ...baseData,
+      atRisk: [
+        {
+          ...baseData.atRisk[0]!,
+          subscriptionStatus: 'past_due',
+          lastActivity: new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+        },
+      ],
+    });
 
     const row = screen.getByRole('link', { name: /Acme Coffee/ });
     expect(row).toHaveAttribute('href', '/admin/businesses/biz-1');
     expect(row).toHaveTextContent('At Risk');
     expect(row).toHaveTextContent('74');
+    // X14: the two triage facts ride on the row.
+    expect(row).toHaveTextContent('Past due');
+    expect(row).toHaveTextContent('Last activity 3h ago');
+  });
+
+  it('says "none" for an at-risk row with no activity at all', () => {
+    renderClient(baseData);
+    expect(screen.getByRole('link', { name: /Acme Coffee/ })).toHaveTextContent('Last activity none');
   });
 
   it('renders the at-risk heading with the eligible count and the total', () => {

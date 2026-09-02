@@ -14,7 +14,9 @@ interface Step3VoiceProps {
   voiceLoading: boolean;
   onCopyFromExisting: (locationId: string) => void;
   onVoiceFieldChange: <K extends keyof VoiceFormState>(key: K, value: VoiceFormState[K]) => void;
-  onNext: () => void;
+  /** Reset the form to the default voice AND advance (UX audit D23) — a
+   *  distinct act from the shell's Continue, which keeps what was typed. */
+  onUseDefaults: () => void;
 }
 
 export function Step3Voice({
@@ -24,7 +26,7 @@ export function Step3Voice({
   voiceLoading,
   onCopyFromExisting,
   onVoiceFieldChange,
-  onNext,
+  onUseDefaults,
 }: Step3VoiceProps) {
   return (
     <div className="wizard-panel">
@@ -143,13 +145,15 @@ export function Step3Voice({
         </>
       )}
 
+      {/* Not a second Continue: this discards anything typed above and ships
+          the default voice. The shell's Continue keeps the customisation. */}
       <button
         type="button"
         className="btn btn-secondary wizard-skip-btn"
-        onClick={onNext}
+        onClick={onUseDefaults}
         style={{ marginTop: 20, width: '100%' }}
       >
-        Use defaults and continue
+        Skip — use the default voice
       </button>
     </div>
   );

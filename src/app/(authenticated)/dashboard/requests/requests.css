@@ -18,6 +18,32 @@
   gap: 20px;
 }
 
+/* ---------- Routed tab bar: Requests ↔ Contacts (D28) ---------- */
+
+/* The same row geometry as the Reviews sub-nav (`.reviews-subnav`, console.css)
+   so the two routed tab bars in the console sit at the same height; the
+   `.tabs` pill inside comes from console.css unchanged. */
+.rq-subnav {
+  padding: 20px 32px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rq-subnav .tabs { margin-bottom: 0; }
+.rq-subnav .tab {
+  /* 44px targets, like every other control on this surface. */
+  min-height: 40px;
+  text-decoration: none;
+}
+.rq-subnav .tab:focus-visible {
+  outline: 2px solid var(--rw-sage-deep);
+  outline-offset: 2px;
+}
+@media (max-width: 768px) {
+  .rq-subnav { padding: 14px 16px 0; }
+}
+
 /* ---------- Funnel hero ---------- */
 
 .rq-hero-head {
@@ -401,6 +427,32 @@
 .rq-ask-regen-btn:disabled:active,
 .rq-ask-withdraw-btn:disabled:active { transform: none; }
 
+/* On a touch device the 32px row control loses to a thumb (UX audit D27). The
+   console's 44px rule loads BEFORE this file, so the route's 32px won that
+   cascade on phones too; a pointer-media override restores the target where
+   the pointer is coarse and keeps the tighter row on desktop. */
+@media (pointer: coarse) {
+  .rq-ask-regen-btn,
+  .rq-ask-withdraw-btn {
+    min-height: 44px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+
+/* The armed confirm group sits BESIDE the still-mounted Withdraw trigger
+   (D25) — the trigger reads as pressed while its question is open. */
+.rq-ask-withdraw-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.rq-ask-withdraw-btn[aria-expanded='true'] {
+  background: var(--rw-recess);
+  border-color: var(--rw-hair-2);
+}
+
 /* "2 of 3 today" and "Withdraw this message?" — the same voice beside the
    button. The counter is absent entirely when the budget is UNKNOWN — the
    panel must never render an unknown budget as a spent one. */
@@ -496,6 +548,30 @@
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 18px;
+}
+
+/* The one-line reason under a verb that refuses clicks for a reason the label
+   cannot carry (D7). Full-width so it sits UNDER the button, never beside it. */
+.rq-action-reason {
+  flex: 1 0 100%;
+  margin: -4px 0 0 0;
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+}
+
+/* The veto deadline (D5): the undo's clock, stated once as a time and once as
+   a remainder. Quiet type in the body register — it is a fact the owner needs,
+   not an alarm — with the remainder in tabular figures so "9 min" and "10 min"
+   do not shift the line. */
+.rq-veto-deadline {
+  margin: -8px 0 16px 0;
+  font-size: 14px;
+  color: var(--rw-app-text);
+}
+.rq-veto-deadline-abs { font-weight: 600; }
+.rq-veto-deadline-left {
+  color: var(--rw-app-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The unconfirmed-write banner: a write whose outcome the client never read.

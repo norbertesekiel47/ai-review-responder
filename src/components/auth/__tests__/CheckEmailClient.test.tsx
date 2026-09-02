@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { redirectAfterServerSessionCookie } from '../CheckEmailClient.helpers';
 import { CheckEmailClient } from '../CheckEmailClient';
 import { EMAIL_OTP_LENGTH, EMAIL_OTP_PATTERN } from '@/lib/shared/schemas';
@@ -73,6 +73,29 @@ describe('CheckEmailClient branding + a11y', () => {
     expect(input!.className).toContain('text-base');
   });
 
+  it('points the back link at /login when the owner arrived from login (A1)', () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'from' ? 'login' : null),
+    });
+
+    render(<CheckEmailClient />);
+    const back = screen.getByRole('link', { name: /back to log in/i });
+    expect(back).toHaveAttribute('href', '/login');
+    expect(screen.queryByRole('link', { name: /change email/i })).toBeNull();
+  });
+
+  it('points the back link at /signup for the self-serve path (A1)', () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'email' ? 'a@b.co' : null),
+    });
+
+    render(<CheckEmailClient />);
+    expect(screen.getByRole('link', { name: /go back and change email/i })).toHaveAttribute(
+      'href',
+      '/signup',
+    );
+  });
+
   it('announces verify errors via role=alert live region', async () => {
     // No email in searchParams → submit triggers the no-email guard (no fetch needed)
     (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -87,5 +110,138 @@ describe('CheckEmailClient branding + a11y', () => {
       const alerts = screen.getAllByRole('alert');
       expect(alerts.some((el) => /no email on this page/i.test(el.textContent ?? ''))).toBe(true);
     });
+  });
+
+  it('renders a visible label for the code field (A22)', () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'email' ? 'a@b.co' : null),
+    });
+
+    render(<CheckEmailClient />);
+    const label = screen.getByText('Confirmation code');
+    expect(label.tagName).toBe('LABEL');
+    expect(label.className).not.toContain('sr-only');
+    expect(screen.getByLabelText('Confirmation code')).not.toBeDisabled();
+    // The always-mounted LiveRegions are empty; no notice is showing.
+    for (const region of screen.getAllByRole('alert')) {
+      expect(region).toHaveTextContent('');
+    }
+  });
+
+  it('shows the start-again notice immediately when no email is known, and disables verify (A22)', async () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({ get: () => null });
+
+    render(<CheckEmailClient />);
+
+    // Visible notice (a <p>), present BEFORE any submit — the LiveRegions are
+    // separate, always-mounted sr-only regions.
+    const notice = await screen.findByText(/no email on this page/i, { selector: 'p' });
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(screen.getByLabelText('Confirmation code')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /verify and continue/i })).toBeDisabled();
+    expect(screen.getByRole('link', { name: /go back and change email/i })).toHaveAttribute(
+      'href',
+      '/signup',
+    );
+  });
+
+  it('points the missing-email notice back to log in for the login path (A22)', async () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'from' ? 'login' : null),
+    });
+
+    render(<CheckEmailClient />);
+
+    expect(
+      await screen.findByText(/go back to log in and try again/i, { selector: 'p' }),
+    ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resend
+// ---------------------------------------------------------------------------
+
+describe('CheckEmailClient resend', () => {
+  const withEmail = () =>
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'email' ? 'a@b.co' : null),
+    });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('posts the resend for the known email, confirms it, and holds the button in a cooldown', async () => {
+    withEmail();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CheckEmailClient />);
+
+    fireEvent.click(screen.getByRole('button', { name: /resend code/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/auth/resend-confirmation');
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({
+      email: 'a@b.co',
+      flow: 'owner',
+    });
+    const cooling = await screen.findByRole('button', { name: /code sent — resend shortly/i });
+    expect(cooling).toBeDisabled();
+    // The polite live region announces the success once.
+    expect(screen.getAllByText('A new code is on its way.').length).toBeGreaterThan(0);
+  });
+
+  it('lifts the cooldown after the window so a second resend stays possible', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    withEmail();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
+    render(<CheckEmailClient />);
+
+    fireEvent.click(screen.getByRole('button', { name: /resend code/i }));
+    await screen.findByRole('button', { name: /code sent — resend shortly/i });
+
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+    });
+
+    expect(screen.getByRole('button', { name: /resend code/i })).not.toBeDisabled();
+  });
+
+  it('reports the rate limit instead of pretending a code was sent', async () => {
+    withEmail();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) }));
+    render(<CheckEmailClient />);
+
+    fireEvent.click(screen.getByRole('button', { name: /resend code/i }));
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/too many resend attempts/i).length).toBeGreaterThan(0),
+    );
+    expect(screen.getByRole('button', { name: /resend code/i })).not.toBeDisabled();
+  });
+
+  it('shows success even when the request fails — the no-enumeration policy', async () => {
+    withEmail();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    render(<CheckEmailClient />);
+
+    fireEvent.click(screen.getByRole('button', { name: /resend code/i }));
+
+    expect(
+      await screen.findByRole('button', { name: /code sent — resend shortly/i }),
+    ).toBeDisabled();
+  });
+
+  it('cannot resend without a known email', async () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({ get: () => null });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CheckEmailClient />);
+
+    await screen.findByText(/no email on this page/i, { selector: 'p' });
+    expect(screen.getByRole('button', { name: /resend code/i })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

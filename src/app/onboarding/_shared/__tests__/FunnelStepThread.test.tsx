@@ -27,6 +27,18 @@ describe('FunnelStepThread', () => {
     expect(queryAllByText('✓')).toHaveLength(0);
   });
 
+  it('carries white numerals/checks on rw-teal-strong, never rw-teal (ADR 0004, A2)', () => {
+    const { container } = render(<FunnelStepThread step="plan" />);
+    const current = container.querySelector('[aria-current="step"]')!;
+    expect(current.className).toContain('bg-rw-teal-strong');
+    expect(current.className).not.toMatch(/(?:^|\s)bg-rw-teal(?=\s|$)/);
+    for (const done of container.querySelectorAll('span.rounded-full')) {
+      if (done.textContent === '✓') {
+        expect(done.className).toContain('bg-rw-teal-strong');
+      }
+    }
+  });
+
   it('marks every prior milestone done when step="setup"', () => {
     const { queryAllByText } = render(<FunnelStepThread step="setup" />);
     expect(queryAllByText('✓')).toHaveLength(3); // Find + Preview + Plan

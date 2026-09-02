@@ -333,7 +333,12 @@ export function WithdrawableAskList({
  *  in one place, rather than as two mutually exclusive guards over the same
  *  row. Both armed buttons are `btn-secondary`, like the **Halt latch**'s
  *  "Stop this batch": `.btn-danger` lives in `settings.css`, which the
- *  requests route never loads, so it would render here as a bare `.btn`. */
+ *  requests route never loads, so it would render here as a bare `.btn`.
+ *
+ *  The resting button STAYS MOUNTED while armed (UX audit D25): unmounting the
+ *  focused trigger dropped keyboard focus to `<body>`. It now carries
+ *  `aria-expanded` over the confirm group, and a second press on it is the
+ *  Keep answer — so the same control opens and closes the question. */
 function WithdrawControl({
   row,
   armed,
@@ -349,43 +354,44 @@ function WithdrawControl({
   onWithdraw: (askId: string) => void;
   onKeep: () => void;
 }) {
-  if (!armed) {
-    return (
-      <span className="rq-ask-withdraw">
-        <button
-          type="button"
-          className="btn btn-secondary rq-ask-withdraw-btn"
-          onClick={() => onArm(row.askId)}
-          disabled={disabled}
-          aria-label={withdrawControlName(displayName(row))}
-        >
-          {WITHDRAW_LABEL}
-        </button>
-      </span>
-    );
-  }
+  const confirmId = `rq-withdraw-confirm-${row.askId}`;
 
   return (
-    <span className="rq-ask-withdraw rq-ask-withdraw-armed" role="group">
-      <span className="rq-ask-withdraw-prompt">{WITHDRAW_CONFIRM_PROMPT}</span>
+    <span className={`rq-ask-withdraw${armed ? ' rq-ask-withdraw-armed' : ''}`}>
       <button
         type="button"
         className="btn btn-secondary rq-ask-withdraw-btn"
-        onClick={() => onWithdraw(row.askId)}
+        onClick={() => (armed ? onKeep() : onArm(row.askId))}
         disabled={disabled}
-        aria-label={withdrawConfirmName(displayName(row))}
+        aria-label={withdrawControlName(displayName(row))}
+        aria-expanded={armed}
+        aria-controls={armed ? confirmId : undefined}
       >
-        {WITHDRAW_CONFIRM_LABEL}
+        {WITHDRAW_LABEL}
       </button>
-      <button
-        type="button"
-        className="btn btn-secondary rq-ask-withdraw-btn"
-        onClick={onKeep}
-        disabled={disabled}
-        aria-label={withdrawKeepName(displayName(row))}
-      >
-        {WITHDRAW_KEEP_LABEL}
-      </button>
+      {armed && (
+        <span className="rq-ask-withdraw-confirm" role="group" id={confirmId}>
+          <span className="rq-ask-withdraw-prompt">{WITHDRAW_CONFIRM_PROMPT}</span>
+          <button
+            type="button"
+            className="btn btn-secondary rq-ask-withdraw-btn"
+            onClick={() => onWithdraw(row.askId)}
+            disabled={disabled}
+            aria-label={withdrawConfirmName(displayName(row))}
+          >
+            {WITHDRAW_CONFIRM_LABEL}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary rq-ask-withdraw-btn"
+            onClick={onKeep}
+            disabled={disabled}
+            aria-label={withdrawKeepName(displayName(row))}
+          >
+            {WITHDRAW_KEEP_LABEL}
+          </button>
+        </span>
+      )}
     </span>
   );
 }

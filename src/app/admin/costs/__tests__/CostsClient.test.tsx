@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CostsClient } from '../CostsClient';
 
@@ -71,7 +72,9 @@ function jsonResponse(body: unknown) {
   });
 }
 
-function renderClient(initialData: typeof baseData | typeof noMarginData) {
+type InitialData = Parameters<typeof CostsClient>[0]['initialData'];
+
+function renderClient(initialData: InitialData) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -91,7 +94,62 @@ describe('CostsClient', () => {
     expect(screen.getByText("Today's Platform Spend")).toBeInTheDocument();
     expect(screen.getByText('$1.25 / $100.00')).toBeInTheDocument();
     expect(screen.getByText('Acme Coffee')).toBeInTheDocument();
-    expect(screen.getByText('$12.50')).toBeInTheDocument();
+    // X20: ONE precision on the page. The provider and day tables used to say
+    // $12.5000 beside the business table's $12.50 — three cells, one number.
+    expect(screen.getAllByText('$12.50')).toHaveLength(3);
+    expect(screen.queryByText(/\$\d+\.\d{4}/)).not.toBeInTheDocument();
+  });
+
+  // X20: the day column is a UTC date through the shared formatter, labelled in the header.
+  it('formats By Day dates through formatAdminDate with the zone on the header', () => {
+    renderClient(baseData);
+
+    expect(screen.getByRole('columnheader', { name: 'Date (UTC)' })).toBeInTheDocument();
+    expect(screen.getByText('Aug 1, 2026')).toBeInTheDocument();
+    expect(screen.queryByText('2026-08-01')).not.toBeInTheDocument();
+  });
+
+  // X9: risk and tier render through the shared StatusBadge vocabularies.
+  it('renders risk and tier through StatusBadge', () => {
+    renderClient(baseData);
+
+    const risks = screen.getAllByText('OK');
+    expect(risks).toHaveLength(2); // platform card + the account row
+    for (const badge of risks) expect(badge).toHaveAttribute('data-vocab', 'marginRisk');
+    const tiers = screen.getAllByText('Copilot');
+    expect(tiers).toHaveLength(2); // business row + account row
+    for (const badge of tiers) expect(badge).toHaveAttribute('data-vocab', 'tier');
+  });
+
+  // X19: no row tint, and the three ratio columns wait behind a toggle.
+  it('drops the risk row tint and keeps the ratio columns behind "Show ratios"', async () => {
+    const user = userEvent.setup();
+    renderClient({
+      ...baseData,
+      margin: {
+        ...baseData.margin,
+        topAccountsByCost: [{ ...baseData.margin.topAccountsByCost[0]!, riskLevel: 'action' as const, costPctOfMrr: 44 }],
+      },
+    });
+
+    const row = screen.getByText('Acme HQ').closest('tr')!;
+    expect(row.className).not.toMatch(/bg-red-50|bg-yellow-50/);
+    // The Risk badge carries the verdict on its own.
+    expect(within(row).getByText('Action')).toHaveAttribute('data-vocab', 'marginRisk');
+
+    expect(screen.queryByRole('columnheader', { name: '$/Response' })).not.toBeInTheDocument();
+    expect(screen.queryByText('$0.31')).not.toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: 'Show ratios' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(toggle);
+
+    expect(screen.getByRole('button', { name: 'Hide ratios' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('columnheader', { name: '$/Response' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Fallback %' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Flagged %' })).toBeInTheDocument();
+    // Same cents precision as everything else on the page (X20).
+    expect(within(row).getByText('$0.31')).toBeInTheDocument();
   });
 
   it('renders without the margin section and without crashing when margin is null', () => {

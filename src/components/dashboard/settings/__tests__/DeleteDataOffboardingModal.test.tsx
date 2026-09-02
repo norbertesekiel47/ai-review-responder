@@ -32,3 +32,20 @@ it('shows a recoverable status-bearing message when password verification is not
   expect(json).not.toHaveBeenCalled();
   expect(onConfirmed).not.toHaveBeenCalled();
 });
+
+// S4: the two most consequential inputs on the page use the shared `.input`
+// primitive (console.css) — `set-input` existed in no stylesheet, so they
+// rendered as browser defaults with no focus ring.
+it('styles the password and confirmation inputs with the shared input primitive', () => {
+  render(
+    <DeleteDataOffboardingModal
+      idempotencyKey="delete-test-key"
+      onClose={() => {}}
+      onConfirmed={() => {}}
+    />,
+  );
+
+  expect(screen.getByLabelText('Password')).toHaveClass('input');
+  expect(screen.getByLabelText('Type DELETE DATA')).toHaveClass('input');
+  expect(document.querySelector('.set-input')).toBeNull();
+});

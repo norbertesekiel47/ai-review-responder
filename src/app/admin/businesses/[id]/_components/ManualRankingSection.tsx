@@ -22,6 +22,17 @@ function todayLocal(): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Snapshot provenance chips. An automated (SerpAPI) read is ink, a manual entry
+ * is neutral — the console's gray/ink pair, not the off-palette purple this
+ * used to carry. A map rather than a ternary inside one className so no single
+ * string mixes a coloured background with gray text.
+ */
+const SOURCE_STYLES: Record<string, string> = {
+  serpapi: 'bg-gray-900 text-white',
+  manual: 'bg-gray-100 text-gray-700',
+};
+
 interface RankingFields {
   keyword: string;
   rankPosition: string;
@@ -81,9 +92,9 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
   const recent = snapshots.slice(0, 10);
 
   return (
-    <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">Ranking</h2>
-
+    // No card or heading of its own: BusinessDetailClient's CollapsibleSection
+    // owns both (X27), so this renders only the section body.
+    <div>
       {recent.length > 0 && (
         <div className="mb-6 overflow-x-auto">
           <table className="w-full text-sm">
@@ -104,9 +115,7 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
                     {snap.rankPosition !== null ? `#${snap.rankPosition}` : 'Not found'}
                   </td>
                   <td className="py-2">
-                    <span className={`text-xs px-2 py-0.5 rounded ${
-                      snap.source === 'serpapi' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
-                    }`}>
+                    <span className={`text-xs px-2 py-0.5 rounded ${SOURCE_STYLES[snap.source] ?? SOURCE_STYLES.manual}`}>
                       {snap.source}
                     </span>
                   </td>
@@ -172,6 +181,6 @@ export function ManualRankingSection({ businessId, snapshots }: ManualRankingSec
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       {success && <p className="mt-2 text-sm text-green-600">Ranking saved</p>}
-    </section>
+    </div>
   );
 }

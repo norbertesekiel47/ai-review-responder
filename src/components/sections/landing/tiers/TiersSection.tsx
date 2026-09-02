@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { m, useSpring, useTransform } from 'motion/react';
 import { useEffect, useId, useState } from 'react';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { MARKETING_LINKS } from '@/components/ui/marketing-links';
 import { Staged } from '../staged';
 import {
   EYEBROW,
@@ -12,6 +14,7 @@ import {
   HEADING_PLAIN,
   LEAD_IN,
   MOVEMENT_NOTE,
+  PRICING_LINK_LABEL,
   TIERS,
 } from './tiers-copy';
 
@@ -211,6 +214,17 @@ export function TiersSection() {
         <Staged beat={2}>
           <p className="rw-lp-tiers-note">
             {MOVEMENT_NOTE} <span className="rw-lp-tiers-note-governor">{GOVERNOR_NOTE}</span>
+          </p>
+          {/* The door to /pricing — the same gold text-link grammar as the
+              watchdogs section's door to /how-it-works. Why it is here and not
+              a sticky nav: tiers-copy.ts, PRICING_LINK_LABEL. */}
+          <p className="rw-lp-tiers-door">
+            <Link href={MARKETING_LINKS.pricing.href} className="rw-lp-tiers-pricing-link">
+              {PRICING_LINK_LABEL}
+              <span className="rw-lp-tiers-pricing-arrow" aria-hidden="true">
+                →
+              </span>
+            </Link>
           </p>
         </Staged>
       </div>

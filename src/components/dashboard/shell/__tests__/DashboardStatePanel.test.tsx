@@ -45,7 +45,10 @@ vi.mock('@/components/dashboard/shell/TopBar', () => ({
   ),
 }));
 
-import { renderDashboardStatePanel } from '@/components/dashboard/shell/DashboardStatePanel';
+import {
+  renderDashboardStatePanel,
+  resolveStatePanelBranch,
+} from '@/components/dashboard/shell/DashboardStatePanel';
 
 describe('renderDashboardStatePanel', () => {
   it('renderDashboardStatePanel renders the restraint surface with its before-content slot', () => {
@@ -106,5 +109,48 @@ describe('renderDashboardStatePanel', () => {
     // and the first conjunct is what enforces it.
     expect(container.querySelector('.dashboard-skeleton')).not.toBeNull();
     expect(screen.queryByText('Unable to load analytics')).toBeNull();
+  });
+});
+
+// UX audit D3: the branch rule is exported so a failed FIRST fetch showing the
+// error card (not an endless skeleton) is testable on its own.
+
+describe('resolveStatePanelBranch', () => {
+  it('shows the error when the fetch settled with an error and nothing is on screen', () => {
+    expect(resolveStatePanelBranch({ loading: false, hasData: false, error: 'Request failed (500)' }))
+      .toBe('error');
+  });
+
+  it('shows the error when the fetch settled with an error over stale data', () => {
+    expect(resolveStatePanelBranch({ loading: false, hasData: true, error: 'boom' })).toBe('error');
+  });
+
+  it('keeps loading ahead of a stale error while a fetch is in flight', () => {
+    expect(resolveStatePanelBranch({ loading: true, hasData: false, error: 'old' })).toBe('loading');
+  });
+
+  it('is ready only with data, no error and no load in flight', () => {
+    expect(resolveStatePanelBranch({ loading: false, hasData: true, error: null })).toBe('ready');
+    expect(resolveStatePanelBranch({ loading: false, hasData: false, error: null })).toBe('loading');
+  });
+});
+
+describe('renderDashboardStatePanel (UX audit D3 cases)', () => {
+  it('renders the reviews error card for a failed first fetch', () => {
+    render(<>{renderDashboardStatePanel('reviews', { loading: false, hasData: false, error: 'Request failed (500)' })}</>);
+    expect(screen.getByRole('heading', { name: 'Unable to load reviews' })).toBeInTheDocument();
+    // The message renders in the card AND in the assertive live region.
+    expect(screen.getByText('Request failed (500)', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading your reviews…')).not.toBeInTheDocument();
+  });
+
+  it('renders the skeleton while loading', () => {
+    render(<>{renderDashboardStatePanel('analytics', { loading: true, hasData: false, error: null })}</>);
+    expect(screen.getByText('Loading your analytics…')).toBeInTheDocument();
+    expect(screen.queryByText('Unable to load analytics')).toBeNull();
+  });
+
+  it('returns null when the surface is ready to render its own data', () => {
+    expect(renderDashboardStatePanel('reviews', { loading: false, hasData: true, error: null })).toBeNull();
   });
 });

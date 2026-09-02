@@ -1,6 +1,7 @@
 'use client';
 
 import type { WizardFormData } from './BusinessWizardClient';
+import { StepHeading } from './StepHeading';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   fieldClass,
@@ -12,30 +13,39 @@ import {
 } from '../_shared/field-styles';
 
 interface StepVoiceProps {
+  stepLabel: string;
   data: WizardFormData;
   update: (patch: Partial<WizardFormData>) => void;
   onBack: () => void;
   onSubmit: () => void;
   onSkip: () => void;
   submitting: boolean;
+  /**
+   * Primary label, owned by the flow: "Finish setup" when Voice is the last
+   * step (legacy), "Continue →" when Connect follows (demo flow). The button
+   * must never promise to finish when it only advances (A11).
+   */
+  submitLabel: string;
 }
 
 export function StepVoice({
+  stepLabel,
   data,
   update,
   onBack,
   onSubmit,
   onSkip,
   submitting,
+  submitLabel,
 }: StepVoiceProps) {
   return (
     <LazyMotion features={domAnimation}>
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-medium text-rw-ink">Voice &amp; context</h2>
+          <StepHeading stepLabel={stepLabel}>Voice &amp; context</StepHeading>
           <p className="text-sm text-rw-ink-soft">
-            Help us write responses that sound like you. All optional, you can
+            Help us write replies that sound like you. All optional, you can
             set this up later in Settings.
           </p>
         </div>
@@ -43,7 +53,7 @@ export function StepVoice({
           type="button"
           onClick={onSkip}
           disabled={submitting}
-          className="text-sm text-rw-teal hover:text-rw-teal-hover underline whitespace-nowrap disabled:opacity-50"
+          className="text-sm text-rw-teal-strong hover:text-rw-teal-strong-hover underline whitespace-nowrap disabled:opacity-50"
         >
           Skip for now
         </button>
@@ -102,14 +112,14 @@ export function StepVoice({
           id="biz-avoid"
           value={data.avoidFacts}
           onChange={(e) => update({ avoidFacts: e.target.value })}
-          placeholder="Things responses should NOT mention"
+          placeholder="Things replies should NOT mention"
           rows={2}
           className={textareaClass}
         />
       </div>
 
       <div>
-        <label htmlFor="biz-samples" className={labelClass}>Sample responses</label>
+        <label htmlFor="biz-samples" className={labelClass}>Sample replies</label>
         <textarea
           id="biz-samples"
           value={data.sampleResponses}
@@ -136,7 +146,7 @@ export function StepVoice({
           {...buttonMotion}
           className={primaryButtonClass}
         >
-          {submitting ? 'Setting up…' : 'Finish setup'}
+          {submitting ? 'Setting up…' : submitLabel}
         </m.button>
       </div>
     </div>

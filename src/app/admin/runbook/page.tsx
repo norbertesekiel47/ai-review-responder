@@ -9,8 +9,24 @@ export const dynamic = 'force-dynamic';
 interface Scenario {
   id: string;
   customerSays: string;
-  firstCheck: ReactNode;
-  fix: string;
+  /** Ordered steps — what to look at, in the order that rules things out fastest. */
+  firstCheck: ReactNode[];
+  /** Ordered steps — what to do once the check has named the cause. */
+  fix: ReactNode[];
+}
+
+/** A database column or enum value, set in `code` so it reads as a name, not prose (X34). */
+function Col({ children }: { children: ReactNode }) {
+  return <code className="rounded bg-gray-100 px-1 text-xs text-gray-900">{children}</code>;
+}
+
+/**
+ * An ordered list of steps. A call rather than an array literal so the JSX
+ * steps are positional arguments, not array members that would each need a
+ * `key` — the list is rendered once, in order, by index.
+ */
+function steps(...items: ReactNode[]): ReactNode[] {
+  return items;
 }
 
 /**
@@ -61,52 +77,114 @@ const SCENARIOS: Scenario[] = [
   {
     id: 'A1',
     customerSays: 'I never got the approval email.',
-    firstCheck: (
+    firstCheck: steps(
       <>
-        <AdminLink href="/admin/notifications" /> → filter by business → read failure_reason. If no
-        row, check <AdminLink href="/admin/jobs" /> for stuck send_notification outbox. Also check
-        owner_email_bounced on the business detail page.
-      </>
+        <AdminLink href="/admin/notifications" /> → filter by business → read the failure reason on the
+        failed row.
+      </>,
+      <>
+        No row at all? Check <AdminLink href="/admin/jobs" /> for a stuck <Col>send_notification</Col>{' '}
+        outbox row.
+      </>,
+      <>
+        Check <Col>owner_email_bounced</Col> on the business detail page (the red notice).
+      </>,
     ),
-    fix: 'Verify the owner email address. If wrong, update via Business Profile editor (Edit → Owner Email), then clear the bounce flag via the red banner button. Never clear the flag before verifying.',
+    fix: steps(
+      'Verify the owner email address with the owner.',
+      'If it is wrong, update it via Business Profile (Edit → Owner Email).',
+      'Then clear the bounce flag from the notice. Never clear the flag before verifying.',
+    ),
   },
   {
     id: 'A2',
     customerSays: "The response doesn't sound like me.",
-    firstCheck:
-      'Business Profile → check tone, highlight_facts, avoid_facts, staff_names. Review recent owner edits — heavy edits signal a context gap.',
-    fix: 'Update tone + facts in Business Profile. Voice learning activates automatically once ≥5 edited+posted responses exist.',
+    firstCheck: steps(
+      <>
+        Business Profile → check <Col>tone</Col>, <Col>highlight_facts</Col>, <Col>avoid_facts</Col>,{' '}
+        <Col>staff_names</Col>.
+      </>,
+      'Review recent owner edits — heavy edits signal a context gap.',
+    ),
+    fix: steps(
+      'Update tone + facts in Business Profile.',
+      'Voice learning activates automatically once ≥5 edited+posted responses exist.',
+    ),
   },
   {
     id: 'A3',
     customerSays: "I approved it but it's not posted on Google.",
-    firstCheck:
-      'Business detail page → Zernio Connection panel → awaiting reconnect count. If awaiting_owner_connect: owner has not connected or reconnected Google via Zernio.',
-    fix: 'Owner logs in → /settings/channels → Connect Google. Once connected, DrainOwnerConnectWorker automatically re-queues the approved response for publishing.',
+    firstCheck: steps(
+      'Business detail page → Zernio Connection panel → awaiting reconnect count.',
+      <>
+        If <Col>awaiting_owner_connect</Col>: the owner has not connected or reconnected Google via Zernio.
+      </>,
+    ),
+    fix: steps(
+      'Owner logs in → /settings/channels → Connect Google.',
+      <>
+        Once connected, <Col>DrainOwnerConnectWorker</Col> automatically re-queues the approved response for
+        publishing.
+      </>,
+    ),
   },
   {
     id: 'A4',
     customerSays: "I'm getting too many emails.",
-    firstCheck:
-      'Owner controls opt-outs on /settings. Check accounts.weekly_summary_enabled / accounts.monthly_impact_enabled (account-level since migration 063; the per-business columns on businesses are deprecated), plus channel_enrollments.status/unsubscribed_at columns.',
-    fix: 'Owner logs in → /settings → toggle off unwanted categories. Admins can UPDATE the same columns directly if needed.',
+    firstCheck: steps(
+      'Owner controls opt-outs on /settings.',
+      <>
+        Check <Col>accounts.weekly_summary_enabled</Col> / <Col>accounts.monthly_impact_enabled</Col>{' '}
+        (account-level since migration 063; the per-business columns on <Col>businesses</Col> are
+        deprecated), plus <Col>channel_enrollments.status</Col> / <Col>unsubscribed_at</Col>.
+      </>,
+    ),
+    fix: steps(
+      'Owner logs in → /settings → toggle off unwanted categories.',
+      'Admins can UPDATE the same columns directly if needed.',
+    ),
   },
   {
     id: 'A5',
     customerSays: "My reviews aren't being picked up.",
-    firstCheck: (
+    firstCheck: steps(
       <>
-        Business detail → Zernio Connection panel (active/disconnected/finalize_unknown?),
-        subscription_status (cancelled?). Check <AdminLink href="/admin/jobs" /> for failed
-        ingest_zernio_review or zernio_initial_backfill rows. Check
-        zernio_backfill_runs.completed_at for first-connect status. For a missing Review
-        import, read businesses.import_decision + businesses.import_offer_expires_at first —
-        that is what separates an Import consent block from an outage.
-      </>
+        Business detail → Zernio Connection panel (<Col>active</Col> / <Col>disconnected</Col> /{' '}
+        <Col>finalize_unknown</Col>?), <Col>subscription_status</Col> (<Col>cancelled</Col>?).
+      </>,
+      <>
+        Check <AdminLink href="/admin/jobs" /> for failed <Col>ingest_zernio_review</Col> or{' '}
+        <Col>zernio_initial_backfill</Col> rows.
+      </>,
+      <>
+        Check <Col>zernio_backfill_runs.completed_at</Col> for first-connect status.
+      </>,
+      <>
+        For a missing Review import, read <Col>businesses.import_decision</Col> +{' '}
+        <Col>businesses.import_offer_expires_at</Col> first — that is what separates an Import consent
+        block from an outage.
+      </>,
     ),
-    fix: "Zernio disconnected → owner must reconnect via /settings/channels. Webhook delivery failing → check Zernio dashboard webhook URL + signature secret. Billing issue → resolve in Stripe. Review import: re-enqueue a zernio_initial_backfill outbox row ONLY when import_decision = 'accepted' AND no initial run completed (zernio_backfill_runs.completed_at IS NULL for run_reason = 'initial'). The worker fails closed — on any other state the row no-op-completes and imports nothing. A declined or expired decision is permanent, admin path included: no re-enqueue, no re-offer, nothing to route around it. Expired is derived, never stored — import_decision = 'pending' AND import_offer_expires_at <= now(); there is no 'expired' value to look for.",
+    fix: steps(
+      'Zernio disconnected → owner must reconnect via /settings/channels.',
+      'Webhook delivery failing → check Zernio dashboard webhook URL + signature secret.',
+      'Billing issue → resolve in Stripe.',
+      <>
+        Review import: re-enqueue a <Col>zernio_initial_backfill</Col> outbox row ONLY when{' '}
+        <Col>{"import_decision = 'accepted'"}</Col> AND no initial run completed (
+        <Col>zernio_backfill_runs.completed_at IS NULL</Col> for <Col>{"run_reason = 'initial'"}</Col>). The
+        worker fails closed — on any other state the row no-op-completes and imports nothing.
+      </>,
+      <>
+        A declined or expired decision is permanent, admin path included: no re-enqueue, no re-offer,
+        nothing to route around it. Expired is derived, never stored —{' '}
+        <Col>{"import_decision = 'pending' AND import_offer_expires_at <= now()"}</Col>; there is no{' '}
+        <Col>{"'expired'"}</Col> value to look for.
+      </>,
+    ),
   },
 ];
+
 
 export default async function RunbookPage() {
   // Defense-in-depth behind src/proxy.ts's /admin gate — the only non-auth admin
@@ -124,58 +202,41 @@ export default async function RunbookPage() {
         <DocRef filename="docs/operational-runbook.md" /> in the repo.
       </p>
 
-      <section className="rounded-lg border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-800">
-            &quot;Customer says X&quot;: quick reference
-          </h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th
-                  scope="col"
-                  className="px-4 py-3 text-left font-mono text-xs font-semibold uppercase tracking-wider text-gray-600"
-                >
-                  #
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600"
-                >
-                  Customer says
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600"
-                >
-                  First check
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600"
-                >
-                  Fix
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {SCENARIOS.map((s) => (
-                <tr key={s.id} className="align-top">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                    {s.id}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {s.customerSays}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">{s.firstCheck}</td>
-                  <td className="px-4 py-3 text-gray-700">{s.fix}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <section aria-labelledby="scenarios-heading">
+        <h2 id="scenarios-heading" className="text-lg font-semibold text-gray-800">
+          &quot;Customer says X&quot;: quick reference
+        </h2>
+        {/* One card per scenario (X34): the two lists an operator actually follows
+            read top-to-bottom with their own labels, instead of four columns of
+            prose with raw column names buried in the sentences. */}
+        <ol className="mt-3 space-y-4">
+          {SCENARIOS.map((s) => (
+            <li key={s.id} className="rounded-lg border border-gray-200 bg-white p-5">
+              <h3 className="flex items-baseline gap-3 text-base font-semibold text-gray-900">
+                <span className="font-mono text-xs font-medium text-gray-500">{s.id}</span>
+                <span>&ldquo;{s.customerSays}&rdquo;</span>
+              </h3>
+              <div className="mt-4 grid gap-6 md:grid-cols-2">
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600">First check</h4>
+                  <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-gray-700">
+                    {s.firstCheck.map((step, index) => (
+                      <li key={index}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600">Fix</h4>
+                  <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-gray-700">
+                    {s.fix.map((step, index) => (
+                      <li key={index}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800">

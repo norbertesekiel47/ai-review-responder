@@ -13,9 +13,11 @@ import type {
 } from '@/lib/admin/offboardings-service';
 import { PaginationFooter, serverPaginationFooterState } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
 
 import { OFFBOARDINGS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
+import { LastUpdated } from '@/components/admin/ui/LastUpdated';
 
 // Mirrors GET /api/admin/offboardings' body: the list + total come from
 // AdminOffboardingsList (single owner: offboardings-service.ts); limit/offset
@@ -58,13 +60,25 @@ const PROVIDER_LABELS: Record<Provider, string> = {
   other: 'Other',
 };
 
+/**
+ * Whether a lifecycle needs an operator's hand right now (X22). Only these
+ * cards open their disposition form by default; a healthy lifecycle keeps the
+ * form behind "Record disposition", because five empty fields on every card
+ * made the page read as if every offboarding were broken.
+ */
+export function needsDisposition(item: Pick<AdminOffboarding, 'isStuck' | 'status'>): boolean {
+  return item.isStuck || item.status === 'failed';
+}
+
 export function OffboardingsClient({ initialData }: { initialData: OffboardingsData }) {
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
   const [forms, setForms] = useState<Record<string, DispositionFormState>>({});
+  // Explicit open/closed per card; absent = the needsDisposition default.
+  const [openForms, setOpenForms] = useState<Record<string, boolean>>({});
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery<OffboardingsData>({
+  const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = useQuery<OffboardingsData>({
     queryKey: ['admin-offboardings', offset],
     queryFn: async () => {
       const res = await fetch(`/api/admin/offboardings?limit=${PAGE_SIZE}&offset=${offset}`);
@@ -107,6 +121,7 @@ export function OffboardingsClient({ initialData }: { initialData: OffboardingsD
 
   return (
     <>
+      <LastUpdated updatedAt={dataUpdatedAt} refreshing={isFetching} onRefresh={() => void refetch()} />
       {actionError && (
         <p role="alert" className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           {actionError}
@@ -138,6 +153,8 @@ export function OffboardingsClient({ initialData }: { initialData: OffboardingsD
             onOffsetChange={setOffset}
             forms={forms}
             setForms={setForms}
+            openForms={openForms}
+            onToggleForm={(id, open) => setOpenForms((current) => ({ ...current, [id]: open }))}
             onDispose={disposition.mutate}
             disposing={disposition.isPending}
           />
@@ -153,6 +170,8 @@ function OffboardingsContent({
   onOffsetChange,
   forms,
   setForms,
+  openForms,
+  onToggleForm,
   onDispose,
   disposing,
 }: {
@@ -161,6 +180,8 @@ function OffboardingsContent({
   onOffsetChange: (offset: number) => void;
   forms: Record<string, DispositionFormState>;
   setForms: Dispatch<SetStateAction<Record<string, DispositionFormState>>>;
+  openForms: Record<string, boolean>;
+  onToggleForm: (offboardingId: string, open: boolean) => void;
   onDispose: DispositionMutate;
   disposing: boolean;
 }) {
@@ -191,6 +212,8 @@ function OffboardingsContent({
               item={item}
               form={forms[item.id] ?? emptyDispositionForm}
               setForms={setForms}
+              formOpen={openForms[item.id] ?? needsDisposition(item)}
+              onToggleForm={(open) => onToggleForm(item.id, open)}
               onDispose={onDispose}
               disposing={disposing}
             />
@@ -216,23 +239,30 @@ function OffboardingCard({
   item,
   form,
   setForms,
+  formOpen,
+  onToggleForm,
   onDispose,
   disposing,
 }: {
   item: AdminOffboarding;
   form: DispositionFormState;
   setForms: Dispatch<SetStateAction<Record<string, DispositionFormState>>>;
+  formOpen: boolean;
+  onToggleForm: (open: boolean) => void;
   onDispose: DispositionMutate;
   disposing: boolean;
 }) {
+  const formId = `disposition-${item.id}`;
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold text-gray-900">{item.accountName}</h2>
-            <ToneBadge label={item.mode} tone="neutral" />
-            <ToneBadge label={item.status} tone={item.status === 'failed' ? 'danger' : 'neutral'} />
+            {/* Mode and status read from the shared vocabularies (X8); the two
+                DERIVED flags below have no stored value to key on and stay tones. */}
+            <StatusBadge vocab="offboardingMode" value={item.mode} />
+            <StatusBadge vocab="offboarding" value={item.status} />
             {item.failedStep && <ToneBadge label={`failed: ${item.failedStep}`} tone="danger" />}
             {item.isStuck && <ToneBadge label="stuck" tone="warning" />}
           </div>
@@ -240,13 +270,15 @@ function OffboardingCard({
             Account {shortId(item.accountId)} · Offboarding {shortId(item.id)} · Retries {item.retryCount}
           </p>
         </div>
-        <div className="text-right text-xs text-gray-500">
+        <div className="flex flex-col items-end gap-1 text-right text-xs text-gray-500">
           <div>Requested {formatAdminDateTime(item.requestedAt)}</div>
-          <div>Subscription {item.subscriptionStatus.replace(/_/g, ' ')}</div>
+          <div className="flex items-center gap-1.5">
+            Subscription <StatusBadge vocab="subscription" value={item.subscriptionStatus} />
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className={`mt-4 grid gap-4 ${formOpen ? 'lg:grid-cols-[1fr_360px]' : ''}`}>
         <div className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <DueDate label="Access ends" value={item.accessEndsAt} />
@@ -305,11 +337,24 @@ function OffboardingCard({
           )}
         </div>
 
+        {formOpen ? (
         <form
+          id={formId}
           className="rounded border border-gray-200 bg-gray-50 p-4"
           onSubmit={(event) => submitDisposition(event, item.id, form, onDispose)}
         >
-          <h3 className="text-sm font-semibold text-gray-900">Record Provider Disposition</h3>
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="text-sm font-semibold text-gray-900">Record Provider Disposition</h3>
+            <button
+              type="button"
+              onClick={() => onToggleForm(false)}
+              aria-expanded="true"
+              aria-controls={formId}
+              className="text-xs text-gray-500 underline hover:text-gray-900"
+            >
+              Hide
+            </button>
+          </div>
           <div className="mt-3 space-y-3">
             <label className="block text-xs font-medium text-gray-700">
               Provider
@@ -357,6 +402,22 @@ function OffboardingCard({
             Record
           </button>
         </form>
+        ) : (
+          // Healthy lifecycle: the form waits behind one button (X22). A
+          // disposition is a manual cleanup record, so nothing here is missed
+          // by leaving it closed — the stuck/failed cards open by default.
+          <div className="flex items-start lg:justify-end">
+            <button
+              type="button"
+              onClick={() => onToggleForm(true)}
+              aria-expanded="false"
+              aria-controls={formId}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Record disposition…
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -411,14 +472,14 @@ function TextInput({
 }
 
 /**
- * Tone-keyed presentational badge — NOT a status→color map, and deliberately not
- * the shared `StatusBadge` primitive: the caller picks the tone from offboarding
- * semantics (a `failed` status, a stuck lifecycle, a mode label). Renamed from
- * `StatusBadge` because that name shadowed the shared component.
+ * Tone-keyed badge for the two DERIVED flags — `stuck` (a computed lifecycle
+ * predicate) and `failed: <step>` (a composite of status + step). Neither is a
+ * stored vocabulary value, so neither belongs in the shared `StatusBadge`
+ * registry (X8/X9); everything with a stored value on this card — mode, status,
+ * subscription — renders through `StatusBadge`.
  */
-function ToneBadge({ label, tone }: { label: string; tone: 'neutral' | 'warning' | 'danger' }) {
+function ToneBadge({ label, tone }: { label: string; tone: 'warning' | 'danger' }) {
   const classes = {
-    neutral: 'bg-gray-100 text-gray-700',
     warning: 'bg-yellow-100 text-yellow-800',
     danger: 'bg-red-100 text-red-700',
   }[tone];

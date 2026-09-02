@@ -343,6 +343,87 @@ function panelCopy(mode: PanelMode, lane: SendLaneView): { heading: string; body
   }
 }
 
+// ── The veto deadline ───────────────────────────────────────────────────────
+
+/** How often the countdown re-reads the clock. Coarse on purpose: the label
+ *  is in whole minutes, so a finer tick would re-render without changing. */
+const VETO_TICK_MS = 15_000;
+const MINUTE_MS = 60_000;
+
+const VETO_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+/**
+ * Postgres `::text` ("2026-07-22 12:15:00+00") or ISO. Returns null for
+ * anything unparseable so the caller renders nothing rather than "Invalid
+ * Date" — the same rule BatchReport applies to its own timestamps.
+ */
+export function parseVetoDeadline(value: string): number | null {
+  const iso = value.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * The two halves of the deadline line: the absolute time (never changes) and
+ * the relative remainder (ticks). Exported for its unit test — the pure rule is
+ * the thing worth pinning, not the interval that drives it.
+ */
+export function vetoDeadlineCopy(
+  deadlineMs: number,
+  nowMs: number,
+): { absolute: string; remaining: string } {
+  const absolute = VETO_TIME_FORMAT.format(new Date(deadlineMs));
+  const left = deadlineMs - nowMs;
+  if (left <= 0) return { absolute, remaining: 'The window has closed — sending starts now.' };
+  if (left < MINUTE_MS) return { absolute, remaining: 'Less than a minute left.' };
+  const minutes = Math.ceil(left / MINUTE_MS);
+  return { absolute, remaining: `${minutes} min left.` };
+}
+
+/**
+ * The veto window is the product's undo (CONTEXT.md "Owner approval"), so the
+ * owner is told exactly when it closes: an absolute time that never moves, and
+ * a live remainder in a polite live region (UX audit D5). The clock starts null
+ * so the server render carries the absolute time alone and the remainder
+ * appears once the browser has a clock — no hydration mismatch, no "NaN min".
+ */
+function VetoDeadline({ deadlineAt }: { deadlineAt: string }) {
+  const deadlineMs = parseVetoDeadline(deadlineAt);
+  const [nowMs, setNowMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (deadlineMs === null) return;
+    // One interval, cleared on unmount and once the window has closed — the
+    // refetch owns what happens next.
+    const tick = () => {
+      const now = Date.now();
+      setNowMs(now);
+      if (now >= deadlineMs) clearInterval(interval);
+    };
+    const first = setTimeout(tick, 0);
+    const interval = setInterval(tick, VETO_TICK_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(interval);
+    };
+  }, [deadlineMs]);
+
+  if (deadlineMs === null) return null;
+  const copy = vetoDeadlineCopy(deadlineMs, nowMs ?? deadlineMs - MINUTE_MS * 2);
+
+  return (
+    <p className="rq-veto-deadline">
+      <span className="rq-veto-deadline-abs">You can still stop this until {copy.absolute}.</span>{' '}
+      <span className="rq-veto-deadline-left" role="status" aria-live="polite">
+        {nowMs === null ? '' : copy.remaining}
+      </span>
+    </p>
+  );
+}
+
 // ── The exclusion set ───────────────────────────────────────────────────────
 
 /** Exclusion is an act, not a default: an ASK id in the set is a deselected
@@ -649,6 +730,11 @@ export function ApprovalPanel({
         {heading}
       </h2>
       <p className="rq-state-body">{body}</p>
+      {mode.kind === 'haltable' &&
+        mode.state === 'veto_window' &&
+        sendLane.vetoDeadlineAt !== null && (
+          <VetoDeadline deadlineAt={sendLane.vetoDeadlineAt} />
+        )}
 
       {asks === 'selectable' && (
         <SelectableAskList

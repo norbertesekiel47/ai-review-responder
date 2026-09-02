@@ -26,6 +26,7 @@ function submitErrorMessage(body: { error?: string; detail?: string }, status: n
 
 import {
   STEP_INFO,
+  isDefaultVoice,
   type ExistingLocationVoice,
   type Props,
   type VoiceConfigApiLocation,
@@ -127,6 +128,7 @@ export function useAddLocationWizard({
     (locationId: string) => dispatch({ type: 'COPY_FROM_EXISTING', locationId }),
     [],
   );
+  const useDefaultVoice = useCallback(() => dispatch({ type: 'USE_DEFAULT_VOICE' }), []);
 
   const handleSubmit = useCallback(async () => {
     dispatch({ type: 'SUBMIT_STARTED' });
@@ -225,6 +227,7 @@ export function useAddLocationWizard({
     newMonthlyTotalCents: billingPreview.newMonthlyTotalCents,
     step1HasLocationDetails,
     stepInfo,
+    voiceIsDefault: isDefaultVoice(state.voiceForm),
     goNext,
     goBack,
     selectPlace,
@@ -234,6 +237,7 @@ export function useAddLocationWizard({
     toggleInputMode,
     setVoiceField,
     copyFromExisting,
+    useDefaultVoice,
     handleSubmit,
   };
 }

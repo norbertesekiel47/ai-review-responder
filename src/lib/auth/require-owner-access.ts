@@ -4,8 +4,9 @@
 // server client, resolves the auth user, looks up the user's role +
 // account_id + subscription_status (from the accounts table), and redirects
 // on any of the standard failure cases:
-//   - no auth session               → /admin/login
-//   - no users row matching auth_id → /admin/login
+//   - no auth session               → /login?from=<current path> (owner login;
+//                                     the admin login rejects owner credentials)
+//   - no users row / owner row without account → /login?from=…&error=account_not_found
 //   - role === 'admin'              → /admin/overview
 //   - unsupported legacy role       → /login
 //   - subscription_status not active/past_due → /onboarding/pay
@@ -31,17 +32,36 @@
 // function now reads users.account_id instead.
 
 import { cache } from 'react';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import type { User } from '@supabase/supabase-js';
 import type { Sql } from 'postgres';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
+import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
 import { getRequestScope, type RequestScope } from './get-request-scope';
 
 const LOCATION_SCOPE_COOKIE = 'rw_location_scope';
+
+/**
+ * Where an owner with no session is sent: the OWNER login, with the page they
+ * were on as `from` so `useLoginSubmit` can return them there (it allowlists
+ * `/dashboard`, `/settings`, `/onboarding` and falls back otherwise). A bare
+ * `/login` when the path is unknown.
+ */
+export function ownerLoginPath(
+  pathname: string | null,
+  reason?: 'account_not_found',
+): string {
+  const params = new URLSearchParams();
+  if (pathname && pathname.startsWith('/') && !pathname.startsWith('//')) params.set('from', pathname);
+  // `error` is what LoginFormClient reads (mapInitialQueryError owns the copy).
+  if (reason) params.set('error', reason);
+  const query = params.toString();
+  return query ? `/login?${query}` : '/login';
+}
 
 export interface OwnerAccess {
   accountId: AccountId;
@@ -130,12 +150,25 @@ export const getRenderRequestScope = cache(
  */
 export async function requireOwnerAccess(sql: Sql): Promise<OwnerAccess> {
   const authUser = await getRenderAuthUser();
-  if (!authUser) redirect('/admin/login');
+  if (!authUser) {
+    const requestHeaders = await headers();
+    redirect(ownerLoginPath(requestHeaders.get(REQUEST_PATHNAME_HEADER)));
+  }
 
   const row = await getRenderOwnerRow(sql, authUser.id);
-  // `!row.has_account` is the former inner-JOIN miss: same redirect, same order.
-  if (!row || !row.has_account) redirect('/admin/login');
+  // A signed-in user with no `users` row is not an admin (admins have rows), so
+  // the owner login is the right door, with a reason the login form can show.
+  if (!row) {
+    const requestHeaders = await headers();
+    redirect(ownerLoginPath(requestHeaders.get(REQUEST_PATHNAME_HEADER), 'account_not_found'));
+  }
+  // Admins have a row but no account: route them before the account check.
   if (row.role === 'admin') redirect('/admin/overview');
+  // `!row.has_account` is the former inner-JOIN miss for an owner row.
+  if (!row.has_account) {
+    const requestHeaders = await headers();
+    redirect(ownerLoginPath(requestHeaders.get(REQUEST_PATHNAME_HEADER), 'account_not_found'));
+  }
   if (row.role !== 'owner') redirect('/login');
   if (!subscriptionAllowsDashboardRead(row.subscription_status ?? '')) {
     redirect('/onboarding/pay');

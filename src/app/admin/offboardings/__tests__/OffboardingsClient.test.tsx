@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { OffboardingsClient } from '../OffboardingsClient';
+import { OffboardingsClient, needsDisposition } from '../OffboardingsClient';
 import { OFFBOARDINGS_PAGE_SIZE as PAGE_SIZE } from '@/app/admin/page-sizes';
 
 type Props = Parameters<typeof OffboardingsClient>[0];
@@ -69,14 +70,52 @@ describe('OffboardingsClient', () => {
     );
   });
 
-  it('renders a card with the account name and its status tones', () => {
+  it('renders a card with the account name, its mode/status/subscription through StatusBadge, and the stuck tone', () => {
     renderClient(dataFor([offboarding({ isStuck: true })]));
 
     expect(screen.getByText('Acme Dental')).toBeInTheDocument();
-    // ToneBadge normalizes underscores to spaces.
-    expect(screen.getByText('delete data')).toBeInTheDocument();
-    expect(screen.getByText('scheduled')).toBeInTheDocument();
+    // X8: mode, status and subscription come from the shared vocabularies —
+    // humanized labels, never `delete_data` / `scheduled` / `cancelled` raw.
+    expect(screen.getByText('Delete data')).toHaveAttribute('data-vocab', 'offboardingMode');
+    expect(screen.getByText('Scheduled')).toHaveAttribute('data-vocab', 'offboarding');
+    expect(screen.getByText('Cancelled')).toHaveAttribute('data-vocab', 'subscription');
+    expect(screen.queryByText('delete data')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Subscription cancelled/)).not.toBeInTheDocument();
+    // `stuck` is a derived flag with no stored value: still a tone badge.
     expect(screen.getByText('stuck')).toBeInTheDocument();
+  });
+
+  // X22: the disposition form is a manual cleanup record, not something every
+  // healthy lifecycle needs on screen.
+  it('hides the disposition form behind a button on a healthy lifecycle and reveals it on click', async () => {
+    const user = userEvent.setup();
+    renderClient(dataFor([offboarding()]));
+
+    expect(screen.queryByText('Record Provider Disposition')).not.toBeInTheDocument();
+    const reveal = screen.getByRole('button', { name: 'Record disposition…' });
+    expect(reveal).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(reveal);
+
+    expect(screen.getByText('Record Provider Disposition')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(screen.queryByText('Record Provider Disposition')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['stuck', offboarding({ isStuck: true })],
+    ['failed', offboarding({ status: 'failed', failedStep: 'teardown' })],
+  ])('opens the disposition form by default for a %s lifecycle', (_label, item) => {
+    expect(needsDisposition(item)).toBe(true);
+    renderClient(dataFor([item]));
+
+    expect(screen.getByText('Record Provider Disposition')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Record disposition…' })).not.toBeInTheDocument();
+  });
+
+  it('needsDisposition is false for a scheduled, unstuck lifecycle', () => {
+    expect(needsDisposition(offboarding())).toBe(false);
   });
 
   it('renders a failed offboarding with its danger badges and scrubbed last error', () => {
@@ -90,7 +129,7 @@ describe('OffboardingsClient', () => {
       ]),
     );
 
-    expect(screen.getByText('failed')).toBeInTheDocument();
+    expect(screen.getByText('Failed')).toHaveAttribute('data-vocab', 'offboarding');
     expect(screen.getByText('failed: teardown')).toBeInTheDocument();
     expect(screen.getByText(/zernio rejected: Bearer \[redacted\]/)).toBeInTheDocument();
   });

@@ -10,8 +10,9 @@ export const MARKETING_LINKS = {
 
 export type MarketingLink = (typeof MARKETING_LINKS)[keyof typeof MARKETING_LINKS];
 
-/** Header-nav order (SiteNav + landing nav). The footer's Product column uses
- *  its own historical order; compose there, don't reorder here. */
+/** Header-nav order (SiteNav + landing nav). SiteFooter's Product column
+ *  renders this same list, so the two chrome surfaces list the pages in one
+ *  order. */
 export const NAV_LINKS: readonly MarketingLink[] = [
   MARKETING_LINKS.features,
   MARKETING_LINKS.howItWorks,
@@ -31,3 +32,20 @@ export const LEGAL_LINKS = [
 
 /** Footer company links (SiteFooter's Company column + the landing footer). */
 export const COMPANY_LINKS = [{ label: 'Contact', href: '/help/contact' }] as const;
+
+/**
+ * The one early-access door while self-serve signup is off. Every pill, h1
+ * and page title that asks for the same thing uses this label — one action,
+ * one phrase — and points at the lead-capture route. Demos are not bookable
+ * yet, so the route keeps its name while the label does not promise one.
+ */
+export const EARLY_ACCESS_CTA = { label: 'Get early access', href: '/book-a-demo' } as const;
+
+/**
+ * How the site chrome describes the product — the SiteFooter blurb and the
+ * landing footer's blurb are this same sentence, so the two footers cannot
+ * drift into describing two different products. "Team" is the chrome noun;
+ * "fleet" stays inside the landing page's own voice copy.
+ */
+export const PRODUCT_BLURB =
+  'A supervised team of AI agents for your Google reviews. Every action is recorded, and nothing posts outside the gate you control.';

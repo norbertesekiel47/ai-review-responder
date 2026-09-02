@@ -38,6 +38,9 @@ vi.mock('next/headers', () => ({
     getAll: vi.fn(() => []),
     get: vi.fn(() => undefined), // No rw_location_scope cookie by default
   })),
+  // The proxy stamps the request path on this header; the unauthenticated
+  // redirect carries it back as `from`.
+  headers: vi.fn(async () => ({ get: () => '/settings/voice' })),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -52,7 +55,7 @@ vi.mock('@/lib/auth/get-request-scope', () => ({
 
 // ── Import AFTER mocks ───────────────────────────────────────────────────────
 
-import { requireOwnerAccess } from '../require-owner-access';
+import { ownerLoginPath, requireOwnerAccess } from '../require-owner-access';
 import type { AccountId, LocationId } from '@/lib/shared/ids';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -145,20 +148,32 @@ describe('requireOwnerAccess', () => {
     expect(mockGetRequestScope).toHaveBeenCalledWith(mockSql, ACCOUNT_ID, null);
   });
 
-  it('redirects when no auth session exists', async () => {
+  // UX audit D4: the owner login, with the current page as `from` — the admin
+  // login rejects owner credentials.
+  it('redirects to the owner login with `from` when no auth session exists', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
 
     const { redirect } = await import('next/navigation');
     await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirect).toHaveBeenCalledWith('/admin/login');
+    expect(redirect).toHaveBeenCalledWith('/login?from=%2Fsettings%2Fvoice');
   });
 
-  it('redirects when no users row matches auth_id', async () => {
+  it('ownerLoginPath drops an unusable path and never builds an open redirect', () => {
+    expect(ownerLoginPath(null)).toBe('/login');
+    expect(ownerLoginPath('')).toBe('/login');
+    expect(ownerLoginPath('//evil.example')).toBe('/login');
+    expect(ownerLoginPath('https://evil.example')).toBe('/login');
+    expect(ownerLoginPath('/dashboard/reviews')).toBe('/login?from=%2Fdashboard%2Freviews');
+    expect(ownerLoginPath('/settings', 'account_not_found')).toBe('/login?from=%2Fsettings&error=account_not_found');
+    expect(ownerLoginPath(null, 'account_not_found')).toBe('/login?error=account_not_found');
+  });
+
+  it('redirects to the owner login with a reason when no users row matches auth_id', async () => {
     harness.sqlReturnQueue.push([]);
 
     const { redirect } = await import('next/navigation');
     await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirect).toHaveBeenCalledWith('/admin/login');
+    expect(redirect).toHaveBeenCalledWith(expect.stringMatching(/^\/login\?(from=[^&]*&)?error=account_not_found$/));
   });
 
   it('redirects when the users row has no matching account (former inner-JOIN miss)', async () => {
@@ -166,7 +181,7 @@ describe('requireOwnerAccess', () => {
 
     const { redirect } = await import('next/navigation');
     await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirect).toHaveBeenCalledWith('/admin/login');
+    expect(redirect).toHaveBeenCalledWith(expect.stringMatching(/^\/login\?(from=[^&]*&)?error=account_not_found$/));
   });
 
   it('redirects when role is not owner', async () => {

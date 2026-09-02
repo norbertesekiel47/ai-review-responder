@@ -1201,9 +1201,13 @@
 }
 
 /* ---------- Pills (the one CTA family) ---------- */
+/* min-height 44px is the touch-target floor (WCAG 2.5.8 / Apple HIG). The
+   12px/22px padding and 15px type are the pill's weight and stay; 15 + 24 + 2
+   came to 41px, so the floor adds 3px, not a new size. */
 .rw-pill {
   display: inline-flex;
   align-items: center;
+  min-height: 44px;
   gap: 10px;
   white-space: nowrap;
   border-radius: 9999px;

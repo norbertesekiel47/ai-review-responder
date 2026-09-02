@@ -8,7 +8,7 @@ import {
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { getBusinessSummaries } from '@/lib/admin/business-summary';
+import { getBusinessSummaries, parseBusinessListFilters } from '@/lib/admin/business-summary';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +18,13 @@ export const dynamic = 'force-dynamic';
 // The queries + row mapping live in src/lib/admin/business-summary.ts — the
 // single owner shared with /admin/overview (spec §5.2) — so the
 // /admin/businesses server page can read the same data without going through
-// HTTP. This handler keeps the query-param parsing/clamping and echoes
+// HTTP. This handler keeps the limit/offset parsing/clamping and echoes
 // `limit`/`offset` back on top of the service payload.
+//
+// Filters (X5): `q` / `status` / `health` are parsed by the service's own
+// `parseBusinessListFilters` (shared with the server page, which reads the same
+// params off `searchParams`). Only PRESENT filters reach the service, so an
+// unfiltered call is byte-identical to the pre-filter contract.
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -36,7 +41,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       0,
     );
 
-    const data = await getBusinessSummaries(sql, { limit, offset });
+    const data = await getBusinessSummaries(sql, {
+      limit,
+      offset,
+      ...parseBusinessListFilters(request.nextUrl.searchParams),
+    });
 
     return NextResponse.json({ ...data, limit, offset });
   } catch (error) {

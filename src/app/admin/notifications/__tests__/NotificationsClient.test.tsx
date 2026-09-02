@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NotificationsClient } from '../NotificationsClient';
+import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
+import { NotificationsClient, BUSINESS_PICKER_COMBOBOX_THRESHOLD } from '../NotificationsClient';
 
 const baseData = {
   notifications: [
@@ -49,6 +51,10 @@ function renderClient(initialData: typeof baseData) {
   );
 }
 
+function fetchUrls(): string[] {
+  return (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((call) => String(call[0]));
+}
+
 describe('NotificationsClient', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -63,18 +69,80 @@ describe('NotificationsClient', () => {
     );
   });
 
-  it('renders the delivered badge for a delivered row', () => {
+  it('renders the humanized delivered badge for a delivered row', () => {
     renderClient(baseData);
 
     expect(screen.getByText('owner@example.com')).toBeInTheDocument();
-    expect(screen.getByText('delivered')).toBeInTheDocument();
+    // Scoped to the table: the Status filter's <option>s echo the same labels.
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('Delivered')).toHaveAttribute('data-vocab', 'delivery');
+    expect(table.queryByText('delivered')).not.toBeInTheDocument();
   });
 
-  it("renders the failed row's status cell with a title carrying the failure reason", () => {
+  // X18: visible, not a hover title.
+  it("renders a failed row's failure reason as a visible secondary line", () => {
     renderClient(baseData);
 
-    const failedBadge = screen.getByText('failed');
-    expect(failedBadge.closest('span[title]')).toHaveAttribute('title', 'mailbox full');
+    expect(within(screen.getByRole('table')).getByText('Failed')).toBeInTheDocument();
+    const reason = screen.getByText('mailbox full');
+    expect(reason).toBeVisible();
+    expect(reason.className).toContain('text-red-700');
+    expect(document.querySelector('span[title="mailbox full"]')).toBeNull();
+  });
+
+  // X17: the channel filter is derived from the single owner, not a hand list.
+  it('offers every channel from CHANNEL_IDS and forwards the chosen one', async () => {
+    const user = userEvent.setup();
+    renderClient(baseData);
+
+    const channel = screen.getByRole('combobox', { name: 'Channel' }) as HTMLSelectElement;
+    expect(Array.from(channel.options).map((o) => o.value)).toEqual(['', ...CHANNEL_IDS]);
+    expect(Array.from(channel.options).map((o) => o.textContent)).toEqual([
+      'All Channels',
+      'Email',
+      'Telegram',
+      'WhatsApp',
+    ]);
+
+    await user.selectOptions(channel, 'telegram');
+    await waitFor(() => {
+      expect(fetchUrls().some((url) => url.includes('channel=telegram'))).toBe(true);
+    });
+  });
+
+  it('uses a plain select for the business filter up to the threshold', async () => {
+    const user = userEvent.setup();
+    renderClient(baseData);
+
+    const picker = screen.getByRole('combobox', { name: 'Business' });
+    expect(picker.tagName).toBe('SELECT');
+    await user.selectOptions(picker, 'loc-2');
+    await waitFor(() => {
+      expect(fetchUrls().some((url) => url.includes('business_id=loc-2'))).toBe(true);
+    });
+  });
+
+  it('switches to a type-to-search combobox above the threshold, resolving a name to its id', async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: BUSINESS_PICKER_COMBOBOX_THRESHOLD + 1 }, (_, i) => ({
+      id: `loc-${i}`,
+      name: `Business ${i}`,
+    }));
+    renderClient({ ...baseData, businesses: many });
+
+    const picker = screen.getByRole('combobox', { name: 'Business' });
+    expect(picker.tagName).toBe('INPUT');
+    expect(picker).toHaveAttribute('list');
+    expect(document.querySelectorAll('datalist option')).toHaveLength(many.length);
+
+    await user.type(picker, 'Business 7');
+    await waitFor(() => {
+      expect(fetchUrls().some((url) => url.includes('business_id=loc-7'))).toBe(true);
+    });
+
+    // Reset clears the typed text too.
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByRole('combobox', { name: 'Business' })).toHaveValue('');
   });
 
   it('keeps the cached table visible and adds a last-refresh-failed notice when a background refetch fails', async () => {

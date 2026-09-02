@@ -52,6 +52,17 @@ const DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
 });
 
+// Wall-clock time with seconds — the "Updated HH:MM:SS UTC" provenance line on
+// every polling page. Seconds matter there: two consecutive 30 s refreshes
+// differ only in seconds, and a stalled poll is invisible without them.
+const TIME_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: ADMIN_DISPLAY_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
 const COUNT_FORMAT = new Intl.NumberFormat('en-US');
 
 function toDate(value: string | number | Date | null | undefined): Date | null {
@@ -84,6 +95,20 @@ export function formatAdminDate(
   const date = toDate(value);
   if (!date) return fallback;
   return DATE_FORMAT.format(date);
+}
+
+/**
+ * `14:03:27 UTC` — time of day only, self-labelled. For a timestamp whose date
+ * is "now" by construction (a live-data refresh, a session that ends within the
+ * hour); anything that can be yesterday goes through `formatAdminDateTime`.
+ */
+export function formatAdminTime(
+  value: string | number | Date | null | undefined,
+  fallback = '—',
+): string {
+  const date = toDate(value);
+  if (!date) return fallback;
+  return `${TIME_FORMAT.format(date)} ${ADMIN_TIME_ZONE_LABEL}`;
 }
 
 /** `1,234` — locale-pinned grouping, so counts hydrate identically too. */

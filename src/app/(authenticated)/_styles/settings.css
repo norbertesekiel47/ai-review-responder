@@ -85,6 +85,19 @@
   font-size: 14px;
   font-weight: 600;
 }
+.settings-notice-copy {
+  margin: 0;
+  color: var(--rw-sage-deep);
+  font-size: 13px;
+  line-height: 1.5;
+}
+/* A link inside a danger sentence keeps the danger colour so it reads as one
+   sentence with a next step, not a stray teal word. */
+.settings-error-link { color: inherit; font-weight: 600; text-decoration: underline; }
+.settings-inline-link { color: var(--rw-accent-700); font-weight: 600; text-decoration: underline; }
+/* Section-header micro-copy that names the commit model ("Saved with the Save
+   button below.") — same size as the sub line, one shade quieter. */
+.set-commit-note { color: var(--rw-app-text-soft); }
 
 /* Form rows */
 .field {
@@ -410,6 +423,36 @@
 .cs-on { background: var(--rw-green-100); color: var(--rw-green-800); }
 .cs-soon { background: var(--rw-recess); color: var(--rw-app-text-muted); }
 .cs-pick { background: var(--rw-accent-100); color: var(--rw-accent-800); }
+.channel-action { flex: 0 0 auto; }
+/* Why Connect is disabled on the sibling mobile channel (one per account). */
+.channel-blocked-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--rw-blush-deep);
+}
+/* QR + deep-link panel under a row that is waiting for a scan. */
+.channel-qr {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.channel-qr-open { text-decoration: none; }
+.channel-qr-ttl {
+  margin: 0;
+  font-size: 12px;
+  color: var(--rw-app-text-muted);
+  font-feature-settings: "tnum";
+}
+/* Per-location override rows sit one level in from the org defaults. */
+.override-row { padding-left: 12px; }
+.override-remove {
+  margin-left: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
 
 .pick-extra {
   display: flex;
@@ -464,6 +507,35 @@
   font-size: 13px;
   color: var(--rw-on-dark-muted);
   margin-top: 6px;
+}
+/* The one number the owner came for: base + extra locations, from the stored
+   snapshot. Sits between the breakdown and the status line. */
+.plan-total {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rw-on-dark-muted);
+}
+.plan-total-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--rw-on-dark-muted);
+}
+.plan-total-amount {
+  font-family: var(--rw-font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--rw-nav-ink);
+  font-variant-numeric: tabular-nums;
+}
+.plan-total-note {
+  font-size: 12px;
+  color: var(--rw-on-dark-muted);
 }
 .plan-renew {
   font-size: 12px;
@@ -535,6 +607,18 @@
   color: var(--rw-app-text-muted);
   font-size: 12px;
   line-height: 1.45;
+}
+/* What the tier DOES — the sentence the price cards were missing. */
+.billing-plan-capability {
+  margin: 8px 0 0;
+  color: var(--rw-app-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.billing-plan-link {
+  color: var(--rw-accent-700);
+  font-weight: 600;
+  text-decoration: underline;
 }
 .billing-current-label,
 .billing-variant-badge {
@@ -827,6 +911,49 @@
   align-items: center;
   gap: 5px;
 }
+/* Why a row's action is disabled (e.g. Archive on the only active location). */
+.loc-row-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--rw-app-text-muted);
+}
+
+/* Security: enrolled authenticator rows + the enrollment form. */
+.security-factor-list { display: grid; gap: 10px; }
+.security-factor-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-lg);
+  background: var(--rw-white);
+}
+.security-factor-name { font-size: 14px; font-weight: 600; color: var(--rw-app-text); }
+.security-factor-meta { margin-top: 2px; font-size: 12px; color: var(--rw-app-text-muted); }
+.security-enroll-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.security-enroll-qr {
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-md);
+  background: var(--rw-white);
+}
+.security-manual-key {
+  font-family: var(--rw-font-mono);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: var(--rw-radius-sm);
+  background: var(--rw-recess);
+  color: var(--rw-app-text);
+  user-select: all;
+}
+.security-recovery-note strong { color: var(--rw-app-text); }
 .zernio-status {
   font-size: 11px !important;
 }

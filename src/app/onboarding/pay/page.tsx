@@ -16,7 +16,8 @@ import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Choose your plan | RepWorth' };
+// Bare page name — the root layout's `title.template` appends '· RepWorth' (A26).
+export const metadata: Metadata = { title: 'Choose your plan' };
 
 export default async function OnboardingPayPage({
   searchParams,

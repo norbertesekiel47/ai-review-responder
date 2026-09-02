@@ -26,6 +26,18 @@ it('shows the Delete data button when no offboarding is active', () => {
   expect(screen.getByRole('button', { name: /delete data/i })).toBeInTheDocument();
 });
 
+// S25: the card wears the stylesheet's destructive treatment, so it cannot be
+// mistaken for its neighbours.
+it('renders as a danger-zone card', () => {
+  mockHook = { ...base, status: { enabled: true, activeOffboarding: null } };
+  const { container } = render(<DeleteDataPanel />);
+  const card = container.firstElementChild;
+  expect(card).toHaveClass('set-section', 'danger');
+  // No amber in the Console palette: the icon well is the blush/rose role.
+  expect(card?.querySelector('.set-section-icon')).toHaveClass('rose');
+  expect(card?.querySelector('.set-section-icon.amber')).toBeNull();
+});
+
 it('blocks delete when a cancellation is scheduled', () => {
   mockHook = { ...base, status: { enabled: true, activeOffboarding: { id: '1', mode: 'cancel_only', status: 'scheduled' } } };
   render(<DeleteDataPanel />);

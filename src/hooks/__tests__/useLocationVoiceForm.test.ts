@@ -264,3 +264,37 @@ describe('useLocationVoiceForm — save', () => {
     expect(result.current.form?.tone).toBe('professional');
   });
 });
+
+// ── S5: unsaved edits arm the browser's leave-page prompt ───────────────────
+
+describe('useLocationVoiceForm — unsaved-changes guard', () => {
+  function fireBeforeUnload(): BeforeUnloadEvent {
+    const event = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
+    window.dispatchEvent(event);
+    return event;
+  }
+
+  it('prevents beforeunload only while the current form is dirty', async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ locations: MOCK_LOCATIONS }),
+    });
+    const { useLocationVoiceForm } = await import('../useLocationVoiceForm');
+    const { result, unmount } = renderHook(() =>
+      useLocationVoiceForm({ multiLocationEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(fireBeforeUnload().defaultPrevented).toBe(false);
+
+    act(() => result.current.set('tone', 'playful'));
+    expect(result.current.dirty).toBe(true);
+    expect(fireBeforeUnload().defaultPrevented).toBe(true);
+
+    act(() => result.current.discard());
+    expect(fireBeforeUnload().defaultPrevented).toBe(false);
+
+    unmount();
+  });
+});

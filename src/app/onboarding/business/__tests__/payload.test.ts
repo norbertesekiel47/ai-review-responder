@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBusinessWizardPayload } from '../payload';
+import { buildBusinessWizardPayload, initialWizardFormData } from '../payload';
 
 const baseData = {
   inputMode: 'autocomplete' as const,
@@ -62,6 +62,39 @@ describe('buildBusinessWizardPayload', () => {
       googlePlaceId: undefined,
       googlePlaceAddress: undefined,
       googleMapsUrl: 'https://maps.google.com/?cid=123',
+    });
+  });
+});
+
+describe('initialWizardFormData', () => {
+  it('seeds the Profile fields from the server row and starts Location empty', () => {
+    const data = initialWizardFormData({
+      category: 'Cafe',
+      website: 'https://example.com',
+      businessName: 'RepWorth Cafe',
+    });
+
+    expect(data).toMatchObject({
+      businessName: 'RepWorth Cafe',
+      category: 'Cafe',
+      website: 'https://example.com',
+      inputMode: 'autocomplete',
+      googlePlaceId: '',
+      googlePlaceAddress: '',
+      googleMapsUrl: '',
+      tone: 'professional and friendly',
+    });
+  });
+
+  it('falls back to empty Profile fields when the page passes no seed', () => {
+    const data = initialWizardFormData();
+
+    expect(data.businessName).toBe('');
+    expect(data.category).toBe('');
+    expect(data.website).toBe('');
+    // Voice starts blank — empty strings collapse to undefined in the payload.
+    expect(buildBusinessWizardPayload(data, { demoFlowEnabled: true })).toEqual({
+      tone: 'professional and friendly',
     });
   });
 });

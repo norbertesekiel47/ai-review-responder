@@ -18,7 +18,8 @@ describe('LeadIntakeForm', () => {
       createElement(LeadIntakeForm, { intent: 'waitlist', source: 'landing' }),
     );
 
-    expect(html).toContain('Join waitlist');
+    expect(html).toContain('Get early access');
+    expect(html).not.toContain('Join waitlist');
     expect(html).toContain('name="intent"');
     expect(html).toContain('value="waitlist"');
     expect(html).toContain('name="source"');
@@ -117,13 +118,43 @@ describe('LeadIntakeForm', () => {
     expect(html).toContain('type="url"');
     expect(html).toContain('inputMode="url"');
 
-    // Privacy consent microcopy near submit.
+    // Privacy notice near submit — a notice, not a contract (M18).
+    expect(html).toContain('We&#x27;ll only use this to contact you about early access.');
+    expect(html).not.toContain('By joining you agree');
     expect(html).toContain('Privacy Policy');
     expect(html).toContain('href="/legal/privacy"');
 
     // Honeypot field present but hidden from assistive tech.
     expect(html).toContain('name="company_website"');
     expect(html).toContain('tabindex="-1"');
+  });
+
+  it('has no placeholder that repeats its label, and keeps the Maps hint visible under the label (M17)', () => {
+    const html = renderToStaticMarkup(
+      createElement(LeadIntakeForm, { intent: 'waitlist', source: 'landing' }),
+    );
+
+    expect(html).not.toContain('placeholder="Your name"');
+    expect(html).not.toContain('placeholder="Email address"');
+    expect(html).not.toContain('placeholder="Business name"');
+    // The Maps field keeps a format-only placeholder; its help text is a visible
+    // hint the input is described by, so it does not vanish on focus.
+    expect(html).toContain('placeholder="https://maps.google.com/…"');
+    expect(html).not.toContain('helps us prep');
+    const hintId = 'lead-intake-waitlist-landing-googleMapsUrl-hint';
+    expect(html).toContain(`<p id="${hintId}"`);
+    expect(html).toContain('Paste your listing’s Google Maps link so we can look at your reviews before we reach out.');
+    expect(html).toMatch(new RegExp(`<input[^>]*id="lead-intake-waitlist-landing-googleMapsUrl"[^>]*aria-describedby="${hintId}"`));
+    // The hint precedes the input in source order (under the label, above the field).
+    expect(html.indexOf(`id="${hintId}"`)).toBeLessThan(html.indexOf('id="lead-intake-waitlist-landing-googleMapsUrl"'));
+  });
+
+  it('offsets the focus ring against the ink band it sits on, not teal (M20)', () => {
+    const onInk = renderToStaticMarkup(
+      createElement(LeadIntakeForm, { intent: 'waitlist', source: 'pricing', tone: 'onTeal' }),
+    );
+    expect(onInk).toContain('focus:ring-offset-rw-ink2');
+    expect(onInk).not.toContain('focus:ring-offset-rw-teal-strong');
   });
 
   it('validates all fields at once with a per-field error map', () => {

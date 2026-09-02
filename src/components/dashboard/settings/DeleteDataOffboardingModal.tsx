@@ -150,7 +150,7 @@ export function DeleteDataOffboardingModal({
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           disabled={submitting}
-          className="set-input"
+          className="input"
         />
       </label>
 
@@ -161,7 +161,7 @@ export function DeleteDataOffboardingModal({
           value={confirmationText}
           onChange={(event) => setConfirmationText(event.target.value)}
           disabled={submitting}
-          className="set-input"
+          className="input"
         />
       </label>
 

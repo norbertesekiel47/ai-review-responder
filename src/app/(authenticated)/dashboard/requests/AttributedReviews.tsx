@@ -6,6 +6,7 @@
 // chunk and fails the build. The type import below is erased at compile time.
 import { ATTRIBUTION_DISPLAY_WINDOW_DAYS } from '@/lib/solicitation/attribution-display';
 import type { AttributedReviewView } from '@/lib/solicitation/attribution';
+import { formatDay } from './timestamps';
 import './requests.css';
 
 /**
@@ -153,7 +154,7 @@ function MatchRow({ review }: { review: AttributedReviewView }) {
       </span>
       <Stars rating={review.starRating} />
       <span className="rq-attributed-dates">
-        Reviewed {formatDay(review.reviewDate)} · asked {formatDay(review.askSentAt)}
+        Reviewed {formatDayOrUnrecorded(review.reviewDate)} · asked {formatDayOrUnrecorded(review.askSentAt)}
       </span>
     </li>
   );
@@ -186,34 +187,20 @@ function Stars({ rating }: { rating: number | null }) {
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
-/** Module-scope formatters: building an Intl formatter per render is the
+/** Module-scope formatter: building an Intl formatter per render is the
  *  no-locale-format-in-render hotspot (BatchReport follows the same rule). */
 const NUMBER_FORMAT = new Intl.NumberFormat();
-const DAY_FORMAT = new Intl.DateTimeFormat(undefined, {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
 
 /**
- * Both `askSentAt` and `reviewDate` arrive as Postgres `::text`
- * ("2026-07-22 12:00:00+00"), selected as text end to end so postgres.js cannot
- * truncate them through a JS Date (#520).
+ * Both `askSentAt` and `reviewDate` arrive as Postgres `::text`, read through
+ * the screen's shared `formatDay` (`./timestamps`). Its bare `YYYY-MM-DD`
+ * branch is DEFENSIVE here, not a live case (branch-review L7 — an earlier
+ * version of this comment claimed `reviewDate` arrives that way).
+ * `reviews.review_date` is `TIMESTAMPTZ`, and the read model selects it
+ * `::text`, so the timestamp branch is the one that runs.
  *
- * The bare `YYYY-MM-DD` branch below is DEFENSIVE, not a live case
- * (branch-review L7 — an earlier version of this comment claimed `reviewDate`
- * arrives that way). `reviews.review_date` is `TIMESTAMPTZ`, and the read model
- * selects it `::text`, so the timestamp branch is the one that runs.
- *
- * A value that does not parse is rendered raw rather than as "Invalid Date"; a
- * null review date is a real state (the column is nullable) and says so.
+ * A null review date is a real state (the column is nullable) and says so.
  */
-function formatDay(value: string | null): string {
-  if (value === null) return 'date not recorded';
-  const iso = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? `${value}T00:00:00Z`
-    : value.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? value : DAY_FORMAT.format(parsed);
+function formatDayOrUnrecorded(value: string | null): string {
+  return value === null ? 'date not recorded' : formatDay(value);
 }

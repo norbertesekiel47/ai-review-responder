@@ -29,10 +29,13 @@ export function DeleteDataPanel() {
   const isDeleting = active?.mode === 'delete_data' || active?.mode === 'purge';
   const isCancelScheduled = active?.mode === 'cancel_only';
 
+  // `.danger` is the settings stylesheet's one destructive-card treatment
+  // (terracotta hairline + soft wash): the card must not look like its
+  // neighbours, because what it does cannot be undone.
   return (
-    <div className="set-section">
+    <div className="set-section danger">
       <div className="set-section-head">
-        <div className="set-section-icon amber">
+        <div className="set-section-icon rose">
           <Icon name="alert" size={18} />
         </div>
         <div>

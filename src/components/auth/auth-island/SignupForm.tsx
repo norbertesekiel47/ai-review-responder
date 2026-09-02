@@ -286,7 +286,7 @@ export function SignupForm() {
             </>
           ) : (
             <>
-              <SparkleIcon width={18} height={18} /> Start saving 15 hours{' '}
+              <SparkleIcon width={18} height={18} /> Create account{' '}
               <span className="arrow">
                 <ArrowIcon />
               </span>

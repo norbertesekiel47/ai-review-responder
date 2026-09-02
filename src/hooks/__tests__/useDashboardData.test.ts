@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { useDashboardData } from '../useDashboardData';
 
 // Mock fetch globally
@@ -275,5 +275,46 @@ describe('useDashboardData', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const secondUrl = mockFetch.mock.calls[1]![0] as string;
     expect(secondUrl).toContain('window=90d');
+  });
+
+  // ── Stale-while-revalidate (UX audit D1) ───────────────────────────────
+
+  it('keeps data on screen and reports `refreshing`, not `loading`, during a background refresh', async () => {
+    mockFetch.mockReturnValue(mockJsonResponse(aggregatePayload));
+    const { result } = renderHook(() => useDashboardData('all'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    let resolveSecond!: (value: Response) => void;
+    mockFetch.mockReturnValue(new Promise<Response>((res) => { resolveSecond = res; }));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.refresh(); });
+
+    // Mid-flight: the old payload is still there, and it is a refresh, not a load.
+    expect(result.current.data).toEqual(aggregatePayload);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(true);
+
+    const fresher = { ...aggregatePayload, activeLocationCount: 3 };
+    await act(async () => {
+      resolveSecond(await mockJsonResponse(fresher));
+      await pending;
+    });
+    expect(result.current.data).toEqual(fresher);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('keeps the stale payload when a background refresh fails', async () => {
+    mockFetch.mockReturnValue(mockJsonResponse(aggregatePayload));
+    const { result } = renderHook(() => useDashboardData('all'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    mockFetch.mockReturnValue(mockJsonResponse({ error: 'Upstream timeout' }, 502));
+    await act(async () => { await result.current.refresh(); });
+
+    expect(result.current.data).toEqual(aggregatePayload);
+    expect(result.current.error).toBe('Upstream timeout');
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(false);
   });
 });

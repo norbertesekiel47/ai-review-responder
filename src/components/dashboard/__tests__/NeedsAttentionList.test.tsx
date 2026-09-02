@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import { NeedsAttentionList } from '@/components/dashboard/NeedsAttentionList';
+import { guardianReasonSentence, NeedsAttentionList } from '@/components/dashboard/NeedsAttentionList';
 import { ESCALATION_STATUS } from '@/lib/escalations/types';
 import {
   TRIAGE_SEVERITIES,
@@ -91,7 +91,13 @@ describe('NeedsAttentionList', () => {
     expect(screen.getByText('Medium severity')).toBeInTheDocument();
     expect(screen.getByText('Bristol Bay Coffee')).toBeInTheDocument();
     expect(screen.getByText('1/5 rating')).toBeInTheDocument();
-    expect(screen.getByText('Respond and escalate')).toBeInTheDocument();
+    // UX audit D33: owner copy with the Guardian reason, never de-snake-cased enum words.
+    expect(screen.getByText(guardianReasonSentence('high', 'respond_and_escalate'))).toBeInTheDocument();
+    expect(screen.getByText('Guardian flagged a high-severity issue and suggests you reply and reach out to the customer directly.')).toBeInTheDocument();
+    expect(screen.queryByText('Respond and escalate')).not.toBeInTheDocument();
+    expect(screen.queryByText('Escalated')).not.toBeInTheDocument();
+    expect(screen.getByText('New — needs a look')).toBeInTheDocument();
+    expect(screen.getByText("You've seen this")).toBeInTheDocument();
     expect(screen.getByText('Showing 2 of 24 open escalations.')).toBeInTheDocument();
 
     const links = screen.getAllByRole('link');
@@ -99,8 +105,8 @@ describe('NeedsAttentionList', () => {
       'Open Bristol Bay Coffee review timeline',
       'Open Harbor Roasters review timeline',
     ]);
-    expect(links[0]).toHaveAttribute('href', '/dashboard/reviews/review-high/timeline');
-    expect(links[1]).toHaveAttribute('href', '/dashboard/reviews/review-medium/timeline');
+    expect(links[0]).toHaveAttribute('href', '/dashboard/reviews/review-high/timeline?from=dashboard');
+    expect(links[1]).toHaveAttribute('href', '/dashboard/reviews/review-medium/timeline?from=dashboard');
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/dashboard/escalations',
@@ -194,7 +200,7 @@ describe('NeedsAttentionList', () => {
     expect(screen.queryByText(/\/5 rating/)).not.toBeInTheDocument();
     expect(screen.getByRole('link')).toHaveAttribute(
       'href',
-      '/dashboard/reviews/review-no-rating/timeline',
+      '/dashboard/reviews/review-no-rating/timeline?from=dashboard',
     );
   });
 
@@ -255,7 +261,7 @@ describe('NeedsAttentionList', () => {
       expect(await screen.findByText(TRIAGE_SEVERITY_LABELS[severity])).toBeInTheDocument();
       expect(screen.getByRole('link')).toHaveAttribute(
         'href',
-        '/dashboard/reviews/review-vocabulary/timeline',
+        '/dashboard/reviews/review-vocabulary/timeline?from=dashboard',
       );
     },
   );

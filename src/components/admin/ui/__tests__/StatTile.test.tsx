@@ -17,6 +17,28 @@ describe('StatTile', () => {
     const { container } = render(<StatTile label="At risk" value={2} alert />);
     expect(container.firstElementChild?.className).toContain('border-red-300');
   });
+
+  it('is a plain div without href — nothing to click, no link role', () => {
+    render(<StatTile label="Cost" value="$1" />);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  // X13: an alert tile IS the alert, so it is also the way to the work.
+  it('becomes a link to the resolving page when href is given, keeping the alert frame', () => {
+    render(<StatTile label="Failed Jobs" value={3} alert href="/admin/jobs" />);
+    const link = screen.getByRole('link', { name: /Failed Jobs/ });
+    expect(link).toHaveAttribute('href', '/admin/jobs');
+    expect(link).toHaveTextContent('3');
+    expect(link.className).toContain('border-red-300');
+  });
+
+  it('renders the label at 11px gray-600, not the 10px gray-500 that failed contrast (X31)', () => {
+    render(<StatTile label="Pending" value={1} />);
+    const label = screen.getByText('Pending');
+    expect(label.className).toContain('text-[11px]');
+    expect(label.className).toContain('text-gray-600');
+    expect(label.className).not.toContain('text-gray-500');
+  });
 });
 
 describe('ErrorState', () => {

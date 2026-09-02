@@ -1,9 +1,25 @@
 'use client';
 
-import Image from 'next/image';
+// Owner Security settings: two-step sign-in (an authenticator app) and the
+// password. The MFA flow itself lives in useMfaEnrollment (shared with the
+// admin surface); this file owns only the owner-facing presentation, composed
+// from the sections in SecuritySections.tsx.
+//
+// Truthful by design (UX audit S21/S22): Supabase MFA has no recovery codes,
+// so the page says so and names the actual fallback (support resets it); the
+// password is changed through the existing reset flow, not a second route.
+
 import Link from 'next/link';
-import type { FormEvent } from 'react';
-import { useMfaEnrollment } from '@/components/auth/useMfaEnrollment';
+import { useState, type FormEvent } from 'react';
+import { useMfaEnrollment, type MfaFactor } from '@/components/auth/useMfaEnrollment';
+import { ConfirmDialog } from '@/components/dashboard/settings/ConfirmDialog';
+import {
+  PasswordSection,
+  SecurityEnrollForm,
+  SecurityErrorNotice,
+  SecurityFactorList,
+  addFactorLabel,
+} from './SecuritySections';
 
 export function SecurityClient() {
   const {
@@ -20,140 +36,94 @@ export function SecurityClient() {
     cancelEnrollment,
     unenrollFactor,
   } = useMfaEnrollment();
+  const [factorToRemove, setFactorToRemove] = useState<MfaFactor | null>(null);
 
   function onVerifySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void verifyEnrollment();
   }
 
+  async function confirmRemoval() {
+    if (!factorToRemove) return;
+    const factorId = factorToRemove.id;
+    setFactorToRemove(null);
+    await unenrollFactor(factorId);
+  }
+
+  const twoStepOn = verifiedFactors.length > 0;
+
   return (
-    <div className="set-section">
-      <div className="set-section-title">Multi-factor authentication</div>
-      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', marginTop: 4 }}>
-        Add a second factor as a backup.
-      </p>
-      <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', marginTop: 6 }}>
-        Lost access to your authenticator?{' '}
-        <Link href="/help/contact" style={{ color: 'var(--rw-sage-deep)', textDecoration: 'underline' }}>
-          Contact support
-        </Link>
-        .
-      </p>
-
-      {error ? (
-        <p style={{ fontSize: 13, color: 'var(--rw-danger)', marginTop: 12 }}>{error}</p>
-      ) : null}
-      {notice ? (
-        <p style={{ fontSize: 13, color: 'var(--rw-sage-deep)', marginTop: 12 }}>{notice}</p>
-      ) : null}
-
-      <div style={{ marginTop: 18 }}>
-        {loading ? (
-          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)' }}>Loading security settings…</p>
-        ) : verifiedFactors.length > 0 ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {verifiedFactors.map((factor) => (
-              <div
-                key={factor.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  border: '1px solid var(--rw-hair)',
-                  borderRadius: 8,
-                  padding: 12,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--rw-app-text)' }}>
-                    {factor.friendlyName ?? 'Authenticator app'}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--rw-app-text-muted)' }}>
-                    {factor.factorType.toUpperCase()} · {factor.status}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled={busy}
-                  onClick={() => void unenrollFactor(factor.id)}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
+    <>
+      <div className="set-section">
+        <div className="set-section-head">
+          <div className="set-section-icon sage" aria-hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
           </div>
-        ) : (
-          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)' }}>No MFA factor is enrolled.</p>
-        )}
+          <div>
+            <div className="set-section-title">Two-step sign-in</div>
+            <div className="set-section-sub">
+              Add an authenticator app and we&apos;ll ask for its 6-digit code each time you sign in.
+              Someone with just your password can&apos;t get in.
+            </div>
+          </div>
+        </div>
+
+        <SecurityErrorNotice error={error} />
+        {notice ? (
+          <p role="status" className="settings-notice-copy">{notice}</p>
+        ) : null}
+
+        <SecurityFactorList
+          loading={loading}
+          factors={verifiedFactors}
+          busy={busy}
+          onRemove={setFactorToRemove}
+        />
+
+        {!loading && !enrollment ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ alignSelf: 'flex-start' }}
+            disabled={busy}
+            onClick={() => void startEnrollment()}
+          >
+            {addFactorLabel(busy, twoStepOn)}
+          </button>
+        ) : null}
+
+        {enrollment ? (
+          <SecurityEnrollForm
+            enrollment={enrollment}
+            code={code}
+            busy={busy}
+            onCodeChange={setCode}
+            onSubmit={onVerifySubmit}
+            onCancel={cancelEnrollment}
+          />
+        ) : null}
+
+        <p className="settings-body-copy security-recovery-note">
+          <strong>If you lose your authenticator:</strong> there are no backup codes.{' '}
+          <Link href="/help/contact" className="settings-inline-link">Contact support</Link> — we&apos;ll
+          verify it&apos;s you and reset two-step sign-in so you can set it up again.
+        </p>
       </div>
 
-      {!enrollment ? (
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ marginTop: 18, background: 'var(--rw-accent-600)' }}
-          disabled={busy || loading}
-          onClick={() => void startEnrollment()}
-        >
-          {busy ? 'Starting…' : 'Add authenticator app'}
-        </button>
-      ) : (
-        <form onSubmit={onVerifySubmit} style={{ marginTop: 18 }}>
-          {enrollment.qrCode?.startsWith('data:') ? (
-            // Supabase returns this QR image from its Auth API; the TOTP secret
-            // itself is shown separately for manual entry.
-            <Image
-              src={enrollment.qrCode}
-              alt="Authenticator setup QR code"
-              width={180}
-              height={180}
-              unoptimized
-              style={{ border: '1px solid var(--rw-hair)' }}
-            />
-          ) : null}
-          {enrollment.secret ? (
-            <p style={{ fontSize: 13, color: 'var(--rw-app-text)', marginTop: 10 }}>
-              Manual key: <code>{enrollment.secret}</code>
-            </p>
-          ) : null}
-          <label
-            htmlFor="mfa-code"
-            style={{ display: 'block', fontSize: 13, fontWeight: 600, marginTop: 14 }}
-          >
-            Verification code
-          </label>
-          <input
-            id="mfa-code"
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            className="input"
-            style={{ marginTop: 6, maxWidth: 220 }}
-            required
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ background: 'var(--rw-accent-600)' }}
-              disabled={busy || code.trim().length === 0}
-            >
-              {busy ? 'Verifying…' : 'Verify'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              disabled={busy}
-              onClick={cancelEnrollment}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
+      <PasswordSection />
+
+      {factorToRemove && (
+        <ConfirmDialog
+          title="Remove authenticator app"
+          closeLabel="Keep two-step sign-in"
+          heading="Remove this authenticator app?"
+          body="Signing in will need only your password. You can add an authenticator app again at any time. You may be asked to enter a code from it first."
+          cancelLabel="Keep it"
+          confirmLabel="Remove authenticator app"
+          onCancel={() => setFactorToRemove(null)}
+          onConfirm={() => void confirmRemoval()}
+        />
       )}
-    </div>
+    </>
   );
 }

@@ -225,6 +225,34 @@ describe('SET_VOICE_FIELD', () => {
   });
 });
 
+describe('USE_DEFAULT_VOICE (D23)', () => {
+  it('resets a half-typed voice to the defaults, drops the copy-from source, and advances', () => {
+    const state = withState({
+      step: 3,
+      copyFromLocationId: 'loc-1',
+      voiceForm: {
+        tone: 'warm',
+        productsServices: 'coffee',
+        avoidFacts: ['no discounts'],
+        sampleResponses: ['thanks!'],
+      },
+    });
+    const next = reducer(state, { type: 'USE_DEFAULT_VOICE' });
+    expect(next.voiceForm).toEqual({
+      tone: 'professional and friendly',
+      productsServices: '',
+      avoidFacts: [],
+      sampleResponses: [],
+    });
+    expect(next.copyFromLocationId).toBe('');
+    expect(next.step).toBe(4);
+  });
+
+  it('does not advance past step 4', () => {
+    expect(reducer(withState({ step: 4 }), { type: 'USE_DEFAULT_VOICE' }).step).toBe(4);
+  });
+});
+
 describe('COPY_FROM_EXISTING', () => {
   it('copies the source voice config', () => {
     const s = reducer(withState({ existingLocations: [SOURCE_LOC] }), {

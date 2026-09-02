@@ -26,8 +26,10 @@ describe('PricingContent', () => {
     const html = renderPricing();
 
     expect(html.match(/class="pr-plan /g)).toHaveLength(2);
-    expect(html).toContain('>Copilot</h2>');
-    expect(html).toContain('>Autopilot</h2>');
+    // Plan names sit under the section's h2 ("Two plans · billed monthly"), so h3 (M21).
+    expect(html).toContain('<h3 class="pr-plan-name">Copilot</h3>');
+    expect(html).toContain('<h3 class="pr-plan-name">Autopilot</h3>');
+    expect(html).not.toMatch(/<h2[^>]*>(Copilot|Autopilot)<\/h2>/);
     expect(html).toContain('<span class="pr-price-amt">29</span>');
     expect(html).toContain('<span class="pr-price-amt">69</span>');
     expect(html).toContain('$15/month per extra location');
@@ -84,11 +86,14 @@ describe('PricingContent', () => {
   it('offers a per-tier waitlist door for closed Autopilot and a visible plan chooser (self-serve off)', () => {
     const html = renderPricing({ autopilot: false, selfServe: false });
 
-    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="#pricing-waitlist"[^>]*>Join the Copilot waitlist</);
-    expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*href="#pricing-waitlist"[^>]*>Tell me when Autopilot opens</);
+    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="#pricing-waitlist"[^>]*>Get early access · Copilot</);
+    expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*href="#pricing-waitlist"[^>]*>Get early access · Autopilot</);
     expect(html).toContain('Copilot is taking waitlist sign-ups now');
     expect(html).toContain('Which plan are you asking about?');
     expect(html.match(/name="pricing-plan-interest"/g)).toHaveLength(3);
+    // The CTA band's h2 is the one early-access phrase, same as every pill (M4 handoff).
+    expect(html).toContain('<h2 id="pr-cta-h">Get early access.</h2>');
+    expect(html).not.toContain('Join the early access waitlist.');
   });
 
   it('features Autopilot with the primary action only when it is purchasable', () => {
@@ -136,5 +141,45 @@ describe('PricingContent', () => {
     expect(html).toContain('class="rw-foot');
     expect(html).toContain('href="/legal/privacy"');
     expect(html).toContain('href="/legal/terms"');
+  });
+
+  it('renders the comparison matrix as a real table with scoped headers and spoken marks (M8)', () => {
+    const html = renderPricing();
+
+    // A <table> with explicit roles (the rows are CSS grids for the phone stack,
+    // and a table part with a non-table display can lose its implicit role).
+    expect(html).toMatch(/<table class="pr-matrix" aria-label="Plan comparison">/);
+    expect(html).toMatch(/<th scope="col" class="pr-matrix-cell hdr first">Feature<\/th>/);
+    // Feature + Copilot + Autopilot: three column headers, all scoped.
+    expect(html.match(/<th scope="col"/g)).toHaveLength(3);
+    expect(html).toMatch(/<th scope="col" class="pr-matrix-cell hdr [^"]*"><span class="pr-matrix-plan">.*?Copilot<\/span>/);
+    // One <tbody> per section, headed by a rowgroup cell; every feature is a row header.
+    expect(html.match(/<tbody>/g)).toHaveLength(4);
+    expect(html.match(/<th scope="rowgroup" colSpan="3"/g)).toHaveLength(4);
+    expect(html.match(/<th scope="row" class="pr-matrix-cell first">/g)).toHaveLength(10);
+    expect(html).not.toContain('pr-matrix-grid');
+    expect(html).not.toMatch(/<div class="pr-matrix-cell/);
+
+    // Marks are an aria-hidden glyph plus sr-only text — never an aria-label on a span.
+    expect(html).toContain('<span class="pr-check-yes" aria-hidden="true">');
+    expect(html).toContain('<span class="pr-check-no" aria-hidden="true"></span><span class="sr-only">Not included</span>');
+    expect(html).toContain('<span class="sr-only">Included</span>');
+    expect(html).not.toMatch(/aria-label="(Included|Not included)"/);
+  });
+
+  it('says what each plan does before a reply posts in plain words, and glosses the veto window once (M9)', () => {
+    const html = renderPricing();
+
+    expect(html).toContain('You approve everything');
+    expect(html).toContain('You set the policy and the veto window');
+    expect(html).toContain('Not needed: nothing posts until you approve it');
+    expect(html).toContain('You choose 15 or 30 minutes');
+    // The one gloss, on the row that names the term.
+    expect(html.match(/class="pr-matrix-hint"/g)).toHaveLength(1);
+    expect(html).toContain('A 15- or 30-minute pause after a reply clears the checks, when one tap still stops it.');
+    // The internal vocabulary is gone.
+    expect(html).not.toContain('Approval context');
+    expect(html).not.toContain('Outside your policy');
+    expect(html).not.toContain('Owner-set policy and veto window</th>');
   });
 });

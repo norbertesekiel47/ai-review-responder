@@ -8,8 +8,16 @@ import {
   ghostButtonClass,
   buttonMotion,
 } from '../_shared/field-styles';
+import { StepHeading } from './StepHeading';
 
 interface StepConnectProps {
+  stepLabel: string;
+  /**
+   * True for an Autopilot account. The step's promise must match what the
+   * plan actually does: Copilot owners approve every reply; on Autopilot,
+   * replies inside the owner's policy post after the veto window (A12).
+   */
+  autopilot: boolean;
   onBack: () => void;
   onConnect: () => Promise<void>;
   onSkip: () => Promise<void>;
@@ -27,7 +35,14 @@ interface StepConnectProps {
  *  - "Skip for now" — saves Profile+Voice, redirects to /dashboard. Dashboard
  *    will show the empty state until they connect later from /dashboard/connect.
  */
-export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConnectProps) {
+export function StepConnect({
+  stepLabel,
+  autopilot,
+  onBack,
+  onConnect,
+  onSkip,
+  submitting,
+}: StepConnectProps) {
   const [error, setError] = useState<string | null>(null);
 
   async function handleConnect() {
@@ -52,29 +67,33 @@ export function StepConnect({ onBack, onConnect, onSkip, submitting }: StepConne
     <LazyMotion features={domAnimation}>
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-medium text-rw-ink">
-          Connect your Google Business Profile
-        </h2>
+        <StepHeading stepLabel={stepLabel}>Connect your Google Business Profile</StepHeading>
+        {/* The vendor name means nothing to an owner; describe the role. The
+            posting promise is tier-aware — "never without your approval" is
+            false for an Autopilot buyer (A12). */}
         <p className="mt-1 text-sm text-rw-ink-soft">
-          We use Zernio to securely read your reviews and post your approved
-          replies on Google. You&apos;ll be redirected to Google to grant
-          access, only you ever see review content, and we never auto-post
-          without your explicit approval.
+          We read your reviews and post your replies through our secure Google
+          connection partner. You&apos;ll be sent to Google to grant access, and
+          only you ever see your review content.
         </p>
       </div>
 
       <ul className="space-y-2 text-sm text-rw-ink-soft">
         <li className="flex items-start gap-2">
-          <span className="text-rw-teal mt-0.5">✓</span>
+          <span className="text-rw-teal-strong mt-0.5" aria-hidden="true">✓</span>
           <span>Pulls in every review on the location you pick.</span>
         </li>
         <li className="flex items-start gap-2">
-          <span className="text-rw-teal mt-0.5">✓</span>
-          <span>Drafts a reply for each new review using your voice.</span>
+          <span className="text-rw-teal-strong mt-0.5" aria-hidden="true">✓</span>
+          <span>Drafts a reply for each new review in your voice.</span>
         </li>
         <li className="flex items-start gap-2">
-          <span className="text-rw-teal mt-0.5">✓</span>
-          <span>You approve each reply before it goes live.</span>
+          <span className="text-rw-teal-strong mt-0.5" aria-hidden="true">✓</span>
+          <span>
+            {autopilot
+              ? 'Replies inside your policy post after the veto window. Everything else waits for you.'
+              : 'You approve every reply before it goes live.'}
+          </span>
         </li>
       </ul>
 

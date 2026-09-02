@@ -101,9 +101,16 @@ vi.mock('@/lib/db/server', () => {
   };
 });
 
-vi.mock('@/lib/admin/business-summary', () => ({
-  getBusinessSummaries: mockGetBusinessSummaries,
-}));
+// `parseBusinessListFilters` is the REAL one: the route's contract includes
+// which query params reach the service, and mocking the parser would make the
+// filter assertions below test the mock.
+vi.mock('@/lib/admin/business-summary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/admin/business-summary')>();
+  return {
+    parseBusinessListFilters: actual.parseBusinessListFilters,
+    getBusinessSummaries: mockGetBusinessSummaries,
+  };
+});
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
@@ -629,6 +636,58 @@ describe('GET /api/admin/businesses', () => {
     expect(mockGetBusinessSummaries).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ offset: expected }),
+    );
+  });
+
+  // X5 filters. Only PRESENT, VALID filters reach the service — the
+  // `{ limit, offset }` assertions above pin that an unfiltered call is
+  // byte-identical to the pre-filter contract.
+  it('forwards a trimmed name search as `search`', async () => {
+    await GET(makeGetRequest('?q=%20Northstar%20'));
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(expect.anything(), {
+      limit: 20,
+      offset: 0,
+      search: 'Northstar',
+    });
+  });
+
+  it('caps the name search at 100 characters', async () => {
+    await GET(makeGetRequest(`?q=${'a'.repeat(150)}`));
+    const call = mockGetBusinessSummaries.mock.calls[0]?.[1] as { search: string };
+    expect(call.search).toHaveLength(100);
+  });
+
+  it('forwards a canonical subscription status and drops anything else', async () => {
+    await GET(makeGetRequest('?status=past_due'));
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(expect.anything(), {
+      limit: 20,
+      offset: 0,
+      status: 'past_due',
+    });
+
+    mockGetBusinessSummaries.mockClear();
+    await GET(makeGetRequest("?status=active'%20OR%201=1"));
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(expect.anything(), { limit: 20, offset: 0 });
+  });
+
+  it('forwards a churn level as `health` and drops an unknown one', async () => {
+    await GET(makeGetRequest('?health=at_risk'));
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(expect.anything(), {
+      limit: 20,
+      offset: 0,
+      health: 'at_risk',
+    });
+
+    mockGetBusinessSummaries.mockClear();
+    await GET(makeGetRequest('?health=imploding'));
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(expect.anything(), { limit: 20, offset: 0 });
+  });
+
+  it('does not echo the filters in the envelope', async () => {
+    const res = await GET(makeGetRequest('?q=Cafe&status=active'));
+    const body = await res.json();
+    expect(Object.keys(body).sort()).toEqual(
+      ['businesses', 'limit', 'offset', 'responseMetricsWindowDays', 'total'].sort(),
     );
   });
 

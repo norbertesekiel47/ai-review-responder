@@ -29,8 +29,8 @@ export function FunnelStepThread({ step }: { step: FunnelStep }) {
                   state === 'todo'
                     ? 'bg-rw-warm-gray-soft text-rw-warm-gray'
                     : state === 'current'
-                      ? 'bg-rw-teal text-white ring-4 ring-rw-teal/25'
-                      : 'bg-rw-teal text-white'
+                      ? 'bg-rw-teal-strong text-white ring-4 ring-rw-teal/25'
+                      : 'bg-rw-teal-strong text-white'
                 }`}
               >
                 {state === 'done' ? '✓' : i + 1}

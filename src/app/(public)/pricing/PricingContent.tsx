@@ -59,25 +59,58 @@ const PLAN_BAR: Record<SubscriptionTierValue, string> = {
   autopilot: 'var(--rw-gold-bar)',
 };
 
-type MatrixRow =
-  | { section: string }
-  | { label: string; values: readonly [string | boolean, string | boolean] };
+interface MatrixFeature {
+  label: string;
+  /** One-line plain-words gloss under the label, for the one term a buyer may not know. */
+  hint?: string;
+  values: readonly [string | boolean, string | boolean];
+}
 
-const MATRIX: readonly MatrixRow[] = [
-  { section: 'Agent team' },
-  { label: 'Reply drafts personalized responses', values: [true, true] },
-  { label: 'Guardian holds negative and flagged reviews', values: [true, true] },
-  { label: 'Insights sends a weekly brief', values: [true, true] },
-  { section: 'Public actions' },
-  { label: 'You approve before it posts', values: ['Every reply', 'Outside your policy'] },
-  { label: 'Eligible automatic posting', values: [false, '4–5★, safety-checked only'] },
-  { label: 'Negative reviews auto-posted', values: [false, false] },
-  { section: 'Safety controls' },
-  { label: 'Owner-set policy and veto window', values: ['Approval context', true] },
-  { label: 'Safety check on every draft', values: [true, true] },
-  { label: 'Judge and Governor watch anything that posts itself', values: [false, true] },
-  { section: 'Locations' },
-  { label: 'Included locations', values: ['1', '1'] },
+interface MatrixSection {
+  section: string;
+  rows: readonly MatrixFeature[];
+}
+
+// Every value is either a mark (included / not included) or a sentence an owner
+// can read without knowing the product's internals. "Approval context" and
+// "Outside your policy" used to sit here; neither decodes without the design doc.
+// The veto window is glossed ONCE, on the row that names it.
+const MATRIX: readonly MatrixSection[] = [
+  {
+    section: 'Agent team',
+    rows: [
+      { label: 'Reply drafts personalized responses', values: [true, true] },
+      { label: 'Guardian holds negative and flagged reviews', values: [true, true] },
+      { label: 'Insights sends a weekly brief', values: [true, true] },
+    ],
+  },
+  {
+    section: 'Public actions',
+    rows: [
+      {
+        label: 'Before a reply posts',
+        values: ['You approve everything', 'You set the policy and the veto window'],
+      },
+      { label: 'Replies that may post on their own', values: [false, '4–5★, safety-checked only'] },
+      { label: 'Negative reviews auto-posted', values: [false, false] },
+    ],
+  },
+  {
+    section: 'Safety controls',
+    rows: [
+      {
+        label: 'Veto window',
+        hint: 'A 15- or 30-minute pause after a reply clears the checks, when one tap still stops it.',
+        values: ['Not needed: nothing posts until you approve it', 'You choose 15 or 30 minutes'],
+      },
+      { label: 'Safety check on every draft', values: [true, true] },
+      { label: 'Judge and Governor watch anything that posts itself', values: [false, true] },
+    ],
+  },
+  {
+    section: 'Locations',
+    rows: [{ label: 'Included locations', values: ['1', '1'] }],
+  },
 ];
 
 interface FaqItem {
@@ -138,7 +171,7 @@ const GATE_ROWS = [
 // on, and can Autopilot be bought today.
 const CTA_COPY = {
   waitlist: {
-    h2: 'Join the early access waitlist.',
+    h2: 'Get early access.',
     sub: 'Tell us about your business and we’ll reach out when early access opens for your area.',
   },
   choose: {
@@ -191,7 +224,7 @@ function PlanDoor({
         className={`pr-plan-cta ${primary ? 'primary' : 'ghost'}`}
         onClick={() => onPlanInterest(plan.tier)}
       >
-        {selfServeEnabled ? `Choose ${plan.name}` : `Join the ${plan.name} waitlist`}
+        {selfServeEnabled ? `Choose ${plan.name}` : `Get early access · ${plan.name}`}
       </Link>
     );
   }
@@ -210,7 +243,7 @@ function PlanDoor({
         className="pr-plan-cta ghost"
         onClick={() => onPlanInterest('autopilot')}
       >
-        Tell me when Autopilot opens
+        Get early access · Autopilot
       </Link>
       <p className="pr-plan-soon">
         Not open yet: we are finishing its safety checks. Copilot is taking waitlist
@@ -253,7 +286,7 @@ function PlanCard({
       {/* Dossier header row (the /how-it-works step header): number · name · status. */}
       <div className="pr-plan-hd">
         <b>{plan.n}</b>
-        <h2 className="pr-plan-name">{plan.name}</h2>
+        <h3 className="pr-plan-name">{plan.name}</h3>
         {featured && <div className="pr-ribbon">More autonomy</div>}
         {isAutopilot && !autopilotOpen && <div className="pr-ribbon is-soon">Opening soon</div>}
       </div>
@@ -353,17 +386,29 @@ function PricingHero({ heroIn }: { heroIn: boolean }) {
   );
 }
 
-// `data-plan` feeds the per-cell plan label that pricing.css shows on phones, where the
-// header row is hidden and each row stacks as label → Copilot value → Autopilot value.
+// A value cell. A mark is an `aria-hidden` glyph plus `sr-only` text, so a screen
+// reader hears "Included" / "Not included" in the cell instead of an empty cell.
+// `data-plan` feeds the per-cell plan label pricing.css paints on phones, where
+// each row stacks as label → Copilot value → Autopilot value.
 function MatrixCell({ value, plan, featured }: { value: string | boolean; plan: string; featured: boolean }) {
   const className = `pr-matrix-cell num ${featured ? 'featured' : ''}`;
   if (value === true) {
-    return <div className={className} data-plan={plan}><span className="pr-check-yes" aria-label="Included"><CheckIcon /></span></div>;
+    return (
+      <td className={className} data-plan={plan}>
+        <span className="pr-check-yes" aria-hidden="true"><CheckIcon /></span>
+        <span className="sr-only">Included</span>
+      </td>
+    );
   }
   if (value === false) {
-    return <div className={className} data-plan={plan}><span className="pr-check-no" aria-label="Not included" /></div>;
+    return (
+      <td className={className} data-plan={plan}>
+        <span className="pr-check-no" aria-hidden="true" />
+        <span className="sr-only">Not included</span>
+      </td>
+    );
   }
-  return <div className={className} data-plan={plan}>{value}</div>;
+  return <td className={className} data-plan={plan}>{value}</td>;
 }
 
 // Matrix column header: plan name with its bar tick, and the monthly price under
@@ -380,20 +425,24 @@ function MatrixPlanHeader({
   featured: boolean;
 }) {
   return (
-    <div className={`pr-matrix-cell hdr ${featured ? 'featured' : ''}`}>
+    <th scope="col" className={`pr-matrix-cell hdr ${featured ? 'featured' : ''}`}>
       <span className="pr-matrix-plan">
         <i className="pr-matrix-tick" style={{ ['--bar' as string]: PLAN_BAR[tier] }} aria-hidden="true" />
         {name}
       </span>
       <span className="pr-matrix-price">${formatDollars(price.basePriceCents)} per month</span>
-    </div>
+    </th>
   );
 }
 
-// The comparison ledger on its paper band. No horizontal scroll at any width:
+// The comparison ledger on its paper band, as a real table: column headers with
+// `scope`, one `<tbody>` per section headed by a `scope="rowgroup"` cell, and a
+// `scope="row"` header on every feature. No horizontal scroll at any width:
 // ≥721px the three columns fit the 960px ledger; ≤720px each row stacks (label,
 // then the two plan values, each self-labelled via data-plan) so the Autopilot
-// column is never off-screen.
+// column is never off-screen. The rows are CSS grids for that stacking, and
+// a table element with a non-table `display` loses its role in some engines, so
+// every table part restates its role explicitly.
 function ComparisonMatrix({
   prices,
   autopilotOpen,
@@ -411,30 +460,36 @@ function ComparisonMatrix({
           </div>
         </Reveal>
         <Reveal delay={120} scrub>
-          <section className="pr-matrix" aria-label="Plan comparison">
-            <div className="pr-matrix-grid">
-              <div className="pr-matrix-row hdr-row">
-                <div className="pr-matrix-cell hdr first">Feature</div>
+          <table className="pr-matrix" aria-label="Plan comparison">
+            <thead>
+              <tr className="pr-matrix-row hdr-row">
+                <th scope="col" className="pr-matrix-cell hdr first">Feature</th>
                 <MatrixPlanHeader tier="copilot" name="Copilot" price={prices.copilot} featured={false} />
                 {/* The bone column follows the same rule as the featured card:
                     emphasis only on a tier you can get today. */}
                 <MatrixPlanHeader tier="autopilot" name="Autopilot" price={prices.autopilot} featured={autopilotOpen} />
-              </div>
-              {MATRIX.map((row) =>
-                'section' in row ? (
-                  <div key={row.section} className="pr-matrix-row">
-                    <div className="pr-matrix-cell section first">{row.section}</div>
-                  </div>
-                ) : (
-                  <div key={row.label} className="pr-matrix-row">
-                    <div className="pr-matrix-cell first">{row.label}</div>
+              </tr>
+            </thead>
+            {MATRIX.map((group) => (
+              <tbody key={group.section}>
+                <tr className="pr-matrix-row">
+                  <th scope="rowgroup" colSpan={3} className="pr-matrix-cell section first">
+                    {group.section}
+                  </th>
+                </tr>
+                {group.rows.map((row) => (
+                  <tr key={row.label} className="pr-matrix-row">
+                    <th scope="row" className="pr-matrix-cell first">
+                      {row.label}
+                      {row.hint && <span className="pr-matrix-hint">{row.hint}</span>}
+                    </th>
                     <MatrixCell value={row.values[0]} plan="Copilot" featured={false} />
                     <MatrixCell value={row.values[1]} plan="Autopilot" featured={autopilotOpen} />
-                  </div>
-                ),
-              )}
-            </div>
-          </section>
+                  </tr>
+                ))}
+              </tbody>
+            ))}
+          </table>
         </Reveal>
       </div>
     </section>

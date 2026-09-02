@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveWizardDestination, shouldUseDemoWizard } from '../guard';
+import { resolveWizardDestination, shouldUseDemoWizard, wizardClientProps } from '../guard';
 
 // These tests cover Scenario K step 5 + Scenario L from
 // docs/signup-test-runbook.md — the four redirect cases the
@@ -165,5 +165,53 @@ describe('shouldUseDemoWizard — demo mode requires a pre-captured location', (
   it('null/undefined row → false', () => {
     expect(shouldUseDemoWizard(true, null)).toBe(false);
     expect(shouldUseDemoWizard(true, undefined)).toBe(false);
+  });
+});
+
+describe('wizardClientProps — the row → BusinessWizardClient props', () => {
+  const row = {
+    role: 'owner',
+    subscription_status: 'active',
+    place_id_verified: true,
+    google_maps_url: null,
+    category: 'Cafe',
+    website: 'https://example.com',
+    name: 'RepWorth Cafe',
+    subscription_tier: 'autopilot',
+  };
+
+  it('seeds the wizard from the row and runs demo mode when the demo is on and the location is captured', () => {
+    expect(wizardClientProps(row, true)).toEqual({
+      initialValues: { category: 'Cafe', website: 'https://example.com', businessName: 'RepWorth Cafe' },
+      demoFlowEnabled: true,
+      subscriptionTier: 'autopilot',
+    });
+  });
+
+  it('falls back to the non-demo wizard when the demo flag is off', () => {
+    expect(wizardClientProps(row, false).demoFlowEnabled).toBe(false);
+  });
+
+  it('falls back to the non-demo wizard for a trial with no location yet (the /start bounce-loop guard)', () => {
+    const trial = { ...row, place_id_verified: false, google_maps_url: null };
+    expect(wizardClientProps(trial, true).demoFlowEnabled).toBe(false);
+  });
+
+  it('collapses null seeds to empty strings and a null tier stays null', () => {
+    expect(
+      wizardClientProps({ ...row, category: null, website: null, subscription_tier: null }, true),
+    ).toEqual({
+      initialValues: { category: '', website: '', businessName: 'RepWorth Cafe' },
+      demoFlowEnabled: true,
+      subscriptionTier: null,
+    });
+  });
+
+  it('yields empty seeds for a missing row — the guard redirects it before render', () => {
+    expect(wizardClientProps(undefined, true)).toEqual({
+      initialValues: { category: '', website: '', businessName: '' },
+      demoFlowEnabled: false,
+      subscriptionTier: null,
+    });
   });
 });

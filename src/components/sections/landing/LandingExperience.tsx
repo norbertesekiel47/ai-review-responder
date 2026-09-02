@@ -61,9 +61,14 @@ import './landing-experience.css';
  * GOLD, the supervising agents are TEAL. That contrast is what makes the
  * oversight layer read as a different tier rather than more of the same.
  *
- * Nav positioning note: the nav is absolute over the hero rather than sticky,
- * because with one section on the page there is no scrolled state to design
- * against yet. Revisit when section 2 lands.
+ * Nav positioning note: the nav is absolute over the hero, not sticky, and
+ * that is now a decision rather than a placeholder (2026-09-02). Its lockup
+ * and links are contrast-measured against the hero's top scrim band
+ * (measurements.md §2, "the top scrim band holds ~0.64 through 8%"); a sticky
+ * bar would sit over seven sections that have no such scrim, so every one of
+ * them would need its own scrolled-state ground. The sections carry their own
+ * doors instead: the watchdogs section links to /how-it-works and the tiers
+ * section — the one place the two plans are compared — links to /pricing.
  *
  * Scroll note (2026-08-16 Linear pass): the page scrolls natively. The Lenis
  * smooth-scroll + snap layer, the scroll-linked section dissolve, the chapter

@@ -2,7 +2,7 @@
 
 import { LazyMotion, domAnimation, m } from 'motion/react';
 import type { ReputationSummary } from '@/lib/dashboard/types';
-import { starTrendPoints, starTrendPlot, type StarPoint } from '@/components/dashboard/charts/star-trend-plot';
+import { starTrendPoints, starTrendPlot, trendSpanLabel, type StarPoint } from '@/components/dashboard/charts/star-trend-plot';
 import { ChartHeadlineBanner } from '@/components/dashboard/kpi/ChartHeadlineBanner';
 import { computeTrendHeadline } from '@/components/dashboard/kpi/chart-headlines';
 import { ChartTooltip, weekOverWeekDeltaLabel } from '@/components/dashboard/charts/ChartTooltip';
@@ -55,6 +55,7 @@ function starDeltaLabel(
 export function ReputationTrendChart({ trend }: Props) {
   const { ref, width } = useMeasuredSvg();
   const reduced = usePrefersReducedMotion();
+  const spanLabel = trendSpanLabel(trend.length);
 
   const points = starTrendPoints(trend);
   const headline = computeTrendHeadline(trend);
@@ -74,7 +75,7 @@ export function ReputationTrendChart({ trend }: Props) {
     <div className="card rep-trend">
       <div className="rep-trend-head">
         <h2 className="card-h2" style={{ margin: 0 }}>Reputation trend</h2>
-        <span className="rep-trend-sub">star-equivalent · last 8 weeks</span>
+        <span className="rep-trend-sub">star-equivalent · {spanLabel}</span>
       </div>
 
       {points.length === 0 ? (
@@ -88,7 +89,7 @@ export function ReputationTrendChart({ trend }: Props) {
                 className="rep-trend-svg"
                 viewBox={`0 0 ${width} ${H}`}
                 role="img"
-                aria-label={`Reputation trend, star-equivalent, last 8 weeks, latest ${points[points.length - 1]!.star.toFixed(1)} stars`}
+                aria-label={`Reputation trend, star-equivalent, ${spanLabel}, latest ${points[points.length - 1]!.star.toFixed(1)} stars`}
                 onPointerMove={hover.onPointerMove}
                 onPointerLeave={hover.onPointerLeave}
               >
@@ -124,7 +125,9 @@ export function ReputationTrendChart({ trend }: Props) {
                     <circle className="rep-trend-dot" r={4.5} />
                   </m.g>
                 )}
-                <text className="rep-trend-axis" x={LEFT} y={194}>8 weeks ago</text>
+                <text className="rep-trend-axis" x={LEFT} y={194}>
+                  {trend.length === 1 ? 'last week' : `${trend.length} weeks ago`}
+                </text>
                 <text className="rep-trend-axis" x={width - RIGHT} y={194} textAnchor="end">now</text>
               </svg>
             </LazyMotion>

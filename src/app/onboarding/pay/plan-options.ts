@@ -29,7 +29,7 @@ const PLAN_COPY: Record<SubscriptionTierValue, PlanCopy> = {
     name: 'Copilot',
     badge: 'Owner approved',
     badgeTone: 'sage',
-    description: 'The agent team drafts and routes every public response for your approval.',
+    description: 'The agent team drafts every public reply and waits for your approval.',
     highlight: false,
     features: [
       'Reply drafts in your business voice',
@@ -74,7 +74,7 @@ export function getOnboardingPlans(
       purchasable: viewModel.purchasable[tier],
       unavailableReason: viewModel.purchasable[tier]
         ? null
-        : 'Autopilot is temporarily unavailable while its safety runtime is closed. Choose Copilot to continue.',
+        : 'Autopilot is temporarily unavailable. Choose Copilot to continue.',
     };
   });
 }

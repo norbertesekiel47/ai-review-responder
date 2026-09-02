@@ -60,6 +60,34 @@ describe('DataTable', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
+  // X30 / X31: the header only sticks once the scroll container is bounded, and
+  // its type was below AA contrast at 10px gray-500.
+  it('bounds the scroll container and switches to two-axis overflow when maxHeight is given', () => {
+    render(
+      <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} maxHeight="60vh" emptyState={<EmptyState title="none" />} />,
+    );
+    const scroll = screen.getByTestId('data-table-scroll');
+    expect(scroll).toHaveStyle({ maxHeight: '60vh' });
+    expect(scroll.className).toContain('overflow-auto');
+    expect(screen.getByRole('columnheader', { name: /Name/ }).closest('thead')?.className).toContain('sticky');
+  });
+
+  it('leaves the container unbounded (x-only overflow) without maxHeight', () => {
+    render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} emptyState={<EmptyState title="none" />} />);
+    const scroll = screen.getByTestId('data-table-scroll');
+    expect(scroll).not.toHaveAttribute('style');
+    expect(scroll.className).toBe('overflow-x-auto');
+  });
+
+  it('renders header cells at 11px gray-600 (not 10px gray-500)', () => {
+    render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} emptyState={<EmptyState title="none" />} />);
+    for (const header of screen.getAllByRole('columnheader')) {
+      expect(header.className).toContain('text-[11px]');
+      expect(header.className).toContain('text-gray-600');
+      expect(header.className).not.toContain('text-gray-500');
+    }
+  });
+
   it('renders a View link per row when rowHref is provided', () => {
     render(
       <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} rowHref={(r) => `/admin/businesses/${r.id}`} emptyState={<EmptyState title="none" />} />,

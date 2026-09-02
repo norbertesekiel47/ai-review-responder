@@ -1,35 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { getDisplayLabel } from '@/lib/locations/display-label';
+import { LAST_ACTIVE_ARCHIVE_HINT } from '@/components/dashboard/settings/LocationsPanel';
 
-// ── LocationsPanel guard logic ─────────────────────────────────────────────
+// ── Archive guard copy ──────────────────────────────────────────────────────
+// The guard BEHAVIOUR (disabled button, dialogs) is exercised in
+// LocationsPanel.render.test.tsx; this pins the owner-facing sentence.
 
-describe('LocationsPanel archive guard logic', () => {
-  it('blocks archive on primary with other active locations — promote first', () => {
-    const isPrimary = true;
-    const isLastActive = false;
-    const shouldPromoteFirst = isPrimary && !isLastActive;
-    expect(shouldPromoteFirst).toBe(true);
-  });
-
-  it('blocks archive on last active location', () => {
-    const isLastActive = true;
-    const shouldBlock = isLastActive;
-    expect(shouldBlock).toBe(true);
-  });
-
-  it('allows archive on non-primary with other active locations', () => {
-    const isPrimary = false;
-    const isLastActive = false;
-    const shouldAllow = !isPrimary && !isLastActive;
-    expect(shouldAllow).toBe(true);
-  });
-
-  it('blocks archive on primary that is also last active', () => {
-    const _isPrimary = true;
-    const isLastActive = true;
-    // Last-active takes precedence — always blocked
-    const shouldBlock = isLastActive;
-    expect(shouldBlock).toBe(true);
+describe('LocationsPanel archive guard copy', () => {
+  it('tells the owner what to do, in plain language, with no "cannot" error tone', () => {
+    expect(LAST_ACTIVE_ARCHIVE_HINT).toBe(
+      'You need at least one active location. Add another before archiving this one.',
+    );
+    expect(LAST_ACTIVE_ARCHIVE_HINT).not.toMatch(/cannot/i);
   });
 });
 

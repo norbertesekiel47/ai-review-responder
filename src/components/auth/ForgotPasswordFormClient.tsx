@@ -160,7 +160,10 @@ export function ForgotPasswordFormClient({
     <AuthCardShell width="sm">
       <LiveRegion message={sent ? SENT_MESSAGE : ''} />
       {sent ? (
-        <div className="space-y-6 text-center">
+        <div className="space-y-6">
+          {/* The h1 survives the state change — the sent screen kept losing its
+              heading, so a screen reader landed on a bare paragraph (A20). */}
+          <h1 className="text-2xl font-semibold text-rw-ink">Reset your password</h1>
           <p className="text-base text-rw-ink">{SENT_MESSAGE}</p>
           <div className="space-y-2 text-sm">
             <p className="text-rw-ink-soft">

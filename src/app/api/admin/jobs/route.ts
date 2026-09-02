@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401 } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { getAdminJobsData, type AdminJobsData } from '@/lib/admin/jobs-service';
+import { getAdminJobsData, parseJobsTopicFilter, type AdminJobsData } from '@/lib/admin/jobs-service';
 import { fetchQueueHealth, type PoolWaitPayload } from '@/lib/admin/queue-health';
 
 export const dynamic = 'force-dynamic';
@@ -23,9 +23,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const rawOffset = request.nextUrl.searchParams.get('offset');
     const limit = Math.min(Math.max(parseInt(rawLimit ?? '20', 10) || 20, 1), 100);
     const offset = Math.max(parseInt(rawOffset ?? '0', 10) || 0, 0);
+    // Only a PRESENT, valid topic reaches the service (X15).
+    const topic = parseJobsTopicFilter(request.nextUrl.searchParams.get('topic'));
 
     const [jobs, { queueHealth, pool }] = await Promise.all([
-      getAdminJobsData(sql, { limit, offset }),
+      getAdminJobsData(sql, { limit, offset, ...(topic ? { topic } : {}) }),
       fetchQueueHealth(),
     ]);
 

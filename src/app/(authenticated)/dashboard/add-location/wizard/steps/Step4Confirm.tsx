@@ -14,6 +14,9 @@ interface Step4ConfirmProps {
   inputMode: LocationInputMode;
   googleMapsUrl: string;
   copyFromLocationId: string;
+  /** True when the voice form still equals DEFAULT_VOICE (D23): the summary
+   *  says "Default voice", not "Customized", for a voice nobody customised. */
+  voiceIsDefault: boolean;
   existingLocations: ExistingLocationVoice[];
   billingSnapshot: BillingSnapshot;
   billingPreview: NextLocationBillingPreview;
@@ -51,12 +54,26 @@ function LocationAddedNotice({ connectHref }: { connectHref: string | null }) {
   );
 }
 
+/** The voice row's one phrase: copied from a named location, default, or customised. */
+function voiceSummary({
+  copyFromLocationId,
+  voiceIsDefault,
+  existingLocations,
+}: Pick<Step4ConfirmProps, 'copyFromLocationId' | 'voiceIsDefault' | 'existingLocations'>): string {
+  if (copyFromLocationId) {
+    const source = existingLocations.find((l) => l.locationId === copyFromLocationId);
+    return `Copied from ${source?.displayName ?? 'existing location'}`;
+  }
+  return voiceIsDefault ? 'Default voice' : 'Customized';
+}
+
 export function Step4Confirm({
   displayLabel,
   placeSelection,
   inputMode,
   googleMapsUrl,
   copyFromLocationId,
+  voiceIsDefault,
   existingLocations,
   billingSnapshot,
   billingPreview,
@@ -97,17 +114,15 @@ export function Step4Confirm({
             <span className="wizard-summary-value">{googleMapsUrl.trim()}</span>
           </div>
         )}
+        {/* The row used to say "Connect later from Settings" while the
+            submit redirected straight into the connect flow (D23). */}
         <div className="wizard-summary-row">
           <span className="wizard-summary-label">Google Business</span>
-          <span className="wizard-summary-value">Connect later from Settings</span>
+          <span className="wizard-summary-value">Connect right after this step</span>
         </div>
         <div className="wizard-summary-row">
           <span className="wizard-summary-label">Voice config</span>
-          <span className="wizard-summary-value">
-            {copyFromLocationId
-              ? `Copied from ${existingLocations.find((l) => l.locationId === copyFromLocationId)?.displayName ?? 'existing location'}`
-              : 'Customized'}
-          </span>
+          <span className="wizard-summary-value">{voiceSummary({ copyFromLocationId, voiceIsDefault, existingLocations })}</span>
         </div>
       </div>
 

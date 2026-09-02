@@ -32,7 +32,7 @@ test.describe('Approval flow E2E', () => {
       await confirmBtn.click();
 
       // Success message appears
-      await expect(page.getByRole('heading', { name: 'Response approved!' })).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByRole('heading', { name: 'Reply approved!' })).toBeVisible({ timeout: 5_000 });
 
       // Verify DB state
       const resp = await getResponse(data.responseId);
@@ -75,7 +75,7 @@ test.describe('Approval flow E2E', () => {
       await confirmBtn.click();
 
       // Success message
-      await expect(page.getByRole('heading', { name: 'Response approved!' })).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByRole('heading', { name: 'Reply approved!' })).toBeVisible({ timeout: 5_000 });
 
       // Verify DB state
       const resp = await getResponse(data.responseId);
@@ -115,11 +115,12 @@ test.describe('Approval flow E2E', () => {
 
       await page.goto(`/approve/${data.rawToken}`);
 
-      // Wait for buttons
-      const regenBtn = page.getByRole('button', { name: 'Regenerate' });
+      // Regenerate is a two-tap action since the 2026-09-02 UX audit (A3): the
+      // first tap arms it and shows the consequence, the second confirms.
+      const regenBtn = page.getByRole('button', { name: 'Regenerate this draft' });
       await expect(regenBtn).toBeVisible({ timeout: 10_000 });
-
       await regenBtn.click();
+      await page.getByRole('button', { name: 'Tap again to regenerate' }).click();
 
       // Success message about new response / check email
       await expect(

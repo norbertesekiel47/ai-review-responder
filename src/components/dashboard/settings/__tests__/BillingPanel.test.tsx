@@ -3,14 +3,32 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AccountSettingsData } from '@/hooks/useAccountData';
 import { buildPlanPresentation } from '@/lib/payments/plan-presentation';
-import { BillingPanel, TierChangeModal } from '../BillingPanel';
+import {
+  AUTOPILOT_UNAVAILABLE_COPY,
+  BillingPanel,
+  TIER_CAPABILITY,
+  TierChangeModal,
+  monthlyTotalCents,
+} from '../BillingPanel';
 
 vi.mock('@/components/dashboard/settings/CancelSubscriptionPanel', () => ({
   CancelSubscriptionPanel: () => <div data-testid="cancel-sub" />,
 }));
+const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
+vi.mock('@/components/dashboard/shell/toast/ToastProvider', () => ({
+  useToast: () => ({ toast: mockToast, dismiss: vi.fn() }),
+}));
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -202,9 +220,103 @@ describe('BillingPanel tier changes', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Autopilot unavailable' })).toBeDisabled();
-    expect(screen.getByText(/safety runtime is closed. Copilot remains available/i)).toBeInTheDocument();
+    // S17: plain copy — never "safety runtime".
+    const button = screen.getByRole('button', { name: 'Autopilot not available yet' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(AUTOPILOT_UNAVAILABLE_COPY);
+    expect(screen.getByText(AUTOPILOT_UNAVAILABLE_COPY)).toBeInTheDocument();
+    expect(screen.queryByText(/safety runtime/i)).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // S15: the one number the owner came for, from the STORED snapshot.
+  it('shows the monthly total computed from base + overage × extra locations', () => {
+    const data = accountData({ basePriceCents: 2900 });
+    data.billing = { basePriceCents: 2900, overagePriceCents: 1500, overageUnits: 2, totalCents: 5900 };
+    render(
+      <BillingPanel accountData={data} accountLoading={false} accountError={null} onAccountRefetch={() => {}} />,
+    );
+
+    expect(monthlyTotalCents(data.billing)).toBe(5900);
+    expect(screen.getByText('Monthly total')).toBeInTheDocument();
+    expect(screen.getByText('$59.00/month')).toBeInTheDocument();
+  });
+
+  // S16: what each tier does, and Autopilot links to where its limits live.
+  it('describes each tier in one line and links Autopilot to Auto-approval', () => {
+    render(
+      <BillingPanel accountData={accountData()} accountLoading={false} accountError={null} onAccountRefetch={() => {}} />,
+    );
+
+    expect(screen.getByText(TIER_CAPABILITY.copilot)).toBeInTheDocument();
+    expect(TIER_CAPABILITY.copilot).toMatch(/you approve every reply/i);
+    expect(screen.getByText(/replies to 4–5★ reviews post on their own/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /set your auto-approval limits/i })).toHaveAttribute(
+      'href',
+      '/settings/auto-approval',
+    );
+  });
+
+  // S35: the branded skeleton on first load, not "Loading account data…".
+  it('renders SettingsSkeleton while the first load is in flight', () => {
+    render(<BillingPanel accountData={null} accountLoading accountError={null} onAccountRefetch={() => {}} />);
+
+    expect(screen.getByRole('status', { busy: true })).toBeInTheDocument();
+    expect(screen.queryByText(/loading account data/i)).toBeNull();
+  });
+
+  it('keeps the card (no skeleton) during a refetch that already has data', () => {
+    render(<BillingPanel accountData={accountData()} accountLoading accountError={null} onAccountRefetch={() => {}} />);
+
+    expect(screen.queryByRole('status', { busy: true })).toBeNull();
+    expect(screen.getByText('Monthly total')).toBeInTheDocument();
+  });
+
+  // S18: a completed tier change confirms with the shared toast.
+  it('toasts "Plan changed to Autopilot" after a confirmed tier change', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { preview?: boolean };
+      return new Response(JSON.stringify(body.preview ? { newBilling: AUTOPILOT_LIST_PREVIEW } : { success: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onAccountRefetch = vi.fn();
+    render(
+      <BillingPanel accountData={accountData()} accountLoading={false} accountError={null} onAccountRefetch={onAccountRefetch} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Upgrade to Autopilot/i }));
+    await screen.findByText(/New monthly estimate/i);
+    fireEvent.click(screen.getByRole('button', { name: /Confirm upgrade/i }));
+
+    await waitFor(() => expect(onAccountRefetch).toHaveBeenCalledTimes(1));
+    expect(mockToast).toHaveBeenCalledWith({ tone: 'success', title: 'Plan changed to Autopilot' });
+  });
+
+  it('does not toast when the tier change fails', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { preview?: boolean };
+      if (body.preview) {
+        return new Response(JSON.stringify({ newBilling: AUTOPILOT_LIST_PREVIEW }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ error: 'card_declined' }), { status: 402 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <BillingPanel accountData={accountData()} accountLoading={false} accountError={null} onAccountRefetch={() => {}} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Upgrade to Autopilot/i }));
+    await screen.findByText(/New monthly estimate/i);
+    fireEvent.click(screen.getByRole('button', { name: /Confirm upgrade/i }));
+
+    await screen.findByText('card_declined');
+    expect(mockToast).not.toHaveBeenCalled();
   });
 
   it('reuses one operation ID for retries and allocates a new ID later', async () => {

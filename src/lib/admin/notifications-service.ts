@@ -9,6 +9,7 @@
 
 import type { Sql } from 'postgres';
 import type { LocationId, AccountId } from '@/lib/shared/ids';
+import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 
 interface NotificationRow {
   id: string;
@@ -84,7 +85,10 @@ export async function getAdminNotifications(
     conditions.push(`nd.business_id = $${queryParams.length}`);
   }
 
-  if (channel === 'email') {
+  // Any channel the single owner knows (X17) — the old `=== 'email'` silently
+  // ignored a Telegram/WhatsApp filter and returned every row. Unknown values
+  // are still dropped, never bound.
+  if ((CHANNEL_IDS as readonly string[]).includes(channel)) {
     queryParams.push(channel);
     conditions.push(`nd.channel = $${queryParams.length}`);
   }

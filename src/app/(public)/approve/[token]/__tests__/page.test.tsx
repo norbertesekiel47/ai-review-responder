@@ -40,13 +40,17 @@ describe('ApprovalPage', () => {
     render(await ApprovalPage({ params: Promise.resolve({ token: 'raw-token' }) }));
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Review a draft response' }),
+      screen.getByRole('heading', { level: 1, name: 'Review a draft reply' }),
     ).toBeDefined();
     expect(screen.getByTestId('approval-client')).toBeInTheDocument();
   });
 
   it('is marked noindex (sensitive token-keyed data)', () => {
     expect(metadata.robots).toEqual({ index: false, follow: false });
+  });
+
+  it('sets a bare page title so the root template does not double the brand', () => {
+    expect(metadata.title).toBe('Review a draft reply');
   });
 
   it.each([

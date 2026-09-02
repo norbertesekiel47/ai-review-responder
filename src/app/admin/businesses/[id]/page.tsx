@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
@@ -10,13 +11,24 @@ import { BusinessDetailClient } from './BusinessDetailClient';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * `?invited=1` is set by NewBusinessClient's redirect after a successful
+ * onboarding (X11). A flag, not the address: the owner email is already in the
+ * detail read, and an admin URL should not carry a customer's address into
+ * browser history and access logs.
+ */
+const INVITED_FLAG = '1';
+
 export default async function AdminBusinessDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
   const businessId = asLocationId(id);
+  const invited = (await searchParams).invited === INVITED_FLAG;
 
   // Gate parity with GET /api/admin/businesses/[id] — plain admin role, no AAL2.
   // `from` is the static route shape, not raw input (page-gate contract).
@@ -47,9 +59,25 @@ export default async function AdminBusinessDetailPage({
   return (
     <AdminPage
       group="Businesses"
+      parent={{ href: '/admin/businesses', label: 'All businesses' }}
       title={detail.business.name}
       description={detail.business.category ?? undefined}
     >
+      {invited && (
+        <p
+          role="status"
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
+        >
+          <span>
+            Business created. Invite email sent to{' '}
+            <strong className="font-semibold">{detail.business.ownerEmail}</strong> — the owner sets a
+            password, captures their location and picks a plan from there.
+          </span>
+          <Link href={`/admin/businesses/${id}`} className="font-medium underline hover:text-green-900">
+            Dismiss
+          </Link>
+        </p>
+      )}
       <BusinessDetailClient
         businessId={id}
         // No cast. `DetailData` is now DERIVED from the API contract and widens

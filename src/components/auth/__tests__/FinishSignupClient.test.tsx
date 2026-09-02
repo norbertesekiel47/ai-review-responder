@@ -5,29 +5,68 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FinishSignupClient } from '../FinishSignupClient';
 
+const { routerPush, routerRefresh, signOut } = vi.hoisted(() => ({
+  routerPush: vi.fn(),
+  routerRefresh: vi.fn(),
+  signOut: vi.fn<() => Promise<{ error: { message: string } | null }>>(async () => ({ error: null })),
+}));
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: routerPush, refresh: routerRefresh }),
+}));
+
+vi.mock('@/lib/db/browser', () => ({
+  createBrowserSupabaseClient: () => ({ auth: { signOut } }),
 }));
 
 describe('FinishSignupClient', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    routerPush.mockClear();
+    routerRefresh.mockClear();
+    signOut.mockReset();
+    signOut.mockResolvedValue({ error: null });
+  });
 
-  it('renders visible (non-sr-only) labels for each field', () => {
+  it('renders visible (non-sr-only) labels for each editable field', () => {
     render(<FinishSignupClient defaultEmail="owner@example.com" defaultName="Owner" />);
 
-    for (const text of [/email/i, /^your name$/i, /phone/i]) {
+    for (const text of [/^your name$/i, /phone/i]) {
       const label = screen.getByText(text);
       expect(label.className).not.toContain('sr-only');
     }
   });
 
-  it('renders the account email as disabled', () => {
+  it('renders the account email as text with a "Not you? Sign out" exit (A17)', () => {
     render(<FinishSignupClient defaultEmail="owner@example.com" defaultName="Owner" />);
 
-    const email = screen.getByLabelText(/email/i);
+    expect(screen.getByText('owner@example.com')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('owner@example.com')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Not you? Sign out' })).toBeInTheDocument();
+  });
 
-    expect(email).toBeDisabled();
-    expect(email).not.toHaveAttribute('readOnly');
+  it('signs out and returns to /signup when the owner says it is not them (A17)', async () => {
+    const user = userEvent.setup();
+    render(<FinishSignupClient defaultEmail="owner@example.com" defaultName="Owner" />);
+
+    await user.click(screen.getByRole('button', { name: 'Not you? Sign out' }));
+
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+    expect(routerPush).toHaveBeenCalledWith('/signup');
+  });
+
+  it('keeps the owner on the page with a plain message when sign-out fails (A17)', async () => {
+    const user = userEvent.setup();
+    signOut.mockResolvedValue({ error: { message: 'boom' } });
+    render(<FinishSignupClient defaultEmail="owner@example.com" defaultName="Owner" />);
+
+    await user.click(screen.getByRole('button', { name: 'Not you? Sign out' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/couldn't sign you out/i);
+    });
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Not you? Sign out' })).not.toBeDisabled();
   });
 
   it('renders the branded island, not gray/blue', () => {

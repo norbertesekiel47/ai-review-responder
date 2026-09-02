@@ -56,3 +56,12 @@ export const MOVEMENT_NOTE = 'Start on Copilot. Move the dial when you are ready
 
 export const GOVERNOR_NOTE =
   'And if anything drifts, the Governor can suspend autonomy for the whole account.';
+
+/**
+ * The section's door. This is the one place the page compares the two plans,
+ * so it is where a visitor decides they want the price — and the nav is
+ * absolute over the hero, not sticky (measurements.md §2: its lockup contrast
+ * is measured against the hero's top scrim, which no other section has), so
+ * the door lives here rather than in the chrome.
+ */
+export const PRICING_LINK_LABEL = 'See plans and pricing';

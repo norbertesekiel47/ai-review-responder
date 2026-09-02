@@ -1,7 +1,9 @@
+// @vitest-environment jsdom
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Field } from '../Field';
+import { Field, resolveFieldInput } from '../Field';
 import { MailIcon, LockIcon } from '../Icons';
 
 describe('Field', () => {
@@ -55,5 +57,90 @@ describe('Field', () => {
     expect(html).toContain('aria-describedby="email-error"');
     expect(html).toContain('That email looks off.');
     expect(html).toContain('has-error');
+  });
+});
+
+describe('Field — password visibility toggle', () => {
+  it('reveals and re-hides the password, keeping label and pressed state in step', () => {
+    render(
+      createElement(Field, {
+        label: 'Password',
+        name: 'password',
+        type: 'password',
+        value: 'hunter2',
+        onChange: () => {},
+        icon: createElement(LockIcon),
+      }),
+    );
+    const input = screen.getByLabelText('Password');
+    expect(input).toHaveAttribute('type', 'password');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(input).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide password' }));
+    expect(input).toHaveAttribute('type', 'password');
+    expect(screen.getByRole('button', { name: 'Show password' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  it('renders no toggle for a non-password field', () => {
+    render(
+      createElement(Field, {
+        label: 'Email',
+        name: 'email',
+        type: 'email',
+        value: '',
+        onChange: () => {},
+        icon: createElement(MailIcon),
+      }),
+    );
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+describe('resolveFieldInput', () => {
+  const base = { type: 'text', showPassword: false, invalid: false, errorId: 'f-error' };
+
+  it('is a plain valid input when nothing is wrong', () => {
+    expect(resolveFieldInput(base)).toEqual({
+      type: 'text',
+      invalid: false,
+      ariaInvalid: undefined,
+      describedBy: undefined,
+      className: 'rw-input ',
+    });
+  });
+
+  it('links its own error line ahead of the caller\'s ids and flags the input invalid', () => {
+    expect(
+      resolveFieldInput({ ...base, error: 'Required', describedById: 'reqs strength' }),
+    ).toEqual({
+      type: 'text',
+      invalid: true,
+      ariaInvalid: true,
+      describedBy: 'f-error reqs strength',
+      className: 'rw-input has-error',
+    });
+  });
+
+  it('honours a caller-owned invalid state without adding an error id', () => {
+    expect(resolveFieldInput({ ...base, invalid: true, describedById: 'own-feedback' })).toMatchObject({
+      invalid: true,
+      ariaInvalid: true,
+      describedBy: 'own-feedback',
+    });
+  });
+
+  it('only a password field switches to text when revealed', () => {
+    expect(resolveFieldInput({ ...base, type: 'password', showPassword: true }).type).toBe('text');
+    expect(resolveFieldInput({ ...base, type: 'password', showPassword: false }).type).toBe('password');
+    expect(resolveFieldInput({ ...base, type: 'email', showPassword: true }).type).toBe('email');
   });
 });

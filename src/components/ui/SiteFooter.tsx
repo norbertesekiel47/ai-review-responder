@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 
-import { COMPANY_LINKS, LEGAL_LINKS, MARKETING_LINKS } from './marketing-links';
+import { COMPANY_LINKS, LEGAL_LINKS, NAV_LINKS, PRODUCT_BLURB } from './marketing-links';
 
 /**
  * Site-wide marketing footer — Daylight Gallery II chrome: bone surface,
@@ -23,7 +23,8 @@ interface FooterColumn {
 const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
   {
     heading: 'Product',
-    links: [MARKETING_LINKS.features, MARKETING_LINKS.pricing, MARKETING_LINKS.howItWorks],
+    // The header's order, so the footer never lists the pages differently.
+    links: NAV_LINKS,
   },
   {
     heading: 'Legal',
@@ -44,10 +45,7 @@ export function SiteFooter() {
             <Image src="/logo.svg" alt="" width={26} height={26} unoptimized />
             <span>RepWorth</span>
           </Link>
-          <p className="rw-foot-blurb">
-            AI agents that draft, triage and post your Google review replies, with a gate you
-            control.
-          </p>
+          <p className="rw-foot-blurb">{PRODUCT_BLURB}</p>
         </div>
         {FOOTER_COLUMNS.map((column) => (
           <nav key={column.heading} aria-label={column.heading}>

@@ -110,7 +110,7 @@ describe('MfaChallengeForm', () => {
     render(createElement(MfaChallengeForm));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/could not load/i);
+    expect(alert).toHaveTextContent(/couldn't load your authenticator options/i);
   });
 
   describe('submit flow', () => {
@@ -151,7 +151,7 @@ describe('MfaChallengeForm', () => {
       await renderWithVerifiedFactor();
       await submitCode('111111');
       const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(/was not accepted/i);
+      expect(alert).toHaveTextContent(/wasn't accepted/i);
 
       await submitCode('222222');
       await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/dashboard'));
@@ -176,7 +176,7 @@ describe('MfaChallengeForm', () => {
       await submitCode('123456');
 
       const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(/too many mfa attempts/i);
+      expect(alert).toHaveTextContent(/too many code attempts/i);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(routerPush).not.toHaveBeenCalled();
     });
@@ -193,7 +193,7 @@ describe('MfaChallengeForm', () => {
       await renderWithVerifiedFactor();
       await submitCode('123456');
       const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(/too many mfa attempts/i);
+      expect(alert).toHaveTextContent(/too many code attempts/i);
 
       await submitCode('654321');
       await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/dashboard'));
@@ -214,7 +214,7 @@ describe('MfaChallengeForm', () => {
       await renderWithVerifiedFactor();
       await submitCode('123456');
       const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(/the verification code was not accepted\./i);
+      expect(alert).toHaveTextContent(/that code wasn't accepted\. enter the current code from your authenticator app\./i);
 
       await submitCode('654321');
       await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/dashboard'));
@@ -230,7 +230,7 @@ describe('MfaChallengeForm', () => {
       await submitCode('123456');
 
       const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(/could not start mfa challenge\. check your connection/i);
+      expect(alert).toHaveTextContent(/couldn't start the security check\. check your connection/i);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(routerPush).not.toHaveBeenCalled();
     });
@@ -247,7 +247,7 @@ describe('MfaChallengeForm', () => {
       await renderWithVerifiedFactor();
       await submitCode('123456');
       const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent(/could not verify the mfa code\. check your connection/i);
+      expect(alert).toHaveTextContent(/couldn't check your code\. check your connection/i);
 
       await submitCode('654321');
       await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/dashboard'));
@@ -265,9 +265,83 @@ describe('MfaChallengeForm', () => {
       const alert = await screen.findByRole('alert');
       // Deliberately does NOT match the "Check your connection" copy from the
       // network-failure case above — this is the ok-but-malformed branch.
-      expect(alert).toHaveTextContent(/^Could not start MFA challenge\.$/i);
+      expect(alert).toHaveTextContent(/^Couldn't start the security check\. Please try again\.$/i);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(routerPush).not.toHaveBeenCalled();
+    });
+
+    it('a rejected code clears the digits, returns focus to the field, and disables Verify until a new code is typed (A23)', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ challengeId: 'chal-1' }) })
+        .mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({}) });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const input = await renderWithVerifiedFactor();
+      await submitCode('111111');
+      await screen.findByRole('alert');
+
+      expect(input).toHaveValue('');
+      expect(document.activeElement).toBe(input);
+      expect(screen.getByRole('button', { name: /^verify$/i })).toBeDisabled();
+    });
+
+    it('a 429 on the verify leg also clears the digits and refocuses (A23)', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ challengeId: 'chal-1' }) })
+        .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const input = await renderWithVerifiedFactor();
+      await submitCode('111111');
+      await screen.findByRole('alert');
+
+      expect(input).toHaveValue('');
+      expect(document.activeElement).toBe(input);
+    });
+  });
+
+  describe('owner-facing language and tokens (A2, A7, A23)', () => {
+    const INTERNAL_NOUNS = /\b(MFA|factor|challenge|TOTP)\b/i;
+
+    it('never names MFA, factors, or challenges in a rejection banner', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ challengeId: 'chal-1' }) })
+        .mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({}) });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await renderWithVerifiedFactor();
+      await submitCode('111111');
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).not.toMatch(INTERNAL_NOUNS);
+    });
+
+    it('never names MFA or factors when the authenticator list fails to load', async () => {
+      mockListFactors.mockResolvedValue({ data: null, error: { message: 'boom' } });
+      render(createElement(MfaChallengeForm));
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).not.toMatch(INTERNAL_NOUNS);
+    });
+
+    it('renders the alert with rw-error tokens, not raw red utilities', async () => {
+      mockListFactors.mockResolvedValue({ data: null, error: { message: 'boom' } });
+      render(createElement(MfaChallengeForm));
+      const alert = await screen.findByRole('alert');
+      expect(alert.className).toContain('text-rw-error');
+      expect(alert.className).toContain('border-rw-error/30');
+      expect(alert.className).not.toMatch(/\b(text|bg|border)-red-\d+/);
+    });
+
+    it('fills the Verify button and colours links with rw-teal-strong (ADR 0004), never rw-teal', async () => {
+      await renderWithVerifiedFactor();
+      const button = screen.getByRole('button', { name: /^verify$/i });
+      expect(button.className).toContain('bg-rw-teal-strong');
+      expect(button.className).not.toMatch(/(?:^|\s)bg-rw-teal(?=\s|$)/);
+      const support = screen.getByRole('link', { name: /contact support/i });
+      expect(support.className).toContain('text-rw-teal-strong');
+      expect(support.className).not.toMatch(/(?:^|\s)text-rw-teal(?=\s|$)/);
     });
   });
 });

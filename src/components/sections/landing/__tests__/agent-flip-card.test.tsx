@@ -48,6 +48,15 @@ describe('AgentFlipCard', () => {
     expect(screen.getByTestId('ambient-video')).toBeInTheDocument();
   });
 
+  it('names the control by its action, not by both faces concatenated', () => {
+    render(<AgentFlipCard {...BASE} />);
+    const card = screen.getByRole('button', { name: 'Reply: show details' });
+    expect(card).toHaveAccessibleName('Reply: show details');
+    // Both faces are still in the DOM as readable text.
+    expect(card).toHaveTextContent('Every review gets a response.');
+    expect(card).toHaveTextContent('Drafts a reply to every new review.');
+  });
+
   it('toggles the flip on click for non-hover devices', () => {
     mockCanHover.mockReturnValue(false);
     render(<AgentFlipCard {...BASE} />);

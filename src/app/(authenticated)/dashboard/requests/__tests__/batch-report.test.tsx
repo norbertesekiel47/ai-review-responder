@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { RESTRAINT_POLICY_VERSION, VERTICALS, WITHHOLD_REASONS } from '@/lib/solicitation/restraint-policy';
 import type { AskRow, BatchView, WithholdGroup } from '@/lib/solicitation/batch-view';
-import { BatchReport } from '../BatchReport';
+import { BatchReport, batchStatusPill } from '../BatchReport';
 
 type BuiltBatch = Extract<BatchView, { state: 'built' }>;
 
@@ -311,4 +311,93 @@ describe('BatchReport styles', () => {
     expect(css).toMatch(/:focus-visible/);
     expect(css).toMatch(/min-height: 44px/);
   });
+
+  it('restores the 44px target for the per-ask row controls on coarse pointers (D27)', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/app/(authenticated)/dashboard/requests/requests.css'),
+      'utf-8',
+    );
+    const coarse = css.slice(css.indexOf('@media (pointer: coarse)'));
+    expect(coarse).toMatch(/\.rq-ask-regen-btn,\s*\.rq-ask-withdraw-btn \{\s*min-height: 44px;/);
+  });
+
+  it('styles the Requests ↔ Contacts tab row with tokens only (D28)', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/app/(authenticated)/dashboard/requests/requests.css'),
+      'utf-8',
+    );
+    expect(css).toMatch(/\.rq-subnav \{/);
+    // Comments are stripped first: they cite PR numbers (#544) and token hex values.
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
 });
+
+// ── The pill is keyed on the send lane (UX audit D6) ────────────────────────
+
+describe('BatchReport — watch-mode vs a live send lane', () => {
+  type Attempt = BuiltBatch['attempts'][number];
+  const attempt = (suffix: string, deliveryStatus: Attempt['deliveryStatus']): Attempt => ({
+    outreachId: `o-${suffix}`,
+    askId: `ask-${suffix}`,
+    contactId: `c-${suffix}`,
+    contactName: `Contact ${suffix}`,
+    attemptNo: 1,
+    deliveryStatus,
+    dispositionReason: null,
+    renderedAt: '2026-07-22 12:00:00+00',
+    redacted: false,
+    subject: 's',
+    body: 'b',
+    lintClasses: [],
+    moderationStatus: 'clean',
+    moderationDetail: {},
+    interpolationInputs: null,
+  });
+  const lane = (): NonNullable<BuiltBatch['sendLane']> => ({
+    batchState: 'sending',
+    ready: true,
+    pendingRenders: 0,
+    approvedAt: '2026-07-22 12:05:00+00',
+    vetoDeadlineAt: '2026-07-22 12:20:00+00',
+    haltedAt: null,
+    haltReason: null,
+    moderationWithheld: 0,
+    regeneratingAskId: null,
+    regenBudgets: {},
+  });
+
+  it('claims "nothing sent" exactly when the lane is absent', () => {
+    expect(batchStatusPill(builtBatch())).toBe('Watch-mode · nothing sent');
+    expect(
+      batchStatusPill(
+        builtBatch({
+          sendLane: lane(),
+          attempts: [
+            attempt('1', 'sent'),
+            attempt('2', 'sent'),
+            attempt('3', 'queued'),
+            attempt('4', 'sending'),
+            attempt('5', 'withheld'),
+            attempt('6', 'failed'),
+          ],
+        }),
+      ),
+    ).toBe('2 sent · 2 waiting');
+  });
+
+  it('renders the live counts and the send rung caption for a batch that is going out', () => {
+    render(
+      <BatchReport
+        view={builtBatch({
+          sendLane: lane(),
+          attempts: [attempt('1', 'sent'), attempt('2', 'queued')],
+        })}
+      />,
+    );
+    expect(screen.getByText('1 sent · 1 waiting')).toBeInTheDocument();
+    expect(screen.queryByText(/nothing sent/i)).toBeNull();
+    expect(screen.getByText('selected to send')).toBeInTheDocument();
+    expect(screen.queryByText('would have been sent')).toBeNull();
+  });
+});
+

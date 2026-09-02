@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
 import type { WizardFormData } from './BusinessWizardClient';
+import { StepHeading } from './StepHeading';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   fieldClass,
@@ -11,6 +12,7 @@ import {
 } from '../_shared/field-styles';
 
 interface StepLocationProps {
+  stepLabel: string;
   data: WizardFormData;
   update: (patch: Partial<WizardFormData>) => void;
   dirtyRef: RefObject<{ category: boolean; website: boolean }>;
@@ -26,6 +28,7 @@ interface PrefillResponse {
 }
 
 export function StepLocation({
+  stepLabel,
   data,
   update,
   dirtyRef,
@@ -159,7 +162,7 @@ export function StepLocation({
   return (
     <LazyMotion features={domAnimation}>
     <div className="space-y-4">
-      <h2 className="text-xl font-medium text-rw-ink">Find your business</h2>
+      <StepHeading stepLabel={stepLabel}>Find your business</StepHeading>
       <p className="text-sm text-rw-ink-soft">
         Search Google Maps for your business or paste its Google Maps URL.
       </p>
@@ -212,7 +215,7 @@ export function StepLocation({
             update({ inputMode: 'autocomplete', googleMapsUrl: '' });
           }
         }}
-        className="text-xs text-rw-teal hover:text-rw-teal-hover"
+        className="text-xs text-rw-teal-strong hover:text-rw-teal-strong-hover underline"
       >
         {data.inputMode === 'autocomplete'
           ? 'Or paste a Google Maps URL'

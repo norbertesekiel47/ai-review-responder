@@ -22,12 +22,17 @@ export function BusinessInfoSection({ register, errors }: BusinessInfoSectionPro
   return (
     <SectionCard title="Business Info">
       <Field label="Business Name *" error={errors.name?.message}>
-        <input
-          {...register('name')}
-          type="text"
-          className={inputClass}
-          placeholder="Bella Vista Restaurant"
-        />
+        {({ id, describedBy, invalid }) => (
+          <input
+            {...register('name')}
+            id={id}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            type="text"
+            className={inputClass}
+            placeholder="Bella Vista Restaurant"
+          />
+        )}
       </Field>
     </SectionCard>
   );

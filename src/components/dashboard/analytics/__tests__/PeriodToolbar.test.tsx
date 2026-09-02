@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PeriodToolbar } from '@/components/dashboard/analytics/PeriodToolbar';
@@ -33,5 +35,18 @@ describe('PeriodToolbar', () => {
     render(<PeriodToolbar value="30d" onChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: '30 days' }));
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('period pills on a phone (D36)', () => {
+  it('wrap instead of scrolling behind a hidden scrollbar', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/app/(authenticated)/_styles/console.css'),
+      'utf-8',
+    );
+    const phone = css.slice(css.indexOf('@media (max-width: 768px)'));
+    expect(phone).toMatch(/\.period-toolbar \{[^}]*flex-wrap: wrap;/);
+    expect(phone).not.toMatch(/\.period-toolbar \{ min-width: max-content; \}/);
+    expect(phone).not.toMatch(/\.topbar-actions \{[^}]*overflow-x: auto;/);
   });
 });

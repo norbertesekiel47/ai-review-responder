@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { LazyMotion, domAnimation, m } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
+import { SiteFooter } from '@/components/ui/SiteFooter';
 import { SiteNav } from '@/components/ui/SiteNav';
+import { EARLY_ACCESS_CTA } from '@/components/ui/marketing-links';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import type { NormalizedReview } from '@/lib/reviews/types';
 import type { GenerationResult } from '@/lib/responses/types';
@@ -103,15 +105,18 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
             className="inline-block"
           >
             <Link
-              href="/book-a-demo"
+              href={EARLY_ACCESS_CTA.href}
               className="inline-block px-8 py-4 bg-white text-rw-teal-strong rounded-full shadow-lg font-medium"
             >
-              Book a demo
+              {EARLY_ACCESS_CTA.label}
             </Link>
           </m.div>
         </m.div>
       </section>
       </main>
+      {/* Sibling of <main>, so the footer keeps its landmark role and the
+          legal links reach the prospect who lands here cold. */}
+      <SiteFooter />
     </PageShell>
     </LazyMotion>
   );
@@ -135,8 +140,8 @@ function EmptyState() {
       </div>
       <h2 className="text-xl font-medium text-rw-ink mb-2">No reviews to show yet</h2>
       <p className="text-rw-ink-soft max-w-md">
-        We couldn&apos;t find public reviews for this business to draft replies from. Book a demo and
-        we&apos;ll show you RepWorth on real reviews from your account.
+        We couldn&apos;t find public reviews for this business to draft replies from. Get early access
+        and we&apos;ll show you RepWorth on real reviews from your account when demos open.
       </p>
     </div>
   );

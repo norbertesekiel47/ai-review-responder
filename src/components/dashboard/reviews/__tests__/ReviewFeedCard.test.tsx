@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
 import {
   formatScheduledChipTime,
+  formatScheduledCountdown,
   ReviewFeedCard,
 } from '@/components/dashboard/reviews/ReviewFeedCard';
 
-type ReviewFixture = ComponentProps<typeof ReviewFeedCard>['recentReviews'][number];
+type FeedProps = ComponentProps<typeof ReviewFeedCard>;
+type ReviewFixture = FeedProps['items'][number];
 
 const BASE_REVIEW = {
   id: 'review-1',
@@ -24,14 +26,29 @@ const BASE_REVIEW = {
   escalation: null,
 } satisfies ReviewFixture;
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
-function renderFeed(reviews: readonly ReviewFixture[] = [BASE_REVIEW]) {
+function pendingCount(reviews: readonly ReviewFixture[]): number {
+  return reviews.filter((review) => (review.responseStatus ?? review.status) === 'pending_approval').length;
+}
+
+function renderFeed(
+  reviews: readonly ReviewFixture[] = [BASE_REVIEW],
+  overrides: Partial<FeedProps> = {},
+) {
   return render(
     <ReviewFeedCard
-      recentReviews={reviews}
+      items={reviews}
+      pendingTotal={pendingCount(reviews)}
+      total={reviews.length}
+      hasMore={false}
+      onLoadMore={() => {}}
       onActionSuccess={() => {}}
       emptyText="Nothing waiting."
+      {...overrides}
     />,
   );
 }
@@ -41,12 +58,12 @@ function revealClock() {
 }
 
 /**
- * Expected chip time computed through the exported helper (same Intl path the
+ * Expected chip copy computed through the exported helper (same Intl path the
  * component uses), so assertions hold in any machine timezone. Call only after
  * vi.setSystemTime so Date.now() matches the component's clock.
  */
-function expectedChipTime(deadlineIso: string): string {
-  return formatScheduledChipTime(new Date(deadlineIso).getTime(), Date.now());
+function expectedChip(deadlineIso: string): string {
+  return formatScheduledCountdown(new Date(deadlineIso).getTime(), Date.now());
 }
 
 describe('ReviewFeedCard persona surfaces', () => {
@@ -92,7 +109,7 @@ describe('ReviewFeedCard persona surfaces', () => {
     expect(screen.getByText('Daniel')).toBeInTheDocument();
     expect(screen.getByText('0 awaiting your approval')).toBeInTheDocument();
     expect(screen.queryByText('All caught up!')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T18:05:00.000Z')}` }))
+    expect(screen.getByRole('link', { name: expectedChip('2026-07-13T18:05:00.000Z') }))
       .toHaveAttribute('href', '/dashboard/reviews/review-1/timeline');
   });
 
@@ -148,7 +165,7 @@ describe('ReviewFeedCard persona surfaces', () => {
     }]);
     revealClock();
 
-    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T18:05:00.000Z')}` }))
+    expect(screen.getByRole('link', { name: expectedChip('2026-07-13T18:05:00.000Z') }))
       .toBeInTheDocument();
   });
 
@@ -175,8 +192,8 @@ describe('ReviewFeedCard persona surfaces', () => {
     ]);
     revealClock();
 
-    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T17:01:00.000Z')}` })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: `Scheduled — posts at ${expectedChipTime('2026-07-13T17:02:00.000Z')}` })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: expectedChip('2026-07-13T17:01:00.000Z') })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: expectedChip('2026-07-13T17:02:00.000Z') })).toBeInTheDocument();
 
     act(() => vi.advanceTimersByTime(60_001));
     expect(screen.queryByText('Daniel')).not.toBeInTheDocument();
@@ -219,7 +236,7 @@ describe('ReviewFeedCard persona surfaces', () => {
     renderFeed([{ ...BASE_REVIEW, ...review }]);
     revealClock();
 
-    expect(screen.queryByRole('link', { name: /Scheduled — posts at/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^Posts (in|at)/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Daniel') !== null).toBe(cardRemainsVisible);
   });
 
@@ -243,6 +260,114 @@ describe('ReviewFeedCard persona surfaces', () => {
 
     expect(screen.queryByText('Daniel')).not.toBeInTheDocument();
     expect(screen.getByText('All caught up!')).toBeInTheDocument();
+    // UX audit D16: one name for the destination — the tab is "All Reviews".
+    expect(screen.getByRole('link', { name: 'All Reviews' })).toHaveAttribute('href', '/dashboard/reviews/history');
+  });
+});
+
+// UX audit D2: the header reads the authoritative count, and the queue pages.
+describe('ReviewFeedCard pagination', () => {
+  it('reads the header count from pendingTotal, not the loaded slice', () => {
+    renderFeed([BASE_REVIEW], { pendingTotal: 57, total: 57 });
+    expect(screen.getByText('57 awaiting your approval')).toBeInTheDocument();
+  });
+
+  it('shows "Showing N of M" with Load more when more rows exist', () => {
+    const onLoadMore = vi.fn();
+    renderFeed([BASE_REVIEW], { pendingTotal: 57, total: 57, hasMore: true, onLoadMore });
+
+    expect(screen.getByText('Showing 1 of 57')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
+
+  it('disables Load more while the next page is in flight', () => {
+    renderFeed([BASE_REVIEW], { pendingTotal: 57, total: 57, hasMore: true, loadingMore: true });
+    expect(screen.getByRole('button', { name: 'Loading…' })).toBeDisabled();
+  });
+
+  it('shows no pagination footer when every row is loaded', () => {
+    renderFeed([BASE_REVIEW]);
+    expect(screen.queryByText(/^Showing/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+});
+
+// UX audit D10: after Regenerate the row stays, in a writing state, and polls.
+describe('ReviewFeedCard regenerate in place', () => {
+  it('keeps the row visible while the new draft is written, then refetches once it is ready', async () => {
+    vi.useFakeTimers();
+    const onActionSuccess = vi.fn();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ready', response_id: 'resp-2', response_text: 'Fresh draft' }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderFeed([BASE_REVIEW], { onActionSuccess });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^regenerate$/i }));
+    });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/dashboard/reviews/review-1/regenerate');
+    expect(screen.getByText('Daniel')).toBeInTheDocument();
+    expect(screen.getByText('Writing a new reply…')).toBeInTheDocument();
+    expect(screen.queryByText(/check your email/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Thanks Daniel!')).not.toBeInTheDocument();
+    expect(onActionSuccess).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/dashboard/reviews/review-1/draft-status');
+    // The poll settled on `ready`; the settle effect refetches the queue.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onActionSuccess).toHaveBeenCalledOnce();
+  });
+});
+
+// UX audit D34: "reply", not "response".
+describe('ReviewFeedCard copy', () => {
+  it('labels the settled-reply toggle with "reply"', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-13T17:00:00.000Z'));
+    renderFeed([{
+      ...BASE_REVIEW,
+      status: 'approved',
+      responseStatus: 'approved',
+      approvalMethod: 'auto_policy',
+      autoPostScheduledAt: '2026-07-13T18:05:00.000Z',
+    }]);
+    revealClock();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show reply' }));
+    expect(screen.getByRole('button', { name: 'Hide reply' })).toBeInTheDocument();
+    expect(screen.queryByText(/response/i)).not.toBeInTheDocument();
+  });
+});
+
+// UX audit D11: the veto window reads as a countdown.
+describe('formatScheduledCountdown', () => {
+  const now = new Date('2026-07-13T17:00:00.000Z').getTime();
+
+  it('reads in minutes under an hour', () => {
+    expect(formatScheduledCountdown(now + 12 * 60_000, now)).toBe('Posts in 12 min');
+    expect(formatScheduledCountdown(now + 59 * 60_000, now)).toBe('Posts in 59 min');
+  });
+
+  it('reads "under a minute" inside the last minute', () => {
+    expect(formatScheduledCountdown(now + 30_000, now)).toBe('Posts in under a minute');
+  });
+
+  it('falls back to the viewer-local clock time beyond an hour', () => {
+    const deadline = now + 65 * 60_000;
+    expect(formatScheduledCountdown(deadline, now, 'America/Los_Angeles'))
+      .toBe(`Posts at ${formatScheduledChipTime(deadline, now, 'America/Los_Angeles')}`);
   });
 });
 

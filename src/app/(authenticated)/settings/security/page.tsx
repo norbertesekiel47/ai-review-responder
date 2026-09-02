@@ -10,7 +10,7 @@ export default async function SettingsSecurityPage() {
     <>
       <TopBar
         title="Security"
-        subtitle="Manage sign-in verification for this account."
+        subtitle="Two-step sign-in and your password."
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
       <SettingsShell>

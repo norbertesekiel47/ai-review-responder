@@ -66,3 +66,13 @@ export const DEFAULT_VOICE: VoiceFormState = {
   avoidFacts: [],
   sampleResponses: [],
 };
+
+/** Whether the form still says exactly what "Use the default voice" would set. */
+export function isDefaultVoice(voice: VoiceFormState): boolean {
+  return (
+    voice.tone === DEFAULT_VOICE.tone &&
+    voice.productsServices === DEFAULT_VOICE.productsServices &&
+    voice.avoidFacts.length === 0 &&
+    voice.sampleResponses.length === 0
+  );
+}

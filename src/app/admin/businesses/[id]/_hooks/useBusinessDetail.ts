@@ -1,9 +1,17 @@
 'use client';
 
-import { useReducer } from 'react';
+import { useReducer, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelEnrollmentRow, DetailData, ResendInviteState } from '../types';
+
+export interface BounceFlagState {
+  submitting: boolean;
+  /** The server's mapped error message, cleared on the next attempt. */
+  error: string | null;
+}
+
+const idleBounceFlagState: BounceFlagState = { submitting: false, error: null };
 
 export interface UseBusinessDetailResult {
   data: DetailData | undefined;
@@ -16,7 +24,13 @@ export interface UseBusinessDetailResult {
   /** True if the channels-only query failed (separate from the main detail query). */
   channelsError: boolean;
   invalidate: () => void;
+  /**
+   * PATCHes `ownerEmailBounced: false`. No confirm()/alert(): the inline
+   * notice (`OwnerEmailBounceNotice`) owns the arm → reason → confirm step and
+   * renders `bounceFlagState`; this only performs the write and reports it.
+   */
   clearBounceFlag: () => Promise<void>;
+  bounceFlagState: BounceFlagState;
   /** POSTs the resend-invite action; the server owns every eligibility rule. */
   resendInvite: () => Promise<void>;
   resendInviteState: ResendInviteState;
@@ -67,6 +81,7 @@ export function useBusinessDetail(
     resendInviteReducer,
     initialResendInviteState,
   );
+  const [bounceFlagState, setBounceFlagState] = useState<BounceFlagState>(idleBounceFlagState);
 
   const { data, isLoading, isError, error } = useQuery<DetailData>({
     queryKey: ['admin-business', businessId],
@@ -118,8 +133,12 @@ export function useBusinessDetail(
     router.refresh();
   };
 
+  // Clear bounce flag. The consequence — every owner email resumes — is stated
+  // by the inline notice before this runs, with a required reason as the
+  // deliberate-action gate. The PATCH body is the route's `{ownerEmailBounced}`
+  // contract and carries no note field, so the reason stays client-side.
   const clearBounceFlag = async () => {
-    if (!confirm('Clear the bounce flag? Only do this after verifying the address is valid.')) return;
+    setBounceFlagState({ submitting: true, error: null });
     try {
       const res = await fetch(`/api/admin/businesses/${businessId}`, {
         method: 'PATCH',
@@ -127,16 +146,20 @@ export function useBusinessDetail(
         body: JSON.stringify({ ownerEmailBounced: false }),
       });
       if (res.ok) {
+        setBounceFlagState(idleBounceFlagState);
         void queryClient.invalidateQueries({ queryKey: ['admin-business', businessId] });
         return;
       }
       const json = await res.json().catch(() => ({}));
       const msg = (json as { error?: string }).error ?? `HTTP ${res.status}`;
       console.error('[useBusinessDetail] clearBounceFlag failed:', msg);
-      alert(`Failed to clear flag: ${msg}`);
+      setBounceFlagState({ submitting: false, error: `Failed to clear flag: ${msg}` });
     } catch (err) {
       console.error('[useBusinessDetail] clearBounceFlag threw:', err);
-      alert('Failed to clear flag. Check your network connection and try again.');
+      setBounceFlagState({
+        submitting: false,
+        error: 'Failed to clear flag. Check your network connection and try again.',
+      });
     }
   };
 
@@ -186,6 +209,7 @@ export function useBusinessDetail(
     channelsError,
     invalidate,
     clearBounceFlag,
+    bounceFlagState,
     resendInvite,
     resendInviteState,
   };

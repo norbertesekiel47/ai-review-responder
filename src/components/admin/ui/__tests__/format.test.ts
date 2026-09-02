@@ -7,6 +7,7 @@ import {
   formatAdminCount,
   formatAdminDate,
   formatAdminDateTime,
+  formatAdminTime,
 } from '../format';
 
 const ORIGINAL_TZ = process.env.TZ;
@@ -28,6 +29,14 @@ describe('admin formatters are zone- and locale-stable (CF-1)', () => {
   it('renders the UTC wall clock, self-labelled', () => {
     expect(formatAdminDateTime(BOUNDARY)).toBe('Aug 1, 2026, 02:30 UTC');
     expect(formatAdminDate(BOUNDARY)).toBe('Aug 1, 2026');
+  });
+
+  it('renders a seconds-precise time of day, self-labelled, for the live-data provenance line', () => {
+    expect(formatAdminTime('2026-08-01T14:03:27.000Z')).toBe('14:03:27 UTC');
+    expect(formatAdminTime(new Date('2026-08-01T00:00:05.000Z'))).toBe('00:00:05 UTC');
+    expect(formatAdminTime(0)).toBe('00:00:00 UTC');
+    expect(formatAdminTime(null)).toBe('—');
+    expect(formatAdminTime(undefined, 'Not yet')).toBe('Not yet');
   });
 
   it('produces identical output under different process time zones', () => {

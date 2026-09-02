@@ -1,13 +1,39 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
-import type { AdminNavGroupLabel } from '../nav-config';
+import { ADMIN_NAV_GROUPS, type AdminNavGroupLabel } from '../nav-config';
+
+/** One intermediate breadcrumb between the group and this page's title. */
+interface AdminCrumb {
+  href: string;
+  label: string;
+}
 
 interface AdminPageProps {
-  /** Sidebar group name, shown as breadcrumb (Operate · Businesses · Safety · Growth). */
+  /** Sidebar group name, rendered as the breadcrumb root (Operate · Businesses · Safety · Growth). */
   group: AdminNavGroupLabel;
+  /**
+   * Optional parent crumb for a nested page (a detail page under a list). The
+   * crumb replaces any ad-hoc "← Back to …" link the page used to render below
+   * its title — there is ONE wayfinding element, and it is this breadcrumb (X28).
+   */
+  parent?: AdminCrumb;
   title: string;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
+}
+
+/**
+ * The group eyebrow links to the group's landing page — its first sidebar item,
+ * derived from `ADMIN_NAV_GROUPS` (single owner of the IA) rather than a second
+ * href table that could drift from the sidebar.
+ */
+function groupHref(group: AdminNavGroupLabel): string {
+  const match = ADMIN_NAV_GROUPS.find((candidate) => candidate.label === group);
+  // Every AdminNavGroupLabel is a member of ADMIN_NAV_GROUPS by construction
+  // (the type is derived from it), so this branch is unreachable; the fallback
+  // keeps the render total without a non-null assertion.
+  return match?.items[0]?.href ?? '/admin/overview';
 }
 
 /**
@@ -36,12 +62,31 @@ interface AdminPageProps {
  * measure into `AdminPage` and having every page declare its kind — a bigger
  * change than this sweep, and one that would have to re-home the actions slot.
  */
-export function AdminPage({ group, title, description, actions, children }: AdminPageProps) {
+export function AdminPage({ group, parent, title, description, actions, children }: AdminPageProps) {
+  const crumbClass = 'rounded hover:text-gray-900 hover:underline focus:outline-none focus:ring-2 focus:ring-gray-900';
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <div className="text-xs text-gray-500">{group}</div>
+          <nav aria-label="Breadcrumb" className="text-xs text-gray-500">
+            <ol className="flex flex-wrap items-center gap-1">
+              <li>
+                <Link href={groupHref(group)} className={crumbClass}>
+                  {group}
+                </Link>
+              </li>
+              {parent && (
+                <>
+                  <li aria-hidden="true">›</li>
+                  <li>
+                    <Link href={parent.href} className={crumbClass}>
+                      {parent.label}
+                    </Link>
+                  </li>
+                </>
+              )}
+            </ol>
+          </nav>
           <h1 className="text-xl font-bold text-gray-900">{title}</h1>
           {description && <p className="mt-0.5 text-sm text-gray-500">{description}</p>}
         </div>

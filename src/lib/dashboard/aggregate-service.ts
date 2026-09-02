@@ -18,7 +18,7 @@ import {
   type DashboardWindow,
   DEFAULT_DASHBOARD_WINDOW,
 } from '@/lib/kpi/types';
-import { mapRecentReviews } from './active-mappers';
+import { mapRecentReviewsWithLocation } from './active-mappers';
 import { widgetOrFallbackFor } from './service';
 import { sumRatingBreakdowns } from './rating-breakdown';
 import {
@@ -424,15 +424,7 @@ async function getAccountRecentReviews(
     LIMIT 20
   `;
 
-  const base = mapRecentReviews(rows);
-  const items = base.map((item, index) => ({
-    ...item,
-    locationId: rows[index]!.location_id as string,
-    locationDisplayName: getDisplayLabel({
-      name: rows[index]!.location_name as string,
-      display_label: (rows[index]!.location_display_label as string | null) ?? null,
-    }),
-  }));
+  const items: AggregateReviewItem[] = mapRecentReviewsWithLocation(rows);
   // Selection is by detected_at (recency of ingestion); presentation stays
   // ordered by the review's own date, matching the previous composed feed.
   items.sort((a, b) => b.reviewDate.localeCompare(a.reviewDate));

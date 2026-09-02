@@ -100,24 +100,88 @@ describe('AutoApprovalClient', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders current account and location policy state, including dials', () => {
+  it('renders current account and location policy state, with account dials', () => {
     render(<AutoApprovalClient initialState={baseState} />);
 
     expect(screen.getByRole('heading', { name: 'Auto-approval' })).toBeInTheDocument();
     expect(screen.getByLabelText('Account default policy')).toHaveValue('manual');
     expect(screen.getByText('Main Cafe')).toBeInTheDocument();
-    expect(screen.getByText(/Inherited from account/)).toBeInTheDocument();
+    expect(screen.getByText(/Follows the account default/)).toBeInTheDocument();
 
     expect(screen.getByLabelText('Account default veto window')).toHaveValue('15');
-    expect(screen.getByLabelText('Veto window for Main Cafe')).toHaveValue('15');
 
     const accountCap = screen.getByLabelText('Account default daily auto-post cap');
     expect(accountCap).toHaveValue(null);
     expect(accountCap).toHaveAttribute('placeholder', 'Default (10)');
-    expect(screen.getByLabelText('Daily auto-post cap for Main Cafe')).toHaveAttribute(
-      'placeholder',
-      'Default (10)',
-    );
+  });
+
+  // S3: a location that follows the account default shows NO dials — a dial
+  // change used to create an override row and silently flip the location to
+  // manual approval. The owner opts in through one explicit button instead.
+  it('hides the per-location dials while the location follows the account default', () => {
+    render(<AutoApprovalClient initialState={baseState} />);
+
+    expect(screen.queryByLabelText('Veto window for Main Cafe')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Daily auto-post cap for Main Cafe')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Give Main Cafe its own veto window and daily cap/ })).toBeInTheDocument();
+  });
+
+  it('shows the per-location dials once the location has its own settings', () => {
+    render(<AutoApprovalClient initialState={{ ...baseState, locations: [overriddenLocation()] }} />);
+
+    expect(screen.getByLabelText('Veto window for Main Cafe')).toHaveValue('15');
+    expect(screen.getByLabelText('Daily auto-post cap for Main Cafe')).toHaveAttribute('placeholder', 'Default (10)');
+    expect(screen.queryByRole('button', { name: /its own veto window and daily cap/ })).not.toBeInTheDocument();
+  });
+
+  // S2: the page leads with the current state in one sentence.
+  describe('status banner', () => {
+    it('says Off when the account default is manual and no location posts on its own', () => {
+      render(<AutoApprovalClient initialState={baseState} />);
+      const banner = screen.getByTestId('auto-approval-status');
+      expect(within(banner).getByText(/^Off — you approve every reply before it posts\.$/)).toBeInTheDocument();
+      expect(within(banner).queryByRole('button', { name: 'Turn off auto-posting' })).not.toBeInTheDocument();
+    });
+
+    it('interpolates threshold, veto window and daily cap, explains the veto window, and offers one-tap off', async () => {
+      const state: AutoApprovalSettingsResponse = {
+        ...baseState,
+        accountDefault: {
+          ...emptyPolicyState,
+          policyId: 'policy-1',
+          exists: true,
+          threshold: 4,
+          vetoWindowMinutes: 30,
+          dailyAutoPostCap: 12,
+          effectiveDailyCap: 12,
+        },
+      };
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(baseState));
+      const user = userEvent.setup();
+      render(<AutoApprovalClient initialState={state} />);
+
+      const banner = screen.getByTestId('auto-approval-status');
+      expect(within(banner).getByText(
+        "4–5★ reviews post a reply automatically 30 minutes after you're notified, up to 12 a day.",
+      )).toBeInTheDocument();
+      expect(within(banner).getByText(/Those 30 minutes are your veto window — the time you have to stop a reply before it posts\./))
+        .toBeInTheDocument();
+
+      // Turning off is a contraction: no confirmation, straight to the same
+      // server route the select uses.
+      await user.click(within(banner).getByRole('button', { name: 'Turn off auto-posting' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/settings/auto-approval');
+      expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_manual' });
+    });
+
+    it('names a location that posts on its own while the account default is Off', () => {
+      render(<AutoApprovalClient initialState={{ ...baseState, locations: [overriddenLocation()] }} />);
+      const banner = screen.getByTestId('auto-approval-status');
+      expect(within(banner).getByText(/Off by default — Main Cafe posts replies automatically with its own settings\./))
+        .toBeInTheDocument();
+    });
   });
 
   it('offers exactly Off / 5-star only / 4-5-star as threshold options', () => {
@@ -142,7 +206,7 @@ describe('AutoApprovalClient', () => {
     const select = screen.getByLabelText('Account default policy');
     expect(within(select).getByRole('option', { name: '4–5★' })).toBeDisabled();
     expect(within(select).getByRole('option', { name: 'Off' })).not.toBeDisabled();
-    expect(screen.getByText(/Auto-approval is not enabled for this environment/i)).toBeInTheDocument();
+    expect(screen.getByText(/Auto-posting is not switched on for RepWorth yet/i)).toBeInTheDocument();
   });
 
   it('renders the server-authoritative Autopilot readiness reason', () => {
@@ -155,10 +219,45 @@ describe('AutoApprovalClient', () => {
       },
     }} />);
 
-    expect(screen.getByText(/Policy expansion requires an available Autopilot plan/i))
+    expect(screen.getByText(/Auto-posting is part of the Autopilot plan/i))
       .toBeInTheDocument();
+    // S7: a Copilot owner gets the way up, not just the wall.
+    expect(screen.getByRole('link', { name: 'See plans' })).toHaveAttribute('href', '/settings/billing');
     expect(within(screen.getByLabelText('Account default policy'))
       .getByRole('option', { name: '5★ only' })).toBeDisabled();
+  });
+
+  it('renders every readiness reason in owner language with no internal nouns', () => {
+    render(<AutoApprovalClient initialState={{
+      ...baseState,
+      readiness: {
+        ...baseState.readiness,
+        canExpand: false,
+        blockReasons: [
+          'auto_approval_disabled',
+          'autopilot_unavailable',
+          'provider_moderation_disabled',
+          'provider_moderation_not_validated',
+          'subscription_not_writable',
+          'preview_environment',
+          'impersonation_not_allowed',
+        ],
+      },
+    }} />);
+
+    const block = screen.getByText(/Auto-posting is part of the Autopilot plan/i).closest('.auto-policy-readiness');
+    expect(block).not.toBeNull();
+    const text = block!.textContent ?? '';
+    for (const jargon of ['environment', 'Provider moderation', 'Policy expansion', 'readiness', 'validated', 'writable', 'View-as']) {
+      expect(text).not.toMatch(new RegExp(jargon));
+    }
+    expect(screen.getByRole('link', { name: 'Review billing' })).toHaveAttribute('href', '/settings/billing');
+  });
+
+  it('says plainly that auto-posting can be widened when nothing blocks it', () => {
+    render(<AutoApprovalClient initialState={baseState} />);
+    expect(screen.getByText(/You can widen or narrow auto-posting whenever you like/)).toBeInTheDocument();
+    expect(screen.queryByText(/Expansion changes are available/)).not.toBeInTheDocument();
   });
 
   it('disables only the veto-window expansion when readiness is blocked', () => {
@@ -194,8 +293,11 @@ describe('AutoApprovalClient', () => {
 
     await user.selectOptions(screen.getByLabelText('Account default policy'), '4');
 
-    expect(await screen.findByRole('dialog', { name: 'Confirm auto-approval change' })).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
     expect(fetchMock).not.toHaveBeenCalled();
+    // S9: the dialog states the exact move and one concrete example.
+    expect(within(dialog).getByText('Auto-posting: Off → 4–5★')).toBeInTheDocument();
+    expect(within(dialog).getByText(/For example: a 4★ review saying/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
 
@@ -206,6 +308,20 @@ describe('AutoApprovalClient', () => {
       threshold: 4,
       confirmationLevel: 'standard',
     });
+  });
+
+  it('the veto-window expansion dialog states before → after in minutes', async () => {
+    const state = {
+      ...baseState,
+      accountDefault: { ...emptyPolicyState, policyId: 'policy-1', exists: true, threshold: 5 as const, vetoWindowMinutes: 30 as const },
+    };
+    const user = userEvent.setup();
+    render(<AutoApprovalClient initialState={state} />);
+
+    await user.selectOptions(screen.getByLabelText('Account default veto window'), '15');
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    expect(within(dialog).getByText('Veto window: 30 min → 15 min')).toBeInTheDocument();
+    expect(within(dialog).getByText(/posts after 15 minutes instead of 30/)).toBeInTheDocument();
   });
 
   it('shows the suspended banner with the reason and blocks expansion when the account is suspended', () => {
@@ -226,8 +342,13 @@ describe('AutoApprovalClient', () => {
       },
     }} />);
 
-    expect(screen.getByText(/Auto-approval is suspended for this account/i)).toBeInTheDocument();
+    // One banner owns the suspended state: it is the status banner (S2), not a
+    // second warning stacked under it.
+    const banners = screen.getAllByText(/Auto-approval is suspended for this account/i);
+    expect(banners).toHaveLength(1);
+    expect(screen.getByTestId('auto-approval-status')).toHaveAttribute('role', 'alert');
     expect(screen.getByText('Suspended after repeated owner vetoes')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Turn off auto-posting' })).not.toBeInTheDocument();
 
     const select = screen.getByLabelText('Account default policy');
     expect(within(select).getByRole('option', { name: '4–5★' })).toBeDisabled();
@@ -347,30 +468,28 @@ describe('AutoApprovalClient', () => {
     });
   });
 
-  it('interstitial: a dial change on an inheriting location submits only after confirm', async () => {
+  it('customize: an inheriting Off location gets its own row as manual, only after confirm', async () => {
     const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(baseState));
     const user = userEvent.setup();
 
     render(<AutoApprovalClient initialState={baseState} />);
 
-    await user.selectOptions(screen.getByLabelText('Veto window for Main Cafe'), '30');
+    await user.click(screen.getByRole('button', { name: /Give Main Cafe its own veto window and daily cap/ }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
-    expect(within(dialog).getByText(/switches to manual approval until you pick a threshold/i)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Main Cafe/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Main Cafe keeps its current policy \(Off\)/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Give it its own settings' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(patchBody(fetchMock)).toEqual({
-      operation: 'set_location_veto_window',
+      operation: 'set_location_manual',
       locationId: LOCATION_ID,
-      minutes: 30,
     });
   });
 
-  it('rowless location dial widening keeps only the location interstitial and sends no standard confirmation', async () => {
+  it('customize preserves the inherited threshold: the new row is created at 4–5★, no expansion confirmation', async () => {
     const state: AutoApprovalSettingsResponse = {
       ...baseState,
       accountDefault: {
@@ -405,17 +524,18 @@ describe('AutoApprovalClient', () => {
 
     render(<AutoApprovalClient initialState={state} />);
 
-    const veto = screen.getByLabelText('Veto window for Main Cafe');
-    expect(within(veto).getByRole('option', { name: '15 minutes' })).not.toBeDisabled();
-    await user.selectOptions(veto, '15');
-    await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
+    // Readiness blocks expansion, yet customizing is exposure-neutral (the row
+    // carries the same 4–5★), so the button stays available.
+    await user.click(screen.getByRole('button', { name: /Give Main Cafe its own veto window and daily cap/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
+    expect(within(dialog).getByText(/keeps its current policy \(4–5★\)/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Give it its own settings' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(patchBody(fetchMock)).toEqual({
-      operation: 'set_location_veto_window',
+      operation: 'set_location_override',
       locationId: LOCATION_ID,
-      minutes: 15,
+      threshold: 4,
     });
   });
 
@@ -468,45 +588,21 @@ describe('AutoApprovalClient', () => {
     });
   });
 
-  it('interstitial: cancel submits nothing and the control snaps back', async () => {
+  it('customize: cancel submits nothing and the location keeps following the account default', async () => {
     const fetchMock = vi.spyOn(global, 'fetch');
     const user = userEvent.setup();
 
     render(<AutoApprovalClient initialState={baseState} />);
 
-    await user.selectOptions(screen.getByLabelText('Veto window for Main Cafe'), '30');
+    await user.click(screen.getByRole('button', { name: /Give Main Cafe its own veto window and daily cap/ }));
     await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
-    // Controlled by server state, so the select snaps back to the inherited value.
-    expect(screen.getByLabelText('Veto window for Main Cafe')).toHaveValue('15');
-  });
-
-  it('interstitial: a typed cap draft snaps back to the stored state on cancel', async () => {
-    const fetchMock = vi.spyOn(global, 'fetch');
-    const user = userEvent.setup();
-
-    render(<AutoApprovalClient initialState={baseState} />);
-
-    // Blur arms the draft: on an inheriting location the cap commit raises the
-    // interstitial instead of PATCHing.
-    const capInput = screen.getByLabelText('Daily auto-post cap for Main Cafe');
-    await user.type(capInput, '7');
-    await user.tab();
-    await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
-
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
-    // The epoch bump remounts the draft-holding input back to the stored
-    // (blank → placeholder) state instead of keeping the unsaved 7.
-    const remountedCap = screen.getByLabelText('Daily auto-post cap for Main Cafe');
-    expect(remountedCap).toHaveValue(null);
-    expect(remountedCap).toHaveAttribute('placeholder', 'Default (10)');
+    expect(screen.queryByLabelText('Veto window for Main Cafe')).not.toBeInTheDocument();
+    expect(screen.getByText(/Follows the account default/)).toBeInTheDocument();
   });
 
   it('a failed cap save shows the error and snaps the cap input back to the server value', async () => {
@@ -529,8 +625,12 @@ describe('AutoApprovalClient', () => {
       confirmationLevel: 'standard',
     });
 
-    // Error surfaces (inline banner + live region) …
-    expect((await screen.findAllByText('internal error')).length).toBeGreaterThan(0);
+    // S10: the code is mapped to a sentence, shown beside the account card
+    // (and announced by the live region) — never the raw code.
+    const messages = await screen.findAllByText('Something went wrong on our side. Try again in a moment.');
+    expect(messages.length).toBeGreaterThan(0);
+    expect(screen.queryByText(/internal.error/i)).not.toBeInTheDocument();
+    expect(messages.some((node) => node.closest('section')?.contains(screen.getByLabelText('Account default policy')))).toBe(true);
     // … and the epoch bump remounts the cap input back to the server value
     // instead of leaving the unsaved 25 on a safety dial.
     const remountedCap = screen.getByLabelText('Account default daily auto-post cap');
@@ -552,7 +652,7 @@ describe('AutoApprovalClient', () => {
     await user.selectOptions(screen.getByLabelText('Account default policy'), '4');
     await user.click(await screen.findByRole('button', { name: 'Confirm auto-approval' }));
 
-    expect((await screen.findAllByText('Save failed (502)')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('This change did not save (502). Try again.')).length).toBeGreaterThan(0);
     expect(json).not.toHaveBeenCalled();
   });
 
@@ -820,52 +920,44 @@ describe('AutoApprovalClient', () => {
     expect(remountedCap).toHaveValue(25);
   });
 
-  it('pins the inherited cap onto a rowless location: typing it raises the interstitial, then PATCHes', async () => {
-    // Finding 8: the location field used to baseline on the EFFECTIVE
-    // (inherited) cap, so typing the inherited number no-oped and the cap
-    // could never be pinned. The baseline is now the override's stored value
-    // (null while rowless); the effective cap still shows via the placeholder.
-    const inheritingLocation: AutoApprovalLocationSettings = {
-      ...baseState.locations[0]!,
-      effective: {
-        threshold: null,
-        source: 'account_default',
-        inherited: true,
-        vetoWindowMinutes: 15,
-        dailyAutoPostCap: 25,
-        effectiveDailyCap: 25,
-        suspended: false,
-      },
-    };
-    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(baseState));
+  // S8: the cap says its limits inline and confirms a save where it happened.
+  it('daily cap: shows the 1–50 range inline, notes a clamp, and marks the field Saved after commit', async () => {
+    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse({
+      ...baseState,
+      accountDefault: { ...emptyPolicyState, policyId: 'policy-1', exists: true, dailyAutoPostCap: 50, effectiveDailyCap: 50 },
+    }));
     const user = userEvent.setup();
 
-    render(<AutoApprovalClient initialState={{
-      ...baseState,
-      accountDefault: { ...emptyPolicyState, policyId: 'policy-1', exists: true, dailyAutoPostCap: 25, effectiveDailyCap: 25 },
-      locations: [inheritingLocation],
-    }} />);
+    render(<AutoApprovalClient initialState={baseState} />);
 
-    const capInput = screen.getByLabelText('Daily auto-post cap for Main Cafe');
-    // Display: blank value, effective cap as placeholder.
-    expect(capInput).toHaveValue(null);
-    expect(capInput).toHaveAttribute('placeholder', 'Default (25)');
+    expect(screen.getByText(/Most replies posted automatically per day — 1 to 50\. Leave blank for the default \(10\)\./))
+      .toBeInTheDocument();
 
-    await user.type(capInput, '25');
+    await user.type(screen.getByLabelText('Account default daily auto-post cap'), '100');
     await user.tab();
 
-    // Creating the pin is still an implicit-override creation: interstitial first.
-    await screen.findByRole('dialog', { name: 'Give this location its own settings?' });
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'Give it its own settings' }));
-
+    // The clamp is stated before the owner confirms anything.
+    expect(screen.getByText(/Capped at 50 — the most that can post automatically in a day\./)).toBeInTheDocument();
+    expect(screen.getByLabelText('Account default daily auto-post cap')).toHaveValue(50);
+    await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
+    await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(patchBody(fetchMock)).toEqual({
-      operation: 'set_location_daily_cap',
-      locationId: LOCATION_ID,
-      cap: 25,
-    });
+    expect(patchBody(fetchMock)).toEqual({ operation: 'set_account_daily_cap', cap: 50, confirmationLevel: 'standard' });
+
+    // The Saved mark lands on the cap field itself, not only in a toast.
+    const capLabel = screen.getByText('Daily auto-post cap', { selector: '.field-label' });
+    expect(await within(capLabel).findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('a location save error renders inside that location row', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse({ error: 'location_inactive' }, false, 409));
+    const user = userEvent.setup();
+    render(<AutoApprovalClient initialState={{ ...baseState, locations: [overriddenLocation()] }} />);
+
+    await user.selectOptions(screen.getByLabelText('Veto window for Main Cafe'), '30');
+
+    const messages = await screen.findAllByText('This location is archived, so its auto-posting cannot be changed.');
+    expect(messages.some((node) => node.closest('.auto-policy-location-row') !== null)).toBe(true);
   });
 
   // #631 D20: the Solicitation persona's opt-in card.

@@ -109,6 +109,13 @@ export type AddLocationState =
       ctaLabel?: string;
     };
 
+/** Which server-applied change a row is reporting — the parent turns it into feedback. */
+export type LocationChange = 'archived' | 'reactivated' | 'promoted' | 'renamed';
+
+/** Why Archive is disabled on the only active location (UX audit S20). */
+export const LAST_ACTIVE_ARCHIVE_HINT =
+  'You need at least one active location. Add another before archiving this one.';
+
 interface Props {
   locations: LocationEntry[];
   /** Archived locations for the collapsed section. */
@@ -121,8 +128,8 @@ interface Props {
   addLocationState?: AddLocationState;
   /** Destination for the per-location voice action. */
   voiceHref?: string;
-  /** Callback after a location is archived or reactivated (for parent to refetch). */
-  onLocationChange: () => void;
+  /** Callback after the server applied a change (for the parent to refetch + confirm). */
+  onLocationChange: (change: LocationChange) => void;
 }
 
 // ── ArchiveConfirmModal ─────────────────────────────────────────────────
@@ -147,7 +154,7 @@ function ArchiveConfirmModal({
       </div>
       <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
         This location will be archived and its data will become read-only.
-        You can restore it later by contacting support.
+        You can reactivate it any time from the Archived list below.
       </p>
       {/* VAL-LOC-067: Show pending approval count with warning */}
       {pendingApprovalCount > 0 && (
@@ -174,30 +181,28 @@ function ArchiveConfirmModal({
 
 // ── PromoteFirstModal ──────────────────────────────────────────────────
 
+// This dialog only explains — the fix ("Make primary" on another row) is on the
+// page underneath it, so it has one dismiss button rather than a "Go to
+// Locations" that pretended to navigate (UX audit S20).
 function PromoteFirstModal({
   locationName,
-  onPromote,
-  onCancel,
+  onClose,
 }: {
   locationName: string;
-  onPromote: () => void;
-  onCancel: () => void;
+  onClose: () => void;
 }) {
   return (
-    <SettingsModal title="Promote first" closeLabel="Close promote first dialog" onClose={onCancel}>
+    <SettingsModal title="Choose a new primary location first" closeLabel="Close" onClose={onClose}>
       <div className="set-section-title" style={{ marginBottom: 8 }}>
-        Promote first
+        Choose a new primary location first
       </div>
       <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 16 }}>
-        &ldquo;{locationName}&rdquo; is your primary location. You must promote
-        another location to primary before archiving this one.
+        &ldquo;{locationName}&rdquo; is your primary location. Use <strong>Make primary</strong> on
+        another location, then come back and archive this one.
       </p>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button type="button" className="btn btn-secondary" onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="button" className="btn btn-primary" onClick={onPromote}>
-          Go to Locations
+        <button type="button" className="btn btn-primary" onClick={onClose}>
+          Got it
         </button>
       </div>
     </SettingsModal>
@@ -327,7 +332,7 @@ function LocationRow({
   isLastActive: boolean;
   accountId: string;
   voiceHref: string;
-  onLocationChange: () => void;
+  onLocationChange: (change: LocationChange) => void;
 }) {
   const displayName = getDisplayLabel(location);
   const [state, dispatch] = useReducer(locationRowReducer, {
@@ -350,7 +355,7 @@ function LocationRow({
     dispatch({ type: 'archiveStart' });
     try {
       await postLocationAction('/api/locations/archive', { locationId: location.id, accountId }, 'Archive failed');
-      onLocationChange();
+      onLocationChange('archived');
     } catch (err) {
       dispatch({ type: 'setError', error: err instanceof Error ? err.message : 'Failed to archive location' });
     } finally {
@@ -370,7 +375,7 @@ function LocationRow({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Promotion failed');
       }
-      onLocationChange();
+      onLocationChange('promoted');
     } catch (err) {
       dispatch({ type: 'setError', error: err instanceof Error ? err.message : 'Failed to promote location' });
     } finally {
@@ -394,7 +399,7 @@ function LocationRow({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Failed to update label');
       }
-      onLocationChange();
+      onLocationChange('renamed');
       dispatch({ type: 'saveLabelSuccess' });
     } catch (err) {
       dispatch({ type: 'setError', error: err instanceof Error ? err.message : 'Failed to update label' });
@@ -403,19 +408,18 @@ function LocationRow({
     }
   }
 
+  // The last-active case never reaches here: that button is disabled with the
+  // hint rendered beside it, instead of a 3-second timed error (UX audit S20).
   function handleArchiveClick() {
-    if (location.isPrimary && !isLastActive) {
+    if (location.isPrimary) {
       // Primary with other active locations — must promote first
       dispatch({ type: 'showPromoteFirst' });
-    } else if (isLastActive) {
-      // Last active location — cannot archive
-      dispatch({ type: 'setError', error: 'Cannot archive the last active location.' });
-      setTimeout(() => dispatch({ type: 'setError', error: null }), 3000);
     } else {
       // Non-primary — show confirmation dialog
       dispatch({ type: 'showArchiveConfirm' });
     }
   }
+  const archiveHintId = `archive-hint-${location.id}`;
 
   const zernioLabel = {
     none: 'Not connected',
@@ -531,11 +535,15 @@ function LocationRow({
           type="button"
           className="btn-danger loc-action-btn"
           onClick={handleArchiveClick}
-          disabled={archiving}
+          disabled={archiving || isLastActive}
+          aria-describedby={isLastActive ? archiveHintId : undefined}
         >
           <Icon name="alert" size={12} /> Archive
         </button>
       </div>
+      {isLastActive && (
+        <p id={archiveHintId} className="loc-row-hint">{LAST_ACTIVE_ARCHIVE_HINT}</p>
+      )}
       {error && (
         <div style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4, gridColumn: '1 / -1' }}>
           {error}
@@ -553,8 +561,7 @@ function LocationRow({
       {showPromoteFirst && (
         <PromoteFirstModal
           locationName={displayName}
-          onPromote={() => dispatch({ type: 'hidePromoteFirst' })}
-          onCancel={() => dispatch({ type: 'hidePromoteFirst' })}
+          onClose={() => dispatch({ type: 'hidePromoteFirst' })}
         />
       )}
       {showPromoteConfirm && (
@@ -578,7 +585,7 @@ function ArchivedLocationRow({
 }: {
   location: ArchivedLocationEntry;
   accountId: string;
-  onLocationChange: () => void;
+  onLocationChange: (change: LocationChange) => void;
 }) {
   const displayName = location.displayLabel ?? location.name;
   const [reactivating, setReactivating] = useState(false);
@@ -589,7 +596,7 @@ function ArchivedLocationRow({
     setError(null);
     try {
       await postLocationAction('/api/locations/reactivate', { locationId: location.id, accountId }, 'Reactivate failed');
-      onLocationChange();
+      onLocationChange('reactivated');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reactivate location');
     } finally {

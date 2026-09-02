@@ -9,6 +9,7 @@
 // are thin wrappers supplying their channel's AdminEnrollmentPresentation.
 
 import Image from 'next/image';
+import { useState } from 'react';
 import { useEnrollment } from '@/lib/notifications/channels/use-enrollment';
 import type { MobileChannel } from '@/lib/channels/mobile-enrollment';
 
@@ -28,7 +29,7 @@ export interface AdminEnrollmentPresentation {
   qrAlt: string;
   /** Verified-state label, e.g. "Telegram chat" / "WhatsApp", shown before the masked handle. */
   verifiedLabel: string;
-  /** confirm() prompt before disabling. */
+  /** Consequence copy shown in the inline confirm before disabling. */
   disableConfirm: string;
   /** Channel-specific masking of the verified handle. */
   maskHandle: (handle: string | null) => string;
@@ -52,8 +53,12 @@ export function AdminEnrollmentWidget({
     postBody: { businessId },
   });
 
+  // Disable cuts the owner's approval channel, so it arms an inline confirm
+  // (consequence stated, then the act) rather than a native confirm() the
+  // operator clicks through by reflex.
+  const [disableArmed, setDisableArmed] = useState(false);
   const onDisable = async () => {
-    if (!confirm(presentation.disableConfirm)) return;
+    setDisableArmed(false);
     await actions.disable();
   };
 
@@ -79,7 +84,32 @@ export function AdminEnrollmentWidget({
       {snapshot.state === 'verified' && (
         <div>
           <p className="text-sm text-green-700">✅ Connected: {presentation.verifiedLabel} {presentation.maskHandle(snapshot.handle)}</p>
-          <button type="button" onClick={onDisable} className="mt-2 px-3 py-1 border rounded text-red-600">Disable</button>
+          {disableArmed ? (
+            <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3">
+              <p className="text-sm text-gray-800">{presentation.disableConfirm}</p>
+              <p className="mt-1 text-xs text-gray-600">
+                The owner stops receiving {presentation.label} approval requests until it is reconnected.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => { void onDisable(); }}
+                  className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-red-800"
+                >
+                  Disable {presentation.label}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisableArmed(false)}
+                  className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setDisableArmed(true)} className="mt-2 px-3 py-1 border rounded text-red-600">Disable</button>
+          )}
         </div>
       )}
       {snapshot.state === 'disabled' && (

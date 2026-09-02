@@ -49,4 +49,28 @@ describe('admin business detail page source', () => {
     expect(channelsAt).toBeGreaterThan(detailAt);
     expect(summaryAt).toBeGreaterThan(channelsAt);
   });
+
+  // X28: the list is one breadcrumb away, on the server-rendered chrome.
+  it('passes the parent crumb to AdminPage instead of a back link in the client', async () => {
+    const page = await readFile('src/app/admin/businesses/[id]/page.tsx', 'utf8');
+    const client = await readFile('src/app/admin/businesses/[id]/BusinessDetailClient.tsx', 'utf8');
+
+    expect(page).toContain(`parent={{ href: '/admin/businesses', label: 'All businesses' }}`);
+    expect(client).not.toContain('Back to Businesses');
+  });
+
+  // X11: the post-invite success strip is a URL flag read by the server page —
+  // the owner's address comes from the detail read, never from the URL.
+  it('flashes the invite-sent strip from the invited flag using the detail read’s owner email', async () => {
+    const page = await readFile('src/app/admin/businesses/[id]/page.tsx', 'utf8');
+    const code = stripComments(page);
+
+    expect(code).toContain("(await searchParams).invited === INVITED_FLAG");
+    expect(code).toContain('Invite email sent to');
+    expect(code).toContain('{detail.business.ownerEmail}');
+    expect(code).toContain('role="status"');
+    // The flag is a constant, not the address.
+    expect(code).toContain("const INVITED_FLAG = '1'");
+    expect(code).not.toMatch(/searchParams\)\.email|invitedEmail/);
+  });
 });

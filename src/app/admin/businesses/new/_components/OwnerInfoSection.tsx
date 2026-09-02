@@ -16,21 +16,31 @@ export function OwnerInfoSection({ register, errors }: OwnerInfoSectionProps) {
   return (
     <SectionCard title="Owner Info">
       <Field label="Owner Name *" error={errors.ownerName?.message}>
-        <input
-          {...register('ownerName')}
-          type="text"
-          className={inputClass}
-          placeholder="Jane Smith"
-        />
+        {({ id, describedBy, invalid }) => (
+          <input
+            {...register('ownerName')}
+            id={id}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            type="text"
+            className={inputClass}
+            placeholder="Jane Smith"
+          />
+        )}
       </Field>
 
       <Field label="Email *" error={errors.ownerEmail?.message}>
-        <input
-          {...register('ownerEmail')}
-          type="email"
-          className={inputClass}
-          placeholder="jane@example.com"
-        />
+        {({ id, describedBy, invalid }) => (
+          <input
+            {...register('ownerEmail')}
+            id={id}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            type="email"
+            className={inputClass}
+            placeholder="jane@example.com"
+          />
+        )}
       </Field>
     </SectionCard>
   );

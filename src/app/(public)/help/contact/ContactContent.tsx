@@ -52,11 +52,36 @@ const RESPONSE_TARGETS = [
   'Copilot and Autopilot support is available through the email channels above',
 ];
 
-const HELP_TOPICS = [
-  'Connecting your Google Business Profile',
-  'Billing and past-due recovery',
-  'Importing locations by CSV',
+interface HelpTopic {
+  topic: string;
+  /** Which channel above the topic belongs to. */
+  email: string;
+  /** Prefilled subject so the mail arrives already sorted. */
+  subject: string;
+}
+
+// Each topic is a door: a mailto to the right channel with the subject filled in.
+const HELP_TOPICS: HelpTopic[] = [
+  {
+    topic: 'Connecting your Google Business Profile',
+    email: 'support@repworth.net',
+    subject: 'Help connecting my Google Business Profile',
+  },
+  {
+    topic: 'Billing and past-due recovery',
+    email: 'billing@repworth.net',
+    subject: 'Billing question',
+  },
+  {
+    topic: 'Importing locations by CSV',
+    email: 'support@repworth.net',
+    subject: 'Help importing locations by CSV',
+  },
 ];
+
+export function helpTopicMailto({ email, subject }: Pick<HelpTopic, 'email' | 'subject'>): string {
+  return `mailto:${email}?subject=${encodeURIComponent(subject)}`;
+}
 
 const CLIPBOARD_PATH =
   'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z';
@@ -176,15 +201,26 @@ export function ContactContent({ selfServeEnabled = false, trialEnabled = false 
           >
             <h2 className="mb-4 text-xl font-medium text-rw-ink">Common help topics</h2>
             <ul className="space-y-2 text-rw-ink-soft">
-              {HELP_TOPICS.map((topic) => (
-                <li key={topic}>{topic}</li>
+              {HELP_TOPICS.map((item) => (
+                <li key={item.topic}>
+                  <a
+                    href={helpTopicMailto(item)}
+                    className="inline-flex min-h-11 items-center text-rw-teal-strong underline decoration-rw-teal-strong/40 underline-offset-2 hover:decoration-rw-teal-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2 focus-visible:ring-offset-rw-cream"
+                  >
+                    {item.topic}
+                    <span aria-hidden="true">&nbsp;→</span>
+                  </a>
+                </li>
               ))}
             </ul>
           </m.div>
         </div>
       </main>
 
-      <div className="rounded-b-[3rem] bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/90 px-8 py-12 text-center text-white">
+      {/* Square-cornered: the band runs edge to edge into the footer beneath it,
+          like every other island. The rounded bottom used to leave a bone-coloured
+          notch between band and footer. */}
+      <section aria-label="Looking for something else" className="bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/90 px-8 py-12 text-center text-white">
         <m.div
           initial={cardInitial}
           whileInView={whileInView}
@@ -199,7 +235,7 @@ export function ContactContent({ selfServeEnabled = false, trialEnabled = false 
             Back to RepWorth →
           </Link>
         </m.div>
-      </div>
+      </section>
       <SiteFooter />
     </PageShell>
     </LazyMotion>

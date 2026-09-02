@@ -3,12 +3,22 @@
 // Auth: Supabase session checked by src/proxy.ts (admin role required); the
 // server page additionally gates with requireAdminPage.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DemoListItem } from '@/lib/demos/types';
 import { PlaceAutocomplete, type PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
+import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { ADMIN_TIME_ZONE_LABEL, formatAdminDate } from '@/components/admin/ui/format';
+
+/** What the generate form posts — carried through the mutation so success can name the demo. */
+interface GenerateInput {
+  businessName: string;
+  category: string | undefined;
+  place: { googlePlaceId: string } | { googleMapsUrl: string };
+}
+
+export const PICK_A_PLACE_COPY = 'Pick a business from the search results first, or paste a Google Maps URL.';
 
 export function DemosClient({ initialData }: { initialData: DemoListItem[] }) {
   return (
@@ -27,58 +37,70 @@ function GenerateForm() {
   const [category, setCategory] = useState('');
   const [inputMode, setInputMode] = useState<'autocomplete' | 'url'>('autocomplete');
   const [placeSelection, setPlaceSelection] = useState<PlaceSelection | null>(null);
+  // The one validation the browser cannot do: the autocomplete has no `required`.
+  const [placeError, setPlaceError] = useState<string | null>(null);
+  const [queuedName, setQueuedName] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: async () => {
-      const body = placeSelection
-        ? {
-            googlePlaceId: placeSelection.placeId,
-            businessName,
-            category: category || undefined,
-          }
-        : {
-            googleMapsUrl: url,
-            businessName,
-            category: category || undefined,
-          };
-
+    mutationFn: async (input: GenerateInput) => {
       const res = await fetch('/api/admin/demos/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...input.place, businessName: input.businessName, category: input.category }),
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? 'Failed to generate demo');
       }
-      return res.json();
+      return res.json() as Promise<unknown>;
     },
-    onSuccess: () => {
+    onSuccess: (_data, input) => {
+      setQueuedName(input.businessName);
       setUrl('');
       setBusinessName('');
       setCategory('');
       setPlaceSelection(null);
-      queryClient.invalidateQueries({ queryKey: ['demos'] });
+      void queryClient.invalidateQueries({ queryKey: ['demos'] });
     },
   });
+
+  // A real <form> (X23): `required` fires, Enter submits, and the submit is the
+  // one place the request is built — the button no longer carries an onClick.
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setQueuedName(null);
+    if (inputMode === 'autocomplete' && !placeSelection) {
+      setPlaceError(PICK_A_PLACE_COPY);
+      return;
+    }
+    setPlaceError(null);
+    mutation.mutate({
+      businessName,
+      category: category || undefined,
+      place: placeSelection ? { googlePlaceId: placeSelection.placeId } : { googleMapsUrl: url },
+    });
+  }
 
   return (
     // CF-5, the mixed form+list case: measure the FORM at max-w-2xl (its inputs
     // are unfillable stretched to the max-w-7xl page width) and leave DemoList
     // full width below. See the content-measure rule on <AdminPage>.
-    <div className="mb-8 max-w-2xl rounded-lg border border-gray-200 bg-white p-6">
+    <form onSubmit={handleSubmit} className="mb-8 max-w-2xl rounded-lg border border-gray-200 bg-white p-6">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
         Generate New Demo
       </h2>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor={inputMode === 'url' ? 'url' : undefined} className="block text-sm font-medium text-gray-700 mb-1">
             Business Location
           </label>
           {inputMode === 'autocomplete' ? (
             <PlaceAutocomplete
-              onPlaceSelect={(sel) => setPlaceSelection(sel)}
+              onPlaceSelect={(sel) => {
+                setPlaceSelection(sel);
+                setPlaceError(null);
+              }}
               onClear={() => setPlaceSelection(null)}
               placeholder="Search for a business..."
             />
@@ -98,6 +120,7 @@ function GenerateForm() {
             onClick={() => {
               setInputMode(inputMode === 'autocomplete' ? 'url' : 'autocomplete');
               setPlaceSelection(null);
+              setPlaceError(null);
               setUrl('');
             }}
             className="mt-1 text-xs text-gray-600 underline hover:text-gray-900"
@@ -144,22 +167,27 @@ function GenerateForm() {
           </div>
         </div>
 
-        {mutation.error && (
-          <p className="text-sm text-red-600">
-            {mutation.error.message}
+        {(placeError || mutation.error) && (
+          <p role="alert" className="text-sm text-red-600">
+            {placeError ?? mutation.error?.message}
+          </p>
+        )}
+        {queuedName && !mutation.isPending && (
+          <p role="status" className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+            Demo queued for {queuedName}. It appears in the list below and refreshes every few seconds
+            while it generates.
           </p>
         )}
 
         <button
-          type="button"
-          onClick={() => mutation.mutate()}
+          type="submit"
           disabled={mutation.isPending}
           className="bg-gray-900 text-white font-medium px-4 py-2 rounded-md text-sm hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {mutation.isPending ? 'Submitting...' : 'Generate Demo'}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -231,18 +259,6 @@ function DemoList({ initialData }: { initialData: DemoListItem[] }) {
 
 // ── Demo Row ─────────────────────────────────────────────────────────
 
-/**
- * Demo-domain generation vocabulary, deliberately not the shared `StatusBadge`:
- * `running` carries an `animate-pulse` the shared primitive cannot express.
- * Renamed from `STATUS_STYLES` so it no longer shadows the shared map's name.
- */
-const DEMO_STATUS_STYLES: Record<string, string> = {
-  queued: 'bg-gray-100 text-gray-700',
-  running: 'bg-yellow-100 text-yellow-800 animate-pulse',
-  completed: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-};
-
 function DemoRow({ demo }: { demo: DemoListItem }) {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -271,11 +287,8 @@ function DemoRow({ demo }: { demo: DemoListItem }) {
           {demo.businessName}
         </p>
         <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-gray-500">
-          <span
-            className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${DEMO_STATUS_STYLES[demo.generationStatus] ?? ''}`}
-          >
-            {demo.generationStatus}
-          </span>
+          {/* The `demo` vocabulary of the shared badge (X9) — `running` pulses there. */}
+          <StatusBadge vocab="demo" value={demo.generationStatus} />
           {demo.generationStatus === 'completed' && (
             <a
               href={`/demo/${demo.slug}`}

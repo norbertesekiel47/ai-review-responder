@@ -5,10 +5,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
-import { NAV_LINKS } from './marketing-links';
+import { EARLY_ACCESS_CTA, NAV_LINKS } from './marketing-links';
 
 interface SiteNavProps {
-  /** When true, the right-side Log in / signup cluster is hidden. */
+  /**
+   * When true, the nav offers no door at all: neither the owner-auth cluster
+   * nor the early-access pill. The "coming soon" posture, mirrored by the
+   * page CTA bands.
+   */
   comingSoon?: boolean;
   /** Controls whether owner self-serve auth links are exposed. */
   selfServeEnabled?: boolean;
@@ -36,6 +40,56 @@ const ArrowDisc = () => (
   </span>
 );
 
+interface NavCtaProps extends Pick<SiteNavProps, 'comingSoon' | 'selfServeEnabled' | 'trialEnabled'> {
+  /**
+   * `row` is the desktop nav row: the pill carries the arrow disc and "Log in"
+   * takes the `.rw-nav-login` chrome. `menu` is the mobile panel: the cluster
+   * opens with a separator, the pill drops the disc, and every link closes
+   * the menu via `onNavigate`.
+   */
+  placement: 'row' | 'menu';
+  onNavigate?: () => void;
+}
+
+/**
+ * The nav's right-side door, decided in ONE place for both placements:
+ * coming-soon → no door; self-serve on → Log in + the signup pill; self-serve
+ * off → the early-access pill to the lead-capture route (same label the
+ * landing nav carries — before this, a visitor on /features had no CTA until
+ * the closing band).
+ */
+function NavCta({ comingSoon, selfServeEnabled, trialEnabled, placement, onNavigate }: NavCtaProps) {
+  if (comingSoon) return null;
+  const inMenu = placement === 'menu';
+  const disc = inMenu ? null : <ArrowDisc />;
+  const separator = inMenu ? <div className="rw-nav-menu-sep" aria-hidden="true" /> : null;
+
+  if (!selfServeEnabled) {
+    return (
+      <>
+        {separator}
+        <Link href={EARLY_ACCESS_CTA.href} onClick={onNavigate} className="rw-pill rw-pill-forest">
+          {EARLY_ACCESS_CTA.label}
+          {disc}
+        </Link>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {separator}
+      <Link href="/login" onClick={onNavigate} className={inMenu ? undefined : 'rw-nav-login'}>
+        Log in
+      </Link>
+      <Link href="/signup" onClick={onNavigate} className="rw-pill rw-pill-forest">
+        {trialEnabled ? 'Start free trial' : 'Create account'}
+        {disc}
+      </Link>
+    </>
+  );
+}
+
 /**
  * Site-wide marketing nav — Daylight Gallery II chrome: a sticky white pill
  * inside the island (styles: `.rw-nav*` in (public)/_styles/island.css).
@@ -45,8 +99,7 @@ const ArrowDisc = () => (
  * restores focus; Tab flows naturally through the page.
  */
 export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEnabled = false }: SiteNavProps) {
-  const showOwnerAuth = selfServeEnabled && !comingSoon;
-  const signupLabel = trialEnabled ? 'Start free trial' : 'Create account';
+  const cta = { comingSoon, selfServeEnabled, trialEnabled };
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -108,17 +161,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEna
             </div>
 
             <div className="rw-nav-right">
-              {showOwnerAuth && (
-                <>
-                  <Link href="/login" className="rw-nav-login">
-                    Log in
-                  </Link>
-                  <Link href="/signup" className="rw-pill rw-pill-forest">
-                    {signupLabel}
-                    <ArrowDisc />
-                  </Link>
-                </>
-              )}
+              <NavCta {...cta} placement="row" />
 
               {/* Mobile hamburger toggle (44px touch target) */}
               <button
@@ -174,17 +217,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEna
                     );
                   })}
 
-                  {showOwnerAuth && (
-                    <>
-                      <div className="rw-nav-menu-sep" aria-hidden="true" />
-                      <Link href="/login" onClick={closeMenu}>
-                        Log in
-                      </Link>
-                      <Link href="/signup" onClick={closeMenu} className="rw-pill rw-pill-forest">
-                        {signupLabel}
-                      </Link>
-                    </>
-                  )}
+                  <NavCta {...cta} placement="menu" onNavigate={closeMenu} />
                 </div>
               </m.div>
             )}

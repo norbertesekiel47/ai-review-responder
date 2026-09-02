@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
 // Focused suite for useBusinessDetail.clearBounceFlag — the admin's only path
-// back from a bouncing owner email. It was untested: every branch (the confirm
-// guard, the ok path, the two error shapes, and the network throw) reached the
-// admin through an alert() nobody had pinned. The queries themselves are
-// covered via BusinessDetailClient.test.tsx, so this suite seeds both with
-// initialData and asserts only the PATCH behaviour.
+// back from a bouncing owner email. Every branch (the ok path, the two error
+// shapes, and the network throw) lands in `bounceFlagState`, never a confirm()
+// or alert() (X3): the inline notice owns the confirm step. The queries
+// themselves are covered via BusinessDetailClient.test.tsx, so this suite
+// seeds both with initialData and asserts only the PATCH behaviour.
 //
 // Also covers resendInvite (plan step 9 / T7), whose outcome is deliberately
 // inline state rather than an alert()/confirm() dialog.
@@ -33,7 +33,7 @@ const INITIAL_DETAIL = { business: { id: BUSINESS_ID } } as unknown as DetailDat
 const INITIAL_CHANNELS: ChannelEnrollmentRow[] = [];
 
 const fetchMock = vi.fn();
-let confirmResult = true;
+const confirmSpy = vi.fn(() => true);
 let alerts: string[] = [];
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -57,32 +57,30 @@ function mount() {
 beforeEach(() => {
   fetchMock.mockReset();
   mockRefresh.mockReset();
-  confirmResult = true;
+  confirmSpy.mockClear();
   alerts = [];
   vi.stubGlobal('fetch', fetchMock);
-  vi.stubGlobal('confirm', () => confirmResult);
+  vi.stubGlobal('confirm', confirmSpy);
   vi.stubGlobal('alert', (msg: string) => {
     alerts.push(msg);
   });
 });
 
 describe('useBusinessDetail — clearBounceFlag', () => {
-  it('does nothing when the admin declines the confirm prompt', async () => {
-    confirmResult = false;
+  it('starts idle, with no submitting state and no error', () => {
     const { result } = mount();
-
-    await result.current.clearBounceFlag();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(alerts).toEqual([]);
+    expect(result.current.bounceFlagState).toEqual({ submitting: false, error: null });
   });
 
-  it('PATCHes ownerEmailBounced:false as JSON to the business detail route', async () => {
+  it('PATCHes ownerEmailBounced:false as JSON with no confirm() dialog', async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
     const { result } = mount();
 
-    await result.current.clearBounceFlag();
+    await act(async () => {
+      await result.current.clearBounceFlag();
+    });
 
+    expect(confirmSpy).not.toHaveBeenCalled();
     // The success path also invalidates the detail query, which refetches — so
     // select the PATCH rather than asserting a total call count.
     const patchCalls = fetchMock.mock.calls.filter(
@@ -95,13 +93,16 @@ describe('useBusinessDetail — clearBounceFlag', () => {
     expect(JSON.parse(init.body as string)).toEqual({ ownerEmailBounced: false });
   });
 
-  it('refetches the detail query on success and raises no alert', async () => {
+  it('refetches the detail query on success, returns to idle, and raises no alert', async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
     const { result } = mount();
 
-    await result.current.clearBounceFlag();
+    await act(async () => {
+      await result.current.clearBounceFlag();
+    });
 
     expect(alerts).toEqual([]);
+    expect(result.current.bounceFlagState).toEqual({ submitting: false, error: null });
     // The invalidation makes the seeded detail query stale, so it refetches —
     // observable as a second fetch against the same detail URL.
     await waitFor(() =>
@@ -113,7 +114,7 @@ describe('useBusinessDetail — clearBounceFlag', () => {
     );
   });
 
-  it('surfaces the server error message when the PATCH is rejected', async () => {
+  it('surfaces the server error message inline when the PATCH is rejected', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     fetchMock.mockResolvedValueOnce({
       ok: false,
@@ -122,9 +123,15 @@ describe('useBusinessDetail — clearBounceFlag', () => {
     });
     const { result } = mount();
 
-    await result.current.clearBounceFlag();
+    await act(async () => {
+      await result.current.clearBounceFlag();
+    });
 
-    expect(alerts).toEqual(['Failed to clear flag: business is archived']);
+    expect(alerts).toEqual([]);
+    expect(result.current.bounceFlagState).toEqual({
+      submitting: false,
+      error: 'Failed to clear flag: business is archived',
+    });
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
@@ -140,23 +147,47 @@ describe('useBusinessDetail — clearBounceFlag', () => {
     });
     const { result } = mount();
 
-    await result.current.clearBounceFlag();
+    await act(async () => {
+      await result.current.clearBounceFlag();
+    });
 
-    expect(alerts).toEqual(['Failed to clear flag: HTTP 502']);
+    expect(result.current.bounceFlagState.error).toBe('Failed to clear flag: HTTP 502');
     consoleSpy.mockRestore();
   });
 
-  it('reports a network failure without rethrowing', async () => {
+  it('reports a network failure inline without rethrowing', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     const { result } = mount();
 
-    await expect(result.current.clearBounceFlag()).resolves.toBeUndefined();
+    await act(async () => {
+      await expect(result.current.clearBounceFlag()).resolves.toBeUndefined();
+    });
 
-    expect(alerts).toEqual([
+    expect(alerts).toEqual([]);
+    expect(result.current.bounceFlagState.error).toBe(
       'Failed to clear flag. Check your network connection and try again.',
-    ]);
+    );
     expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('clears the previous error when a second attempt starts', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({ error: 'slow down' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    const { result } = mount();
+
+    await act(async () => {
+      await result.current.clearBounceFlag();
+    });
+    expect(result.current.bounceFlagState.error).toBe('Failed to clear flag: slow down');
+
+    await act(async () => {
+      await result.current.clearBounceFlag();
+    });
+    expect(result.current.bounceFlagState).toEqual({ submitting: false, error: null });
     consoleSpy.mockRestore();
   });
 });

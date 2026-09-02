@@ -30,6 +30,7 @@ describe('StepProfile', () => {
   it('hides the Back button when no onBack is provided (demo-flow first step)', () => {
     render(
       <StepProfile
+        stepLabel="Step 1 of 3 — Profile"
         data={baseData}
         update={vi.fn()}
         dirtyRef={makeDirtyRef()}
@@ -47,6 +48,7 @@ describe('StepProfile', () => {
     const onBack = vi.fn();
     render(
       <StepProfile
+        stepLabel="Step 1 of 3 — Profile"
         data={baseData}
         update={vi.fn()}
         dirtyRef={makeDirtyRef()}

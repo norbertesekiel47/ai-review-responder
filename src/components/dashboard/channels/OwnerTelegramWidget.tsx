@@ -4,6 +4,7 @@ import {
   OwnerMobileChannelWidget,
   type OwnerChannelInitialRow,
   type OwnerChannelPresentation,
+  type OwnerMobileChannelWidgetProps,
 } from './OwnerMobileChannelWidget';
 
 const TELEGRAM_PRESENTATION: OwnerChannelPresentation = {
@@ -14,7 +15,7 @@ const TELEGRAM_PRESENTATION: OwnerChannelPresentation = {
   idleText: 'Get approval requests in Telegram.',
   unsubscribedText: 'You blocked the bot — start the bot in Telegram, then reconnect.',
   qrAlt: 'Telegram QR',
-  disconnectConfirm: 'Disconnect Telegram from RepWorth?',
+  openOnPhoneLabel: 'Open Telegram on this phone',
   endpoints: {
     start: '/api/dashboard/channels/telegram/start',
     cancel: '/api/dashboard/channels/telegram/cancel',
@@ -23,16 +24,23 @@ const TELEGRAM_PRESENTATION: OwnerChannelPresentation = {
   },
 };
 
-export interface OwnerTelegramWidgetProps {
+export interface OwnerTelegramWidgetProps
+  extends Pick<OwnerMobileChannelWidgetProps, 'blockedReason' | 'onStateChange'> {
   /** Server-loaded enrollment row for SSR hydration. Verified rows skip the first fetch. */
   initialEnrollment?: OwnerChannelInitialRow | null;
 }
 
-export function OwnerTelegramWidget({ initialEnrollment }: OwnerTelegramWidgetProps = {}) {
+export function OwnerTelegramWidget({
+  initialEnrollment,
+  blockedReason,
+  onStateChange,
+}: OwnerTelegramWidgetProps = {}) {
   return (
     <OwnerMobileChannelWidget
       presentation={TELEGRAM_PRESENTATION}
       initialEnrollment={initialEnrollment}
+      blockedReason={blockedReason}
+      onStateChange={onStateChange}
     />
   );
 }

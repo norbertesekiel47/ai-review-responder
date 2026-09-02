@@ -69,7 +69,7 @@ export function OnboardingFunnelShell({
             <nav className="px-6 sm:px-8 py-4 border-b border-rw-teal/10 flex items-center justify-end">
               <div className="flex items-center gap-2">
                 <BrandLogo size={32} />
-                <span className="text-sm tracking-wider uppercase text-rw-teal">
+                <span className="text-sm tracking-wider uppercase text-rw-teal-strong">
                   RepWorth
                 </span>
               </div>

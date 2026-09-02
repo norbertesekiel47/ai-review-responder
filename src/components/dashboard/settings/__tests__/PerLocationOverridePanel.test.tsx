@@ -1,12 +1,24 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   PerLocationOverridePanel,
   type PerLocationOverride,
   type LocationOption,
 } from '@/components/dashboard/settings/PerLocationOverridePanel';
+import { removeOverrideConsequence } from '@/components/dashboard/settings/PerLocationOverridePanel.helpers';
 import type { ChannelId } from '@/lib/notifications/channels/types';
+
+const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
+vi.mock('@/components/dashboard/shell/toast/ToastProvider', () => ({
+  useToast: () => ({ toast: mockToast, dismiss: vi.fn() }),
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -225,5 +237,93 @@ describe('PerLocationOverridePanel visibility gating', () => {
 
     // Add-ineligible: creation controls remain absent.
     expect(screen.queryByRole('button', { name: /add .* override/i })).toBeNull();
+  });
+});
+
+// UX audit S14: removal confirms in a SettingsModal with the consequence, and
+// a failure renders inline beside the row — never window.alert.
+describe('PerLocationOverridePanel remove override', () => {
+  function expandAndOpenRemove() {
+    fireEvent.click(screen.getByRole('button', { name: /per-location overrides/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove override' }));
+  }
+
+  it('asks for confirmation with the consequence before calling the API', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const alertSpy = vi.spyOn(window, 'alert');
+    const onOverrideRemoved = vi.fn();
+    const override = makeOverride('loc-1');
+
+    render(
+      <PerLocationOverridePanel
+        {...BASE_PROPS}
+        overrides={[override]}
+        locationOptions={SINGLE_LOCATION}
+        canAddOverrides={false}
+        onOverrideRemoved={onOverrideRemoved}
+      />,
+    );
+    expandAndOpenRemove();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog', { name: 'Remove override' });
+    expect(dialog).toHaveTextContent(removeOverrideConsequence(override));
+    expect(removeOverrideConsequence(override)).toBe(
+      'Main St Branch will go back to your account-wide WhatsApp setting.',
+    );
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove override' }));
+    await waitFor(() => expect(onOverrideRemoved).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.method).toBe('DELETE');
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ tone: 'success', title: 'Override removed' }));
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('"Keep override" closes the dialog and sends nothing', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <PerLocationOverridePanel
+        {...BASE_PROPS}
+        overrides={[makeOverride('loc-1')]}
+        locationOptions={SINGLE_LOCATION}
+        canAddOverrides={false}
+      />,
+    );
+    expandAndOpenRemove();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep override' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('renders a server failure inline beside the row instead of alert()', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'Override is still in use.' }), { status: 409 })),
+    );
+    const alertSpy = vi.spyOn(window, 'alert');
+    render(
+      <PerLocationOverridePanel
+        {...BASE_PROPS}
+        overrides={[makeOverride('loc-1')]}
+        locationOptions={SINGLE_LOCATION}
+        canAddOverrides={false}
+      />,
+    );
+    expandAndOpenRemove();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove override' }));
+
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent('Override is still in use.');
+    // The error lives inside the row it belongs to, and the control names it.
+    const row = error.closest('.channel-row');
+    expect(row).not.toBeNull();
+    const remove = within(row as HTMLElement).getByRole('button', { name: 'Remove override' });
+    expect(remove).toHaveAccessibleDescription('Override is still in use.');
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockToast).not.toHaveBeenCalled();
   });
 });

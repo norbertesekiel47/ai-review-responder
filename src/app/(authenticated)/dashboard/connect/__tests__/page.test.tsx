@@ -120,6 +120,69 @@ describe('/dashboard/connect target location', () => {
     );
   });
 
+  it('tells an owner mid-OAuth to finish in the Google window — nothing is "finishing" on our side (D22)', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        zernioConnection: {
+          status: 'pending',
+          pendingFlow: { status: 'oauth_in_progress' },
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(
+      screen.getByRole('heading', { name: 'Finish connecting in the Google window' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/finishing the connection/i)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel this attempt' })).toBeInTheDocument();
+  });
+
+  it('treats a pending status with no flow marker as an unfinished attempt to clear (D22)', () => {
+    mockUseDashboardData.mockReturnValue({
+      data: {
+        zernioConnection: {
+          status: 'pending',
+          queuedReconnectCount: 0,
+          hasUnresolvedIncident: false,
+        },
+      },
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<ConnectPage />);
+
+    expect(screen.getByRole('heading', { name: "This connection didn't finish" })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear attempt' })).toBeInTheDocument();
+  });
+
+  it('keeps the spinner copy for the sub-statuses where we really are working (D22)', () => {
+    for (const status of ['starting', 'finalizing'] as const) {
+      mockUseDashboardData.mockReturnValue({
+        data: {
+          zernioConnection: {
+            status: 'pending',
+            pendingFlow: { status },
+            queuedReconnectCount: 0,
+            hasUnresolvedIncident: false,
+          },
+        },
+        error: null,
+        refresh: vi.fn(),
+      });
+      const view = render(<ConnectPage />);
+      expect(screen.getByRole('heading', { name: 'Finishing connection…' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /cancel/i })).toBeNull();
+      view.unmount();
+    }
+  });
+
   it('shows manual connection link when redirect is started', async () => {
     const user = userEvent.setup();
     vi.stubGlobal(

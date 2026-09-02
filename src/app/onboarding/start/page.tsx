@@ -18,7 +18,8 @@ interface GuardRow {
   name: string;
 }
 
-export const metadata: Metadata = { title: 'Get started | RepWorth' };
+// Root layout `title.template` appends ' · RepWorth'.
+export const metadata: Metadata = { title: 'Get started' };
 
 /**
  * Guard: `ONBOARDING_DEMO_ENABLED` (the demo lane's own kill switch) +

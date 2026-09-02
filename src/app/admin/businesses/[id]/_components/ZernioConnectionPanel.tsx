@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useState } from 'react';
 import type {
   ZernioPanelData,
   ZernioConnectionSummary,
@@ -131,6 +131,100 @@ function ConnectionDetails({ connection }: { connection: ZernioConnectionSummary
   );
 }
 
+const DANGER_BUTTON =
+  'rounded-md bg-red-700 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50';
+const CANCEL_BUTTON =
+  'rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50';
+
+/**
+ * One queued reply and its Dismiss action (X4). Dismiss permanently discards
+ * an APPROVED reply, so it arms into an inline confirm — consequence stated,
+ * one-line reason required — instead of a native `confirm()` an operator
+ * clicks through by reflex. The reason is a client-side gate: the route's
+ * body is `{action: 'dismiss', responseId}` with no note field, so it is not
+ * sent into a schema that would strip it.
+ */
+function QueuedResponseRow({
+  response: r,
+  dismissing,
+  onDismiss,
+}: {
+  response: AwaitingOwnerConnectResponse;
+  dismissing: boolean;
+  onDismiss: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  const [reason, setReason] = useState('');
+  const reasonMissing = reason.trim().length === 0;
+  const reasonId = `zernio-dismiss-${r.responseId}-reason`;
+
+  function disarm() {
+    setArmed(false);
+    setReason('');
+  }
+
+  return (
+    <li className="rounded border border-gray-200 bg-white p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-rw-teal">{formatStars(r.starRating)}</span>
+        <span className="font-medium text-gray-700">{r.reviewerName}</span>
+        <span className="text-xs text-gray-400">Queued {formatAdminDateTime(r.createdAt)}</span>
+        {!armed && (
+          <button
+            type="button"
+            onClick={() => setArmed(true)}
+            disabled={dismissing}
+            className="ml-auto rounded border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {dismissing ? 'Dismissing…' : 'Dismiss'}
+          </button>
+        )}
+      </div>
+      {r.reviewText && <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>}
+      {r.draftText && (
+        <p className="mt-2 line-clamp-3 rounded bg-gray-50 p-2 text-xs text-gray-700">{r.draftText}</p>
+      )}
+      {armed && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3">
+          <p className="text-sm text-gray-800">
+            Permanently discards this approved reply. It will never post to Google, and the owner is
+            not told.
+          </p>
+          <label htmlFor={reasonId} className="mt-3 block text-sm font-medium text-gray-700">
+            Reason (one line, required)
+            <input
+              id={reasonId}
+              type="text"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={200}
+              autoFocus
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+            />
+          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onDismiss();
+                disarm();
+              }}
+              disabled={reasonMissing || dismissing}
+              className={DANGER_BUTTON}
+            >
+              Discard reply
+            </button>
+            <button type="button" onClick={disarm} disabled={dismissing} className={CANCEL_BUTTON}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
 interface AwaitingQueueSectionProps {
   awaitingOwnerConnect: AwaitingOwnerConnectResponse[];
   status: 'pending' | 'active' | 'disconnected' | 'not_connected';
@@ -182,34 +276,12 @@ function AwaitingQueueSection({
       )}
       <ul className="mt-3 space-y-2">
         {awaitingOwnerConnect.map((r) => (
-          <li
+          <QueuedResponseRow
             key={r.responseId}
-            className="rounded border border-gray-200 bg-white p-3 text-sm"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-rw-teal">{formatStars(r.starRating)}</span>
-              <span className="font-medium text-gray-700">{r.reviewerName}</span>
-              <span className="text-xs text-gray-400">
-                Queued {formatAdminDateTime(r.createdAt)}
-              </span>
-              <button
-                type="button"
-                onClick={() => onDismiss(r.responseId)}
-                disabled={dismissingId === r.responseId}
-                className="ml-auto rounded border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {dismissingId === r.responseId ? 'Dismissing…' : 'Dismiss'}
-              </button>
-            </div>
-            {r.reviewText && (
-              <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.reviewText}</p>
-            )}
-            {r.draftText && (
-              <p className="mt-2 line-clamp-3 rounded bg-gray-50 p-2 text-xs text-gray-700">
-                {r.draftText}
-              </p>
-            )}
-          </li>
+            response={r}
+            dismissing={dismissingId === r.responseId}
+            onDismiss={() => onDismiss(r.responseId)}
+          />
         ))}
       </ul>
     </div>
@@ -314,6 +386,9 @@ export function ZernioConnectionPanel({
 }: ZernioConnectionPanelProps) {
   const [state, dispatch] = useReducer(panelReducer, initialPanelState);
   const { disconnecting, error, draining, dismissingId, queueError } = state;
+  // Manual disconnect severs the owner's Google connection, so the header
+  // button arms an inline confirm rather than firing on a reflex click (X4).
+  const [disconnectArmed, setDisconnectArmed] = useState(false);
 
   const handleForceDrain = useCallback(async () => {
     dispatch({ type: 'drainStart' });
@@ -340,7 +415,6 @@ export function ZernioConnectionPanel({
 
   const handleDismiss = useCallback(
     async (responseId: string) => {
-      if (!confirm('Permanently discard this queued reply? It will not post to Google.')) return;
       dispatch({ type: 'dismissStart', dismissingId: responseId });
       try {
         const res = await fetch(`/api/admin/businesses/${businessId}/zernio-queue`, {
@@ -366,12 +440,6 @@ export function ZernioConnectionPanel({
   );
 
   const handleDisconnect = useCallback(async () => {
-    if (
-      !confirm(
-        'Manually disconnect this business from Zernio? The owner will need to reconnect before any future approvals can post automatically.',
-      )
-    )
-      return;
     dispatch({ type: 'disconnectStart' });
     try {
       const res = await fetch('/api/zernio/disconnect', {
@@ -405,12 +473,10 @@ export function ZernioConnectionPanel({
           <h2 className="text-lg font-semibold text-gray-900">Zernio Connection</h2>
           <ZernioConnectionBadge status={status} />
         </div>
-        {status === 'active' && (
+        {status === 'active' && !disconnectArmed && (
           <button
             type="button"
-            onClick={() => {
-              void handleDisconnect();
-            }}
+            onClick={() => setDisconnectArmed(true)}
             disabled={disconnecting}
             className="rounded border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
           >
@@ -418,6 +484,36 @@ export function ZernioConnectionPanel({
           </button>
         )}
       </div>
+
+      {disconnectArmed && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3">
+          <p className="text-sm text-gray-800">
+            Severs this business&apos;s Google connection. Approved replies queue here until the owner
+            reconnects; nothing posts in the meantime, and only the owner can reconnect.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDisconnectArmed(false);
+                void handleDisconnect();
+              }}
+              disabled={disconnecting}
+              className={DANGER_BUTTON}
+            >
+              Disconnect from Zernio
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisconnectArmed(false)}
+              disabled={disconnecting}
+              className={CANCEL_BUTTON}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">

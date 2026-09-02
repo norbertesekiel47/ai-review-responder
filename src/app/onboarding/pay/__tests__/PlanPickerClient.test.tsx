@@ -90,7 +90,9 @@ describe('PlanPickerClient', () => {
 
     expect(screen.getByRole('heading', { name: 'Autopilot' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Choose Autopilot plan' })).toBeDisabled();
-    expect(screen.getByText(/safety runtime is closed. Choose Copilot/i)).toBeInTheDocument();
+    expect(screen.getByText(/temporarily unavailable. Choose Copilot/i)).toBeInTheDocument();
+    // Internal nouns never reach the owner (contract copy rule).
+    expect(screen.queryByText(/safety runtime/i)).not.toBeInTheDocument();
   });
 
   it('rejects a stale Autopilot selection when server availability changes', async () => {
@@ -119,5 +121,39 @@ describe('PlanPickerClient', () => {
     expect(screen.getByText(/applicable taxes/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Terms/i })).toHaveAttribute('href', '/legal/terms');
     expect(screen.queryByText(/annual|save 20%/i)).not.toBeInTheDocument();
+  });
+
+  it('explains the plan choice in plain language, not architect vocabulary (A9)', () => {
+    render(<PlanPickerClient cancelled={false} {...listView} />);
+
+    expect(
+      screen.getByText('Pick how much RepWorth does on its own. You can change this later.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/authority/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the checkout error directly above the CTA, not below the legal text (A9)', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('fetch', vi.fn());
+    render(<PlanPickerClient cancelled={false} {...listView} />);
+
+    const cta = screen.getByRole('button', { name: /Continue to secure checkout/i });
+    await user.click(cta);
+
+    const alert = screen.getByRole('alert');
+    // DOCUMENT_POSITION_FOLLOWING: the CTA comes after the alert in DOM order.
+    expect(alert.compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const terms = screen.getByText(/renew monthly/i);
+    expect(alert.compareDocumentPosition(terms) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('tells the owner where the card is entered and ties it to the CTA (A18)', () => {
+    render(<PlanPickerClient cancelled={false} {...listView} />);
+
+    const cta = screen.getByRole('button', { name: /Continue to secure checkout/i });
+    const hint = screen.getByText(
+      "You'll enter card details on Stripe's secure page, then return here.",
+    );
+    expect(cta).toHaveAttribute('aria-describedby', hint.id);
   });
 });

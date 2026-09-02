@@ -30,6 +30,14 @@ interface DataTableProps<T> {
   emptyState: ReactNode;
   /** Controlled mode: rows are ONE server page; the caller owns fetching. Client-side sort stays within the page. */
   serverPagination?: ServerPagination;
+  /**
+   * Bounds the scrolling body (any CSS length, e.g. `'70vh'`). The header is
+   * `sticky` but only pins once SOMETHING bounds this container's height — with
+   * no bound the table grows with its rows and the header scrolls away with
+   * them (X30). Pass it on tables whose rows can be tall (expandable errors)
+   * or long (a full page of 50); leave it off for a short audit table.
+   */
+  maxHeight?: string;
 }
 
 interface SortState {
@@ -142,11 +150,9 @@ export function PaginationFooter({
   );
 }
 
-export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, emptyState, serverPagination }: DataTableProps<T>) {
-  const [sort, setSort] = useState<SortState | null>(null);
-  const [page, setPage] = useState(0);
-
-  const sorted = useMemo(() => {
+/** Client-side sort within the rows given (a whole list, or one server page). */
+function useSortedRows<T>(rows: T[], columns: DataTableColumn<T>[], sort: SortState | null): T[] {
+  return useMemo(() => {
     if (!sort) return rows;
     const sortValue = columns.find((col) => col.key === sort.key)?.sortValue;
     if (!sortValue) return rows;
@@ -158,6 +164,192 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
       return aValue < bValue ? -dir : dir;
     });
   }, [rows, sort, columns]);
+}
+
+/**
+ * Both modes render the SAME footer component; only the label and the
+ * visibility rule differ. `serverPaginationFooterState` owns the server-mode
+ * rule so card-list pages (FlaggedClient) cannot drift from this table.
+ */
+function footerStateFor({
+  serverPagination,
+  currentPage,
+  pageCount,
+  rowsOnPage,
+}: {
+  serverPagination: ServerPagination | undefined;
+  currentPage: number;
+  pageCount: number;
+  rowsOnPage: number;
+}): ServerPaginationFooterState {
+  if (serverPagination) {
+    return serverPaginationFooterState({
+      page: currentPage,
+      pageSize: serverPagination.pageSize,
+      rowsOnPage,
+      totalRows: serverPagination.totalRows,
+    });
+  }
+  return { pageCount, label: `Page ${currentPage + 1} of ${pageCount}`, show: pageCount > 1 };
+}
+
+/**
+ * True empty: the uncontrolled path's original early return (byte-identical
+ * behavior), extended to server mode's true-empty case (totalRows === 0). A
+ * server-mode page that returned zero rows because the CALLER'S page number
+ * ran past a shrunk totalRows is NOT true-empty — it still needs the footer
+ * so Previous stays reachable.
+ */
+function isTrueEmpty(rowsOnPage: number, serverPagination: ServerPagination | undefined): boolean {
+  return rowsOnPage === 0 && (!serverPagination || serverPagination.totalRows === 0);
+}
+
+/**
+ * CF-2: clamping for DISPLAY is not enough. The caller still holds the
+ * out-of-range page number, so it keeps refetching an empty page, and once
+ * `pageCount` collapses to 1 the footer disappears (nothing is reachable) —
+ * leaving no control that can put the caller back in range. Push the clamp
+ * back so the caller's state converges. Idempotent: after the caller adopts
+ * it the condition is false, and a caller that ignores it re-renders no more
+ * than it already would.
+ */
+function useServerPageClampPushback(serverPagination: ServerPagination | undefined, pageCount: number) {
+  const serverPage = serverPagination?.page;
+  const serverOnPageChange = serverPagination?.onPageChange;
+  const clampedServerPage = serverPage === undefined ? 0 : Math.min(serverPage, pageCount - 1);
+  useEffect(() => {
+    if (serverPage === undefined || serverOnPageChange === undefined) return;
+    if (serverPage > clampedServerPage) serverOnPageChange(clampedServerPage);
+  }, [serverPage, clampedServerPage, serverOnPageChange]);
+}
+
+function DataTableHead<T>({
+  columns,
+  sort,
+  onToggleSort,
+  hasLinkColumn,
+}: {
+  columns: DataTableColumn<T>[];
+  sort: SortState | null;
+  onToggleSort: (key: string) => void;
+  hasLinkColumn: boolean;
+}) {
+  return (
+    /* Sticky within the scroll wrapper; pins visually only when the consumer
+       passes `maxHeight` (X30) — otherwise the wrapper is as tall as the table
+       and there is nothing to stick against. */
+    <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50">
+      <tr>
+        {/* Header cell: sort button + optional direction indicator drives this
+            callback's cyclomatic/cognitive score. No second column shape exists
+            to justify decomposing further; consumer lands in Phase 2 (admin page
+            migrations). */}
+        {/* fallow-ignore-next-line complexity */}
+        {columns.map((col) => (
+          <th
+            key={col.key}
+            aria-sort={
+              col.sortValue && sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined
+            }
+            // 11px / gray-600, not 10px / gray-500: uppercase tracking at
+            // 10px on the gray-50 header was below AA contrast (X31).
+            className={`px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-gray-600 ${col.className ?? ''}`}
+          >
+            {col.sortValue ? (
+              <button type="button" onClick={() => onToggleSort(col.key)} className="inline-flex items-center gap-1 hover:text-gray-900">
+                {col.header}
+                {sort?.key === col.key && <span aria-hidden="true">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+              </button>
+            ) : (
+              col.header
+            )}
+          </th>
+        ))}
+        {hasLinkColumn && <th className="px-3 py-2" />}
+      </tr>
+    </thead>
+  );
+}
+
+function DataTableBody<T>({
+  columns,
+  rows,
+  rowKey,
+  rowHref,
+}: {
+  columns: DataTableColumn<T>[];
+  rows: T[];
+  rowKey: (row: T) => string;
+  rowHref: ((row: T) => string) | undefined;
+}) {
+  return (
+    <tbody>
+      {rows.map((row) => (
+        <tr key={rowKey(row)} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+          {columns.map((col) => (
+            <td key={col.key} className={`px-3 py-2 text-gray-900 ${col.className ?? ''}`}>
+              {col.render(row)}
+            </td>
+          ))}
+          {rowHref && (
+            <td className="px-3 py-2 text-right">
+              <Link href={rowHref(row)} className="text-xs text-gray-500 hover:text-gray-900">
+                View →
+              </Link>
+            </td>
+          )}
+        </tr>
+      ))}
+    </tbody>
+  );
+}
+
+/** The scroll wrapper + table. `maxHeight` bounds it so the sticky head pins (X30). */
+function DataTableGrid<T>({
+  columns,
+  rows,
+  rowKey,
+  rowHref,
+  sort,
+  onToggleSort,
+  maxHeight,
+}: {
+  columns: DataTableColumn<T>[];
+  rows: T[];
+  rowKey: (row: T) => string;
+  rowHref: ((row: T) => string) | undefined;
+  sort: SortState | null;
+  onToggleSort: (key: string) => void;
+  maxHeight: string | undefined;
+}) {
+  return (
+    <div
+      className={maxHeight ? 'overflow-auto' : 'overflow-x-auto'}
+      style={maxHeight ? { maxHeight } : undefined}
+      data-testid="data-table-scroll"
+    >
+      <table className="w-full text-left text-sm">
+        <DataTableHead columns={columns} sort={sort} onToggleSort={onToggleSort} hasLinkColumn={rowHref !== undefined} />
+        <DataTableBody columns={columns} rows={rows} rowKey={rowKey} rowHref={rowHref} />
+      </table>
+    </div>
+  );
+}
+
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  rowHref,
+  pageSize = 20,
+  emptyState,
+  serverPagination,
+  maxHeight,
+}: DataTableProps<T>) {
+  const [sort, setSort] = useState<SortState | null>(null);
+  const [page, setPage] = useState(0);
+
+  const sorted = useSortedRows(rows, columns, sort);
 
   const pageCount = serverPagination
     ? pageCountOf(serverPagination.totalRows, serverPagination.pageSize)
@@ -169,20 +361,7 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
   const currentPage = Math.min(serverPagination ? serverPagination.page : page, pageCount - 1);
   const visible = serverPagination ? sorted : sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
 
-  // CF-2: clamping for DISPLAY is not enough. The caller still holds the
-  // out-of-range page number, so it keeps refetching an empty page, and once
-  // `pageCount` collapses to 1 the footer disappears (nothing is reachable) —
-  // leaving no control that can put the caller back in range. Push the clamp
-  // back so the caller's state converges. Idempotent: after the caller adopts
-  // it the condition is false, and a caller that ignores it re-renders no more
-  // than it already would.
-  const serverPage = serverPagination?.page;
-  const serverOnPageChange = serverPagination?.onPageChange;
-  const clampedServerPage = serverPage === undefined ? 0 : Math.min(serverPage, pageCount - 1);
-  useEffect(() => {
-    if (serverPage === undefined || serverOnPageChange === undefined) return;
-    if (serverPage > clampedServerPage) serverOnPageChange(clampedServerPage);
-  }, [serverPage, clampedServerPage, serverOnPageChange]);
+  useServerPageClampPushback(serverPagination, pageCount);
 
   function toggleSort(key: string) {
     if (!serverPagination) setPage(0);
@@ -199,85 +378,26 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, pageSize = 20, em
     }
   }
 
-  // True empty: the uncontrolled path's original early return (byte-identical
-  // behavior), extended to server mode's true-empty case (totalRows === 0). A
-  // server-mode page that returned zero rows because the CALLER'S page number
-  // ran past a shrunk totalRows is NOT true-empty — it still needs the footer
-  // below so Previous stays reachable.
-  if (rows.length === 0 && (!serverPagination || serverPagination.totalRows === 0)) {
+  if (isTrueEmpty(rows.length, serverPagination)) {
     return <>{emptyState}</>;
   }
 
-  // Both modes render the SAME footer component; only the label and the
-  // visibility rule differ. `serverPaginationFooterState` owns the server-mode
-  // rule so card-list pages (FlaggedClient) cannot drift from this table.
-  const footer: ServerPaginationFooterState = serverPagination
-    ? serverPaginationFooterState({
-        page: currentPage,
-        pageSize: serverPagination.pageSize,
-        rowsOnPage: rows.length,
-        totalRows: serverPagination.totalRows,
-      })
-    : { pageCount, label: `Page ${currentPage + 1} of ${pageCount}`, show: pageCount > 1 };
+  const footer = footerStateFor({ serverPagination, currentPage, pageCount, rowsOnPage: rows.length });
 
   return (
     <div className="overflow-hidden rounded-md border border-gray-200 bg-white">
       {rows.length === 0 ? (
         emptyState
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            {/* Sticky within the overflow-x-auto wrapper above; only pins visually
-                once a consumer bounds this container's height (e.g. max-h-*) —
-                Phase 2 decides that per page. */}
-            <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50">
-              <tr>
-                {/* Header cell: sort button + optional direction indicator drives this
-                    callback's cyclomatic/cognitive score. No second column shape exists
-                    to justify decomposing further; consumer lands in Phase 2 (admin page
-                    migrations). */}
-                {/* fallow-ignore-next-line complexity */}
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    aria-sort={
-                      col.sortValue && sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined
-                    }
-                    className={`px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${col.className ?? ''}`}
-                  >
-                    {col.sortValue ? (
-                      <button type="button" onClick={() => toggleSort(col.key)} className="inline-flex items-center gap-1 hover:text-gray-900">
-                        {col.header}
-                        {sort?.key === col.key && <span aria-hidden="true">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
-                      </button>
-                    ) : (
-                      col.header
-                    )}
-                  </th>
-                ))}
-                {rowHref && <th className="px-3 py-2" />}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row) => (
-                <tr key={rowKey(row)} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                  {columns.map((col) => (
-                    <td key={col.key} className={`px-3 py-2 text-gray-900 ${col.className ?? ''}`}>
-                      {col.render(row)}
-                    </td>
-                  ))}
-                  {rowHref && (
-                    <td className="px-3 py-2 text-right">
-                      <Link href={rowHref(row)} className="text-xs text-gray-500 hover:text-gray-900">
-                        View →
-                      </Link>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTableGrid
+          columns={columns}
+          rows={visible}
+          rowKey={rowKey}
+          rowHref={rowHref}
+          sort={sort}
+          onToggleSort={toggleSort}
+          maxHeight={maxHeight}
+        />
       )}
       {footer.show && (
         <PaginationFooter

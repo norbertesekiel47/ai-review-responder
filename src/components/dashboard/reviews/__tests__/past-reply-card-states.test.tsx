@@ -19,7 +19,7 @@
 
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, afterEach } from 'vitest';
-import { PastReplyCard } from '@/components/dashboard/reviews/PastReplyCard';
+import { PastReplyCard, recoveryNote } from '@/components/dashboard/reviews/PastReplyCard';
 import type { PastReplyRow } from '@/components/dashboard/reviews/PastReplyCard';
 import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
 import { PastRepliesClient } from '@/app/(authenticated)/dashboard/reviews/history/PastRepliesClient';
@@ -356,6 +356,68 @@ describe('PastReplyCard row states', () => {
 });
 
 // ── Tab bar ──────────────────────────────────────────────────────────────────
+
+// ── D18: a reply that did not reach Google explains itself, flag or no flag ──
+
+describe('PastReplyCard — the not-on-Google explanation (D18)', () => {
+  const orphan = () =>
+    makeRow({
+      response_id: 'fail-resp-1',
+      posted_at: null,
+      reply_state: 'orphan',
+      row_action: 'recover',
+      failed_response_id: 'fail-resp-1',
+      failed_posting_error: 'post_after_delete_failed_retry_exhausted',
+    });
+
+  it('flag OFF: the orphan row still carries an owner-safe reason and next step, and no verb', () => {
+    render(<PastReplyCard row={orphan()} isImported={false} editRepliesEnabled={false} />);
+    expect(screen.getByText(/not on google yet/i)).toBeInTheDocument();
+    expect(
+      screen.getByText('We took the old reply down on Google, but the new one did not post.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no need to repost it yourself/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
+    // Never the raw provider marker.
+    expect(screen.queryByText(/post_after_delete_failed/)).toBeNull();
+  });
+
+  it('flag ON: the reason renders alongside the recovery verb', () => {
+    render(<PastReplyCard row={orphan()} isImported={false} editRepliesEnabled={true} />);
+    expect(screen.getByRole('button', { name: /needs attention/i })).toBeInTheDocument();
+    expect(
+      screen.getByText('We took the old reply down on Google, but the new one did not post.'),
+    ).toBeInTheDocument();
+  });
+
+  it('flag OFF: a posted reply whose replacement could not be swapped says the old one is still live', () => {
+    render(
+      <PastReplyCard
+        row={answeredRow({
+          failed_response_id: 'fail-resp-2',
+          failed_posting_error: 'delete_failed_http_500',
+        })}
+        isImported={false}
+        editRepliesEnabled={false}
+      />,
+    );
+    expect(screen.getByText('We could not swap out the old reply on Google.')).toBeInTheDocument();
+    expect(screen.getByText(/previous reply is still live/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('recoveryNote keys on the marker prefix and never echoes the marker', () => {
+    expect(recoveryNote('post_after_delete_failed_http_400').reason).toMatch(/took the old reply down/);
+    expect(recoveryNote('zernio_auth_error_after_delete_succeeded').reason).toMatch(/took the old reply down/);
+    expect(recoveryNote('delete_failed_timeout').reason).toMatch(/could not swap out/);
+    expect(recoveryNote('something_else').reason).toBe('This reply did not reach Google.');
+    expect(recoveryNote(null).reason).toBe('This reply did not reach Google.');
+    for (const marker of ['post_after_delete_failed_http_400', 'delete_failed_timeout', 'weird_code']) {
+      const note = recoveryNote(marker);
+      expect(`${note.reason} ${note.next}`).not.toContain(marker);
+    }
+  });
+});
 
 describe('ReviewsTabs', () => {
   it('ReviewsTabs renders the All Reviews tab unconditionally', () => {

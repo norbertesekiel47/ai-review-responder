@@ -1,10 +1,11 @@
 // src/lib/admin/jobs-service.ts
 //
 // Extracted verbatim from src/app/api/admin/jobs/route.ts's GET body (admin
-// console Phase 2, Task 3). Same three queries, same Promise.all structure,
-// same row→DTO mapping. Born-injected: `sql` is a parameter, not an import —
-// the composition root (the route, and later the jobs server page) supplies
-// the singleton (invariant #15).
+// console Phase 2, Task 3), then widened for the jobs page's triage needs (X15):
+// an optional topic filter on the failed page + its count, the distinct failed
+// topics that populate the filter, and the business each failed row belongs
+// to. Born-injected: `sql` is a parameter, not an import — the composition root
+// (the route, and the jobs server page) supplies the singleton (invariant #15).
 
 import type { Sql } from 'postgres';
 
@@ -27,10 +28,16 @@ interface FailedJobRow {
   attempts: number;
   max_attempts: number;
   created_at: Date;
+  business_id: string | null;
+  business_name: string | null;
 }
 
 interface FailedCountRow {
   total: number;
+}
+
+interface TopicRow {
+  topic: string;
 }
 
 export interface AdminJobsData {
@@ -48,19 +55,36 @@ export interface AdminJobsData {
     attempts: number;
     maxAttempts: number;
     createdAt: string;
+    /**
+     * Resolved from `payload->>'businessId'` (job_outbox has no business
+     * column — every business-scoped payload carries the id, see
+     * job-outbox-helpers.ts). Null for platform-wide topics and for a payload
+     * whose id no longer resolves to a business.
+     */
+    businessId: string | null;
+    businessName: string | null;
   }[];
   failedTotal: number;
+  /** Distinct topics among ALL failed rows (not just this page) — the topic filter's options. */
+  failedTopics: string[];
+}
+
+export interface AdminJobsFilters {
+  limit: number;
+  offset: number;
+  /** Exact `job_outbox.topic`; absent = every topic. Validated by the route. */
+  topic?: string;
 }
 
 /**
- * Outbox status summary (incl. `dispatching`), a page of failed jobs, and the
- * total failed count — the three queries the jobs panel needs (spec §4).
- * Queue depth/pool-wait is a separate concern, fetched from the worker by
- * `fetchQueueHealth` (src/lib/admin/queue-health.ts).
+ * Outbox status summary (incl. `dispatching`), a page of failed jobs, the total
+ * failed count and the distinct failed topics — the four queries the jobs panel
+ * needs (spec §4 + X15). Queue depth/pool-wait is a separate concern, fetched
+ * from the worker by `fetchQueueHealth` (src/lib/admin/queue-health.ts).
  */
 export async function getAdminJobsData(
   sql: Sql,
-  { limit, offset }: { limit: number; offset: number },
+  { limit, offset, topic }: AdminJobsFilters,
 ): Promise<AdminJobsData> {
   // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773).
   //
@@ -86,17 +110,33 @@ export async function getAdminJobsData(
         COUNT(CASE WHEN status = 'completed' AND completed_at >= CURRENT_DATE THEN 1 END)::int AS completed_today
       FROM job_outbox
     `;
+  // Same predicate on the page and its count so the footer total is the
+  // filtered total. Empty fragment when no topic is asked for.
+  const topicClause = topic ? sql`AND jo.topic = ${topic}` : sql``;
+  // The business join reads the payload's `businessId`. Guarded by a UUID
+  // regex before the cast: a payload with no id (platform-wide topics) or a
+  // malformed one must yield NULL, never abort the whole page with 22P02.
   const failedRows = await sql<FailedJobRow[]>`
-      SELECT id, topic, last_error, attempts, max_attempts, created_at
-      FROM job_outbox
-      WHERE status = 'failed'
-      ORDER BY created_at DESC
+      SELECT jo.id, jo.topic, jo.last_error, jo.attempts, jo.max_attempts, jo.created_at,
+             b.id AS business_id, b.name AS business_name
+      FROM job_outbox jo
+      LEFT JOIN businesses b ON b.id = CASE
+        WHEN jo.payload->>'businessId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        THEN (jo.payload->>'businessId')::uuid
+      END
+      WHERE jo.status = 'failed' ${topicClause}
+      ORDER BY jo.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
   // Not collapsed into a window `COUNT(*) OVER ()`: an empty page (offset past
   // the end) carries no row to hold the total, which would report 0.
   const countRows = await sql<FailedCountRow[]>`
-      SELECT COUNT(*)::int AS total FROM job_outbox WHERE status = 'failed'
+      SELECT COUNT(*)::int AS total FROM job_outbox jo WHERE jo.status = 'failed' ${topicClause}
+    `;
+  // Unfiltered on purpose: the filter's options must include the topic the
+  // operator has NOT selected yet.
+  const topicRows = await sql<TopicRow[]>`
+      SELECT DISTINCT topic FROM job_outbox WHERE status = 'failed' ORDER BY topic ASC
     `;
 
   const summary = summaryRows[0] ?? { pending: 0, dispatching: 0, dispatched: 0, failed: 0, completed_today: 0 };
@@ -117,7 +157,20 @@ export async function getAdminJobsData(
       attempts: row.attempts,
       maxAttempts: row.max_attempts,
       createdAt: row.created_at.toISOString(),
+      businessId: row.business_id ?? null,
+      businessName: row.business_name ?? null,
     })),
     failedTotal,
+    failedTopics: topicRows.map((row) => row.topic),
   };
+}
+
+/**
+ * The `topic` query param, validated. Outbox topics are lower-snake-case
+ * identifiers; anything else is dropped rather than bound. Shared by the route
+ * and the server page so `?topic=` means the same thing on both.
+ */
+export function parseJobsTopicFilter(raw: string | null | undefined): string | undefined {
+  const value = (raw ?? '').trim();
+  return /^[a-z0-9_]{1,64}$/.test(value) ? value : undefined;
 }

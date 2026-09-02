@@ -34,6 +34,17 @@ describe('ForgotPasswordFormClient portal variants', () => {
     });
   });
 
+  it('keeps "Reset your password" as the h1 above the sent message (A20)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+    render(<ForgotPasswordFormClient portal="owner" brandName="RepWorth" />);
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'a@b.co' } });
+    fireEvent.submit(screen.getByRole('button', { name: /send reset link/i }).closest('form')!);
+
+    const message = await screen.findByText(/we.+sent a reset link/i, { selector: 'p' });
+    const h1 = screen.getByRole('heading', { level: 1, name: 'Reset your password' });
+    expect(h1.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('offers Resend and Back-to-sign-in after the sent state (owner)', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', fetchMock);

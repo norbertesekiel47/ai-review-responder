@@ -1,24 +1,38 @@
 'use client';
 
-import type { DashboardDataActive } from '@/lib/dashboard/types';
-import { ReviewFeedCard } from '@/components/dashboard/reviews/ReviewFeedCard';
+import { ReviewFeedCard, type ReviewFeedItem } from '@/components/dashboard/reviews/ReviewFeedCard';
 
 interface Props {
-  recentReviews: DashboardDataActive['recentReviews'];
-  onActionSuccess: () => void;
+  items: readonly ReviewFeedItem[];
+  pendingTotal: number;
+  total: number;
+  hasMore: boolean;
+  loadingMore?: boolean;
+  onLoadMore: () => void;
+  onActionSuccess: () => void | Promise<void>;
   readOnly?: boolean;
 }
 
 export function ReviewsCard({
-  recentReviews,
+  items,
+  pendingTotal,
+  total,
+  hasMore,
+  loadingMore = false,
+  onLoadMore,
   onActionSuccess,
   readOnly = false,
 }: Props) {
   return (
     <ReviewFeedCard
-      recentReviews={recentReviews}
+      items={items}
+      pendingTotal={pendingTotal}
+      total={total}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onLoadMore={onLoadMore}
       onActionSuccess={onActionSuccess}
-      emptyText="No replies waiting on you. We'll email when a new draft is ready, usually within an hour of a new review."
+      emptyText="No replies waiting on you. We'll let you know when a new draft is ready — usually within an hour of a new review."
       readOnly={readOnly}
     />
   );

@@ -20,8 +20,8 @@
 'use client';
 
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { ReplyEditor } from '@/components/dashboard/reviews/ReplyEditor';
 import { useInlineGenerate } from '@/components/dashboard/reviews/useInlineGenerate';
-import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 export function InlineGeneratePanel({
   reviewId,
@@ -81,13 +81,13 @@ export function InlineGeneratePanel({
     case 'editing':
       return (
         <div className="pr-gen-panel">
-          <textarea
+          <ReplyEditor
+            id={`inline-generate-editor-${reviewId}`}
             className="pr-gen-textarea"
-            aria-label="Edit the draft reply"
+            label="Edit the draft reply"
             value={state.text}
-            maxLength={MAX_REPLY_LENGTH}
             rows={5}
-            onChange={(event) => actions.changeEditText(event.target.value)}
+            onChange={actions.changeEditText}
           />
           <div className="pr-gen-actions">
             <button

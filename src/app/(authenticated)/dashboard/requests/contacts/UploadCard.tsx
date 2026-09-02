@@ -477,6 +477,13 @@ function UploadActions({
             few seconds.
           </span>
         )}
+        {/* The one-line reason a disabled button owes the owner (UX audit D7):
+            the two gates that hold it are both theirs to clear. */}
+        {!canSubmit && !busy && (
+          <span style={{ fontSize: 13, color: 'var(--rw-app-text-muted)' }}>
+            Choose a CSV file and tick the confirmation above to upload.
+          </span>
+        )}
       </div>
     </>
   );

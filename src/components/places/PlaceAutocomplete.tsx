@@ -37,12 +37,16 @@ export function PlaceAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<PlaceSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The mounted <gmp-place-autocomplete>; null until the Maps library has loaded.
+  // Kept in state so the `gmp-select` subscription lives in its own effect below,
+  // where add/remove are visibly paired in one body (react-doctor
+  // `effect-needs-cleanup` cannot follow a listener attached inside a promise).
+  const [autocompleteEl, setAutocompleteEl] = useState<HTMLElement | null>(null);
   const onPlaceSelectEvent = useEffectEvent(onPlaceSelect);
 
   useEffect(() => {
     let cancelled = false;
     let element: HTMLElement | null = null;
-    let handleSelect: ((event: Event) => Promise<void>) | null = null;
 
     // Force light theme on the web component (system may be in dark mode)
     const styleId = 'gmp-autocomplete-light';
@@ -54,9 +58,10 @@ export function PlaceAutocomplete({
           color-scheme: light only !important;
           border-radius: 0.375rem;
         }
+        /* 16px: anything smaller makes iOS Safari zoom the viewport on focus. */
         gmp-place-autocomplete::part(input) {
-          font-size: 0.875rem;
-          line-height: 1.25rem;
+          font-size: 1rem;
+          line-height: 1.5rem;
         }
       `;
       document.head.appendChild(style);
@@ -81,48 +86,10 @@ export function PlaceAutocomplete({
         }
         element.style.width = '100%';
 
-        handleSelect = async (event: Event) => {
-          try {
-            const { placePrediction } = event as any;
-            if (!placePrediction) {
-              setError('Failed to get place prediction');
-              return;
-            }
-
-            const place = placePrediction.toPlace();
-            await place.fetchFields({
-              fields: ['id', 'formattedAddress', 'location'],
-            });
-
-            if (cancelled) return;
-
-            if (!place.location || !place.id) {
-              setError('Place has no location data');
-              return;
-            }
-
-            const result: PlaceSelection = {
-              placeId: place.id,
-              formattedAddress: place.formattedAddress ?? '',
-              lat: place.location.lat(),
-              lng: place.location.lng(),
-            };
-
-            setSelection(result);
-            setError(null);
-            onPlaceSelectEvent(result);
-          } catch (err: unknown) {
-            if (cancelled) return;
-
-            setError('Failed to load place details');
-            console.error('[PlaceAutocomplete]', err);
-          }
-        };
-
-        element.addEventListener('gmp-select', handleSelect);
 
         containerRef.current.replaceChildren();
         containerRef.current.appendChild(element);
+        setAutocompleteEl(element);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -133,12 +100,60 @@ export function PlaceAutocomplete({
 
     return () => {
       cancelled = true;
-      if (element && handleSelect) {
-        element.removeEventListener('gmp-select', handleSelect);
-      }
       element?.remove();
+      setAutocompleteEl(null);
     };
   }, [ariaLabel, ariaLabelledBy, placeholder]);
+
+  // Subscribe to the element's selection event; unsubscribe on unmount or when
+  // the element is replaced.
+  useEffect(() => {
+    if (!autocompleteEl) return;
+    let cancelled = false;
+    const handleSelect = async (event: Event) => {
+      try {
+        const { placePrediction } = event as any;
+        if (!placePrediction) {
+          setError('Failed to get place prediction');
+          return;
+        }
+
+        const place = placePrediction.toPlace();
+        await place.fetchFields({
+          fields: ['id', 'formattedAddress', 'location'],
+        });
+
+        if (cancelled) return;
+
+        if (!place.location || !place.id) {
+          setError('Place has no location data');
+          return;
+        }
+
+        const result: PlaceSelection = {
+          placeId: place.id,
+          formattedAddress: place.formattedAddress ?? '',
+          lat: place.location.lat(),
+          lng: place.location.lng(),
+        };
+
+        setSelection(result);
+        setError(null);
+        onPlaceSelectEvent(result);
+      } catch (err: unknown) {
+        if (cancelled) return;
+
+        setError('Failed to load place details');
+        console.error('[PlaceAutocomplete]', err);
+      }
+    };
+
+    autocompleteEl.addEventListener('gmp-select', handleSelect);
+    return () => {
+      cancelled = true;
+      autocompleteEl.removeEventListener('gmp-select', handleSelect);
+    };
+  }, [autocompleteEl]);
 
   const handleClear = () => {
     setSelection(null);
@@ -150,22 +165,30 @@ export function PlaceAutocomplete({
     <div>
       <div ref={containerRef} />
 
-      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-rw-error mt-1">
+          {error}
+        </p>
+      )}
 
+      {/* Confirmation card: the address is the owner's fact; the check glyph
+          is the colour's shape cue. The Place ID is our identifier, not theirs
+          — it never renders. */}
       {selection && (
-        <div className="mt-2 flex items-start justify-between rounded-md border border-green-200 bg-green-50 px-3 py-2">
-          <div>
-            <p className="text-sm font-medium text-green-900">
+        <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-rw-success/30 bg-rw-success/5 px-4 py-3">
+          <p className="flex items-start gap-2 text-sm text-rw-ink">
+            <span aria-hidden="true" className="mt-px shrink-0 font-medium text-rw-success">
+              ✓
+            </span>
+            <span>
+              <span className="sr-only">Selected: </span>
               {selection.formattedAddress}
-            </p>
-            <p className="text-xs text-green-700 mt-0.5">
-              Place ID: {selection.placeId.slice(0, 20)}...
-            </p>
-          </div>
+            </span>
+          </p>
           <button
             type="button"
             onClick={handleClear}
-            className="ml-2 text-xs text-green-600 hover:text-green-800"
+            className="shrink-0 -my-2 min-h-[44px] px-2 text-sm font-medium text-rw-teal-strong hover:text-rw-teal-strong-hover hover:underline"
           >
             Clear
           </button>

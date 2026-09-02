@@ -312,7 +312,7 @@ describe('PastRepliesClient', () => {
     expect(screen.getByRole('button', { name: /needs attention/i })).toBeInTheDocument();
     expect(screen.queryByText(/editing unavailable/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^generate$/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/pending recovery/i)).toBeInTheDocument();
+    expect(screen.getByText(/not on google yet/i)).toBeInTheDocument();
   });
 
   it('orphan row: clicking recovery button opens drawer in recovery state', async () => {

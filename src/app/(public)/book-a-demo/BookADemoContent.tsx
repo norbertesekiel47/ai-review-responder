@@ -5,6 +5,7 @@ import { m } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
 import { SiteFooter } from '@/components/ui/SiteFooter';
+import { EARLY_ACCESS_CTA } from '@/components/ui/marketing-links';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
@@ -12,7 +13,7 @@ const WAITLIST_BULLETS = [
   'Get notified when early access opens for your area',
   'Help us prioritize your business and location',
   'Share your Google Maps listing so setup is faster later',
-  'Move cleanly into a demo request when bookings reopen',
+  "We'll offer you a walkthrough when demos open",
 ];
 
 const TRUST_SIGNALS = [
@@ -48,7 +49,7 @@ export function BookADemoContent({ selfServeEnabled = false, trialEnabled = fals
             <m.div {...fadeUp(0.2)}>
               <p className="text-sm tracking-wider uppercase text-rw-teal-strong mb-4">Early access</p>
               <h1 className="text-4xl md:text-5xl font-medium leading-tight text-rw-ink mb-6">
-                Join the RepWorth early access waitlist
+                {EARLY_ACCESS_CTA.label} to RepWorth
               </h1>
               <p className="text-base text-rw-ink-soft mb-8">
                 We&apos;ll reach out when your area opens. No demo is scheduled yet.
@@ -81,7 +82,7 @@ export function BookADemoContent({ selfServeEnabled = false, trialEnabled = fals
             {/* Right: form */}
             <m.div {...fadeUp(0.4)}>
               <div className="bg-white rounded-2xl border border-rw-teal/10 shadow-lg p-8">
-                <h2 className="text-xl font-medium text-rw-ink mb-6">Join waitlist</h2>
+                <h2 className="text-xl font-medium text-rw-ink mb-6">Tell us about your business</h2>
                 <LeadIntakeForm intent="waitlist" source="book-a-demo" tone="light" />
               </div>
             </m.div>
@@ -114,10 +115,9 @@ export function BookADemoContent({ selfServeEnabled = false, trialEnabled = fals
       </section>
       </main>
 
-      {/* Footer so the page isn't a footerless dead-end */}
-      <div className="px-8 pb-4">
-        <SiteFooter />
-      </div>
+      {/* Unwrapped, like every other island: the footer is a sibling of <main>
+          and runs the island's full width instead of sitting inset in padding. */}
+      <SiteFooter />
     </PageShell>
   );
 }

@@ -27,6 +27,9 @@ vi.mock('@/components/ui/PageShell', () => ({
 vi.mock('@/components/ui/SiteNav', () => ({
   SiteNav: () => createElement('nav', { 'data-testid': 'site-nav' }),
 }));
+vi.mock('@/components/ui/SiteFooter', () => ({
+  SiteFooter: () => createElement('footer', { 'data-testid': 'site-footer' }),
+}));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) =>
     createElement('a', { href, ...props }, children),
@@ -76,7 +79,7 @@ describe('DemoViewerContent', () => {
     expect(screen.getByText('Maria G.')).toBeInTheDocument();
   });
 
-  it('CTA links to /book-a-demo, not a mailto', () => {
+  it('CTA is the early-access door to /book-a-demo, not a demo booking or a mailto', () => {
     render(
       createElement(DemoViewerContent, {
         businessName: "Joe's Coffee",
@@ -85,7 +88,24 @@ describe('DemoViewerContent', () => {
         selfServeEnabled: false,
       }),
     );
-    expect(screen.getByRole('link', { name: /book a demo/i })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.getByRole('link', { name: 'Get early access' })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.queryByText(/book a demo/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the site footer as a sibling after main', () => {
+    const { container } = render(
+      createElement(DemoViewerContent, {
+        businessName: "Joe's Coffee",
+        reviews: [],
+        responses: [],
+        selfServeEnabled: false,
+      }),
+    );
+    const main = container.querySelector('main#main-content');
+    expect(main).not.toBeNull();
+    expect(screen.getByTestId('site-footer').previousElementSibling).toBe(main);
+    // The empty state's prose does not promise a demo either.
+    expect(screen.queryByText(/book a demo/i)).not.toBeInTheDocument();
   });
 
   it('hides the languages chip when every review and reply is English', () => {

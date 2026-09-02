@@ -118,7 +118,7 @@ export function PlanPickerClient({
           Choose your plan
         </h1>
         <p className="text-rw-ink-soft text-center mb-3">
-          Start with no default: choose the authority you want to grant your agent team.
+          Pick how much RepWorth does on its own. You can change this later.
         </p>
         {trialEnabled && (
           <p className="text-sm text-rw-teal-strong text-center mb-8 font-medium">
@@ -197,22 +197,32 @@ export function PlanPickerClient({
           })}
         </fieldset>
 
+        {/* The error sits directly above the CTA — the thing the owner just
+            pressed — never below the legal text where it can fall off-screen (A9). */}
+        {error && (
+          <p role="alert" className="text-sm text-rw-error text-center mt-8 max-w-sm mx-auto">
+            {error}
+          </p>
+        )}
+
         <m.button
           type="button"
           onClick={handleSubmit}
           disabled={selecting}
+          aria-describedby="plan-checkout-where"
           {...buttonMotion}
-          className="block w-full max-w-sm mx-auto mt-8 text-center py-3 rounded-full font-medium text-sm transition bg-rw-teal-strong text-rw-cream shadow-lg hover:bg-rw-teal-strong-hover disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`block w-full max-w-sm mx-auto ${error ? 'mt-3' : 'mt-8'} text-center py-3 rounded-full font-medium text-sm transition bg-rw-teal-strong text-rw-cream shadow-lg hover:bg-rw-teal-strong-hover disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           {selecting ? 'Redirecting to checkout…' : 'Continue to secure checkout'}
         </m.button>
+        <p id="plan-checkout-where" className="text-xs text-rw-ink-soft text-center mt-3">
+          You&apos;ll enter card details on Stripe&apos;s secure page, then return here.
+        </p>
 
         <p id="plan-renewal-terms" className="text-xs text-rw-ink-soft text-center mt-6 max-w-xl mx-auto">
           Subscriptions renew monthly at the listed base price plus extra locations and applicable taxes until cancelled. Cancel anytime from your account. By subscribing you agree to our{' '}
           <Link href="/legal/terms" className="underline hover:text-rw-ink">Terms</Link>.
         </p>
-
-        {error && <p role="alert" className="text-sm text-rw-error text-center mt-6">{error}</p>}
       </div>
     </LazyMotion>
   );

@@ -7,7 +7,8 @@ import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
 import { PricingContent } from './PricingContent';
 
 export const metadata: Metadata = {
-  title: 'Pricing · RepWorth',
+  // Bare name: the root layout's title template appends " · RepWorth".
+  title: 'Pricing',
   description: 'Transparent monthly pricing for Copilot and policy-controlled Autopilot review response workflows.',
 };
 

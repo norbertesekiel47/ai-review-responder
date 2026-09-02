@@ -16,11 +16,13 @@ export function Showcase({ mode }: ShowcaseProps) {
         Welcome back. Your <em>inbox is quiet</em>.
       </>
     );
+  // Static, truthful copy only — no invented counts or live-looking stats.
+  // A logged-out visitor has no data behind "127 reviews answered" (A21).
   const lead =
     mode === 'signup'
-      ? 'Join the local businesses saving 15 hours every week with personalised, on-brand replies.'
-      : '127 reviews answered while you slept. Three are waiting for your one-tap approval.';
-  const eyebrow = mode === 'signup' ? 'Get started in 90 seconds' : 'Welcome home';
+      ? 'Personal, on-brand replies to every Google review — drafted for you, posted only when you say so.'
+      : 'Sign in to review the replies waiting for you.';
+  const eyebrow = mode === 'signup' ? 'Get started in a few minutes' : 'Welcome back';
 
   return (
     <div className="rw-showcase">
@@ -66,18 +68,19 @@ export function Showcase({ mode }: ShowcaseProps) {
         </div>
       </div>
 
+      {/* Three things RepWorth does — statements, not fabricated metrics. */}
       <div className="rw-stats">
         <div className="rw-stat">
-          <div className="rw-stat-val">15h</div>
-          <div className="rw-stat-lbl">saved per week</div>
+          <div className="rw-stat-val">Every review</div>
+          <div className="rw-stat-lbl">gets a drafted reply</div>
         </div>
         <div className="rw-stat">
-          <div className="rw-stat-val">96%</div>
-          <div className="rw-stat-lbl">response rate</div>
+          <div className="rw-stat-val">You approve</div>
+          <div className="rw-stat-lbl">before anything posts</div>
         </div>
         <div className="rw-stat">
-          <div className="rw-stat-val">60s</div>
-          <div className="rw-stat-lbl">poll cadence</div>
+          <div className="rw-stat-val">Your voice</div>
+          <div className="rw-stat-lbl">learned from your edits</div>
         </div>
       </div>
 

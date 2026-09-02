@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   EscalationActions,
   ReviewActions,
   type ReviewEscalation,
 } from '@/components/dashboard/reviews/ReviewActions';
+import { useInlineGenerate } from '@/components/dashboard/reviews/useInlineGenerate';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { useRefreshHold } from '@/components/dashboard/shell/refresh-hold';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
@@ -21,7 +23,10 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   approved: { label: 'Approved', cls: 'badge-edited' },
 };
 
-interface ReviewFeedItem {
+/** The countdown chip re-renders on this cadence while a veto window is open. */
+const COUNTDOWN_TICK_MS = 30_000;
+
+export interface ReviewFeedItem {
   id: string;
   reviewerName: string;
   starRating: number | null;
@@ -37,28 +42,38 @@ interface ReviewFeedItem {
 }
 
 interface ReviewFeedCardProps {
-  recentReviews: readonly ReviewFeedItem[];
-  onActionSuccess: () => void;
+  /** The loaded queue rows (every page fetched so far). */
+  items: readonly ReviewFeedItem[];
+  /** Authoritative drafts-awaiting-approval count for the scope (same source as the nav badge). */
+  pendingTotal: number;
+  /** Queue rows across the whole scope — drives "Showing N of M". */
+  total: number;
+  hasMore: boolean;
+  loadingMore?: boolean;
+  onLoadMore: () => void;
+  onActionSuccess: () => void | Promise<void>;
   emptyText: string;
   readOnly?: boolean;
 }
 
 export function ReviewFeedCard({
-  recentReviews,
+  items,
+  pendingTotal,
+  total,
+  hasMore,
+  loadingMore = false,
+  onLoadMore,
   onActionSuccess,
   emptyText,
   readOnly = false,
 }: ReviewFeedCardProps) {
-  const now = useReviewFeedClock(recentReviews);
-  const pendingCount = recentReviews.filter(
-    (review) => (review.responseStatus ?? review.status) === 'pending_approval',
-  ).length;
+  const now = useReviewFeedClock(items);
   const isClockPending = now === null
-    && pendingCount === 0
-    && recentReviews.some((review) => getScheduledPost(review) !== null);
+    && pendingTotal === 0
+    && items.some((review) => getScheduledPost(review) !== null);
   // History owns settled replies. The one post-approval exception is a live
   // auto-post deadline: owners must be able to see and reach its veto context.
-  const visibleReviews = recentReviews.flatMap((review) => {
+  const visibleReviews = items.flatMap((review) => {
     const scheduledPostAt = now === null ? null : getFutureScheduledPost(review, now);
     return (review.responseStatus ?? review.status) === 'pending_approval' || scheduledPostAt !== null
       ? [{ review, scheduledPostAt }]
@@ -69,8 +84,8 @@ export function ReviewFeedCard({
     <section className="reviews-queue">
       <div className="queue-head">
         <h2 className="queue-title">Waiting on you</h2>
-        <span className={`queue-count${pendingCount > 0 ? ' has-pending' : ''}`}>
-          {pendingCount} awaiting your approval
+        <span className={`queue-count${pendingTotal > 0 ? ' has-pending' : ''}`}>
+          {pendingTotal} awaiting your approval
         </span>
       </div>
 
@@ -83,22 +98,41 @@ export function ReviewFeedCard({
           <div className="empty-sub">{emptyText}</div>
           <Link href="/dashboard/reviews/history" className="empty-link">
             <Icon name="history" size={13} aria-hidden="true" />
-            See all reviews
+            All Reviews
           </Link>
         </div>
       ) : (
-        <div className="review-list">
-          {visibleReviews.map(({ review, scheduledPostAt }) => (
-            <ReviewFeedRow
-              key={review.id}
-              r={review}
-              scheduledPostAt={scheduledPostAt}
-              now={now}
-              onSuccess={onActionSuccess}
-              readOnly={readOnly}
-            />
-          ))}
-        </div>
+        <>
+          <div className="review-list">
+            {visibleReviews.map(({ review, scheduledPostAt }) => (
+              <ReviewFeedRow
+                key={review.id}
+                r={review}
+                scheduledPostAt={scheduledPostAt}
+                now={now}
+                onSuccess={onActionSuccess}
+                readOnly={readOnly}
+              />
+            ))}
+          </div>
+          {total > items.length && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs" style={{ color: 'var(--rw-app-text-muted)' }}>
+                Showing {items.length} of {total}
+              </span>
+              {hasMore && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={onLoadMore}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
@@ -124,7 +158,7 @@ function ReviewFeedRow({
   r: ReviewFeedItem;
   scheduledPostAt: number | null;
   now: number | null;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
   readOnly: boolean;
 }) {
   const displayStatus = r.responseStatus ?? r.status;
@@ -144,7 +178,7 @@ function ReviewFeedRow({
       />
       {/* Escalation actions live OUTSIDE the draft gate: moderation-held
           drafts (responseText null) are exactly the high-severity lane and
-          must still be acknowledgeable. readOnly (billing) still hides them —
+          must still be actionable. readOnly (billing) still hides them —
           the escalation routes reject non-writable subscriptions anyway. */}
       {r.escalation && !readOnly && (
         <EscalationActions escalation={r.escalation} onSuccess={onSuccess} />
@@ -222,6 +256,13 @@ function PersonaBadges({ review }: { review: ReviewFeedItem }) {
   );
 }
 
+/**
+ * The live veto-window chip. Reads as a countdown ("Posts in 12 min") so the
+ * owner knows how long the undo lasts (UX audit D11); it links to the timeline,
+ * which explains how to cancel. There is no owner-session veto route today —
+ * the veto is the link in the owner's notification — so the chip carries no
+ * inline Stop.
+ */
 function ScheduledPostChip({
   reviewId,
   scheduledPostAt,
@@ -238,9 +279,26 @@ function ScheduledPostChip({
       className="scheduled-post-chip"
     >
       <Icon name="clock" size={10} aria-hidden="true" />
-      Scheduled — posts at {formatScheduledChipTime(scheduledPostAt, now)}
+      {formatScheduledCountdown(scheduledPostAt, now)}
     </Link>
   );
+}
+
+/**
+ * Relative copy for an open veto window: minutes while the deadline is under
+ * an hour away, the viewer-local clock time beyond that. `timeZone` exists so
+ * tests can pin a zone; production callers omit it.
+ */
+export function formatScheduledCountdown(
+  scheduledPostAt: number,
+  now: number,
+  timeZone?: string,
+): string {
+  const remainingMs = scheduledPostAt - now;
+  if (remainingMs < 60_000) return 'Posts in under a minute';
+  const minutes = Math.round(remainingMs / 60_000);
+  if (minutes < 60) return `Posts in ${minutes} min`;
+  return `Posts at ${formatScheduledChipTime(scheduledPostAt, now, timeZone)}`;
 }
 
 /**
@@ -283,9 +341,28 @@ function PendingDraft({
   readOnly: boolean;
   reviewId: string;
   responseText: string | null;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
 }) {
+  // After Regenerate the row stays put in a "writing a new reply" state and
+  // polls for the fresh draft (UX audit D10) — it no longer vanishes with a
+  // "check your email" note. The hold keeps the auto-refresh from dropping it.
+  const [regenerating, setRegenerating] = useState(false);
+  useRefreshHold(regenerating);
+
   if (!isPending || !responseText) return null;
+
+  if (regenerating) {
+    return (
+      <div className="draft-block">
+        <RegeneratingDraft
+          reviewId={reviewId}
+          onSettled={() => {
+            void Promise.resolve(onSuccess()).finally(() => setRegenerating(false));
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="draft-block">
@@ -303,9 +380,57 @@ function PendingDraft({
           reviewId={reviewId}
           responseText={responseText}
           onSuccess={onSuccess}
+          onRegenerateStarted={() => setRegenerating(true)}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * In-row progress for a regenerated draft. Reuses the Reviews list's poller
+ * (`useInlineGenerate` with `resumeGenerating`) so both surfaces settle the
+ * same way; once the poll leaves `generating` the queue refetches and the row
+ * re-renders with the new draft (or drops out if moderation held it).
+ */
+function RegeneratingDraft({
+  reviewId,
+  onSettled,
+}: {
+  reviewId: string;
+  onSettled: () => void;
+}) {
+  const { state } = useInlineGenerate({ reviewId, resumeGenerating: true });
+  const settled = state.kind !== 'generating' && state.kind !== 'error';
+  const onSettledRef = useRef(onSettled);
+  useEffect(() => {
+    onSettledRef.current = onSettled;
+  });
+  useEffect(() => {
+    if (settled) onSettledRef.current();
+  }, [settled]);
+
+  if (state.kind === 'error') {
+    return (
+      <div className="space-y-1">
+        <p role="alert" className="text-xs" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
+        <button type="button" className="btn btn-tertiary" onClick={() => onSettledRef.current()}>
+          Check again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="draft-eyebrow">
+        <Icon name="sparkle" size={12} className="sparkle-icon" />
+        Writing a new reply…
+      </div>
+      <p role="status" className="text-xs mt-1" style={{ color: 'var(--rw-app-text-muted)' }}>
+        This usually takes under a minute — the new draft will appear right here.
+      </p>
+    </>
   );
 }
 
@@ -323,7 +448,7 @@ function PostedResponse({
   return (
     <>
       <button type="button" className="collapsed-toggle" onClick={() => setShowResp((s) => !s)}>
-        {showResp ? 'Hide response' : 'Show response'}
+        {showResp ? 'Hide reply' : 'Show reply'}
       </button>
       {showResp && <p className="posted-resp">{responseText}</p>}
     </>
@@ -357,6 +482,11 @@ function getScheduledPost(review: ReviewFeedItem): number | null {
   return Number.isFinite(scheduledPostAt) ? scheduledPostAt : null;
 }
 
+/**
+ * The feed's clock. Ticks at the next open deadline so a card leaves the queue
+ * the moment its window closes, and at most every 30 s in between so the
+ * countdown chip stays honest. Idle (no timer) once nothing is scheduled.
+ */
 function useReviewFeedClock(reviews: readonly ReviewFeedItem[]): number | null {
   const [now, setNow] = useState<number | null>(null);
 
@@ -371,7 +501,10 @@ function useReviewFeedClock(reviews: readonly ReviewFeedItem[]): number | null {
         return earliest === null ? deadline : Math.min(earliest, deadline);
       }, null);
       if (nextDeadline !== null) {
-        timeoutId = window.setTimeout(refresh, Math.min(nextDeadline - currentTime + 1, 2_147_483_647));
+        timeoutId = window.setTimeout(
+          refresh,
+          Math.min(nextDeadline - currentTime + 1, COUNTDOWN_TICK_MS),
+        );
       }
     };
     timeoutId = window.setTimeout(refresh, 0);

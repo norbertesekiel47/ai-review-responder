@@ -193,9 +193,12 @@ describe('DashboardContent glance composition (charts relocated to Analytics)', 
     const team = screen.getByTestId('agent-team');
     const attention = screen.getByTestId('needs-attention');
     const strip = screen.getByTestId('strip');
+    // With drafts waiting (fixture: pendingApprovalCount 2) the approvals strip is
+    // the first zone — "what needs me" before "how am I doing" (UX audit D8). The
+    // hero → agent team → attention order is unchanged below it.
+    expect(strip.compareDocumentPosition(hero) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(hero.compareDocumentPosition(team) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(team.compareDocumentPosition(attention) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(attention.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole('link', { name: /view analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
     expect(screen.queryByTestId('brief')).not.toBeInTheDocument();
     expect(screen.queryByTestId('trend')).not.toBeInTheDocument();

@@ -12,11 +12,18 @@ type OffboardingStatusResponse = {
   activeOffboarding: OffboardingStatusView | null;
 };
 
+/** How often the page re-reads the teardown status while one is active (D29).
+ *  The copy on the page promises live updates; this is what keeps it true. */
+const OFFBOARDING_STATUS_POLL_MS = 30_000;
+
 export function OffboardingStatusClient() {
   const {
     data,
     error,
     isLoading,
+    isFetching,
+    dataUpdatedAt,
+    refetch,
   } = useQuery({
     queryKey: ['account-offboarding-status', 'status-page'],
     queryFn: fetchAccountOffboardingStatus,
@@ -24,6 +31,10 @@ export function OffboardingStatusClient() {
     staleTime: 0,
     gcTime: 0,
     refetchOnMount: 'always',
+    // Poll only while there is a teardown to watch; the "nothing in progress"
+    // screen has nothing to update.
+    refetchInterval: (query) =>
+      query.state.data?.activeOffboarding ? OFFBOARDING_STATUS_POLL_MS : false,
   });
 
   if (isLoading) {
@@ -66,6 +77,11 @@ export function OffboardingStatusClient() {
         <OffboardingStatusScreen
           activeOffboarding={active}
           accountTimeZone={accountTimeZone}
+          liveStatus={{
+            onRefresh: () => void refetch(),
+            refreshing: isFetching,
+            lastCheckedAt: dataUpdatedAt > 0 ? dataUpdatedAt : null,
+          }}
         />
       ) : (
         <div className="account-state-screen">

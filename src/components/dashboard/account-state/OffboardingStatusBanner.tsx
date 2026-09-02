@@ -19,17 +19,35 @@ interface OffboardingStatusBannerProps {
   accountTimeZone?: string | null;
 }
 
+/**
+ * Tone follows the fact, not the topic (UX audit D29). A scheduled, owner-
+ * requested cancellation is the owner's own decision proceeding as planned —
+ * it is not an alarm, so it gets the calm sage variant and a clock. Red with
+ * the alert icon is RESERVED for `failed`, the one state where something did
+ * not go as planned. Both variants are existing `.sub-status-banner--*`
+ * recipes; no new colour is introduced.
+ */
+export function offboardingTone(active: Pick<OffboardingStatusView, 'status'>): 'failed' | 'calm' {
+  return active.status === 'failed' ? 'failed' : 'calm';
+}
+
 export function OffboardingStatusBanner({
   activeOffboarding,
   accountTimeZone,
 }: OffboardingStatusBannerProps) {
   const title = offboardingTitle(activeOffboarding);
   const detail = offboardingDeadlineDetail(activeOffboarding, accountTimeZone);
+  const tone = offboardingTone(activeOffboarding);
 
   return (
-    <div className="sub-status-banner sub-status-banner--cancelled">
+    <div
+      className={`sub-status-banner ${
+        tone === 'failed' ? 'sub-status-banner--cancelled' : 'sub-status-banner--trial'
+      }`}
+      data-tone={tone}
+    >
       <div className="sub-status-banner__icon">
-        <Icon name="alert" size={20} />
+        <Icon name={tone === 'failed' ? 'alert' : 'clock'} size={20} />
       </div>
       <div className="sub-status-banner__content">
         <div className="sub-status-banner__title">{title}</div>
@@ -39,13 +57,9 @@ export function OffboardingStatusBanner({
             {' '}Customer data is deleted or anonymized after the waiting period.
             {' '}Limited billing, security, and compliance records may be retained where required.
           </p>
-          {detail ? (
+          {detail && (
             <p style={{ margin: '8px 0 0' }}>
               {detail.label} {detail.value}.
-            </p>
-          ) : (
-            <p style={{ margin: '8px 0 0' }}>
-              This page will update as each step finishes.
             </p>
           )}
         </div>
@@ -61,6 +75,9 @@ function offboardingTitle(active: OffboardingStatusView): string {
   }
   if (active.mode === 'delete_data') return 'Account deletion is in progress';
   if (active.status === 'purge_scheduled') return 'Account teardown is scheduled';
+  // An owner-requested cancellation that has not started yet is scheduled, not
+  // "in progress" (D29) — the same word `humanOffboardingState` uses for it.
+  if (active.status === 'scheduled') return 'Account cancellation is scheduled';
   return 'Account teardown is in progress';
 }
 

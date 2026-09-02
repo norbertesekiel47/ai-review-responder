@@ -43,7 +43,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import { EditReplyDrawer } from '@/components/dashboard/reviews/EditReplyDrawer';
+import { closeBlockedReason, EditReplyDrawer } from '@/components/dashboard/reviews/EditReplyDrawer';
 
 // jsdom has no <dialog> top-layer implementation. The stubs must still toggle
 // the `open` attribute: without it the UA styles keep the dialog display:none
@@ -97,12 +97,24 @@ describe('EditReplyDrawer shell', () => {
     expect(machine.tryClose).toHaveBeenCalledTimes(2);
   });
 
-  it('disables close with the blocked-state tooltip while a draft is in flight', () => {
+  // UX audit D15: the blocked-close reason is visible text, not a tooltip.
+  it('disables close and shows the blocked reason as visible text while a draft is in flight', () => {
     machine.isClosePending = true;
     renderDrawer({ kind: 'creating_draft' });
     const close = screen.getByLabelText('Close (disabled while draft is being created)');
     expect(close).toBeDisabled();
-    expect(close).toHaveAttribute('title', 'Wait — finishing your draft request…');
+    expect(close).not.toHaveAttribute('title');
+    expect(screen.getByRole('status')).toHaveTextContent('Hang on — setting up your draft.');
+  });
+
+  it('explains the regenerating wait in plain language, with no worker jargon', () => {
+    machine.isClosePending = true;
+    renderDrawer({ kind: 'regenerating', outboxId: 'ob-1' });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Still writing your reply — this usually takes under a minute.',
+    );
+    expect(screen.queryByText(/worker|polling/i)).toBeNull();
+    expect(closeBlockedReason('preview')).toBeUndefined();
   });
 });
 
@@ -136,10 +148,12 @@ describe('DrawerStateBody arms', () => {
     expect(screen.getAllByText(/Generating a fresh draft/).length).toBeGreaterThan(0);
   });
 
-  it('regenerate_poll_error explains the paused close and resumes polling', () => {
+  it('regenerate_poll_error explains the paused close in owner terms and offers Check again', () => {
     renderDrawer({ kind: 'regenerate_poll_error', outboxId: 'ob-1', message: 'Polling hiccup.' });
     expect(screen.getByText('Polling hiccup.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Resume polling' }));
+    expect(screen.getByText(/closing is paused until the draft arrives/i)).toBeInTheDocument();
+    expect(screen.queryByText(/worker/i)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
     expect(machine.actions.resumePolling).toHaveBeenCalled();
   });
 
@@ -190,10 +204,15 @@ describe('DrawerStateBody arms', () => {
     expect(machine.actions.discardExistingDraft).toHaveBeenCalledWith('r-9');
   });
 
-  it('error offers Try again wired to reset', () => {
+  it('error offers Try again wired to reset, as tappable .btn controls (UX audit D13)', () => {
     renderDrawer({ kind: 'error', message: 'Something broke.' });
     expect(screen.getByText('Something broke.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    const tryAgain = screen.getByRole('button', { name: 'Try again' });
+    expect(tryAgain).toHaveClass('btn');
+    // The header has its own icon Close; the panel's text Close is the .btn one.
+    const panelClose = screen.getAllByRole('button', { name: 'Close' }).find((button) => button.textContent === 'Close');
+    expect(panelClose).toHaveClass('btn', 'btn-tertiary');
+    fireEvent.click(tryAgain);
     expect(machine.actions.reset).toHaveBeenCalled();
   });
 
