@@ -323,6 +323,7 @@ function prepareJob(entry: OutboxEntry): PreparedJob {
  * back to per-row `queue.add` after a bulk failure) would re-introduce N×
  * dispatch timeouts per group against a dead Redis, the stall bulk removes.
  */
+/** Resolves `true` when any row in the group hit the dispatch-failure path. */
 // fallow-ignore-next-line complexity
 async function dispatchTopicGroup(
   topic: string,
@@ -330,7 +331,8 @@ async function dispatchTopicGroup(
   entries: OutboxEntry[],
   dispatchTimeoutMs: number,
   logger: WorkerLogger,
-): Promise<void> {
+): Promise<boolean> {
+  let failed = false;
   const prepared: PreparedJob[] = [];
   for (const entry of entries) {
     try {
@@ -344,9 +346,10 @@ async function dispatchTopicGroup(
         toError(prepareError),
       );
       await markDispatchFailed([entry], toError(prepareError).message, logger);
+      failed = true;
     }
   }
-  if (prepared.length === 0) return;
+  if (prepared.length === 0) return failed;
 
   const groupEntries = prepared.map((p) => p.entry);
   try {
@@ -378,14 +381,18 @@ async function dispatchTopicGroup(
 
     const errorMsg = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
     await markDispatchFailed(groupEntries, errorMsg, logger);
+    failed = true;
   }
+  return failed;
 }
 
+/** Resolves `true` when any topic group hit the dispatch-failure path. */
 async function dispatchBatch(
   entries: OutboxEntry[],
   dispatchTimeoutMs: number,
   logger: WorkerLogger,
-): Promise<void> {
+): Promise<boolean> {
+  let anyGroupFailed = false;
   const groups = new Map<string, { queue: Queue; entries: OutboxEntry[] }>();
   for (const entry of entries) {
     const queue = topicToQueue[entry.topic];
@@ -402,8 +409,16 @@ async function dispatchBatch(
   // trips, not per-group, and serial groups keep Redis and pool pressure
   // identical to the pre-bulk poller.
   for (const [topic, group] of groups) {
-    await dispatchTopicGroup(topic, group.queue, group.entries, dispatchTimeoutMs, logger);
+    const groupFailed = await dispatchTopicGroup(
+      topic,
+      group.queue,
+      group.entries,
+      dispatchTimeoutMs,
+      logger,
+    );
+    anyGroupFailed = anyGroupFailed || groupFailed;
   }
+  return anyGroupFailed;
 }
 
 // Watchdog, then claim + bulk-dispatch, repeated within the drain budget.
@@ -459,9 +474,21 @@ export async function pollOutbox(): Promise<void> {
       batches += 1;
 
       logger.log('Found pending entries', { count: entries.length, batch: batches });
-      await dispatchBatch(entries, dispatchTimeoutMs, logger);
+      const anyGroupFailed = await dispatchBatch(entries, dispatchTimeoutMs, logger);
 
       if (entries.length < batchSize) return;
+      // A failed group was re-pended with available_at untouched, so the very
+      // next claim in this loop would pick it straight back up (claims order by
+      // available_at), bump attempts, fail again, and burn the whole retry
+      // budget inside ONE tick against a fast-failing Redis (-OOM/-READONLY
+      // reply errors, not a parked socket). Stop at one batch per tick on
+      // failure — exactly the outage tolerance the per-row poller had.
+      if (anyGroupFailed) {
+        logger.log('Dispatch failure in this batch; leaving the remainder for the next tick', {
+          batches,
+        });
+        return;
+      }
       const elapsedMs = Date.now() - cycleStartedAt;
       if (elapsedMs >= drainBudgetMs) {
         logger.log('Drain budget spent with a full batch; remainder waits for the next tick', {

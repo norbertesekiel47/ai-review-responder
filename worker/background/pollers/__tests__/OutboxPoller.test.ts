@@ -313,6 +313,10 @@ describe('OutboxPoller.pollOutbox', () => {
       expect(String((pendingReset as unknown[])[1])).toBe('redis down');
       expect((pendingReset as unknown[])[2]).toEqual(['n-1', 'n-2']);
       expect((pendingReset as unknown[])[3]).toEqual([1, 3]);
+      // Pin the optimistic-lock guard on the re-pend: a stale cycle must not
+      // reset a row a newer cycle has since re-claimed (attempts bumped).
+      expect(sqlText(pendingReset as unknown[])).toContain("o.status = 'dispatching'");
+      expect(sqlText(pendingReset as unknown[])).toContain('attempts = claimed.attempts');
       expect(findSql(mockSql.mock.calls, "status = 'failed'", 'last_error')).toBeUndefined();
     });
 
@@ -328,6 +332,12 @@ describe('OutboxPoller.pollOutbox', () => {
       const pending = findSql(mockSql.mock.calls, "status = 'pending'", 'last_error') as unknown[];
       expect(failed[2]).toEqual(['n-1']);
       expect(pending[2]).toEqual(['n-2']);
+      // Both failure-path UPDATEs carry the same attempt-scoped guard as the
+      // dispatched UPDATE; the dead-letter one especially, since 'failed' is terminal.
+      for (const update of [failed, pending]) {
+        expect(sqlText(update)).toContain("o.status = 'dispatching'");
+        expect(sqlText(update)).toContain('attempts = claimed.attempts');
+      }
     });
 
     it('a bulk failure in one topic group does not stop the next group from dispatching', async () => {
@@ -381,6 +391,37 @@ describe('OutboxPoller.pollOutbox', () => {
       const sizes = mockQueueAddBulk.mock.calls.map((c: unknown[]) => (c[0] as BulkJob[]).length);
       expect(sizes).toEqual([50, 50, 7]);
       expect(sqlReturnQueue).toHaveLength(2); // the 'd' batch (+ its UPDATE) was left for the next tick
+    });
+
+    it('stops after ONE claim when a full batch has a failed group, leaving the rows re-pended at their first attempt', async () => {
+      // Fast-failing Redis (-OOM / -READONLY reply errors): addBulk rejects
+      // synchronously on every call. The re-pend leaves available_at untouched,
+      // so without the failure stop the next claim in the same loop would pick
+      // the same rows straight back up and burn max_attempts inside one tick.
+      mockQueueAddBulk.mockRejectedValue(new Error('OOM command not allowed'));
+      try {
+        sqlReturnQueue.push(batch('a', 50)); // full batch, attempts = 1
+        sqlReturnQueue.push([]); // the group's re-pend UPDATE
+        sqlReturnQueue.push(batch('a', 50)); // what a second claim WOULD return (attempts bumped in prod)
+        sqlReturnQueue.push([]);
+        await pollOutbox();
+
+        const claims = mockSql.mock.calls.filter((c: unknown[]) => sqlText(c).includes('FOR UPDATE SKIP LOCKED'));
+        expect(claims).toHaveLength(1);
+        expect(mockQueueAddBulk).toHaveBeenCalledOnce();
+
+        // The 50 rows were re-pended at attempts 1 — not dead-lettered.
+        const pendingResets = mockSql.mock.calls.filter(
+          (c: unknown[]) => sqlText(c).includes("status = 'pending'") && sqlText(c).includes('last_error'),
+        );
+        expect(pendingResets).toHaveLength(1);
+        expect((pendingResets[0] as unknown[])[2]).toHaveLength(50);
+        expect(new Set((pendingResets[0] as unknown[])[3] as number[])).toEqual(new Set([1]));
+        expect(findSql(mockSql.mock.calls, "status = 'failed'", 'last_error')).toBeUndefined();
+        expect(sqlReturnQueue).toHaveLength(2); // second batch untouched this tick
+      } finally {
+        mockQueueAddBulk.mockReset();
+      }
     });
 
     it('does not re-claim when the first batch is already short', async () => {
