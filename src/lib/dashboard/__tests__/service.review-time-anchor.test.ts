@@ -26,20 +26,21 @@ let mockSql: Sql;
 const BUSINESS_ID = 'biz-anchor-1';
 const ANCHOR = 'LEAST(review_date, detected_at)';
 
-// Sequential settledInOrder order: 0 business, 1 totalReviews, 2 totalResponded,
-// 3 velocity, 4 ranking, 5 recentReviews, 6 monthlyBrief, 7 weeklyBrief,
-// 8 zernioConn, 9 queuedReconnect, 10 unresolvedIncident, 11 ratingBreakdown,
-// (readPendingMarker is Redis — it does NOT consume the queue), then the
-// reputation batch: 12 rate, 13 star, 14 timeSaved, 15 trend, 16 pendingCount.
+// Sequential settledInOrder order: 0 business, 1 reviewCounts (all-time total
+// + windowed rating breakdown, one GROUP BY), 2 totalResponded, 3 weeklySeries
+// (velocity count + sentiment avg_score, one scan), 4 ranking, 5 recentReviews,
+// 6 monthlyBrief, 7 weeklyBrief, 8 zernioConn, 9 queuedReconnect,
+// 10 unresolvedIncident, (readPendingMarker is Redis — it does NOT consume the
+// queue), then the reputation batch: 11 rate, 12 star, 13 timeSaved,
+// 14 pendingCount (the trend is projected from slot 3, no statement).
 function seed() {
   harness.resetMockSql();
   harness.sqlReturnQueue.push(
     [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }],
-    [{ count: 0 }], [{ count: 0 }], [], [], [], [], [], [], [], [], [],
+    [], [{ count: 0 }], [], [], [], [], [], [], [], [],
     [{ received_current: 0, handled_current: 0, received_prior: 0, handled_prior: 0 }],
     [{ star_current: null, star_n_current: 0, star_prior: null, star_n_prior: 0 }],
     [{ handled_current: 0, handled_prior: 0 }],
-    [],
     [{ count: 0 }],
   );
 }
@@ -70,12 +71,16 @@ describe('getActiveDashboardData — Review-time anchor (#757, ADR 0019)', () =>
   it('velocity, avg star, sentiment trend and rating breakdown queries all spell LEAST(review_date, detected_at)', async () => {
     seed();
     await getActiveDashboardData(mockSql, BUSINESS_ID, { includeReputationMetrics: true });
+    // velocity and trend are now ONE statement (the weekly series carries both
+    // the count and AVG(sentiment_score)); both markers must still resolve to
+    // exactly one query, and it is the same query.
     const queries = {
       velocity: find('COALESCE(r.cnt, 0)'),
       star: find('star_n_current'),
       trend: find('AVG(sentiment_score)'),
       rating: find('GROUP BY star_rating'),
     };
+    expect(queries.trend).toBe(queries.velocity);
     // Exact occurrence counts — a partially re-anchored query (say, the FILTER
     // predicates moved but the outer WHERE left behind) passes a bare
     // `toContain` and fails here.
@@ -94,9 +99,9 @@ describe('getActiveDashboardData — Review-time anchor (#757, ADR 0019)', () =>
     await getActiveDashboardData(mockSql, BUSINESS_ID, { includeReputationMetrics: true });
     // NEGATIVE CONTROL. `handled_prior` appears in BOTH the rate and timeSaved
     // queries, and `FROM responses resp` appears THREE times (twice inside the
-    // rate query's EXISTS subqueries, service.ts:488,502, before timeSaved's own
-    // at :546) — so timeSaved is selected by the one marker unique to it, and
-    // findOnly throws if that ever stops being true.
+    // rate query's EXISTS subqueries, once in timeSaved's own FROM) — so
+    // timeSaved is selected by the one marker unique to it, and findOnly throws
+    // if that ever stops being true.
     const rate = find('received_current');
     const timeSaved = find('JOIN reviews r ON r.id = resp.review_id');
     expect(timeSaved).toContain('handled_prior');
