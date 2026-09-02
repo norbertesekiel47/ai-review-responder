@@ -259,6 +259,7 @@ production runtime: `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_FOUNDING`,
 | `OUTBOX_BATCH_SIZE` | ⬜ | |
 | `OUTBOX_DISPATCH_TIMEOUT_MS` | ⬜ | per-dispatch enqueue timeout |
 | `OUTBOX_POLL_MAX_CYCLE_MS` | ⬜ | cycle watchdog budget |
+| `OUTBOX_DRAIN_BUDGET_MS` | ⬜ | per-tick drain-loop budget after a full batch |
 | `OUTBOX_WATCHDOG_STALE_MS` | ⬜ | stale `dispatching` reclaim threshold |
 | `ARCHIVAL_INTERVAL_MS` | 🟢 | |
 | `CANCELLATION_GRACE_INTERVAL_MS` | 🟢 | |

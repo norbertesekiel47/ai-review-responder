@@ -4818,3 +4818,6 @@ the deferral buys nothing and the check fires at once. The order
 `begin … commit`. Same trap as the `SELECT … FOR UPDATE` gotcha: a guarantee that exists only
 inside a transaction silently evaporates outside one. Seed helpers in this repo already know it
 — `seedTenantAccount` opens with `SET CONSTRAINTS ALL DEFERRED`.
+
+### [2026-09-02] OutboxPoller dispatch was one Redis + one SQL round trip per row → bulk per topic group
+- [2026-09-02] Outbox drain topped out at ~10 rows/s (the ~600/min Capacity-burst drill figure) → the poller did `queue.add` + `UPDATE` per row and never re-claimed after a full batch → dispatch is now `queue.addBulk` per topic group + one `unnest`-paired UPDATE, looping under `OUTBOX_DRAIN_BUDGET_MS`; the drill number predates this and must be re-measured before it is cited as a ceiling.
