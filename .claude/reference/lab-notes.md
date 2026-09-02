@@ -602,6 +602,9 @@ AND archived_at IS NULL`. See `src/lib/db/auth.ts:readSelf` and
 `users_self_select` RLS policy works unchanged because it gates on
 `auth_id = auth.uid()`, not on the column being selected.
 
+### Stripe overage: same-account serialization is the in-tx lock, not the replica count
+- [2026-09-02] Comments claimed `concurrency:1` + one Railway instance guaranteed no two overage jobs per account overlap → stale: `acquireBillingLock` (`pg_advisory_xact_lock`) + the account `FOR UPDATE` already hold across the Stripe call inside `sql.begin` → cite the in-tx lock as the replica-safe guarantee; keep `concurrency:1` as defense in depth (`overage-account-lock.integration.test.ts`).
+
 ### CSV bulk-import: enqueue ONE aggregate Stripe overage job, not one-per-row
 [2026-05-09] The first cut of admin CSV import called
 `addLocationTransaction` for each row, which inserts a
@@ -4744,3 +4747,77 @@ inbound path.
   fields untouched, so a minimal body cannot regress `url` or `events` the way an echoed-back
   GET can. The 404's own response body named `openapi.json`; **the API answered the question,
   and the second guess was unnecessary.**
+
+---
+
+## 2026-09-02 — Phase H's first attempt: the rotation had a consumer nobody had listed, and the rollback for it was dead code
+
+### [2026-09-02] A rotation must enumerate CONSUMERS, not just the provider's key list — and a consumer is not always a vault variable
+FAIL → the first admin onboarding after the 2026-09-01 Resend rotation failed at the invite
+send. The Supabase Auth log named it exactly: `POST /invite`, `status 500`,
+`error: 535 "Authentication credentials invalid"`. **SMTP 535 is a credential rejection.**
+Supabase Auth sends through Resend SMTP, and the SMTP *password* **is a Resend API key**. The
+rotation replaced `RESEND_API_KEY` at 21:52Z and **deleted the old key at 22:31Z**; Supabase's
+SMTP settings still held the dead one. Invites, password resets and email confirmations were
+all down in production for ~7 hours, undetected.
+
+WHY → the rotation tracked the credential through the places it was *stored as a variable* —
+the vault, Vercel, Railway — plus the Zernio subscription, and verified each: fingerprints
+matched, the boot gate passed, a signed webhook round-tripped in 64 ms. **Every check was
+scoped to the consumers already known.** The missing consumer is a password field in a
+*different provider's* dashboard, holding a copy of a key the first provider issued. Nothing in
+a vault diff, an env listing, or a boot gate can see it. `ROT-D7` had already said "capture the
+provider's key list in preflight" — necessary, and not sufficient: that finds which *keys*
+exist, never who *uses* them.
+
+CORRECT → a rotation's preflight needs a **consumer inventory** alongside the key list, and the
+question that builds it is *"what would break if this key stopped working?"* — asked of
+third-party dashboards, not just of `grep`. For RepWorth's `RESEND_API_KEY` the consumers are:
+the vault → Vercel + Railway, **and Supabase Auth → SMTP settings** (host `smtp.resend.com`,
+username `resend`, password = the API key). **A rotation is not complete until every consumer
+has been exercised**, and for an email credential the only real exercise is *sending one*. The
+rotation left U5 ("no production email sent") open deliberately — on the **API** lane. Nobody
+asked about the **SMTP** lane because nobody knew it was a lane. **An open unproven path
+protects you only from the failures you named.**
+
+### [2026-09-02] A mocked characterization test over emitted SQL is BLIND to foreign keys — and can pin a bug as correct
+FAIL → `rollbackProvisionedBusiness` (the compensating cleanup when admin onboarding fails
+after `createBusinessTx` commits) could **never delete a single row**, and its unit suite passed
+the whole time. Its order was `job_outbox → users → accounts → businesses`, but
+`fk_businesses_account` is `FOREIGN KEY (account_id) REFERENCES accounts(id)` with **no
+`ON DELETE CASCADE`**. Deleting `accounts` while the `businesses` row still points at it raises
+`23503`, the enclosing `sql.begin` aborts, and every earlier delete rolls back with it. Not a
+partial cleanup — a total one, swallowed by the caller's `catch`. Found only when production hit
+it and left three orphan rows.
+
+WHY → the suite was an explicit *characterization* test: it asserted the emitted SQL **text and
+bind order**, to stop two duplicated call sites drifting. It did that job. But a mock `sql` tag
+has **no foreign keys**, so it can only ever prove which statements were issued, never whether
+they succeed. The function is reached *only* when a business row exists, and a business row is
+exactly what makes it fail — so the one precondition guaranteeing failure is the one a mock
+cannot represent. The doc comment above it reasoned about `businesses → channel_enrollments
+ON DELETE CASCADE`, which is real but is not the edge that blocks; the blocking edge,
+`businesses → accounts`, was never considered.
+
+CORRECT → **when the behaviour under test IS a constraint, the test must run against a database.**
+Keep the mocked suite for statement/bind pinning, and add a live-DB sibling that asserts the
+ROWS ARE GONE — plus a **negative control** that replays the pre-fix order and asserts it still
+raises `23503`, so a future cascade-adding migration turns the control red instead of letting
+the suite pass vacuously. General shape: *a test that asserts what a function SAYS cannot catch
+a bug in what the database DOES.*
+
+### [2026-09-02] Deferred FKs make a delete order correct only INSIDE a transaction
+Cleaning the orphans above, the first standalone `DELETE FROM users` raised
+`accounts_owner_user_id_fkey`. The users/accounts cycle has **two DEFERRABLE INITIALLY DEFERRED**
+edges (`accounts.owner_user_id → users.id`, `users.account_id → accounts.id`) and one immediate
+one (`businesses.account_id → accounts.id`, no cascade).
+
+Deferred means **checked at COMMIT**. In autocommit every statement is its own transaction, so
+the deferral buys nothing and the check fires at once. The order
+`job_outbox → users → businesses → accounts` is correct **only** wrapped in one explicit
+`begin … commit`. Same trap as the `SELECT … FOR UPDATE` gotcha: a guarantee that exists only
+inside a transaction silently evaporates outside one. Seed helpers in this repo already know it
+— `seedTenantAccount` opens with `SET CONSTRAINTS ALL DEFERRED`.
+
+### [2026-09-02] OutboxPoller dispatch was one Redis + one SQL round trip per row → bulk per topic group
+- [2026-09-02] Outbox drain topped out at ~10 rows/s (the ~600/min Capacity-burst drill figure) → the poller did `queue.add` + `UPDATE` per row and never re-claimed after a full batch → dispatch is now `queue.addBulk` per topic group + one `unnest`-paired UPDATE, looping under `OUTBOX_DRAIN_BUDGET_MS`; the drill number predates this and must be re-measured before it is cited as a ceiling.

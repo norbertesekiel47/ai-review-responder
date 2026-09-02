@@ -883,14 +883,27 @@ The core principle: **everything below approval click is reversible. Approval cl
 | Worker health | `curl https://worker.repworth.net/api/health` | `{"status":"ok",...}` |
 | Resend webhook | "Send test" in Resend dashboard | Railway log: `[ingress/resend] processed`; `inbound_events` row with `source='resend'`, `status='processed'` |
 | Zernio webhook | "Send test" in Zernio dashboard | Railway log: `[ingress/zernio] webhook.test received`; `inbound_events` row with `source='zernio'`, `event_type='webhook.test'` |
-| Sentry wiring | trigger any handled error (e.g. visit `/api/admin/overview` without session) | error appears in Sentry within 30s |
+| Sentry wiring | **NOT** `/api/admin/overview` without a session — that returns 401 *before* the route's `try`, so `reportCaughtError` never runs and Sentry sees nothing (D-5, 2026-09-01). Trigger an error that actually reaches `captureException` or an uncaught route throw | error appears in Sentry within 30s. **A silent Sentry here is a bad probe until you have confirmed the trigger reports** |
 
 ### 9.2 Initial backfill (read-only — Zernio fetches existing reviews)
 
 This pulls existing reviews from the resort's GBP into our DB. **No reviews are posted; nothing is sent to the friend's customers.** Worst case: we generate AI drafts that sit unapproved.
 
-- [ ] Wait ~30s after §8 connect (the connect callback enqueues the backfill outbox row).
+- [ ] **The connect callback does NOT enqueue the backfill.** It creates the **Import offer**
+      (`finalize-tx.ts` → `createImportOffer`) and enqueues the initial import **only if consent
+      is already `accepted`**. On a first connect the state is `pending` — the owner has not seen
+      the banner yet. The worker agrees: `guardImportConsent`
+      (`worker/jobs/zernio/job-eligibility.ts`) is fail-closed and completes the outbox row with
+      `import_consent_blocked` on anything but `accepted`. (D-2, 2026-09-01.)
+- [ ] **Owner step, required before anything below happens:** the owner accepts the Import offer
+      on their dashboard. See `beta-onboarding-cofounder-guide.md` **Step 9**, which has always
+      had this right. The offer is one-time and expires after 7 days.
+- [ ] Then wait ~30s for `OutboxPoller` to dispatch the initial-import row.
 - [ ] Watch Railway logs: `[ZernioBackfillWorker] business_id=<...>` followed by per-page `listReviews` calls.
+- [ ] **Do not verify from `inbound_events`.** Zernio webhook subscriptions are per-USER, so
+      staging's events fan out to production and complete as no-ops. Production held six
+      `zernio`/`review.new` `processed` rows on 2026-09-01 while `reviews` was 0 (D-3). Key every
+      check below on `business_id`.
 - [ ] Verify reviews landed:
   ```sql
   SELECT COUNT(*) AS reviews,
