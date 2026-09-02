@@ -1,5 +1,4 @@
 import { cookies, headers } from 'next/headers';
-import { createServerClient } from '@supabase/ssr';
 import { redirect } from 'next/navigation';
 import localFont from 'next/font/local';
 import { sql } from '@/lib/db/server';
@@ -10,7 +9,11 @@ import { OwnerIdentityProvider } from '@/contexts/OwnerIdentityContext';
 import { ToastProvider } from '@/components/dashboard/shell/toast/ToastProvider';
 import { AuthenticatedProviders } from '@/app/(authenticated)/_components/AuthenticatedProviders';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
-import { getRequestScope } from '@/lib/auth/get-request-scope';
+import {
+  getRenderAuthUser,
+  getRenderOwnerRow,
+  getRenderRequestScope,
+} from '@/lib/auth/require-owner-access';
 import { getPendingApprovalCount } from '@/lib/dashboard/pending-count';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type { LocationScope } from '@/contexts/LocationContext';
@@ -60,42 +63,20 @@ export default async function AuthenticatedLayout({
   const pathname = normalizeLayoutPathname(
     requestHeaders.get(REQUEST_PATHNAME_HEADER),
   );
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll() {
-          // Layout can't set cookies — handled by proxy
-        },
-      },
-    },
-  );
-
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+  // Render-scoped memo (React.cache, see require-owner-access.ts): the page
+  // under this shell calls requireOwnerAccess(sql), which needs the same auth
+  // user, `users` row and request scope. Going through the same three memoised
+  // helpers means one Supabase Auth round trip, one `users` read and one
+  // `businesses` scan per page render instead of two of each.
+  const authUser = await getRenderAuthUser();
   if (!authUser) redirect('/admin/login');
 
   // Read users.account_id (users.business_id was dropped in migration 034).
-  const [appUser] = await sql<{
-    role: string;
-    account_id: string | null;
-    owner_name: string | null;
-    email: string;
-  }[]>`
-    SELECT u.role, u.account_id, u.name AS owner_name, u.email
-    FROM users u
-    WHERE u.auth_id = ${authUser.id}
-    LIMIT 1
-  `;
+  const appUser = await getRenderOwnerRow(sql, authUser.id);
 
   if (!appUser) redirect('/admin/login');
 
-  // Role routing, matching requireOwnerAccess (require-owner-access.ts:78-79)
+  // Role routing, matching requireOwnerAccess (same helper, same row)
   // exactly — 10 pages under THIS shell call that helper and get these two
   // redirects, so the shell itself having only an `account_id` check meant two
   // different postures under one layout. Defense in depth behind proxy.ts's
@@ -140,7 +121,7 @@ export default async function AuthenticatedLayout({
   // Reuse getRequestScope() for cookie validation + primary fallback
   // instead of duplicating the same validation logic inline.
   const cookieValue = cookieStore.get(LOCATION_SCOPE_COOKIE)?.value ?? null;
-  const scope = await getRequestScope(
+  const scope = await getRenderRequestScope(
     sql,
     accountId,
     cookieValue ? asLocationId(cookieValue) : null,
@@ -180,7 +161,7 @@ export default async function AuthenticatedLayout({
     initialScope = 'all';
   }
 
-  const ownerName = appUser?.owner_name ?? '';
+  const ownerName = appUser?.name ?? '';
   const ownerEmail = appUser?.email ?? authUser.email ?? '';
 
   // Server-authoritative flag read (invariant #13). Both navs learn watch-mode

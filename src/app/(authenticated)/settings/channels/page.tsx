@@ -10,10 +10,8 @@
 // VAL-SETTINGS-013: Per-location override panel collapsed by default.
 // VAL-SETTINGS-032: Channels tab org-default section shows only Telegram and email.
 
-import { cookies } from 'next/headers';
-import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
-import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
+import { getRenderAuthUser, requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { type InitialEnrollment } from './ChannelsClient';
 import { ChannelsTabClient } from './ChannelsTabClient';
@@ -42,19 +40,9 @@ export default async function ChannelsPage() {
   const multiLocationEnabled = shouldUseMultiLocationSettings(featureEnabled, activeLocations.length);
   const canAddOverrides = multiLocationEnabled && activeLocations.length > 1;
 
-  // Get the owner's email for the email enrollment fallback.
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll() {},
-      },
-    },
-  );
-  const { data: { user: authUser } } = await supabase.auth.getUser();
+  // Get the owner's email for the email enrollment fallback — the same
+  // render-scoped getUser() requireOwnerAccess already made, not a third one.
+  const authUser = await getRenderAuthUser();
   const ownerEmail = authUser?.email ?? '';
 
   // Org-level defaults (location_id IS NULL) from their single owner — the same
