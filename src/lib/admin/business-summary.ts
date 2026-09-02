@@ -7,7 +7,11 @@
 //   - the BASE QUERY — `businesses` × `accounts` × non-superseded `responses`
 //     with the pending-approval / pending-reconnect counts and the windowed
 //     response aggregates (today spelled identically in overview-service.ts and
-//     businesses-list-service.ts, which is the duplication §5.2 removes)
+//     businesses-list-service.ts, which is the duplication §5.2 removes). It is
+//     PAGE-FIRST: the `businesses` × `accounts` candidate set is ordered and
+//     LIMIT/OFFSET'd in a CTE BEFORE `responses` is joined, so the response
+//     aggregate runs over the page's businesses only — never over every
+//     response row in the table just to discard all but one page of groups
 //   - the METRICS FOLLOW-UP — the churn-signal CTE, keyed on the ids the base
 //     query ACTUALLY returned (post-LIMIT/OFFSET), so the paginated path is
 //     bounded by the page and not by the table (§5.4)
@@ -295,21 +299,43 @@ export async function getBusinessSummaries(
   // pending/reconnect counts and last_activity stay ALL-TIME — old still-pending
   // items and a dormant business's last activity are the churn signals and must
   // not be windowed away.
+  //
+  // PAGE-FIRST. The `page` CTE orders and LIMIT/OFFSETs `businesses` × `accounts`
+  // BEFORE `responses` is joined, so the aggregate below groups the page's
+  // businesses only and `idx_responses_business_status_created` (migration 013)
+  // bounds the response scan to those ids. The previous shape joined and
+  // aggregated EVERY non-superseded response for EVERY business, then paged the
+  // grouped result: `LIMIT` bounded the rows returned, not the work done, and
+  // the cost of one /admin/businesses render grew with the whole `responses`
+  // table (2026-09 audit). Semantics are unchanged: same aggregate expressions,
+  // same LEFT JOIN, same `resp.status != 'superseded'` — only the driving
+  // relation moved. `b.id` is the ORDER BY tie-breaker on BOTH sides because a
+  // page taken with LIMIT/OFFSET needs a total order or two businesses with the
+  // same name can straddle a page boundary and repeat or vanish.
+  //
+  // Unpaginated (Overview), `page` is every business and the aggregate does the
+  // same work it always did — that path reads every business row by design
+  // (CONTEXT.md → At-risk list, §5.1) and is not what this shape optimises.
   const businessRows = await sql<BusinessRow[]>`
+    WITH page AS (
+      SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at
+      FROM businesses b
+      JOIN accounts a ON a.id = b.account_id
+      ORDER BY b.name ASC, b.id ASC
+      ${pageClause}
+    )
     SELECT
-      b.id, b.name, b.category, a.subscription_status, b.last_sync_at,
+      b.id, b.name, b.category, b.subscription_status, b.last_sync_at,
       COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count,
       COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count,
       COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses,
       COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses,
       ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours,
       MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity
-    FROM businesses b
-    JOIN accounts a ON a.id = b.account_id
+    FROM page b
     LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded'
-    GROUP BY b.id, b.name, b.category, a.subscription_status, b.last_sync_at
-    ORDER BY b.name ASC
-    ${pageClause}
+    GROUP BY b.id, b.name, b.category, b.subscription_status, b.last_sync_at
+    ORDER BY b.name ASC, b.id ASC
   `;
 
   // Paginated callers only: the unpaginated caller already holds every row, so
