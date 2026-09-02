@@ -2,6 +2,7 @@
 
 import { useSettingsForm } from '@/hooks/useSettingsForm';
 import { ProfilePanel } from '@/components/dashboard/settings/ProfilePanel';
+import { DeleteDataPanel } from '@/components/dashboard/settings/DeleteDataPanel';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { SolicitationAddressPanel } from '@/components/dashboard/settings/SolicitationAddressPanel';
 import type { PostalAddressState } from '@/lib/solicitation/postal-address';
@@ -30,13 +31,15 @@ export function ProfileClient({ postalAddress }: Props) {
   if (!f.data) {
     return <SettingsSkeleton />;
   }
-  // The postal panel leads because it is the only actionable section here:
-  // ProfilePanel's fields are locked, and it ends with the delete-data danger
-  // zone, which stays terminal. ProfilePanel itself is untouched (D3).
+  // Order: the page is named Profile, so the business profile leads. The
+  // sender address is a review-request setting that happens to live here
+  // (its route and state are per-location, D3) and follows. The Danger zone
+  // stays terminal — nothing sits below "Delete data".
   return (
     <>
-      {postalAddress !== null && <SolicitationAddressPanel state={postalAddress} />}
       <ProfilePanel data={f.data} />
+      {postalAddress !== null && <SolicitationAddressPanel state={postalAddress} />}
+      <DeleteDataPanel />
     </>
   );
 }

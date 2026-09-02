@@ -3,7 +3,8 @@
 // Review QR settings client (CONTEXT.md "Review QR"): one card per
 // non-archived location. Eligible locations get the QR preview, the encoded
 // QR-redirect link, a PNG download, and a print-view link; ineligible ones
-// (non-canonical Google Place ID) get the explanatory card and no actions.
+// (non-canonical Google Place ID) get a plain-language card that says what to
+// do — reconnect Google — and no QR actions (UX audit S24).
 // Console system: SettingsShell + .set-section primitives from settings.css.
 
 import Link from 'next/link';
@@ -13,6 +14,26 @@ import type { OwnerReviewQrLocation } from '@/lib/locations/review-qr';
 
 interface Props {
   locations: OwnerReviewQrLocation[];
+}
+
+/**
+ * The PNG is named after the location, not its UUID (UX audit S33):
+ * "Harbor Café — Main St" → review-qr-harbor-cafe-main-st.png.
+ */
+export function reviewQrFileName(displayName: string): string {
+  const slug = displayName
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return `review-qr-${slug || 'location'}.png`;
+}
+
+/** Same reconnect entry the Locations page uses — one connect route per location. */
+function reconnectHref(businessId: string): string {
+  return `/dashboard/connect?locationId=${encodeURIComponent(businessId)}`;
 }
 
 export function ReviewQrClient({ locations }: Props) {
@@ -94,7 +115,7 @@ export function ReviewQrClient({ locations }: Props) {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <a
                     className="btn btn-primary"
-                    download={`review-qr-${location.businessId}.png`}
+                    download={reviewQrFileName(location.displayName)}
                     href={location.qrDataUrl}
                   >
                     Download PNG
@@ -121,8 +142,16 @@ export function ReviewQrClient({ locations }: Props) {
               </div>
             </div>
             <p className="settings-body-copy">
-              This location needs a canonical Google Place ID before it can have a review QR.
+              We couldn&apos;t verify this location&apos;s Google listing yet. Reconnect Google and the
+              QR code will appear here.
             </p>
+            <Link
+              className="btn btn-secondary"
+              style={{ alignSelf: 'flex-start' }}
+              href={reconnectHref(location.businessId)}
+            >
+              <Icon name="google" size={12} /> Reconnect Google
+            </Link>
           </div>
         ),
       )}

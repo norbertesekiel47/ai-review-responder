@@ -77,7 +77,7 @@ export function BrandVoicePanel({ form, set }: Props) {
           <div>
             <div className="set-section-title">Things to avoid</div>
             <div className="set-section-sub">
-              Topics or claims we shouldn&apos;t mention in replies. One per line.
+              Topics or claims we shouldn&apos;t mention in replies. Add one item per row.
             </div>
           </div>
         </div>

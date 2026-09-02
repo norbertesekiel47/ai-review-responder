@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardSettings } from '@/lib/dashboard/types';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   buildAccountSettingsPatch,
@@ -131,6 +132,10 @@ export function useSettingsForm(): UseSettingsForm {
     if (!form || !initial) return 0;
     return countDirtyFields(initial, form);
   }, [form, initial]);
+
+  // Leaving the page with unsaved edits — tab close, reload, or a sidebar
+  // click — is confirmed, never silent.
+  useUnsavedChangesGuard(dirty);
 
   function set<K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) {
     setForm((f) => (f ? { ...f, [key]: value } : f));

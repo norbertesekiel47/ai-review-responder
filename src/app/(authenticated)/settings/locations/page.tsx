@@ -55,8 +55,8 @@ export default async function LocationsPage() {
   return (
     <>
       <TopBar
-        title="Settings"
-        subtitle="Locations"
+        title="Locations"
+        subtitle="Promote, rename, or archive the locations on this account."
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
       <LocationsClient

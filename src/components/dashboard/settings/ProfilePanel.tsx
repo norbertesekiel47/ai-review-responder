@@ -3,12 +3,17 @@
 import { useState } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { SettingsPageData } from '@/hooks/useSettingsForm';
-import { DeleteDataPanel } from '@/components/dashboard/settings/DeleteDataPanel';
 
 interface Props {
   data: SettingsPageData;
 }
 
+/**
+ * The locked Business profile card only. The Danger zone used to be rendered
+ * from inside this component; it now sits in `ProfileClient` so the page can
+ * order its cards (profile → sender address → danger zone) without this panel
+ * dictating what comes after it.
+ */
 export function ProfilePanel({ data }: Props) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -22,61 +27,57 @@ export function ProfilePanel({ data }: Props) {
   };
 
   return (
-    <>
-      <div className="set-section">
-        <div className="set-section-head">
-          <div className="set-section-icon blue">
-            <Icon name="home" size={18} />
-          </div>
-          <div>
-            <div className="set-section-title">Business profile</div>
-            <div className="set-section-sub">
-              Identity details from your Google listing. Reach out to support to update locked fields.
-            </div>
-          </div>
+    <div className="set-section">
+      <div className="set-section-head">
+        <div className="set-section-icon blue">
+          <Icon name="home" size={18} />
         </div>
-
-        <div className="two-col">
-          <div className="field">
-            <label className="field-label" htmlFor="profile-business-name">
-              Business name <span className="locked-pill">Locked</span>
-            </label>
-            <input id="profile-business-name" className="input locked" value={data.business.name} disabled readOnly />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="profile-business-category">
-              Category <span className="locked-pill">Locked</span>
-            </label>
-            <input id="profile-business-category" className="input locked" value={data.settings.category} disabled readOnly />
-          </div>
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="profile-google-place-id">
-            Google Place ID <span className="locked-pill">Locked</span>
-          </label>
-          <div className="copy-row">
-            <input
-              id="profile-google-place-id"
-              className="input locked"
-              value={data.settings.googlePlaceId}
-              disabled
-              readOnly
-              style={{ fontFamily: 'var(--rw-font-mono)', fontSize: 12 }}
-            />
-            <button type="button" className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copy}>
-              {copied ? (
-                <>
-                  <Icon name="check" size={12} /> Copied
-                </>
-              ) : (
-                <>📋 Copy</>
-              )}
-            </button>
+        <div>
+          <div className="set-section-title">Business profile</div>
+          <div className="set-section-sub">
+            Identity details from your Google listing. Reach out to support to update locked fields.
           </div>
         </div>
       </div>
 
-      <DeleteDataPanel />
-    </>
+      <div className="two-col">
+        <div className="field">
+          <label className="field-label" htmlFor="profile-business-name">
+            Business name <span className="locked-pill">Locked</span>
+          </label>
+          <input id="profile-business-name" className="input locked" value={data.business.name} disabled readOnly />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor="profile-business-category">
+            Category <span className="locked-pill">Locked</span>
+          </label>
+          <input id="profile-business-category" className="input locked" value={data.settings.category} disabled readOnly />
+        </div>
+      </div>
+      <div className="field">
+        <label className="field-label" htmlFor="profile-google-place-id">
+          Google Place ID <span className="locked-pill">Locked</span>
+        </label>
+        <div className="copy-row">
+          <input
+            id="profile-google-place-id"
+            className="input locked"
+            value={data.settings.googlePlaceId}
+            disabled
+            readOnly
+            style={{ fontFamily: 'var(--rw-font-mono)', fontSize: 12 }}
+          />
+          <button type="button" className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copy}>
+            {copied ? (
+              <>
+                <Icon name="check" size={12} /> Copied
+              </>
+            ) : (
+              <>📋 Copy</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

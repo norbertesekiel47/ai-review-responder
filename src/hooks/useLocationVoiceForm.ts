@@ -11,6 +11,7 @@
 // VAL-SETTINGS-036: Voice tab for single-location account.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import {
   buildVoiceFieldsPatch,
   countDirtyFields,
@@ -259,6 +260,11 @@ export function useLocationVoiceForm(
     if (!currentEntry) return 0;
     return countDirtyFields(currentEntry.initial, currentEntry.form);
   }, [currentEntry]);
+
+  // The CURRENT location's dirty state is the whole truth: VoiceClient refuses
+  // to switch locations while dirty (discard first), so no other entry can be
+  // holding edits behind the selector.
+  useUnsavedChangesGuard(dirty);
 
   // Set a form field
   const set = useCallback(<K extends keyof VoiceFormState>(key: K, value: VoiceFormState[K]) => {

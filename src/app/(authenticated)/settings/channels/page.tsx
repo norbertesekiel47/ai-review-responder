@@ -63,9 +63,10 @@ export default async function ChannelsPage() {
 
   return (
     <>
+      {/* Title = the sidebar label ("Notifications"), like every other settings page (UX audit S27). */}
       <TopBar
-        title="Settings"
-        subtitle="Notification channels"
+        title="Notifications"
+        subtitle="Where approval requests and reports are sent."
         rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}
       />
       <ChannelsTabClient

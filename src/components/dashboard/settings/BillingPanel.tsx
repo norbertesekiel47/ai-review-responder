@@ -1,18 +1,47 @@
 'use client';
 
 import { useReducer, useState } from 'react';
+import Link from 'next/link';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import type { AccountSettingsData } from '@/hooks/useAccountData';
 import {
+  SubscriptionTier,
   isSubscriptionTier,
   type PriceVariant,
   type SubscriptionTierValue,
 } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
+import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { CancelSubscriptionPanel } from '@/components/dashboard/settings/CancelSubscriptionPanel';
+import { useToast } from '@/components/dashboard/shell/toast/ToastProvider';
 
-const BILLING_PLAN_ORDER = ['copilot', 'autopilot'] as const satisfies readonly SubscriptionTierValue[];
+const BILLING_PLAN_ORDER = [SubscriptionTier.COPILOT, SubscriptionTier.AUTOPILOT] as const satisfies readonly SubscriptionTierValue[];
+
+/**
+ * One line per tier on what the owner actually gets — the price cards said
+ * nothing about approvals (UX audit S16). Autopilot's limits live on the
+ * Auto-approval page, which the card links to.
+ */
+export const TIER_CAPABILITY: Record<SubscriptionTierValue, string> = {
+  [SubscriptionTier.COPILOT]: 'You approve every reply before it posts.',
+  [SubscriptionTier.AUTOPILOT]:
+    'Replies to 4–5★ reviews post on their own within the limits you set. You still approve the rest.',
+};
+
+/** Plain-language note for an Autopilot that cannot be bought yet (UX audit S17). */
+export const AUTOPILOT_UNAVAILABLE_COPY =
+  "Autopilot isn't open for new accounts yet. Copilot is available now.";
+
+/**
+ * The monthly total from the STORED billing snapshot (base + overage rate ×
+ * extra locations — invariant #9a, never live TIER_CONFIG). The next-charge
+ * date is not stored anywhere on the account, so this card shows the amount
+ * only (UX audit S15).
+ */
+export function monthlyTotalCents(billing: AccountSettingsData['billing']): number {
+  return billing.basePriceCents + billing.overagePriceCents * billing.overageUnits;
+}
 
 type BillingPreview = {
   basePriceCents: number;
@@ -91,7 +120,7 @@ function tierChangeReducer(state: TierChangeState, action: TierChangeAction): Ti
 }
 
 function planLabel(tier: SubscriptionTierValue): string {
-  return tier === 'copilot' ? 'Copilot' : 'Autopilot';
+  return tier === SubscriptionTier.COPILOT ? 'Copilot' : 'Autopilot';
 }
 
 function formatMoney(cents: number): string {
@@ -258,6 +287,11 @@ function CurrentPlanCard({ account }: { account: AccountSettingsData }) {
             <> + {formatMoney(account.billing.overagePriceCents)}/month × {account.billing.overageUnits} extra</>
           )}
         </div>
+        <div className="plan-total">
+          <span className="plan-total-label">Monthly total</span>
+          <span className="plan-total-amount">{formatMoney(monthlyTotalCents(account.billing))}/month</span>
+          <span className="plan-total-note">before any applicable taxes</span>
+        </div>
         <div className="plan-renew">
           {account.subscription.priceVariant === 'founding'
             ? 'Founding-for-life pricing'
@@ -290,6 +324,7 @@ interface Props {
 }
 
 export function BillingPanel({ accountData, accountLoading, accountError, onAccountRefetch }: Props) {
+  const { toast } = useToast();
   const [tierChange, dispatch] = useReducer(tierChangeReducer, initialTierChangeState);
   const {
     selectedTier,
@@ -304,7 +339,7 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
   async function openTierChangeModal(newTier: SubscriptionTierValue) {
     if (!accountData) return;
     if (!accountData.planPresentation.purchasable[newTier]) {
-      dispatch({ type: 'confirmError', tierChangeError: 'Autopilot is not currently available. Copilot remains available.' });
+      dispatch({ type: 'confirmError', tierChangeError: AUTOPILOT_UNAVAILABLE_COPY });
       return;
     }
     dispatch({ type: 'previewStart', selectedTier: newTier, operationKey: crypto.randomUUID() });
@@ -347,6 +382,9 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
         throw new Error(body.error ?? body.detail ?? 'Tier change failed');
       }
       dispatch({ type: 'confirmSuccess' });
+      // The modal closes and the card refetches; without this the owner got no
+      // confirmation at all (UX audit S18).
+      toast({ tone: 'success', title: `Plan changed to ${planLabel(selectedTier)}` });
       onAccountRefetch();
     } catch (err) {
       dispatch({ type: 'confirmError', tierChangeError: err instanceof Error ? err.message : 'Failed to change tier' });
@@ -376,8 +414,10 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
           </div>
         </div>
 
-        {accountLoading && <p style={{ textAlign: 'center', color: 'var(--rw-app-text-muted)', padding: '24px 0' }}>Loading account data…</p>}
-        {accountError && <div role="alert" style={{ fontSize: 13, color: 'var(--rw-danger)', padding: '8px 0' }}>{accountError}</div>}
+        {/* Skeleton only on the FIRST load: a refetch after a tier change keeps
+            the card in place instead of flashing to placeholders (UX audit S35). */}
+        {accountLoading && !accountData && <SettingsSkeleton rows={4} />}
+        {accountError && <div role="alert" className="settings-error-copy">{accountError}</div>}
         {accountData && (
           <>
             <CurrentPlanCard account={accountData} />
@@ -413,6 +453,17 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
                       <div>
                         <div className="billing-plan-name">{planLabel(tier)}</div>
                         <div className="billing-plan-price">{formatMoney(displayedBaseCents)}/month</div>
+                        <p className="billing-plan-capability">
+                          {TIER_CAPABILITY[tier]}
+                          {tier === SubscriptionTier.AUTOPILOT && (
+                            <>
+                              {' '}
+                              <Link href="/settings/auto-approval" className="billing-plan-link">
+                                Set your auto-approval limits
+                              </Link>
+                            </>
+                          )}
+                        </p>
                         <div className="billing-plan-overage">
                           {displayedIncluded} included · {formatMoney(displayedOverageCents)}/month each extra
                         </div>
@@ -429,19 +480,19 @@ export function BillingPanel({ accountData, accountLoading, accountError, onAcco
                         >
                           {isAvailable
                             ? `${action} to ${planLabel(tier)} (${formatMoney(option.basePriceCents)}/month)`
-                            : 'Autopilot unavailable'}
+                            : `${planLabel(tier)} not available yet`}
                         </button>
                       )}
                       {!isAvailable && !isCurrent && (
                         <p id={`${tier}-billing-unavailable`} className="billing-plan-note">
-                          Its safety runtime is closed. Copilot remains available.
+                          {AUTOPILOT_UNAVAILABLE_COPY}
                         </p>
                       )}
                     </article>
                   );
                 })}
               </div>
-              {tierChangeError && <div role="alert" style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 8 }}>{tierChangeError}</div>}
+              {tierChangeError && <div role="alert" className="settings-error-copy settings-error-copy--compact" style={{ marginTop: 8 }}>{tierChangeError}</div>}
             </div>
           </>
         )}

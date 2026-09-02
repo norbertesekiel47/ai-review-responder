@@ -5,14 +5,20 @@
 // so a foreign businessId is notFound(), never data. The @media print rule
 // isolates the sheet from the surrounding Console chrome (sidebar, topbar)
 // and sizes the QR to fill most of a portrait A4/Letter page.
+//
+// On screen the page keeps the Console TopBar with a way back to Review QR
+// (UX audit S23); on paper `.print-hide` drops it and `@page` sets a real
+// margin so browsers do not print the URL/date header over the poster (S34).
 
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { getOwnerReviewQrLocation } from '@/lib/locations/review-qr';
+import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { PrintButton } from '@/app/(authenticated)/settings/review-qr/PrintButton';
 
 const PRINT_CSS = `
+@page { margin: 12mm; }
 .review-qr-sheet {
   max-width: 560px;
   margin: 40px auto;
@@ -76,13 +82,22 @@ export default async function ReviewQrPrintPage({
   );
   if (!location || location.qrDataUrl === null) notFound();
   return (
-    <section className="review-qr-sheet">
-      <style>{PRINT_CSS}</style>
-      <h1>{location.displayName}</h1>
-      <p>Scan to leave us a review</p>
-      {/* eslint-disable-next-line @next/next/no-img-element -- data URL QR, no next/image optimization possible */}
-      <img src={location.qrDataUrl} alt={`Review QR for ${location.displayName}`} />
-      <PrintButton />
-    </section>
+    <>
+      <div className="print-hide">
+        <TopBar
+          title="Print Review QR"
+          subtitle={location.displayName}
+          rightLink={{ href: '/settings/review-qr', label: 'Back to Review QR' }}
+        />
+      </div>
+      <section className="review-qr-sheet">
+        <style>{PRINT_CSS}</style>
+        <h1>{location.displayName}</h1>
+        <p>Scan to leave us a review</p>
+        {/* eslint-disable-next-line @next/next/no-img-element -- data URL QR, no next/image optimization possible */}
+        <img src={location.qrDataUrl} alt={`Review QR for ${location.displayName}`} />
+        <PrintButton />
+      </section>
+    </>
   );
 }

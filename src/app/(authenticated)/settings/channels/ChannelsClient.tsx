@@ -1,9 +1,12 @@
 'use client';
 
+import { useCallback, useState } from 'react';
 import { OwnerTelegramWidget } from '@/components/dashboard/channels/OwnerTelegramWidget';
 import { OwnerWhatsAppWidget } from '@/components/dashboard/channels/OwnerWhatsAppWidget';
 import { ComingSoonChannelRow } from '@/components/dashboard/channels/ComingSoonChannelRow';
 import type { ChannelId } from '@/lib/notifications/channels/types';
+import type { EnrollmentState } from '@/lib/notifications/channels/enrollment-reducer';
+import type { MobileChannel } from '@/lib/channels/mobile-enrollment';
 
 export interface InitialEnrollment {
   channel: ChannelId;
@@ -22,14 +25,68 @@ export interface ChannelsClientProps {
   ownerEmailFallback: string;
 }
 
+/** Per-channel enrollment state as reported by each mobile widget. */
+export type MobileChannelStates = Record<MobileChannel, EnrollmentState>;
+
+const MOBILE_CHANNEL_LABEL: Record<MobileChannel, string> = {
+  telegram: 'Telegram',
+  whatsapp: 'WhatsApp',
+};
+
+function otherMobileChannel(channel: MobileChannel): MobileChannel {
+  return channel === 'telegram' ? 'whatsapp' : 'telegram';
+}
+
+/**
+ * One mobile channel per account (the server enforces it with a 409 on the
+ * second `start`). This mirrors the rule on the client so the second Connect
+ * is disabled with a reason instead of failing after the fact (UX audit S12).
+ * Returns null when `channel` may connect.
+ */
+export function otherChannelBlockedReason(
+  states: MobileChannelStates,
+  channel: MobileChannel,
+): string | null {
+  const other = otherMobileChannel(channel);
+  const otherLabel = MOBILE_CHANNEL_LABEL[other];
+  switch (states[other]) {
+    case 'verified':
+      return `Disconnect ${otherLabel} first — you can have one mobile channel at a time.`;
+    case 'generating':
+    case 'awaiting_scan':
+      return `Finish or cancel the ${otherLabel} setup first — you can have one mobile channel at a time.`;
+    default:
+      return null;
+  }
+}
+
 function findChannel(enrollments: InitialEnrollment[], channel: InitialEnrollment['channel']): InitialEnrollment | null {
   return enrollments.find((e) => e.channel === channel) ?? null;
+}
+
+/** Seed the occupancy map from SSR rows so the block applies on first paint, before the widgets report. */
+export function initialMobileChannelStates(enrollments: InitialEnrollment[]): MobileChannelStates {
+  const stateFor = (channel: MobileChannel): EnrollmentState =>
+    findChannel(enrollments, channel)?.status === 'verified' ? 'verified' : 'idle';
+  return { telegram: stateFor('telegram'), whatsapp: stateFor('whatsapp') };
 }
 
 export function ChannelsClient({ initialEnrollments, initialAvailability, ownerEmailFallback }: ChannelsClientProps) {
   const emailRow = findChannel(initialEnrollments, 'email');
   const emailHandle = emailRow?.handle ?? ownerEmailFallback;
   const emailReconciling = !emailRow;
+
+  // Widgets own their own enrollment machines; this map only mirrors their
+  // reported state so each can be told about its sibling.
+  const [mobileStates, setMobileStates] = useState<MobileChannelStates>(() =>
+    initialMobileChannelStates(initialEnrollments),
+  );
+  const onTelegramState = useCallback((state: EnrollmentState) => {
+    setMobileStates((current) => (current.telegram === state ? current : { ...current, telegram: state }));
+  }, []);
+  const onWhatsAppState = useCallback((state: EnrollmentState) => {
+    setMobileStates((current) => (current.whatsapp === state ? current : { ...current, whatsapp: state }));
+  }, []);
 
   return (
     <div className="set-section">
@@ -39,7 +96,9 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
         </div>
         <div>
           <div className="set-section-title">Where to send approvals</div>
-          <div className="set-section-sub">Choose where you receive review approval requests.</div>
+          <div className="set-section-sub">
+            Choose where you receive review approval requests. Changes here apply immediately.
+          </div>
         </div>
       </div>
 
@@ -51,7 +110,7 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
           <div className="channel-handle">{emailHandle}</div>
         </div>
         <span className="channel-status cs-on">
-          {emailReconciling ? 'Reconciling…' : 'Always on'}
+          {emailReconciling ? 'Setting up…' : 'Always on'}
         </span>
       </div>
 
@@ -61,7 +120,11 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
 
         {/* Telegram row — interactive if available, coming-soon otherwise */}
         {initialAvailability.telegram ? (
-          <OwnerTelegramWidget initialEnrollment={findChannel(initialEnrollments, 'telegram')} />
+          <OwnerTelegramWidget
+            initialEnrollment={findChannel(initialEnrollments, 'telegram')}
+            blockedReason={otherChannelBlockedReason(mobileStates, 'telegram')}
+            onStateChange={onTelegramState}
+          />
         ) : (
           <ComingSoonChannelRow
             icon="💬"
@@ -72,7 +135,11 @@ export function ChannelsClient({ initialEnrollments, initialAvailability, ownerE
 
         {/* WhatsApp — interactive if available, coming-soon otherwise */}
         {initialAvailability.whatsapp ? (
-          <OwnerWhatsAppWidget initialEnrollment={findChannel(initialEnrollments, 'whatsapp')} />
+          <OwnerWhatsAppWidget
+            initialEnrollment={findChannel(initialEnrollments, 'whatsapp')}
+            blockedReason={otherChannelBlockedReason(mobileStates, 'whatsapp')}
+            onStateChange={onWhatsAppState}
+          />
         ) : (
           <ComingSoonChannelRow
             icon="🟢"

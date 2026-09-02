@@ -12,8 +12,10 @@
 // VAL-SETTINGS-036: Voice tab for single-location account when MULTI_LOCATION_ENABLED=true.
 // VAL-SETTINGS-045: Voice tab per-location section headers resolve display_label ?? name.
 
+import { useState } from 'react';
 import { useLocationVoiceForm } from '@/hooks/useLocationVoiceForm';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
+import { SettingsModal } from '@/components/dashboard/settings/SettingsModal';
 import { BrandVoicePanel } from '@/components/dashboard/settings/BrandVoicePanel';
 import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkeleton';
 import { Icon } from '@/components/dashboard/shell/Icon';
@@ -30,10 +32,36 @@ interface Props {
 
 export function VoiceClient({ multiLocationEnabled }: Props) {
   const f = useLocationVoiceForm({ multiLocationEnabled });
+  // A location the owner picked while the current one had unsaved edits.
+  // Non-null = the "discard and switch?" dialog is open; the select stays on
+  // the current location until the owner decides, so edits are never hidden
+  // behind a switched selector.
+  const [pendingLocationId, setPendingLocationId] = useState<string | null>(null);
 
   // The hook selects primary/first location on load for single-location
   // accounts too; the locations[0] fallback is a safety net only.
   const reportCardLocationId = f.selectedLocationId ?? f.locations[0]?.locationId ?? null;
+
+  function requestLocationSwitch(nextId: string) {
+    if (nextId === f.selectedLocationId) return;
+    if (f.dirty) {
+      setPendingLocationId(nextId);
+      return;
+    }
+    f.setSelectedLocationId(nextId);
+  }
+
+  function discardAndSwitch() {
+    const nextId = pendingLocationId;
+    setPendingLocationId(null);
+    if (nextId === null) return;
+    f.discard();
+    f.setSelectedLocationId(nextId);
+  }
+
+  const pendingLocationName = pendingLocationId === null
+    ? null
+    : f.locations.find((loc) => loc.locationId === pendingLocationId)?.displayName ?? null;
 
   // Error state
   if (f.fetchError) {
@@ -59,6 +87,7 @@ export function VoiceClient({ multiLocationEnabled }: Props) {
   return (
     <SettingsShell
       savedFlash={f.savedFlash}
+      saveError={f.saveError ?? undefined}
       saveBar={{
         visible: f.dirty,
         dirtyCount: f.dirtyCount,
@@ -84,7 +113,7 @@ export function VoiceClient({ multiLocationEnabled }: Props) {
           <select
             className="input"
             value={f.selectedLocationId ?? ''}
-            onChange={(e) => f.setSelectedLocationId(e.target.value)}
+            onChange={(e) => requestLocationSwitch(e.target.value)}
             style={{ width: '100%' }}
             aria-label="Select location for voice configuration"
           >
@@ -95,6 +124,11 @@ export function VoiceClient({ multiLocationEnabled }: Props) {
               </option>
             ))}
           </select>
+          {f.dirty && f.selectedDisplayName && (
+            <div className="field-hint" style={{ marginTop: 8 }}>
+              Unsaved changes for {f.selectedDisplayName}. Save or discard them before switching.
+            </div>
+          )}
         </div>
       )}
 
@@ -115,6 +149,31 @@ export function VoiceClient({ multiLocationEnabled }: Props) {
       {/* Voice Report Card — what voice learning inferred for this location (#540) */}
       {reportCardLocationId && (
         <VoiceReportCard key={reportCardLocationId} locationId={reportCardLocationId} />
+      )}
+
+      {pendingLocationId !== null && (
+        <SettingsModal
+          title="Discard unsaved changes?"
+          closeLabel="Keep editing this location"
+          onClose={() => setPendingLocationId(null)}
+        >
+          <div className="set-section-title" style={{ marginBottom: 8 }}>
+            Discard unsaved changes?
+          </div>
+          <p className="settings-body-copy" style={{ marginBottom: 16 }}>
+            You have {f.dirtyCount} unsaved {f.dirtyCount === 1 ? 'change' : 'changes'} for{' '}
+            {f.selectedDisplayName ?? 'this location'}. Switching to{' '}
+            {pendingLocationName ?? 'another location'} discards them.
+          </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" className="btn btn-secondary" onClick={() => setPendingLocationId(null)}>
+              Keep editing
+            </button>
+            <button type="button" className="btn btn-primary" onClick={discardAndSwitch}>
+              Discard and switch
+            </button>
+          </div>
+        </SettingsModal>
       )}
     </SettingsShell>
   );
