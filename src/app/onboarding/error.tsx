@@ -32,7 +32,7 @@ export default function OnboardingError({
           Still having trouble?{' '}
           <a
             href="mailto:support@repworth.net"
-            className="text-rw-teal underline hover:text-rw-teal-hover"
+            className="text-rw-teal-strong underline hover:text-rw-teal-strong-hover"
           >
             Contact support
           </a>

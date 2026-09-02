@@ -46,14 +46,56 @@ afterEach(() => {
 });
 
 describe('ResetPasswordFormClient portal variants', () => {
-  it('owner portal renders the branded island with 16px inputs', async () => {
+  it('owner portal renders the branded island with the 16px island Field', async () => {
     const { container } = render(
       <ResetPasswordFormClient portal="owner" brandName="RepWorth" />,
     );
     expect(container.innerHTML).toContain('bg-rw-sage');
     expect(container.innerHTML).not.toContain('bg-blue-600');
     await waitFor(() => {
-      expect(container.querySelector('input#new-password')?.className).toContain('text-base');
+      // `.rw-input` is pinned to 16px by auth-island.css.test.ts (A5).
+      expect(container.querySelector('input#new-password')?.className).toContain('rw-input');
+    });
+  });
+
+  describe('reuses the auth island password Field and requirements (A19)', () => {
+    it('offers a show/hide toggle on both password fields', async () => {
+      render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+      await screen.findByLabelText('New password');
+
+      const toggles = screen.getAllByRole('button', { name: 'Show password' });
+      expect(toggles).toHaveLength(2);
+
+      fireEvent.click(toggles[0]!);
+      expect(screen.getByLabelText('New password')).toHaveAttribute('type', 'text');
+      expect(screen.getByRole('button', { name: 'Hide password' })).toBeInTheDocument();
+    });
+
+    it('lists the password requirements before submit and ticks them as they are met', async () => {
+      render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+      const input = await screen.findByLabelText('New password');
+
+      const list = screen.getByRole('list', { name: 'Password requirements' });
+      expect(list).toHaveTextContent('At least 8 characters');
+      expect(list).toHaveTextContent('Upper & lowercase letters');
+      expect(list).toHaveTextContent('A number');
+      expect(input).toHaveAttribute('aria-describedby', expect.stringContaining(list.id));
+      expect(list.querySelectorAll('li.met')).toHaveLength(0);
+
+      fireEvent.change(input, { target: { value: 'validPass1' } });
+      expect(list.querySelectorAll('li.met')).toHaveLength(3);
+    });
+
+    it('marks the confirm field invalid on a mismatch without a second alert', async () => {
+      render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+      await screen.findByLabelText('New password');
+      fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'validPass1' } });
+      fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'nope' } });
+      fireEvent.blur(screen.getByLabelText('Confirm password'));
+
+      expect(screen.getByLabelText('Confirm password')).toHaveAttribute('aria-invalid', 'true');
+      // Field's own error line is NOT used — the page's LiveRegion owns announcements.
+      expect(screen.getByRole('alert')).toHaveTextContent('');
     });
   });
 

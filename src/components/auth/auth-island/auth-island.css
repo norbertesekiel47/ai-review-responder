@@ -142,7 +142,8 @@
 @media (max-width: 480px) { .rw-field-row .row { grid-template-columns: 1fr; } }
 .rw-label { font: 500 13px var(--rw-font-body); color: var(--rw-ink); letter-spacing: 0.01em; }
 .rw-input-wrap { position: relative; }
-.rw-input { width: 100%; padding: 13px 14px 13px 42px; border: 1px solid rgba(151,179,174,0.25); border-radius: 12px; font: 400 14.5px var(--rw-font-body); color: var(--rw-ink); background: #fff; transition: all 0.2s; }
+/* 16px, not 14.5: iOS Safari zooms the viewport on focus of any input under 16px (same rule as field-styles.ts + console.css). */
+.rw-input { width: 100%; padding: 12px 14px 12px 42px; border: 1px solid rgba(151,179,174,0.25); border-radius: 12px; font: 400 16px var(--rw-font-body); color: var(--rw-ink); background: #fff; transition: all 0.2s; }
 .rw-input::placeholder { color: #767676; }
 .rw-input:hover { border-color: rgba(151,179,174,0.45); }
 .rw-input:focus { outline: none; border-color: var(--rw-teal-strong); box-shadow: 0 0 0 4px rgba(85,112,105,0.18); }
@@ -181,7 +182,8 @@
 .rw-agree { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 13px; color: var(--rw-ink-soft); }
 .rw-agree .rw-link { font-size: 13px; }
 .rw-agree-sep { color: var(--rw-ink-soft); }
-.rw-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; color: var(--rw-ink-soft); }
+/* 44px min-height = the whole label is the tap target, not just the 22px box (WCAG 2.5.8). */
+.rw-check { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; user-select: none; font-size: 13px; color: var(--rw-ink-soft); }
 .rw-check:focus-within .box { border-color: var(--rw-teal-strong); box-shadow: 0 0 0 3px rgba(85,112,105,0.2); }
 
 /* Visually hidden but available to assistive tech. */
@@ -197,9 +199,9 @@
   border: 0;
 }
 .rw-check input { position: absolute; opacity: 0; pointer-events: none; }
-.rw-check .box { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid rgba(151,179,174,0.4); background: #fff; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
-.rw-check input:checked ~ .box { background: var(--rw-teal); border-color: var(--rw-teal); }
-.rw-check .box svg { width: 12px; height: 12px; color: #fff; opacity: 0; transform: scale(0.5); transition: all 0.2s cubic-bezier(0.34,1.56,0.64,1); }
+.rw-check .box { width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid rgba(151,179,174,0.4); background: #fff; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+.rw-check input:checked ~ .box { background: var(--rw-teal-strong); border-color: var(--rw-teal-strong); }
+.rw-check .box svg { width: 14px; height: 14px; color: #fff; opacity: 0; transform: scale(0.5); transition: all 0.2s cubic-bezier(0.34,1.56,0.64,1); }
 .rw-check input:checked ~ .box svg { opacity: 1; transform: scale(1); }
 .rw-link { color: var(--rw-teal-strong); font-size: 13px; text-decoration: none; font-weight: 500; transition: color 0.2s; border-radius: 4px; }
 .rw-link:hover { color: var(--rw-ink); text-decoration: underline; }

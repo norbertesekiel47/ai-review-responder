@@ -12,6 +12,10 @@ import {
   primaryButtonClass,
   buttonMotion,
 } from '../_shared/field-styles';
+import {
+  ONBOARDING_CONNECTION_FAILED,
+  mapOnboardingApiError,
+} from '../_shared/onboarding-error-copy';
 
 interface PrefillResponse {
   category: string | null;
@@ -189,7 +193,7 @@ export function StartLocationClient({
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        dispatch({ type: 'submitError', error: body.error ?? 'Submission failed' });
+        dispatch({ type: 'submitError', error: mapOnboardingApiError(body) });
         return;
       }
 
@@ -199,7 +203,7 @@ export function StartLocationClient({
       }
       router.push(redirectTo);
     } catch {
-      dispatch({ type: 'submitError', error: 'Connection failed' });
+      dispatch({ type: 'submitError', error: ONBOARDING_CONNECTION_FAILED });
     } finally {
       dispatch({ type: 'submitEnd' });
     }
@@ -219,7 +223,11 @@ export function StartLocationClient({
         We&apos;ll generate a live demo of AI responses for your actual reviews.
       </p>
 
-      {error && <div className={`${errorBannerClass} mb-4`}>{error}</div>}
+      {error && (
+        <div role="alert" className={`${errorBannerClass} mb-4`}>
+          {error}
+        </div>
+      )}
 
       <div className="space-y-4">
         <div>
@@ -274,7 +282,7 @@ export function StartLocationClient({
               dispatch({ type: 'switchToAutocomplete' });
             }
           }}
-          className="text-xs text-rw-teal hover:text-rw-teal-hover"
+          className="text-sm text-rw-teal-strong hover:text-rw-teal-strong-hover underline underline-offset-4"
         >
           {inputMode === 'autocomplete'
             ? 'Or paste a Google Maps URL'

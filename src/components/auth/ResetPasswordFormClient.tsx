@@ -18,6 +18,15 @@ import {
   type UseRecoveryStepUp,
 } from '@/components/auth/useRecoveryStepUp';
 import { RecoveryStepUpField } from '@/components/auth/RecoveryStepUpField';
+// The owner card reuses the auth island's password Field (show/hide toggle)
+// and requirements list so the rules are visible BEFORE submit, not only in
+// the failure copy (A19). The island stylesheet owns those classes.
+import '@/components/auth/auth-island/auth-island.css';
+import { Field } from '@/components/auth/auth-island/Field';
+import { LockIcon } from '@/components/auth/auth-island/Icons';
+import { passwordRequirements } from '@/components/auth/shared/strength';
+
+const REQUIREMENTS_LIST_ID = 'new-password-requirements';
 
 export interface ResetPasswordFormProps {
   portal: AuthFlow;
@@ -188,6 +197,7 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
 
   const passwordsMatch = password.length > 0 && password === confirmPw;
   const showMismatch = confirmTouched && confirmPw.length > 0 && !passwordsMatch;
+  const requirements = passwordRequirements(password);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -238,7 +248,7 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
       }
       router.push(body.redirectTo ?? '/login');
     } catch {
-      setError('Connection failed');
+      setError("Couldn't reach RepWorth. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -306,31 +316,45 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
       <form onSubmit={handleSubmit} className="space-y-4">
         <h1 className="text-2xl font-semibold text-rw-ink">Set a new password</h1>
         <div>
-          <label htmlFor="new-password" className={authLabelClass}>New password</label>
-          <input
-            id="new-password"
+          <Field
+            label="New password"
+            name="new-password"
             type="password"
             autoComplete="new-password"
             required
+            minLength={MIN_PASSWORD_LENGTH}
+            placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+            icon={<LockIcon />}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={`${MIN_PASSWORD_LENGTH}+ characters`}
-            className={authFieldClass}
+            describedById={REQUIREMENTS_LIST_ID}
           />
+          <ul
+            className="rw-req-list"
+            id={REQUIREMENTS_LIST_ID}
+            aria-label="Password requirements"
+          >
+            {requirements.map((req) => (
+              <li key={req.label} className={req.met ? 'met' : ''}>
+                {req.label}
+                <span className="sr-only">{req.met ? ' (met)' : ' (not yet met)'}</span>
+              </li>
+            ))}
+          </ul>
         </div>
         <div>
-          <label htmlFor="confirm-password" className={authLabelClass}>Confirm password</label>
-          <input
-            id="confirm-password"
+          <Field
+            label="Confirm password"
+            name="confirm-password"
             type="password"
             autoComplete="new-password"
             required
+            icon={<LockIcon />}
             value={confirmPw}
             onChange={(e) => setConfirmPw(e.target.value)}
             onBlur={() => setConfirmTouched(true)}
-            aria-invalid={showMismatch || undefined}
-            aria-describedby="confirm-password-feedback"
-            className={authFieldClass}
+            invalid={showMismatch}
+            describedById="confirm-password-feedback"
           />
           {/* Inline match feedback on blur. aria-hidden — the assertive error
               LiveRegion already owns announcements; this is a visual aid only. */}

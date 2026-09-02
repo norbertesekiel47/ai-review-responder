@@ -141,7 +141,7 @@ function ButtonView({ token, businessName }: { token: string; businessName: stri
       <form method="post" action={`/api/u/${encodeURIComponent(token)}`} className="mt-8">
         <button
           type="submit"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-rw-teal-strong px-8 py-4 text-white shadow-lg transition-colors hover:bg-rw-teal-strong/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rw-teal"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-rw-teal-strong px-8 py-4 text-white shadow-lg transition-colors hover:bg-rw-teal-strong-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rw-teal-strong"
         >
           Unsubscribe me
         </button>

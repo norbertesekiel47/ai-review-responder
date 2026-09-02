@@ -73,6 +73,29 @@ describe('CheckEmailClient branding + a11y', () => {
     expect(input!.className).toContain('text-base');
   });
 
+  it('points the back link at /login when the owner arrived from login (A1)', () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'from' ? 'login' : null),
+    });
+
+    render(<CheckEmailClient />);
+    const back = screen.getByRole('link', { name: /back to log in/i });
+    expect(back).toHaveAttribute('href', '/login');
+    expect(screen.queryByRole('link', { name: /change email/i })).toBeNull();
+  });
+
+  it('points the back link at /signup for the self-serve path (A1)', () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'email' ? 'a@b.co' : null),
+    });
+
+    render(<CheckEmailClient />);
+    expect(screen.getByRole('link', { name: /go back and change email/i })).toHaveAttribute(
+      'href',
+      '/signup',
+    );
+  });
+
   it('announces verify errors via role=alert live region', async () => {
     // No email in searchParams → submit triggers the no-email guard (no fetch needed)
     (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -87,5 +110,50 @@ describe('CheckEmailClient branding + a11y', () => {
       const alerts = screen.getAllByRole('alert');
       expect(alerts.some((el) => /no email on this page/i.test(el.textContent ?? ''))).toBe(true);
     });
+  });
+
+  it('renders a visible label for the code field (A22)', () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'email' ? 'a@b.co' : null),
+    });
+
+    render(<CheckEmailClient />);
+    const label = screen.getByText('Confirmation code');
+    expect(label.tagName).toBe('LABEL');
+    expect(label.className).not.toContain('sr-only');
+    expect(screen.getByLabelText('Confirmation code')).not.toBeDisabled();
+    // The always-mounted LiveRegions are empty; no notice is showing.
+    for (const region of screen.getAllByRole('alert')) {
+      expect(region).toHaveTextContent('');
+    }
+  });
+
+  it('shows the start-again notice immediately when no email is known, and disables verify (A22)', async () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({ get: () => null });
+
+    render(<CheckEmailClient />);
+
+    // Visible notice (a <p>), present BEFORE any submit — the LiveRegions are
+    // separate, always-mounted sr-only regions.
+    const notice = await screen.findByText(/no email on this page/i, { selector: 'p' });
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(screen.getByLabelText('Confirmation code')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /verify and continue/i })).toBeDisabled();
+    expect(screen.getByRole('link', { name: /go back and change email/i })).toHaveAttribute(
+      'href',
+      '/signup',
+    );
+  });
+
+  it('points the missing-email notice back to log in for the login path (A22)', async () => {
+    (useSearchParams as ReturnType<typeof vi.fn>).mockReturnValue({
+      get: (key: string) => (key === 'from' ? 'login' : null),
+    });
+
+    render(<CheckEmailClient />);
+
+    expect(
+      await screen.findByText(/go back to log in and try again/i, { selector: 'p' }),
+    ).toBeInTheDocument();
   });
 });

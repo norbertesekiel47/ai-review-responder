@@ -54,9 +54,10 @@ export function PlaceAutocomplete({
           color-scheme: light only !important;
           border-radius: 0.375rem;
         }
+        /* 16px: anything smaller makes iOS Safari zoom the viewport on focus. */
         gmp-place-autocomplete::part(input) {
-          font-size: 0.875rem;
-          line-height: 1.25rem;
+          font-size: 1rem;
+          line-height: 1.5rem;
         }
       `;
       document.head.appendChild(style);
@@ -150,22 +151,30 @@ export function PlaceAutocomplete({
     <div>
       <div ref={containerRef} />
 
-      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-rw-error mt-1">
+          {error}
+        </p>
+      )}
 
+      {/* Confirmation card: the address is the owner's fact; the check glyph
+          is the colour's shape cue. The Place ID is our identifier, not theirs
+          — it never renders. */}
       {selection && (
-        <div className="mt-2 flex items-start justify-between rounded-md border border-green-200 bg-green-50 px-3 py-2">
-          <div>
-            <p className="text-sm font-medium text-green-900">
+        <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-rw-success/30 bg-rw-success/5 px-4 py-3">
+          <p className="flex items-start gap-2 text-sm text-rw-ink">
+            <span aria-hidden="true" className="mt-px shrink-0 font-medium text-rw-success">
+              ✓
+            </span>
+            <span>
+              <span className="sr-only">Selected: </span>
               {selection.formattedAddress}
-            </p>
-            <p className="text-xs text-green-700 mt-0.5">
-              Place ID: {selection.placeId.slice(0, 20)}...
-            </p>
-          </div>
+            </span>
+          </p>
           <button
             type="button"
             onClick={handleClear}
-            className="ml-2 text-xs text-green-600 hover:text-green-800"
+            className="shrink-0 -my-2 min-h-[44px] px-2 text-sm font-medium text-rw-teal-strong hover:text-rw-teal-strong-hover hover:underline"
           >
             Clear
           </button>

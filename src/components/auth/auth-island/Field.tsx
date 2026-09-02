@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useId, useState, type ChangeEvent, type FocusEvent, type ReactNode } from 'react';
 import { EyeIcon, EyeOffIcon } from './Icons';
 
 export interface FieldProps {
@@ -18,6 +18,13 @@ export interface FieldProps {
   describedById?: string;
   /** Visible validation error. When set, marks the input invalid and links it via aria-describedby. */
   error?: string;
+  /**
+   * Marks the input invalid WITHOUT rendering Field's own error line — for a
+   * caller that owns its feedback element (linked via `describedById`) and
+   * its own live region, so the error is announced exactly once.
+   */
+  invalid?: boolean;
+  onBlur?: (e: FocusEvent<HTMLInputElement>) => void;
 }
 
 export function Field({
@@ -33,6 +40,8 @@ export function Field({
   minLength,
   describedById,
   error,
+  invalid: invalidProp = false,
+  onBlur,
 }: FieldProps) {
   const [show, setShow] = useState(false);
   const isPwd = type === 'password';
@@ -40,7 +49,7 @@ export function Field({
   const fallbackId = useId();
   const id = name || fallbackId;
   const errorId = `${id}-error`;
-  const invalid = Boolean(error);
+  const invalid = Boolean(error) || invalidProp;
   const describedBy = [error ? errorId : null, describedById].filter(Boolean).join(' ') || undefined;
 
   return (
@@ -55,6 +64,7 @@ export function Field({
           type={realType}
           value={value}
           onChange={onChange}
+          onBlur={onBlur}
           placeholder={placeholder}
           autoComplete={autoComplete}
           required={required}

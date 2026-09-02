@@ -29,7 +29,7 @@ describe('AuthIslandClient', () => {
       createElement(AuthIslandClient, { initialMode: 'signup' }),
     );
     expect(html).toContain('Create your account');
-    expect(html).toContain('Create your account, then choose your monthly plan explicitly.');
+    expect(html).toContain('Create your account, then pick your monthly plan.');
     expect(html).not.toContain('14 days');
     expect(html).not.toContain('No credit card');
   });

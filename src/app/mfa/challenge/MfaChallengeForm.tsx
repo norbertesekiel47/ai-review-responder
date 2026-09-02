@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   type FormEvent,
   type ReactNode,
 } from 'react';
@@ -16,6 +17,17 @@ import { BrandLogo } from '@/components/ui/BrandLogo';
 import { normalizeChallengeFactors, type ChallengeFactor } from '@/lib/auth/mfa';
 
 const SUPPORT_EMAIL = 'support@repworth.net';
+
+// Owner-facing copy in the page's own words — "security check", "authenticator
+// app", "code". "MFA", "factor" and "challenge" are our nouns, not theirs.
+const MFA_COPY = {
+  loadFailed: "Couldn't load your authenticator options. Reload the page to try again.",
+  challengeOffline: "Couldn't start the security check. Check your connection and try again.",
+  challengeFailed: "Couldn't start the security check. Please try again.",
+  tooManyAttempts: 'Too many code attempts. Try again in a few minutes.',
+  verifyOffline: "Couldn't check your code. Check your connection and try again.",
+  codeRejected: "That code wasn't accepted. Enter the current code from your authenticator app.",
+} as const;
 
 function safeNext(raw: string | null): string {
   if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return '/dashboard';
@@ -79,7 +91,7 @@ function MfaShell({ children }: { children: ReactNode }) {
       >
         <div className="flex items-center gap-2 mb-8">
           <BrandLogo size={32} />
-          <span className="text-sm tracking-wider uppercase text-rw-teal">
+          <span className="text-sm tracking-wider uppercase text-rw-teal-strong">
             RepWorth
           </span>
         </div>
@@ -118,6 +130,9 @@ type MfaAction =
   | { type: 'setCode'; code: string }
   | { type: 'setChallengeId'; challengeId: string | null }
   | { type: 'setError'; error: string | null }
+  // A rejected code: show why, drop the stale challenge, and clear the digits
+  // so the owner types a fresh code instead of editing the wrong one.
+  | { type: 'rejectCode'; error: string }
   | { type: 'verifyStart' }
   | { type: 'verifyEnd' };
 
@@ -142,6 +157,8 @@ function mfaReducer(state: MfaState, action: MfaAction): MfaState {
       return { ...state, challengeId: action.challengeId };
     case 'setError':
       return { ...state, error: action.error };
+    case 'rejectCode':
+      return { ...state, error: action.error, challengeId: null, code: '' };
     case 'verifyStart':
       return { ...state, busy: true, error: null };
     case 'verifyEnd':
@@ -165,6 +182,14 @@ export function MfaChallengeForm() {
   const reduce = useReducedMotion();
   const [state, dispatch] = useReducer(mfaReducer, initialMfaState);
   const { factors, selectedFactorId, challengeId, code, loading, busy, error } = state;
+  const codeInputRef = useRef<HTMLInputElement>(null);
+
+  // Every rejected code lands here: the digits are wrong or stale either way,
+  // so wipe them and put the cursor back where the next attempt starts.
+  function rejectCode(message: string) {
+    dispatch({ type: 'rejectCode', error: message });
+    codeInputRef.current?.focus();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -173,7 +198,7 @@ export function MfaChallengeForm() {
       const { data, error: listError } = await supabase.auth.mfa.listFactors();
       if (cancelled) return;
       if (listError) {
-        dispatch({ type: 'loadError', error: 'Could not load MFA factors.' });
+        dispatch({ type: 'loadError', error: MFA_COPY.loadFailed });
         return;
       }
       const nextFactors = normalizeChallengeFactors(data);
@@ -199,16 +224,16 @@ export function MfaChallengeForm() {
         body: JSON.stringify({ action: 'challenge', factorId }),
       });
     } catch {
-      dispatch({ type: 'setError', error: 'Could not start MFA challenge. Check your connection and try again.' });
+      dispatch({ type: 'setError', error: MFA_COPY.challengeOffline });
       return null;
     }
     if (res.status === 429) {
-      dispatch({ type: 'setError', error: 'Too many MFA attempts. Try again in a few minutes.' });
+      dispatch({ type: 'setError', error: MFA_COPY.tooManyAttempts });
       return null;
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok || typeof data.challengeId !== 'string') {
-      dispatch({ type: 'setError', error: 'Could not start MFA challenge.' });
+      dispatch({ type: 'setError', error: MFA_COPY.challengeFailed });
       return null;
     }
     dispatch({ type: 'setChallengeId', challengeId: data.challengeId });
@@ -235,18 +260,15 @@ export function MfaChallengeForm() {
           }),
         });
       } catch {
-        dispatch({ type: 'setError', error: 'Could not verify the MFA code. Check your connection and try again.' });
-        dispatch({ type: 'setChallengeId', challengeId: null });
+        rejectCode(MFA_COPY.verifyOffline);
         return;
       }
       if (res.status === 429) {
-        dispatch({ type: 'setError', error: 'Too many MFA attempts. Try again in a few minutes.' });
-        dispatch({ type: 'setChallengeId', challengeId: null });
+        rejectCode(MFA_COPY.tooManyAttempts);
         return;
       }
       if (!res.ok) {
-        dispatch({ type: 'setError', error: 'The verification code was not accepted.' });
-        dispatch({ type: 'setChallengeId', challengeId: null });
+        rejectCode(MFA_COPY.codeRejected);
         return;
       }
       router.push(next);
@@ -268,7 +290,7 @@ export function MfaChallengeForm() {
       {error ? (
         <p
           role="alert"
-          className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          className="mb-4 rounded-xl border border-rw-error/30 bg-rw-error/5 px-4 py-3 text-sm text-rw-error"
         >
           {error}
         </p>
@@ -287,13 +309,13 @@ export function MfaChallengeForm() {
           ) : null}
           <div className="flex flex-col gap-2 text-sm">
             <Link
-              className="text-rw-teal font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal rounded"
+              className="text-rw-teal-strong font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong rounded"
               href="/login"
             >
               Return to login
             </Link>
             <a
-              className="text-rw-teal font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal rounded"
+              className="text-rw-teal-strong font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong rounded"
               href={`mailto:${SUPPORT_EMAIL}`}
             >
               Trouble signing in? Contact support
@@ -317,7 +339,7 @@ export function MfaChallengeForm() {
               </label>
               <select
                 id="mfa-factor"
-                className="w-full rounded-xl border border-rw-teal/30 bg-white px-4 py-3 text-base text-rw-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal"
+                className="w-full rounded-xl border border-rw-teal/30 bg-white px-4 py-3 text-base text-rw-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong"
                 value={selectedFactorId}
                 onChange={(event) =>
                   dispatch({ type: 'selectFactor', selectedFactorId: event.target.value })
@@ -340,7 +362,8 @@ export function MfaChallengeForm() {
             </label>
             <input
               id="mfa-code"
-              className="w-full rounded-xl border border-rw-teal/30 bg-white px-4 py-3 text-base text-rw-ink tracking-[0.3em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal"
+              ref={codeInputRef}
+              className="w-full rounded-xl border border-rw-teal/30 bg-white px-4 py-3 text-base text-rw-ink tracking-[0.3em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong"
               value={code}
               onChange={(event) => dispatch({ type: 'setCode', code: event.target.value })}
               inputMode="numeric"
@@ -351,7 +374,7 @@ export function MfaChallengeForm() {
           </div>
           <m.button
             type="submit"
-            className="w-full rounded-full bg-rw-teal px-8 py-4 font-medium text-white shadow-lg disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal focus-visible:ring-offset-2"
+            className="w-full rounded-full bg-rw-teal-strong px-8 py-4 font-medium text-white shadow-lg hover:bg-rw-teal-strong-hover disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2"
             whileHover={reduce ? undefined : { scale: 1.03, y: -2 }}
             whileTap={reduce ? undefined : { scale: 0.98 }}
             disabled={busy || code.trim().length === 0}
@@ -359,7 +382,7 @@ export function MfaChallengeForm() {
             {busy ? 'Verifying…' : 'Verify'}
           </m.button>
           <a
-            className="block text-center text-sm text-rw-teal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal rounded"
+            className="block text-center text-sm text-rw-teal-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong rounded"
             href={`mailto:${SUPPORT_EMAIL}`}
           >
             Trouble signing in? Contact support

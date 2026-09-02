@@ -127,7 +127,7 @@ export function PaymentSuccessClient({
         {active ? (
           <>
             <m.div
-              className="size-16 mx-auto mb-6 rounded-full bg-rw-teal flex items-center justify-center shadow-lg"
+              className="size-16 mx-auto mb-6 rounded-full bg-rw-teal-strong flex items-center justify-center shadow-lg"
               initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.5, ease: 'easeOut', delay: 0.1 }}
@@ -185,7 +185,7 @@ export function PaymentSuccessClient({
             </h1>
             <p className="text-rw-ink-soft">
               This is taking longer than usual. Please{' '}
-              <a href="mailto:support@repworth.net" className="text-rw-teal underline">
+              <a href="mailto:support@repworth.net" className="text-rw-teal-strong underline hover:text-rw-teal-strong-hover">
                 contact support
               </a>{' '}
               if it persists.

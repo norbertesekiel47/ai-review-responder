@@ -1,12 +1,18 @@
 import type { Metadata } from 'next';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
-import { notFound } from 'next/navigation';
 import { CheckEmailClient } from '@/components/auth/CheckEmailClient';
 import { noindexRobots } from '@/lib/seo';
 
 export const metadata: Metadata = { title: 'Check your email · RepWorth', robots: noindexRobots };
 
+/**
+ * Always-on — see `/login`. `SELF_SERVE_SIGNUP_ENABLED` means only "strangers
+ * may mint accounts", and this page mints nothing: it confirms an email that
+ * already has an account behind it. An admin-invited owner whose email is
+ * still unconfirmed is sent here by `/login` (`useLoginSubmit`,
+ * `?from=login`) while the flag is off, so gating it produced a 404 at the
+ * exact moment they needed it. The OTP routes it POSTs to enforce their own
+ * boundaries (`/api/auth/verify-otp`, `/api/auth/resend-confirmation`).
+ */
 export default function CheckEmailPage() {
-  if (!selfServeSignupEnabled()) notFound();
   return <CheckEmailClient />;
 }

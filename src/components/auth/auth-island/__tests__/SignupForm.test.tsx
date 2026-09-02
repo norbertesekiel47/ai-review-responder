@@ -44,4 +44,9 @@ describe('SignupForm', () => {
     expect(html).toContain('Upper &amp; lowercase letters');
     expect(html).toContain('A number');
   });
+  it('labels the CTA with the verb "Create account", not a claim (A21)', () => {
+    const html = renderToStaticMarkup(createElement(SignupForm));
+    expect(html).toContain('Create account');
+    expect(html).not.toContain('Start saving 15 hours');
+  });
 });

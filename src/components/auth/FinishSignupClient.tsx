@@ -10,6 +10,7 @@ import {
   authPrimaryButtonClass,
 } from './AuthCardShell';
 import { fetchWithTimeout } from './shared/fetchWithTimeout';
+import { createBrowserSupabaseClient } from '@/lib/db/browser';
 
 type FormState = {
   ownerName: string;
@@ -59,8 +60,27 @@ export function FinishSignupClient({
     ownerPhone: '',
   });
   const [loading, setLoading] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+
+  // "Not you?" exit for someone who picked the wrong Google account. Without
+  // it the email was a disabled field and the only way out was the URL bar
+  // (A17). Back to /signup, where the Google button started this.
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setError('');
+    try {
+      const { error: signOutError } = await createBrowserSupabaseClient().auth.signOut();
+      if (signOutError) throw signOutError;
+      router.push('/signup');
+      router.refresh();
+    } catch {
+      setSigningOut(false);
+      setError("Couldn't sign you out. Check your connection and try again.");
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -82,7 +102,7 @@ export function FinishSignupClient({
       }
       router.push(body.redirectTo ?? '/onboarding/pay');
     } catch {
-      setError('Connection failed');
+      setError("Couldn't reach RepWorth. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -106,23 +126,21 @@ export function FinishSignupClient({
         onSubmit={handleSubmit}
         className="space-y-4"
       >
-        <div>
-          <label htmlFor="finish-email" className={authLabelClass}>
-            Email (from your Google account)
-          </label>
-          <input
-            id="finish-email"
-            type="email"
-            autoComplete="email"
-            disabled
-            value={defaultEmail}
-            // Display-only: the email is fixed to the Google account. The
-            // field stays `disabled` (not `readOnly`); the no-op onChange just
-            // makes it a formally controlled input.
-            onChange={() => undefined}
-            className={`${authFieldClass} bg-rw-cream text-rw-ink-soft`}
-          />
-        </div>
+        {/* The email is fixed to the Google account — text, not a field the
+            owner will try to edit. */}
+        <p className="text-sm text-rw-ink-soft">
+          Signed in with Google as{' '}
+          <span className="font-medium text-rw-ink [overflow-wrap:anywhere]">{defaultEmail}</span>
+          {' · '}
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={signingOut || loading}
+            className="font-medium text-rw-teal-strong hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {signingOut ? 'Signing out…' : 'Not you? Sign out'}
+          </button>
+        </p>
         <div>
           <label htmlFor="finish-name" className={authLabelClass}>
             Your name
@@ -164,7 +182,7 @@ export function FinishSignupClient({
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || signingOut}
           className={authPrimaryButtonClass}
         >
           {loading ? 'Submitting...' : 'Continue'}

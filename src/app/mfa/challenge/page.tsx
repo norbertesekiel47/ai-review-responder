@@ -1,8 +1,7 @@
-import type { Metadata } from 'next';
 import { MfaChallengeScreen } from './MfaChallengeForm';
 
-export const metadata: Metadata = { title: 'Verify your identity | RepWorth' };
-
+// Title + noindex live on `../layout.tsx` (one owner for the /mfa subtree);
+// a page-level override here produced a second, differently-punctuated title.
 export default function MfaChallengePage() {
   return <MfaChallengeScreen />;
 }

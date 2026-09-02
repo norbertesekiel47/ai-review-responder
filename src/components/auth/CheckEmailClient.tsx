@@ -4,7 +4,12 @@ import { Suspense, useEffect, useReducer, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { redirectAfterServerSessionCookie } from './CheckEmailClient.helpers';
-import { AuthCardShell, authFieldClass, authPrimaryButtonClass } from './AuthCardShell';
+import {
+  AuthCardShell,
+  authFieldClass,
+  authLabelClass,
+  authPrimaryButtonClass,
+} from './AuthCardShell';
 import { CHECK_EMAIL_EMAIL_KEY } from './shared/prefillEmail';
 import { fetchWithTimeout } from './shared/fetchWithTimeout';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -88,7 +93,10 @@ function CheckEmailInner() {
   // sessionStorage, which the client login path uses so the email never leaks
   // into the URL/history/referrer/logs.
   const paramEmail = (searchParams.get('email') ?? '').trim().toLowerCase();
-  const [email, setEmail] = useState(paramEmail);
+  // `null` = not resolved yet (the sessionStorage read below has not run);
+  // `''` = resolved and genuinely missing, which renders the start-again
+  // notice immediately instead of only after a failed submit (A22).
+  const [email, setEmail] = useState<string | null>(paramEmail || null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (paramEmail) {
@@ -96,15 +104,14 @@ function CheckEmailInner() {
       return;
     }
     const stored = sessionStorage.getItem(CHECK_EMAIL_EMAIL_KEY);
-    if (stored) {
-      // sessionStorage is browser-only (undefined during SSR), so this read
-      // can't be a lazy initializer — it must happen in an effect (same pattern
-      // as LoginForm's PREFILL_EMAIL_KEY handoff).
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setEmail(stored.trim().toLowerCase());
-      sessionStorage.removeItem(CHECK_EMAIL_EMAIL_KEY);
-    }
+    // sessionStorage is browser-only (undefined during SSR), so this read
+    // can't be a lazy initializer — it must happen in an effect (same pattern
+    // as LoginForm's PREFILL_EMAIL_KEY handoff).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEmail(stored ? stored.trim().toLowerCase() : '');
+    if (stored) sessionStorage.removeItem(CHECK_EMAIL_EMAIL_KEY);
   }, [paramEmail]);
+  const emailMissing = email === '';
 
   const [state, dispatch] = useReducer(checkEmailReducer, initialCheckEmailState);
   const { code, verifying, verifyError, resendLoading, resendSent, resendError, resendCooldown } =
@@ -132,7 +139,7 @@ function CheckEmailInner() {
     if (!email) {
       dispatch({
         type: 'setVerifyError',
-        verifyError: 'No email on this page — please go back and start signup again.',
+        verifyError: missingEmailNotice,
       });
       return;
     }
@@ -178,7 +185,7 @@ function CheckEmailInner() {
     if (!email) {
       dispatch({
         type: 'setResendError',
-        resendError: 'No email on this page — please go back and start signup again.',
+        resendError: missingEmailNotice,
       });
       return;
     }
@@ -206,6 +213,9 @@ function CheckEmailInner() {
   }
 
   const heading = fromLogin ? 'Almost there' : 'Check your email';
+  const missingEmailNotice = fromLogin
+    ? 'No email on this page — go back to log in and try again.'
+    : 'No email on this page — go back and start signup again.';
   // OTP length is driven by EMAIL_OTP_LENGTH (single source of truth). The
   // Supabase Auth → "Email OTP Length" setting MUST match it (6). Change the
   // constant + the Supabase setting in lockstep; nothing here is hardcoded.
@@ -223,9 +233,17 @@ function CheckEmailInner() {
         </p>
       )}
 
+      {emailMissing && (
+        <p role="alert" className="mb-4 rounded-xl border border-rw-error/30 bg-rw-error/5 p-3 text-sm text-rw-error text-center">
+          {missingEmailNotice}
+        </p>
+      )}
+
       <form onSubmit={handleVerify} className="space-y-3 mb-6">
         <div>
-          <label htmlFor="verify-code" className="sr-only">
+          {/* Visible label: the placeholder vanished on the first keystroke and
+              left an unlabelled box (A22). */}
+          <label htmlFor="verify-code" className={authLabelClass}>
             Confirmation code
           </label>
           {/*
@@ -249,7 +267,8 @@ function CheckEmailInner() {
             placeholder={`${EMAIL_OTP_LENGTH}-digit code`}
             value={code}
             onChange={(e) => dispatch({ type: 'setCode', code: e.target.value })}
-            className={`${authFieldClass} text-center tracking-[0.5em] font-mono`}
+            disabled={emailMissing}
+            className={`${authFieldClass} text-center tracking-[0.5em] font-mono disabled:bg-rw-cream disabled:text-rw-ink-soft`}
           />
         </div>
         {/* aria-hidden — the assertive LiveRegion below is the sole announcer,
@@ -261,7 +280,7 @@ function CheckEmailInner() {
         )}
         <button
           type="submit"
-          disabled={verifying}
+          disabled={verifying || emailMissing}
           className={authPrimaryButtonClass}
         >
           {verifying ? 'Verifying...' : 'Verify and continue'}
@@ -304,11 +323,14 @@ function CheckEmailInner() {
               : 'Resend code'}
         </button>
         <div>
+          {/* An owner who arrived from /login (unconfirmed invited account) has
+              no /signup to go back to — with self-serve signup off that route
+              is a 404. Send them back to where they came from. */}
           <Link
-            href="/signup"
+            href={fromLogin ? '/login' : '/signup'}
             className="text-sm text-rw-ink-soft hover:text-rw-ink hover:underline"
           >
-            ← Go back and change email
+            {fromLogin ? '← Back to log in' : '← Go back and change email'}
           </Link>
         </div>
       </div>

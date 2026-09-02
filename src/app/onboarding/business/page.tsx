@@ -13,9 +13,11 @@ interface BusinessDataRow extends WizardGuardRow {
   category: string | null;
   website: string | null;
   name: string;
+  subscription_tier: string | null;
 }
 
-export const metadata: Metadata = { title: 'Set up your business | RepWorth' };
+// Bare page name — the root layout's `title.template` appends '· RepWorth' (A26).
+export const metadata: Metadata = { title: 'Set up your business' };
 
 /**
  * Guard: authenticated session + `u.role = 'owner'` +
@@ -49,7 +51,8 @@ export default async function OnboardingBusinessPage() {
   if (!user) redirect('/login');
 
   const [row] = await sql<BusinessDataRow[]>`
-    SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url,
+    SELECT u.role, a.subscription_status, a.subscription_tier,
+           b.place_id_verified, b.google_maps_url,
            b.category, b.website, b.name
     FROM users u
     JOIN accounts a ON a.id = u.account_id
@@ -77,6 +80,7 @@ export default async function OnboardingBusinessPage() {
         businessName: row?.name ?? '',
       }}
       demoFlowEnabled={demoFlowEnabled}
+      subscriptionTier={row?.subscription_tier ?? null}
     />
   );
 }

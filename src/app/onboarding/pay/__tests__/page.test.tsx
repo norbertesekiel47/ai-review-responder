@@ -31,7 +31,7 @@ vi.mock('../../_shared/OnboardingFunnelShell', () => ({
   OnboardingFunnelShell: () => null,
 }));
 
-const { default: OnboardingPayPage } = await import('../page');
+const { default: OnboardingPayPage, metadata } = await import('../page');
 
 const searchParams = Promise.resolve({});
 
@@ -115,5 +115,9 @@ describe('OnboardingPayPage guard', () => {
       'NEXT_REDIRECT',
     );
     expect(mockRedirect).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('sets a bare page title — the root layout template appends the brand (A26)', () => {
+    expect(metadata.title).toBe('Choose your plan');
   });
 });

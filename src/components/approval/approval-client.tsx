@@ -61,6 +61,10 @@ interface State {
   loading: boolean;
   data: ReviewData | null;
   error: string | null;
+  // True when the failed action was a 409 — the draft moved under the page,
+  // so the alert offers a Reload control instead of telling the owner to
+  // "refresh" with nothing to press (A24).
+  errorReloadable: boolean;
   editedText: string;
   isEditing: boolean;
   actionLoading: boolean;
@@ -70,18 +74,24 @@ interface State {
   // (confirm) tap. Posting to a public Google profile is irreversible, so both
   // "Approve" and "Save & Approve" gate behind this two-step confirm.
   pendingPublish: PendingPublish | null;
+  // True while Regenerate is armed and awaiting its confirming tap. A
+  // regenerate discards the draft AND consumes this link, so it gets the same
+  // two-tap guard as publishing (A3). Mutually exclusive with pendingPublish.
+  regenerateArmed: boolean;
 }
 
 const initialState: State = {
   loading: true,
   data: null,
   error: null,
+  errorReloadable: false,
   editedText: '',
   isEditing: false,
   actionLoading: false,
   successMessage: null,
   successAction: null,
   pendingPublish: null,
+  regenerateArmed: false,
 };
 
 type Action =
@@ -101,9 +111,12 @@ type Action =
   | { type: 'publishArmed'; pending: PendingPublish }
   // Backs out of the armed confirm without posting.
   | { type: 'publishCancelled' }
+  // Arms / disarms the two-step confirm for Regenerate.
+  | { type: 'regenerateArmed' }
+  | { type: 'regenerateCancelled' }
   | { type: 'actionStarted' }
   | { type: 'actionSucceeded'; action: ApprovalAction; message: string }
-  | { type: 'actionFailed'; message: string };
+  | { type: 'actionFailed'; message: string; reloadable: boolean };
 
 // Flat one-case-per-action switch; cyclomatic count is the action vocabulary,
 // not tangled logic. (Justification kept off the directive line so fallow does
@@ -124,7 +137,7 @@ function reducer(state: State, action: Action): State {
     case 'editTextChanged':
       return { ...state, editedText: action.value };
     case 'editStarted':
-      return { ...state, isEditing: true };
+      return { ...state, isEditing: true, regenerateArmed: false };
     case 'editCancelled':
       return {
         ...state,
@@ -133,11 +146,27 @@ function reducer(state: State, action: Action): State {
         pendingPublish: null,
       };
     case 'publishArmed':
-      return { ...state, pendingPublish: action.pending, error: null };
+      return {
+        ...state,
+        pendingPublish: action.pending,
+        regenerateArmed: false,
+        error: null,
+        errorReloadable: false,
+      };
     case 'publishCancelled':
       return { ...state, pendingPublish: null };
+    case 'regenerateArmed':
+      return {
+        ...state,
+        regenerateArmed: true,
+        pendingPublish: null,
+        error: null,
+        errorReloadable: false,
+      };
+    case 'regenerateCancelled':
+      return { ...state, regenerateArmed: false };
     case 'actionStarted':
-      return { ...state, actionLoading: true, error: null };
+      return { ...state, actionLoading: true, error: null, errorReloadable: false };
     case 'actionSucceeded':
       return {
         ...state,
@@ -145,9 +174,17 @@ function reducer(state: State, action: Action): State {
         successAction: action.action,
         successMessage: action.message,
         pendingPublish: null,
+        regenerateArmed: false,
       };
     case 'actionFailed':
-      return { ...state, actionLoading: false, error: action.message, pendingPublish: null };
+      return {
+        ...state,
+        actionLoading: false,
+        error: action.message,
+        errorReloadable: action.reloadable,
+        pendingPublish: null,
+        regenerateArmed: false,
+      };
     default:
       return state;
   }
@@ -188,7 +225,7 @@ function friendlyErrorForStatus(status: number, serverMessage?: string): string 
     return 'There is a problem with this link or your session. Open the most recent link from your email and try again.';
   }
   if (status === 409) {
-    return 'This draft has changed since the page loaded. Refresh to see the latest version before approving.';
+    return 'This draft has changed since the page loaded. Reload to see the latest version before approving.';
   }
   if (status === 410) {
     return 'This link has already been used or has expired. Check your email for a newer one.';
@@ -202,6 +239,18 @@ function friendlyErrorForStatus(status: number, serverMessage?: string): string 
   // Other 4xx (e.g. 400 validation): the server message is owner-safe and
   // specific; fall back to it, then to a neutral default.
   return serverMessage?.trim() || 'Something went wrong. Please try again.';
+}
+
+// A non-OK action response, carrying its status so the catch block can decide
+// whether the alert offers a Reload control (409 = the draft moved under us).
+class ActionHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ActionHttpError';
+  }
 }
 
 // Human expiry copy. Rounding to whole hours rendered "0 hours" for any link
@@ -252,11 +301,20 @@ const CONFIRM_BTN =
 // flex-1) — it is the only button in its view, never part of a button row.
 const DESTRUCTIVE_BTN =
   'w-full rounded-full bg-rw-red-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-rw-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-red-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+// Quiet text-link treatment for secondary, non-publishing controls (Regenerate,
+// Reload). Deliberately NOT a pill: the pill row is reserved for the publish
+// decision so a stray tap cannot land on a link-consuming action (A3).
+const TEXT_LINK_BTN =
+  'rounded-sm text-sm font-semibold text-rw-teal-strong underline underline-offset-2 transition hover:text-rw-teal-strong-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline';
 
 function LoadingSpinner() {
   return (
-    <div className="flex items-center justify-center py-12">
-      <div className="size-8 animate-spin rounded-full border-4 border-rw-teal-strong border-t-transparent" />
+    <div role="status" className="flex items-center justify-center py-12">
+      <div
+        className="size-8 animate-spin rounded-full border-4 border-rw-teal-strong border-t-transparent"
+        aria-hidden="true"
+      />
+      <span className="sr-only">Loading your draft reply…</span>
     </div>
   );
 }
@@ -269,7 +327,7 @@ function SuccessView({
   successMessage: string;
 }) {
   const heading =
-    successAction === 'regenerate' ? 'New draft on the way' : 'Response approved!';
+    successAction === 'regenerate' ? 'New draft on the way' : 'Reply approved!';
   // A regenerate doesn't publish; only approve/edit start a Google post. Keep
   // the reassurance line publish-specific so it stays truthful.
   const isPublish = successAction === 'approve' || successAction === 'edit';
@@ -364,7 +422,7 @@ function PostedNoticeView() {
         This reply has already been posted
       </h2>
       <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-rw-ink-soft">
-        The response is live on your public Google profile. No action is
+        Your reply is live on your public Google profile. No action is
         needed — you can safely close this page.
       </p>
       <QuietDashboardLink />
@@ -555,9 +613,14 @@ function LocationChip({
   isArchived: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="inline-flex max-w-[180px] items-center gap-1 truncate whitespace-nowrap rounded-full bg-rw-teal/15 px-2.5 py-0.5 text-[11px] font-semibold text-rw-sage-text">
-        <LocationPin />
+    <div className="flex flex-wrap items-center gap-2">
+      {/* The chip wraps instead of truncating — a location label is the one
+          thing that tells a multi-location owner WHICH profile this posts to,
+          so it must never be cut to "Main Street, Sp…" (A16). */}
+      <span className="inline-flex max-w-full items-start gap-1 rounded-xl bg-rw-teal/15 px-2.5 py-0.5 text-left text-[11px] font-semibold leading-snug text-rw-sage-text [overflow-wrap:anywhere]">
+        <span className="mt-0.5 flex-shrink-0">
+          <LocationPin />
+        </span>
         {locationLabel}
       </span>
       {isArchived && (
@@ -623,8 +686,10 @@ function ResponseCard({
         </svg>
         <span>{AI_DRAFT_DISCLOSURE}</span>
       </div>
+      {/* The internal draft version is bookkeeping, not owner information —
+          it never renders here (A24). */}
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-rw-teal-strong">
-        Draft response (v{response.version})
+        Draft reply
       </p>
       {isEditing ? (
         <div>
@@ -632,8 +697,10 @@ function ResponseCard({
             htmlFor="approval-edit"
             className="mb-1 block text-xs font-medium text-rw-ink"
           >
-            Edit your response
+            Edit your reply
           </label>
+          {/* text-base (16px) — anything smaller makes iOS Safari zoom on focus
+              and scrolls the Save row out of view (A6). */}
           <textarea
             id="approval-edit"
             value={editedText}
@@ -641,12 +708,12 @@ function ResponseCard({
             readOnly={editLocked}
             aria-describedby={editLocked ? 'approval-edit-locked' : undefined}
             maxLength={MAX_EDIT_LENGTH}
-            className={`w-full rounded-lg border border-rw-teal-strong/40 p-3 text-sm leading-relaxed text-rw-ink focus:border-rw-teal-strong focus:outline-none focus:ring-2 focus:ring-rw-teal-strong/30 ${editLocked ? 'cursor-not-allowed bg-rw-cream/60' : ''}`}
+            className={`w-full rounded-lg border border-rw-teal-strong/40 p-3 text-base leading-relaxed text-rw-ink focus:border-rw-teal-strong focus:outline-none focus:ring-2 focus:ring-rw-teal-strong/30 ${editLocked ? 'cursor-not-allowed bg-rw-cream/60' : ''}`}
             rows={5}
           />
           {editLocked && (
             <p id="approval-edit-locked" className="mt-1 text-[11px] text-rw-teal-strong">
-              Locked while confirming — tap “Cancel” to keep editing.
+              Locked while confirming — tap “Keep editing” to change it.
             </p>
           )}
           <p className="mt-1 text-right text-[11px] text-rw-teal-strong" aria-hidden="true">
@@ -724,6 +791,59 @@ function PublishButton({
   );
 }
 
+// Regenerate, demoted to a text link below the publish row and gated behind
+// the same two-tap arm as publishing (A3). A regenerate is not reversible from
+// this page: it discards the draft AND consumes this link, so one mis-tap used
+// to lock the owner out. Resting → armed (consequence copy + confirm + back
+// out) → in flight.
+function RegenerateControl({
+  armed,
+  actionLoading,
+  onArm,
+  onConfirm,
+  onCancel,
+}: {
+  armed: boolean;
+  actionLoading: boolean;
+  onArm: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (actionLoading) {
+    return (
+      <p className="text-center text-sm text-rw-ink-soft" aria-busy="true">
+        Requesting a new draft…
+      </p>
+    );
+  }
+
+  if (armed) {
+    return (
+      <div className="rounded-xl border border-rw-teal/40 bg-rw-teal/10 p-3 text-center">
+        <p className="text-xs leading-relaxed text-rw-teal-darkest">
+          Discards this draft. A new link is sent to you.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          <button type="button" onClick={onConfirm} className={TEXT_LINK_BTN}>
+            Tap again to regenerate
+          </button>
+          <button type="button" onClick={onCancel} className={TEXT_LINK_BTN}>
+            Keep this draft
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-center">
+      <button type="button" onClick={onArm} className={TEXT_LINK_BTN}>
+        Regenerate this draft
+      </button>
+    </p>
+  );
+}
+
 // Render-only: branches are independent UI states (edit / confirm-publish /
 // resting / loading), not tangled logic.
 // fallow-ignore-next-line complexity
@@ -733,10 +853,13 @@ function ActionBar({
   actionLoading,
   isArchived,
   pendingPublish,
-  onAction,
+  regenerateArmed,
   onArmPublish,
   onConfirmPublish,
   onCancelPublish,
+  onArmRegenerate,
+  onConfirmRegenerate,
+  onCancelRegenerate,
   onStartEdit,
   onCancelEdit,
 }: {
@@ -745,10 +868,13 @@ function ActionBar({
   actionLoading: boolean;
   isArchived: boolean;
   pendingPublish: PendingPublish | null;
-  onAction: (action: ApprovalAction) => void;
+  regenerateArmed: boolean;
   onArmPublish: (pending: PendingPublish) => void;
   onConfirmPublish: () => void;
   onCancelPublish: () => void;
+  onArmRegenerate: () => void;
+  onConfirmRegenerate: () => void;
+  onCancelRegenerate: () => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
 }) {
@@ -770,74 +896,67 @@ function ActionBar({
   const publishDisabled =
     actionLoading || (isEditing && editedText.trim().length === 0);
 
+  // The ghost button is labelled by what happens when you press it — never a
+  // bare "Cancel" whose meaning depends on hidden state (A16).
+  const secondaryLabel = isEditing
+    ? armed
+      ? 'Keep editing'
+      : 'Discard changes'
+    : armed
+      ? "Don't post yet"
+      : 'Edit';
+  const onSecondary = isEditing
+    ? armed
+      ? onCancelPublish
+      : onCancelEdit
+    : armed
+      ? onCancelPublish
+      : onStartEdit;
+
   return (
-    <div className="space-y-2">
-      <div className="flex flex-col gap-2 sm:flex-row">
-        {isEditing ? (
-          <>
-            <PublishButton
-              action="edit"
-              editedText={editedText}
-              armed={armed}
-              actionLoading={actionLoading}
-              disabled={publishDisabled}
-              onArm={onArmPublish}
-              onConfirm={onConfirmPublish}
-            />
-            <m.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={armed ? onCancelPublish : onCancelEdit}
-              disabled={actionLoading}
-              className={GHOST_BTN}
-            >
-              Cancel
-            </m.button>
-          </>
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          {/* While a REGENERATE is in flight the publish pill must not read
+              "Approving…" — it only claims the busy label for its own POST. */}
+          <PublishButton
+            action={publishAction}
+            editedText={editedText}
+            armed={armed}
+            actionLoading={actionLoading && !regenerateArmed}
+            disabled={publishDisabled}
+            onArm={onArmPublish}
+            onConfirm={onConfirmPublish}
+          />
+          <m.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onSecondary}
+            disabled={actionLoading}
+            className={GHOST_BTN}
+          >
+            {secondaryLabel}
+          </m.button>
+        </div>
+        {armed ? (
+          <p className="text-center text-xs leading-relaxed text-rw-teal-strong">
+            This posts your reply to your public Google profile. Tap the button
+            again to confirm.
+          </p>
         ) : (
-          <>
-            <PublishButton
-              action="approve"
-              editedText={editedText}
-              armed={armed}
-              actionLoading={actionLoading}
-              disabled={publishDisabled}
-              onArm={onArmPublish}
-              onConfirm={onConfirmPublish}
-            />
-            <m.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={armed ? onCancelPublish : onStartEdit}
-              disabled={actionLoading}
-              className={GHOST_BTN}
-            >
-              {armed ? 'Cancel' : 'Edit'}
-            </m.button>
-            {!armed && (
-              <m.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => onAction('regenerate')}
-                disabled={actionLoading}
-                aria-busy={actionLoading}
-                className={GHOST_BTN}
-              >
-                {actionLoading ? 'Requesting…' : 'Regenerate'}
-              </m.button>
-            )}
-          </>
+          <p className="text-center text-xs leading-relaxed text-rw-teal-strong">
+            Close this page — nothing posts unless you approve.
+          </p>
         )}
       </div>
-      {armed ? (
-        <p className="text-center text-xs leading-relaxed text-rw-teal-strong">
-          This posts your reply to your public Google profile. Tap the button
-          again to confirm.
-        </p>
-      ) : (
-        <p className="text-center text-xs leading-relaxed text-rw-teal-strong">
-          Close this page — nothing posts unless you approve.
-        </p>
+      {!isEditing && !armed && (
+        <RegenerateControl
+          armed={regenerateArmed}
+          actionLoading={actionLoading}
+          onArm={onArmRegenerate}
+          onConfirm={onConfirmRegenerate}
+          onCancel={onCancelRegenerate}
+        />
       )}
     </div>
   );
@@ -852,12 +971,14 @@ export default function ApprovalClient({ token }: { token: string }) {
     loading,
     data,
     error,
+    errorReloadable,
     editedText,
     isEditing,
     actionLoading,
     successMessage,
     successAction,
     pendingPublish,
+    regenerateArmed,
   } = state;
 
   // Snapshot "now" once at mount so the hoursLeft display below is a pure render
@@ -951,7 +1072,10 @@ export default function ApprovalClient({ token }: { token: string }) {
 
         if (!res.ok) {
           // Map status → owner-friendly copy; never surface "HTTP 500".
-          throw new Error(friendlyErrorForStatus(res.status, json.error));
+          throw new ActionHttpError(
+            res.status,
+            friendlyErrorForStatus(res.status, json.error),
+          );
         }
 
         // Treat empty/whitespace messages as missing — the success view gates on
@@ -967,6 +1091,9 @@ export default function ApprovalClient({ token }: { token: string }) {
         dispatch({
           type: 'actionFailed',
           message: err instanceof Error ? err.message : 'Action failed',
+          // 409 = the draft changed under the page; a reload shows the current
+          // state, so the alert offers one (A24).
+          reloadable: err instanceof ActionHttpError && err.status === 409,
         });
       } finally {
         actionLockRef.current = false;
@@ -979,6 +1106,11 @@ export default function ApprovalClient({ token }: { token: string }) {
     if (!pendingPublish) return;
     void handleAction(pendingPublish.action, pendingPublish.editedText);
   }, [handleAction, pendingPublish]);
+
+  const handleConfirmRegenerate = useCallback(() => {
+    if (!regenerateArmed) return;
+    void handleAction('regenerate');
+  }, [handleAction, regenerateArmed]);
 
   if (loading) {
     return <LoadingSpinner />;
@@ -1027,9 +1159,11 @@ export default function ApprovalClient({ token }: { token: string }) {
   // Drives the polite status region while an action is in flight — screen
   // readers announce "Approving…/Saving…" without moving focus.
   const busyLabel = actionLoading
-    ? isEditing
-      ? 'Saving your response…'
-      : 'Approving your response…'
+    ? regenerateArmed
+      ? 'Requesting a new draft…'
+      : isEditing
+        ? 'Saving your reply…'
+        : 'Approving your reply…'
     : '';
 
   return (
@@ -1045,7 +1179,18 @@ export default function ApprovalClient({ token }: { token: string }) {
             role="alert"
             className="rounded-xl border border-rw-red-600/30 bg-rw-red-600/5 p-3 text-sm text-rw-red-700"
           >
-            {error}
+            <p>{error}</p>
+            {errorReloadable && (
+              <p className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className={TEXT_LINK_BTN}
+                >
+                  Reload
+                </button>
+              </p>
+            )}
           </div>
         )}
 
@@ -1073,12 +1218,15 @@ export default function ApprovalClient({ token }: { token: string }) {
           actionLoading={actionLoading}
           isArchived={data.isArchived}
           pendingPublish={pendingPublish}
-          onAction={handleAction}
+          regenerateArmed={regenerateArmed}
           onArmPublish={(pending) =>
             dispatch({ type: 'publishArmed', pending })
           }
           onConfirmPublish={handleConfirmPublish}
           onCancelPublish={() => dispatch({ type: 'publishCancelled' })}
+          onArmRegenerate={() => dispatch({ type: 'regenerateArmed' })}
+          onConfirmRegenerate={handleConfirmRegenerate}
+          onCancelRegenerate={() => dispatch({ type: 'regenerateCancelled' })}
           onStartEdit={() => dispatch({ type: 'editStarted' })}
           onCancelEdit={() => dispatch({ type: 'editCancelled' })}
         />

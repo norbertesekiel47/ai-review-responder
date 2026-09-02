@@ -2,14 +2,19 @@
 
 import { useReducer, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ProgressDots } from './ProgressDots';
 import { StepLocation } from './StepLocation';
 import { StepProfile } from './StepProfile';
 import { StepVoice } from './StepVoice';
 import { StepConnect } from './StepConnect';
+import { wizardStepLabel } from './StepHeading';
 import { buildBusinessWizardPayload } from './payload';
+import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { OnboardingFunnelShell } from '../_shared/OnboardingFunnelShell';
 import { errorBannerClass } from '../_shared/field-styles';
+import {
+  ONBOARDING_CONNECTION_FAILED,
+  mapOnboardingApiError,
+} from '../_shared/onboarding-error-copy';
 
 export interface WizardFormData {
   // Location (legacy 3-step only — empty/unused in post-pay flow)
@@ -46,6 +51,12 @@ interface BusinessWizardClientProps {
    * single-pass flow with no Connect step.
    */
   demoFlowEnabled?: boolean;
+  /**
+   * The account's subscription tier, read server-side. Drives the Connect
+   * step's promise: Copilot owners approve every reply; Autopilot owners are
+   * told that in-policy replies post after the veto window (A12).
+   */
+  subscriptionTier?: string | null;
 }
 
 type Step = 1 | 2 | 3;
@@ -88,16 +99,22 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   }
 }
 
+// Sub-step names per flow. Both flows are 3-step; only the names differ.
+const DEMO_STEP_NAMES: Record<Step, string> = { 1: 'Profile', 2: 'Voice', 3: 'Connect' };
+const LEGACY_STEP_NAMES: Record<Step, string> = { 1: 'Location', 2: 'Profile', 3: 'Voice' };
+
 export function BusinessWizardClient({
   initialValues,
   demoFlowEnabled = false,
+  subscriptionTier = null,
 }: BusinessWizardClientProps) {
   const [state, dispatch] = useReducer(wizardReducer, initialWizardState);
   const { step, submitting, error, voiceSkipped } = state;
   const router = useRouter();
 
-  // Both flows are 3-step now; only the step labels differ.
-  const totalSteps = 3;
+  const stepNames = demoFlowEnabled ? DEMO_STEP_NAMES : LEGACY_STEP_NAMES;
+  const label = (n: Step) => wizardStepLabel(n, stepNames[n]);
+  const autopilot = tierGrantsAutopilot(subscriptionTier);
 
   const [data, setData] = useState<WizardFormData>({
     inputMode: 'autocomplete',
@@ -149,13 +166,13 @@ export function BusinessWizardClient({
           router.push(body.redirectTo);
           return false;
         }
-        dispatch({ type: 'setError', error: body.message ?? body.error ?? 'Submission failed' });
+        dispatch({ type: 'setError', error: mapOnboardingApiError(body) });
         return false;
       }
 
       return true;
     } catch {
-      dispatch({ type: 'setError', error: 'Connection failed' });
+      dispatch({ type: 'setError', error: ONBOARDING_CONNECTION_FAILED });
       return false;
     } finally {
       dispatch({ type: 'setSubmitting', submitting: false });
@@ -199,7 +216,10 @@ export function BusinessWizardClient({
       }
       window.location.href = body.authUrl;
     } catch {
-      dispatch({ type: 'setError', error: 'Network error. Redirecting to dashboard.' });
+      dispatch({
+        type: 'setError',
+        error: "Couldn't reach RepWorth. Your details are saved — taking you to your dashboard.",
+      });
       router.push('/dashboard');
     } finally {
       dispatch({ type: 'setSubmitting', submitting: false });
@@ -214,20 +234,17 @@ export function BusinessWizardClient({
 
   return (
     <OnboardingFunnelShell step="setup" showThread={demoFlowEnabled}>
-      {demoFlowEnabled && (
-        <p className="text-center text-rw-teal text-sm mb-2">
-          You&apos;re in. A few quick steps to make responses sound like you and
-          connect your reviews, then we go live.
-        </p>
-      )}
+      {/* One heading, one subtitle, then the step. The funnel thread above the
+          card is the only progress graphic; the sub-step renders as text inside
+          each step's h2 via StepHeading (A10). */}
       <h1 className="text-3xl md:text-4xl font-medium text-center text-rw-ink mb-2">
         Set up your business
       </h1>
       <p className="text-center text-rw-ink-soft mb-8">
-        A few quick details so we can start fetching your reviews.
+        {demoFlowEnabled
+          ? 'You\u2019re in. A few quick details so replies sound like you, then we connect your reviews.'
+          : 'A few quick details so we can start fetching your reviews.'}
       </p>
-
-      <ProgressDots current={step} total={totalSteps} demoFlow={demoFlowEnabled} />
 
       {error && <div className={`${errorBannerClass} mb-4`}>{error}</div>}
 
@@ -235,6 +252,7 @@ export function BusinessWizardClient({
         <>
           {step === 1 && (
             <StepProfile
+              stepLabel={label(1)}
               data={data}
               update={update}
               dirtyRef={dirtyRef}
@@ -243,16 +261,21 @@ export function BusinessWizardClient({
           )}
           {step === 2 && (
             <StepVoice
+              stepLabel={label(2)}
               data={data}
               update={update}
               onBack={() => dispatch({ type: 'goToStep', step: 1 })}
               onSubmit={() => advanceToConnect()}
               onSkip={() => advanceToConnect({ skipVoice: true })}
               submitting={submitting}
+              // Voice is NOT the last step here — Connect follows (A11).
+              submitLabel="Continue →"
             />
           )}
           {step === 3 && (
             <StepConnect
+              stepLabel={label(3)}
+              autopilot={autopilot}
               onBack={() => dispatch({ type: 'goToStep', step: 2 })}
               onConnect={handleConnectZernio}
               onSkip={handleSkipConnect}
@@ -264,6 +287,7 @@ export function BusinessWizardClient({
         <>
           {step === 1 && (
             <StepLocation
+              stepLabel={label(1)}
               data={data}
               update={update}
               dirtyRef={dirtyRef}
@@ -272,6 +296,7 @@ export function BusinessWizardClient({
           )}
           {step === 2 && (
             <StepProfile
+              stepLabel={label(2)}
               data={data}
               update={update}
               dirtyRef={dirtyRef}
@@ -281,12 +306,14 @@ export function BusinessWizardClient({
           )}
           {step === 3 && (
             <StepVoice
+              stepLabel={label(3)}
               data={data}
               update={update}
               onBack={() => dispatch({ type: 'goToStep', step: 2 })}
               onSubmit={() => legacySubmit()}
               onSkip={() => legacySubmit({ skipVoice: true })}
               submitting={submitting}
+              submitLabel="Finish setup"
             />
           )}
         </>

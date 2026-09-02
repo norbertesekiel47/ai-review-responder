@@ -11,6 +11,14 @@ describe('mapInitialQueryError', () => {
   it('maps unsupported_role', () => {
     expect(mapInitialQueryError('unsupported_role')).toMatch(/no longer supported/);
   });
+  it('maps account_not_found (owner shell, no app row / no account) to owner copy', () => {
+    expect(mapInitialQueryError('account_not_found')).toMatch(/couldn't find an account/i);
+  });
+  it('maps session_expired (payment-success bounce) and reassures about the payment', () => {
+    const copy = mapInitialQueryError('session_expired');
+    expect(copy).toMatch(/session expired during checkout/i);
+    expect(copy).toMatch(/payment is safe/i);
+  });
   it('returns empty for null/unknown', () => {
     expect(mapInitialQueryError(null)).toBe('');
     expect(mapInitialQueryError('mystery')).toBe('');

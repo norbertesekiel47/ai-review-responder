@@ -46,6 +46,19 @@ describe('PaymentSuccessClient', () => {
     expect(pushMock).toHaveBeenCalledWith('/onboarding/business');
   });
 
+  it('fills the confirmation glyph and CTA with rw-teal-strong, never rw-teal (ADR 0004, A2)', async () => {
+    stubFetch({ subscriptionStatus: 'active', businessOnboarded: false });
+
+    const { container } = render(<PaymentSuccessClient checkoutSessionId="cs_test" />);
+
+    const cta = await screen.findByRole('button', { name: /continue setup/i });
+    expect(cta.className).toContain('bg-rw-teal-strong');
+    expect(cta.className).not.toMatch(/(?:^|\s)bg-rw-teal(?=\s|$)/);
+    // The white check sits in a filled circle — the fill must be the strong teal.
+    const glyph = container.querySelector('.size-16.rounded-full');
+    expect(glyph?.className).toContain('bg-rw-teal-strong');
+  });
+
   it('shows the dashboard CTA for already-onboarded active users', async () => {
     const user = userEvent.setup();
     stubFetch({ subscriptionStatus: 'active', businessOnboarded: true });

@@ -11,7 +11,8 @@ interface PaymentSuccessGuardRow {
   role: string;
 }
 
-export const metadata: Metadata = { title: 'Payment confirmed | RepWorth' };
+// Root layout `title.template` appends ' · RepWorth'.
+export const metadata: Metadata = { title: 'Payment confirmed' };
 
 /**
  * Guard: authenticated session + `u.role = 'owner'`. Deliberately NO

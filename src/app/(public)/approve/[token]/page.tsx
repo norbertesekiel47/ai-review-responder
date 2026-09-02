@@ -13,7 +13,9 @@ import ApprovalClient from '@/components/approval/approval-client';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Review a draft response · RepWorth',
+  // Bare page name — the root layout's `title.template` ('%s · RepWorth') appends
+  // the brand, so spelling it here doubled it (A26 convention).
+  title: 'Review a draft reply',
   robots: { index: false, follow: false },
 };
 
@@ -78,7 +80,7 @@ export default async function ApprovalPage({ params }: PageProps) {
           ) : (
             <>
               <h1 className="text-3xl font-medium leading-tight text-rw-ink">
-                Review a draft response
+                Review a draft reply
               </h1>
               {/* Location chip and archived badge render in the client after
                   it fetches the token-bound review data. */}

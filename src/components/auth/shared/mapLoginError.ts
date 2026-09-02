@@ -11,6 +11,18 @@ export function mapInitialQueryError(errorParam: string | null | undefined): str
   if (errorParam === 'unsupported_role') {
     return UNSUPPORTED_ROLE_MESSAGE;
   }
+  if (errorParam === 'account_not_found') {
+    // Emitted by the owner shell (UX audit D4) when a signed-in Supabase user
+    // has no app row, or an owner row has no account: not an admin, so never the
+    // admin login — the owner login, with a reason.
+    return "We couldn't find an account for this sign-in. Contact support if you think this is a mistake.";
+  }
+  if (errorParam === 'session_expired') {
+    // Emitted by /onboarding/payment-success when the Supabase session lapsed
+    // during the Stripe round-trip. The owner has just paid — say so, or the
+    // bare login form reads as "the payment failed".
+    return 'Your session expired during checkout. Sign in to continue setup. Your payment is safe.';
+  }
   return '';
 }
 

@@ -132,4 +132,68 @@ describe('PlaceAutocomplete', () => {
 
     expect(onPlaceSelect).not.toHaveBeenCalled();
   });
+
+  async function selectPlace(address = '123 Test St') {
+    await waitFor(() => {
+      expect(addEventListenerMock).toHaveBeenCalledWith('gmp-select', expect.any(Function));
+    });
+    const handler = addEventListenerMock.mock.calls[0]![1] as (event: Event) => Promise<void>;
+    const place = {
+      id: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      formattedAddress: address,
+      location: { lat: () => 12.34, lng: () => 56.78 },
+      fetchFields: vi.fn(async () => undefined),
+    };
+    await act(async () => {
+      await handler({ placePrediction: { toPlace: () => place } } as unknown as Event);
+    });
+  }
+
+  it('confirms the address without ever rendering the Place ID (A13)', async () => {
+    const { queryByText, getByText } = render(<PlaceAutocomplete onPlaceSelect={vi.fn()} />);
+    await selectPlace();
+
+    expect(getByText('123 Test St')).toBeInTheDocument();
+    expect(queryByText(/Place ID/i)).toBeNull();
+    expect(queryByText(/ChIJ/)).toBeNull();
+  });
+
+  it('colours the confirmation card with rw-success tokens and the error with rw-error, never raw green/red (A13)', async () => {
+    const { container } = render(<PlaceAutocomplete onPlaceSelect={vi.fn()} />);
+    await selectPlace();
+
+    const card = container.querySelector('.border-rw-success\\/30');
+    expect(card).not.toBeNull();
+    expect(container.innerHTML).not.toMatch(/\b(text|bg|border)-(green|red)-\d+/);
+  });
+
+  it('gives the Clear control a 44px tap target and the actionable teal', async () => {
+    const { getByRole } = render(<PlaceAutocomplete onPlaceSelect={vi.fn()} />);
+    await selectPlace();
+
+    const clear = getByRole('button', { name: 'Clear' });
+    expect(clear.className).toContain('min-h-[44px]');
+    expect(clear.className).toContain('text-rw-teal-strong');
+  });
+
+  it('sizes the Google input at 16px so iOS Safari does not zoom on focus (A13)', async () => {
+    render(<PlaceAutocomplete onPlaceSelect={vi.fn()} />);
+    const style = document.getElementById('gmp-autocomplete-light');
+    expect(style).not.toBeNull();
+    expect(style!.textContent).toMatch(/::part\(input\)\s*\{[^}]*font-size:\s*1rem/);
+    expect(style!.textContent).not.toMatch(/font-size:\s*0\.875rem/);
+  });
+
+  it('announces a loader failure through an alert region in rw-error', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    importLibraryMock.mockRejectedValueOnce(new Error('loader failed'));
+    try {
+      const { findByRole } = render(<PlaceAutocomplete onPlaceSelect={vi.fn()} />);
+      const alert = await findByRole('alert');
+      expect(alert).toHaveTextContent(/use the URL input instead/i);
+      expect(alert.className).toContain('text-rw-error');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
 });
