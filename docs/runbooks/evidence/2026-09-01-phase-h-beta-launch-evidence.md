@@ -462,7 +462,7 @@ exact pre-H.0b baseline.
 | — | §9.1 read-only half | ✅ worker healthy, both ingress lanes proven. **U1 open on a bad probe (D-5), not a failure** |
 | — | Orphan cleanup T1–T3 | ✅ executed and verified by absence |
 | — | **D-7** Supabase Auth SMTP | ✅ **FIXED + verified end to end** (U9) |
-| — | **D-8** rollback dead code | ✅ **FIXED**, 5 + 3 tests, in PR #1067 — ⚠️ **NOT merged, NOT deployed** |
+| — | **D-8** rollback dead code | ✅ **FIXED, MERGED AND LIVE IN PRODUCTION.** PR #1067 squash-merged `3e1bcec0` at 2026-09-02T06:48:55Z; production alias flipped 06:50:15Z. Verified by SHA, not by timing: the served deployment's `githubCommitSha` is `3e1bcec0…`, `githubCommitRef: main`, `target: production`, `aliasError: null`, `repworth.net` + `www.repworth.net` on it |
 | **→** | **H.0b** create tester one | ⏳ **NEXT.** `/admin/businesses/new` — `norbertliverpool+beta1@gmail.com` · `Norbert Sunn` · `Tanicia Resort` |
 | | H.0c–H.0d | invite → password → location+demo → Copilot → **checkout MUST read $0.00** |
 | | H.0e | **both digest flags OFF before §8** (D-4) |
@@ -474,10 +474,16 @@ exact pre-H.0b baseline.
 
 1. **D-6** — `norbertliverpool@gmail.com` (no `+beta1`) is F.4's address and still exists on the
    cancelled account. Submitting it returns **409**. The alias is deliberate.
-2. **D-8 is not deployed.** Until #1067 merges and Vercel redeploys, an onboarding failure
-   orphans rows again. Cleanup is one transaction: `users → businesses → accounts`, inside an
-   explicit `begin … commit` (**D-8a** — two edges are `DEFERRABLE INITIALLY DEFERRED`, so
-   autocommit fails on `accounts_owner_user_id_fkey`).
+2. **D-8 IS deployed** — corrected 2026-09-02T06:50Z; an earlier revision of this block said it
+   was not, and that is exactly the stale-doc failure this campaign kept finding. An onboarding
+   failure now rolls back cleanly. Should manual cleanup ever be needed anyway, it is one
+   transaction: `users → businesses → accounts`, inside an explicit `begin … commit`
+   (**D-8a** — two edges are `DEFERRABLE INITIALLY DEFERRED`, so autocommit fails on
+   `accounts_owner_user_id_fkey`).
+
+   **Trap 19 fired on the way here and is worth keeping:** at merge+90s the alias still served a
+   build from 8 hours earlier. A merge is not a deployment and a `Ready` deployment is not the
+   served one — the check that settles it is the alias plus the commit SHA.
 3. **U5 is still open and D-7 is why it matters.** The proven email went through Supabase Auth's
    **SMTP**; §9.4's approval email goes through the **Resend API** in the worker. Two consumers,
    one key. Proving one never proved the other — that is the whole finding.
