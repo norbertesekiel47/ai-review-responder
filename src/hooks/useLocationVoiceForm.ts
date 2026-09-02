@@ -260,17 +260,24 @@ function dirtyStateOf(entry: LocationFormEntry | null | undefined): { dirty: boo
   };
 }
 
-type LoadedVoiceEntries = Awaited<ReturnType<typeof fetchLocationEntries>>;
-
 /**
- * Mount-only fetch of every location's voice config. The fetch, the error
- * shape and the indexing live in fetchLocationEntries; what lives here is only
- * the effect's own concern — never touch state (or call `onLoaded`) after
- * unmount — plus the loading / fetch-error pair that concern produces.
+ * Mount-only fetch of every location's voice config. This hook OWNS the entries
+ * map and the selected-location id: the fetch resolves straight into that
+ * state inside the effect's promise chain (never after unmount, via the
+ * `cancelled` flag), so no callback crosses the hook boundary and no state
+ * updater carries a nested update. The fetch, the error shape and the indexing
+ * live in fetchLocationEntries; loading / fetch-error are the effect's own.
  */
-function useVoiceEntriesLoader(
-  onLoaded: (loaded: LoadedVoiceEntries) => void,
-): { loading: boolean; fetchError: string | null } {
+function useVoiceEntriesLoader(): {
+  entries: EntriesState;
+  setEntries: Dispatch<SetStateAction<EntriesState>>;
+  selectedLocationId: string | null;
+  setSelectedLocationId: Dispatch<SetStateAction<string | null>>;
+  loading: boolean;
+  fetchError: string | null;
+} {
+  const [entries, setEntries] = useState<EntriesState>(new Map());
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -279,7 +286,10 @@ function useVoiceEntriesLoader(
 
     fetchLocationEntries()
       .then((loaded) => {
-        if (!cancelled) onLoaded(loaded);
+        if (cancelled) return;
+        setEntries(loaded.entries);
+        // Keep an id the owner already picked; seed the server default otherwise.
+        setSelectedLocationId((current) => current ?? loaded.defaultLocationId ?? null);
       })
       .catch((err: unknown) => {
         if (!cancelled) setFetchError(err instanceof Error ? err.message : 'Failed to load voice settings');
@@ -289,11 +299,9 @@ function useVoiceEntriesLoader(
       });
 
     return () => { cancelled = true; };
-    // exhaustive-deps: mount-only initial fetch — load voice settings once; the
-    // `cancelled` flag prevents a state update after unmount. Not re-run per render.
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
-  return { loading, fetchError };
+  return { entries, setEntries, selectedLocationId, setSelectedLocationId, loading, fetchError };
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────
@@ -301,17 +309,11 @@ function useVoiceEntriesLoader(
 export function useLocationVoiceForm(
   { multiLocationEnabled }: UseLocationVoiceFormOptions,
 ): UseLocationVoiceForm {
-  const [entries, setEntries] = useState<EntriesState>(new Map());
-  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  // Fetch all location voice configs on mount; the loader owns the entries
+  // map and the selected-location id.
+  const { entries, setEntries, selectedLocationId, setSelectedLocationId, loading, fetchError } =
+    useVoiceEntriesLoader();
   const { savedFlash, flashSaved } = useSavedFlash();
-
-  // Fetch all location voice configs on mount
-  const { loading, fetchError } = useVoiceEntriesLoader(({ entries: loaded, defaultLocationId }) => {
-    setEntries(loaded);
-    if (defaultLocationId && !selectedLocationId) {
-      setSelectedLocationId(defaultLocationId);
-    }
-  });
 
   // Current entry
   const currentEntry = getSelectedEntry(entries, selectedLocationId);
@@ -340,7 +342,7 @@ export function useLocationVoiceForm(
       ...entry,
       form: { ...entry.form, [key]: value },
     }));
-  }, [selectedLocationId]);
+  }, [selectedLocationId, setEntries]);
 
   // Save the current form
   const save = useCallback(async () => {
@@ -356,12 +358,12 @@ export function useLocationVoiceForm(
     } catch (err) {
       updateSelectedEntry(setEntries, selectedLocationId, markSaveFailed(err));
     }
-  }, [selectedLocationId, currentEntry, flashSaved]);
+  }, [selectedLocationId, currentEntry, flashSaved, setEntries]);
 
   // Discard changes
   const discard = useCallback(() => {
     updateSelectedEntry(setEntries, selectedLocationId, discardEdits);
-  }, [selectedLocationId]);
+  }, [selectedLocationId, setEntries]);
 
   return {
     locations,
