@@ -13,10 +13,23 @@
 // closed before the window opened.
 
 import { describe, expect, it } from 'vitest';
-import { pairArchivedPeriods } from '@/lib/refusals/read';
+import { ARCHIVAL_EVENT_LIMIT, ENTRY_LIMIT, pairArchivedPeriods } from '@/lib/refusals/read';
 
 const WINDOW_START = new Date('2026-06-03T00:00:00.000Z');
 const WINDOW_END = new Date('2026-09-01T00:00:00.000Z');
+
+describe('read caps', () => {
+  // THE MAGNITUDE, which neither live-DB cap probe can pin. Each seeds its own
+  // fixture FROM the constant (`ENTRY_LIMIT + extra`,
+  // `generate_series(0, ARCHIVAL_EVENT_LIMIT)`), so shrinking the constant
+  // shrinks the fixture in lockstep and the arithmetic holds at any value —
+  // setting either to 5 left every case green (red team F30). Those probes
+  // prove the cap equals whatever the constant says; this proves what it says.
+  it('pins both cap magnitudes, which the self-referential fixtures cannot', () => {
+    expect(ENTRY_LIMIT).toBe(200);
+    expect(ARCHIVAL_EVENT_LIMIT).toBe(200);
+  });
+});
 
 describe('pairArchivedPeriods', () => {
   it('pairs an archive with its reactivation', () => {

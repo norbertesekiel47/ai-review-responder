@@ -273,8 +273,14 @@ describe('RestraintReport', () => {
     // the DTO later leaks straight past it. The row renders exactly two things
     // — the formatted date and, when it links, the label — so asserting the
     // WHOLE text is the only assertion that closes the set (red team F22).
-    expect(container.querySelector('.rst-row')?.textContent)
-      .toBe('Aug 20, 2026See the review');
+    // The row's CHILDREN, not their concatenation. Equality over the joined
+    // text also pinned the absence of any separator between the two elements,
+    // so a bullet or a wrapper reddened it with no behaviour change — the shape
+    // F21 was raised about (red team F33). This closes the set the same way and
+    // says nothing about whitespace.
+    const row = container.querySelector('.rst-row');
+    expect([...(row?.children ?? [])].map((el) => [el.tagName, el.textContent]))
+      .toEqual([['TIME', 'Aug 20, 2026'], ['A', 'See the review']]);
     expect(screen.getByRole('link', { name: /See the review/ }))
       .toHaveAttribute('href', `/dashboard/reviews/${REVIEW_ID}/timeline`);
   });
@@ -399,6 +405,14 @@ describe('RestraintReport', () => {
     expect(container.textContent).not.toContain('We have been watching since');
     // Non-vacuous: the other disclosures still render.
     expect(container.textContent).toContain('This is your whole account');
+    // OMISSION IS AN ABSENT ELEMENT, not merely absent text. `note()` decides
+    // which lines are dropped, and returning an empty string instead of null
+    // passed every case in this file — up to five blank paragraphs inside
+    // `.rst-notes`, each carrying the margin, and every `key` colliding on ''
+    // (red team F27).
+    for (const paragraph of container.querySelectorAll('.rst-note')) {
+      expect(paragraph.textContent).not.toBe('');
+    }
   });
 
   it('says how many rows it is showing when the window holds more than the read returned', () => {
@@ -450,11 +464,31 @@ describe('RestraintReport', () => {
       { archivedLocations: { refusalCount: 3, locationCount: 2 } },
     ));
 
-    const scope = container.querySelector('.rst-note-scope');
-    expect(scope?.textContent).toContain('This is your whole account');
+    const scope = container.querySelectorAll('.rst-note-scope');
+    expect(scope).toHaveLength(1);
+    expect(scope[0]?.textContent).toContain('This is your whole account');
 
-    const footnote = container.querySelector('.rst-note-footnote');
-    expect(footnote?.textContent).toBe('3 more from 2 archived locations are not shown.');
+    const footnote = container.querySelectorAll('.rst-note-footnote');
+    expect(footnote).toHaveLength(1);
+    expect(footnote[0]?.textContent).toBe('3 more from 2 archived locations are not shown.');
+
+    // EXACTLY `rst-note` on a plain line. The existential form above passed
+    // while every note shipped a `rst-note-null` class matching no rule, and
+    // would pass again if a second line were marked 'scope' (red team F32).
+    const plain = [...container.querySelectorAll('.rst-note')]
+      .filter((p) => p.textContent?.startsWith('We have been watching since'));
+    expect(plain).toHaveLength(1);
+    expect(plain[0]?.className).toBe('rst-note');
+  });
+
+  it('exposes the summary as a named region landmark', () => {
+    renderReport(logWith([{ category: 'unsafe_content' }]));
+
+    // A bare <section> is exposed as a `region` ONLY when it has an accessible
+    // name, so deleting the `aria-labelledby` removes a landmark outright — and
+    // both mutation forms survived the whole suite, because nothing queried by
+    // role (red team F29).
+    expect(screen.getByRole('region', { name: 'What we held back' })).toBeInTheDocument();
   });
 
   it('uses singular phrasing for a single archived location', () => {

@@ -152,19 +152,31 @@ describe('RestraintContent', () => {
     // to exclude (red team F23). What is observable is the contract: exactly one
     // request per key, carrying a signal the component did not construct.
     const signals: (AbortSignal | null)[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    // A request that never settles, so the signal is still IN FLIGHT at unmount.
+    // A resolved query has nothing left to cancel, which is why asserting the
+    // abort after a successful render proves nothing.
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
       signals.push(init?.signal ?? null);
-      return { ok: true, status: 200, json: async () => PAYLOAD } as unknown as Response;
+      return new Promise<Response>(() => {});
     }));
 
-    renderContent();
-    await screen.findByText('What we held back');
+    const { unmount } = renderContent();
+    await screen.findByText('Loading what we held back…');
 
     // One key, one request. A hand-rolled effect is what produces the second.
     expect(signals).toHaveLength(1);
-    // React Query minted this, not an `AbortController` in the component.
-    expect(signals[0]).toBeInstanceOf(AbortSignal);
     expect(signals[0]?.aborted).toBe(false);
+
+    // THE ASSERTION THAT DISTINGUISHES THE TWO WORLDS. `toBeInstanceOf(AbortSignal)`
+    // is true of ANY signal, including one the component minted itself, so the
+    // first cut of this case could not fail for the reason it claimed — the very
+    // defect shape it replaced (red team F28). Only a signal React Query OWNS is
+    // aborted when the observer goes away; `gcTime: 0` makes that removal
+    // immediate.
+    unmount();
+    await waitFor(() => {
+      expect(signals[0]?.aborted).toBe(true);
+    });
   });
 
   it('RestraintContent renders the shared dashboard state panel while loading', async () => {
@@ -245,14 +257,35 @@ describe('RestraintContent', () => {
     )).toBeInTheDocument();
   });
 
-  it('rejects a payload that is missing a required field rather than rendering a partial record', async () => {
-    const { ledgerRecording: _dropped, ...incomplete } = PAYLOAD;
-    vi.stubGlobal('fetch', jsonFetch(incomplete));
+  // EVERY top-level field, not one. The single-field version dropped
+  // `ledgerRecording`, the LAST conjunct in the chain, so every conjunct before
+  // it was decoration as far as the oracle was concerned — three sampled
+  // deletions survived the whole suite (red team F26). The claim the old
+  // comment made was general; the assertion was not.
+  it.each(Object.keys(PAYLOAD))(
+    'rejects a payload missing %s rather than rendering a partial record',
+    async (field) => {
+      const incomplete: Record<string, unknown> = { ...PAYLOAD };
+      delete incomplete[field];
+      vi.stubGlobal('fetch', jsonFetch(incomplete));
+      renderContent();
+
+      expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
+    },
+  );
+
+  // The nested guards the top-level sweep cannot reach: a field of the right
+  // NAME and the wrong TYPE, one per sub-guard.
+  it.each([
+    ['entry.reviewId', { ...PAYLOAD, entries: [{ ...PAYLOAD.entries[0], reviewId: 7 }] }],
+    ['entry.linkKind', { ...PAYLOAD, entries: [{ ...PAYLOAD.entries[0], linkKind: 'elsewhere' }] }],
+    ['archivedPeriods[].reactivatedAt', { ...PAYLOAD, archivedPeriods: [{ archivedAt: '2026-08-05T00:00:00.000Z', reactivatedAt: 7 }] }],
+    ['archivedLocations.refusalCount', { ...PAYLOAD, archivedLocations: { refusalCount: 'many', locationCount: 0 } }],
+    ['truncated', { ...PAYLOAD, truncated: 'no' }],
+  ])('rejects a payload whose %s has the wrong type', async (_label, body) => {
+    vi.stubGlobal('fetch', jsonFetch(body));
     renderContent();
 
-    // The guards must actually REJECT — this is what makes them guards rather
-    // than decoration, and it is the assertion the boolean-returning versions
-    // could not support.
     expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
   });
 
