@@ -172,17 +172,37 @@ function buildTxInput(data: AdminOnboardingInput): AdminBusinessTxInput {
 /**
  * Compensating rollback for a provisioning failure after createBusinessTx has
  * already committed (invite-send failure, or auth_id link failure). Runs the
- * 4 deletes atomically, in FK-cascade-significant order:
+ * 4 deletes atomically, in FK-significant order:
  *   1. job_outbox first — no FK CASCADE from businesses to job_outbox
  *      (aggregate_id is just a UUID, not a foreign key — see migration
  *      001 line 301), so leaving these rows in place would orphan
  *      pending jobs that the OutboxPoller would then dispatch into
  *      a void (no business_id to look up).
- *   2. users next — users.account_id is a FK to accounts.id without
- *      CASCADE so users must be deleted before accounts.
- *   3. accounts — the accounts row links everything together.
- *   4. businesses last — channel_enrollments cascade-deletes via
- *      businesses.id ON DELETE CASCADE.
+ *   2. users next. `fk_users_account` is DEFERRABLE INITIALLY DEFERRED, so
+ *      this is safe anywhere inside the transaction — but only inside one.
+ *   3. businesses — cascades channel_enrollments, google_connections,
+ *      reviews, responses and the rest via `ON DELETE CASCADE`.
+ *   4. accounts LAST.
+ *
+ * ORDER 3-BEFORE-4 IS LOAD-BEARING AND WAS WRONG UNTIL 2026-09-02 (D-8).
+ * `fk_businesses_account` is `FOREIGN KEY (account_id) REFERENCES accounts(id)`
+ * with **NO ON DELETE CASCADE** and no deferral. Deleting `accounts` while the
+ * `businesses` row still points at it raises `23503` immediately, the enclosing
+ * `sql.begin` aborts, and every earlier DELETE rolls back with it — so the
+ * function removed NOTHING, not "some rows". It could never succeed: it is
+ * reached only when a business row exists, and a business row is exactly what
+ * made it fail. Found in production when an admin onboarding hit an SMTP
+ * failure and left all three rows behind.
+ *
+ * The previous comment justified the order via the businesses→channel_enrollments
+ * cascade. That cascade is real; it is simply not the edge that blocks. The
+ * blocking edge is businesses→accounts, which the comment never considered.
+ *
+ * THIS MUST STAY INSIDE A TRANSACTION. Two of the three edges in the
+ * users/accounts cycle — `fk_users_account` and `accounts_owner_user_id_fkey` —
+ * are DEFERRABLE INITIALLY DEFERRED, so they are checked at COMMIT. Run these
+ * statements in autocommit and `accounts_owner_user_id_fkey` fires on the users
+ * DELETE instead.
  *
  * @param sql Postgres.js client (composition root supplies the singleton).
  */
@@ -193,8 +213,8 @@ export async function rollbackProvisionedBusiness(
   await sql.begin(async (tx) => {
     await tx`DELETE FROM job_outbox WHERE aggregate_id = ${createdResult.businessId}::uuid`;
     await tx`DELETE FROM users WHERE id = ${createdResult.userId}::uuid`;
-    await tx`DELETE FROM accounts WHERE id = ${createdResult.accountId}::uuid`;
     await tx`DELETE FROM businesses WHERE id = ${createdResult.businessId}::uuid`;
+    await tx`DELETE FROM accounts WHERE id = ${createdResult.accountId}::uuid`;
   });
 }
 
@@ -305,7 +325,7 @@ export async function onboardBusinessAsAdmin(
     throw new AdminOnboardingError(
       'INVITE_FAILED',
       hasOrphans
-        ? 'Could not send owner invite email and the cleanup rollback partially failed. Manual cleanup required — see the response details.'
+        ? 'Could not send owner invite email, AND the cleanup rollback did not remove every row. Manual cleanup required — the orphan IDs are in the response details, and they must be deleted in one transaction in the order users → businesses → accounts.'
         : 'Could not send owner invite email. Business was not created — check Supabase Auth settings (SMTP, rate limits) and try again.',
       500,
       hasOrphans ? rollback : undefined,
