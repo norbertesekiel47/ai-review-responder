@@ -57,14 +57,19 @@ describe('PlaceAutocomplete', () => {
     const { unmount } = render(<PlaceAutocomplete onPlaceSelect={vi.fn()} />);
 
     await waitFor(() => {
-      expect(addEventListenerMock).toHaveBeenCalledWith('gmp-select', expect.any(Function));
+      expect(addEventListenerMock).toHaveBeenCalledWith('gmp-select', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     });
-    const handler = addEventListenerMock.mock.calls[0]![1];
     expect(autocompleteElement.isConnected).toBe(true);
+
+    // The listener is bound to an AbortSignal and detached by `abort()` in the
+    // effect cleanup (react-doctor `effect-needs-cleanup`), so the proof is the
+    // signal flipping to aborted, not a removeEventListener call.
+    const listenerOptions = addEventListenerMock.mock.calls[0]![2] as { signal: AbortSignal };
+    expect(listenerOptions.signal.aborted).toBe(false);
 
     unmount();
 
-    expect(removeEventListenerMock).toHaveBeenCalledWith('gmp-select', handler);
+    expect(listenerOptions.signal.aborted).toBe(true);
     expect(removeElementMock).toHaveBeenCalledOnce();
     expect(autocompleteElement.isConnected).toBe(false);
   });
@@ -103,7 +108,7 @@ describe('PlaceAutocomplete', () => {
     const { unmount } = render(<PlaceAutocomplete onPlaceSelect={onPlaceSelect} />);
 
     await waitFor(() => {
-      expect(addEventListenerMock).toHaveBeenCalledWith('gmp-select', expect.any(Function));
+      expect(addEventListenerMock).toHaveBeenCalledWith('gmp-select', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     });
     const handler = addEventListenerMock.mock.calls[0]![1] as (event: Event) => Promise<void>;
     let resolveFetchFields!: () => void;
@@ -135,7 +140,7 @@ describe('PlaceAutocomplete', () => {
 
   async function selectPlace(address = '123 Test St') {
     await waitFor(() => {
-      expect(addEventListenerMock).toHaveBeenCalledWith('gmp-select', expect.any(Function));
+      expect(addEventListenerMock).toHaveBeenCalledWith('gmp-select', expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     });
     const handler = addEventListenerMock.mock.calls[0]![1] as (event: Event) => Promise<void>;
     const place = {

@@ -148,15 +148,15 @@ describe('PricingContent', () => {
 
     // A <table> with explicit roles (the rows are CSS grids for the phone stack,
     // and a table part with a non-table display can lose its implicit role).
-    expect(html).toMatch(/<table role="table" class="pr-matrix" aria-label="Plan comparison">/);
-    expect(html).toMatch(/<th role="columnheader" scope="col" class="pr-matrix-cell hdr first">Feature<\/th>/);
+    expect(html).toMatch(/<table class="pr-matrix" aria-label="Plan comparison">/);
+    expect(html).toMatch(/<th scope="col" class="pr-matrix-cell hdr first">Feature<\/th>/);
     // Feature + Copilot + Autopilot: three column headers, all scoped.
-    expect(html.match(/<th role="columnheader" scope="col"/g)).toHaveLength(3);
-    expect(html).toMatch(/<th role="columnheader" scope="col" class="pr-matrix-cell hdr [^"]*"><span class="pr-matrix-plan">.*?Copilot<\/span>/);
+    expect(html.match(/<th scope="col"/g)).toHaveLength(3);
+    expect(html).toMatch(/<th scope="col" class="pr-matrix-cell hdr [^"]*"><span class="pr-matrix-plan">.*?Copilot<\/span>/);
     // One <tbody> per section, headed by a rowgroup cell; every feature is a row header.
-    expect(html.match(/<tbody role="rowgroup">/g)).toHaveLength(4);
-    expect(html.match(/<th role="rowheader" scope="rowgroup" colSpan="3"/g)).toHaveLength(4);
-    expect(html.match(/<th role="rowheader" scope="row" class="pr-matrix-cell first">/g)).toHaveLength(10);
+    expect(html.match(/<tbody>/g)).toHaveLength(4);
+    expect(html.match(/<th scope="rowgroup" colSpan="3"/g)).toHaveLength(4);
+    expect(html.match(/<th scope="row" class="pr-matrix-cell first">/g)).toHaveLength(10);
     expect(html).not.toContain('pr-matrix-grid');
     expect(html).not.toMatch(/<div class="pr-matrix-cell/);
 

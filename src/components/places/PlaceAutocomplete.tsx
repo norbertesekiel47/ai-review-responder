@@ -42,7 +42,9 @@ export function PlaceAutocomplete({
   useEffect(() => {
     let cancelled = false;
     let element: HTMLElement | null = null;
-    let handleSelect: ((event: Event) => Promise<void>) | null = null;
+    // The `gmp-select` listener is attached inside the loader promise, so it is
+    // bound to this controller and detached by `abort()` in the cleanup below.
+    const listeners = new AbortController();
 
     // Force light theme on the web component (system may be in dark mode)
     const styleId = 'gmp-autocomplete-light';
@@ -82,7 +84,7 @@ export function PlaceAutocomplete({
         }
         element.style.width = '100%';
 
-        handleSelect = async (event: Event) => {
+        const handleSelect = async (event: Event) => {
           try {
             const { placePrediction } = event as any;
             if (!placePrediction) {
@@ -120,7 +122,7 @@ export function PlaceAutocomplete({
           }
         };
 
-        element.addEventListener('gmp-select', handleSelect);
+        element.addEventListener('gmp-select', handleSelect, { signal: listeners.signal });
 
         containerRef.current.replaceChildren();
         containerRef.current.appendChild(element);
@@ -134,9 +136,7 @@ export function PlaceAutocomplete({
 
     return () => {
       cancelled = true;
-      if (element && handleSelect) {
-        element.removeEventListener('gmp-select', handleSelect);
-      }
+      listeners.abort();
       element?.remove();
     };
   }, [ariaLabel, ariaLabelledBy, placeholder]);

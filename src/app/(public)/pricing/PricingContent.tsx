@@ -394,7 +394,7 @@ function MatrixCell({ value, plan, featured }: { value: string | boolean; plan: 
   const className = `pr-matrix-cell num ${featured ? 'featured' : ''}`;
   if (value === true) {
     return (
-      <td role="cell" className={className} data-plan={plan}>
+      <td className={className} data-plan={plan}>
         <span className="pr-check-yes" aria-hidden="true"><CheckIcon /></span>
         <span className="sr-only">Included</span>
       </td>
@@ -402,13 +402,13 @@ function MatrixCell({ value, plan, featured }: { value: string | boolean; plan: 
   }
   if (value === false) {
     return (
-      <td role="cell" className={className} data-plan={plan}>
+      <td className={className} data-plan={plan}>
         <span className="pr-check-no" aria-hidden="true" />
         <span className="sr-only">Not included</span>
       </td>
     );
   }
-  return <td role="cell" className={className} data-plan={plan}>{value}</td>;
+  return <td className={className} data-plan={plan}>{value}</td>;
 }
 
 // Matrix column header: plan name with its bar tick, and the monthly price under
@@ -425,7 +425,7 @@ function MatrixPlanHeader({
   featured: boolean;
 }) {
   return (
-    <th role="columnheader" scope="col" className={`pr-matrix-cell hdr ${featured ? 'featured' : ''}`}>
+    <th scope="col" className={`pr-matrix-cell hdr ${featured ? 'featured' : ''}`}>
       <span className="pr-matrix-plan">
         <i className="pr-matrix-tick" style={{ ['--bar' as string]: PLAN_BAR[tier] }} aria-hidden="true" />
         {name}
@@ -460,10 +460,10 @@ function ComparisonMatrix({
           </div>
         </Reveal>
         <Reveal delay={120} scrub>
-          <table role="table" className="pr-matrix" aria-label="Plan comparison">
-            <thead role="rowgroup">
-              <tr role="row" className="pr-matrix-row hdr-row">
-                <th role="columnheader" scope="col" className="pr-matrix-cell hdr first">Feature</th>
+          <table className="pr-matrix" aria-label="Plan comparison">
+            <thead>
+              <tr className="pr-matrix-row hdr-row">
+                <th scope="col" className="pr-matrix-cell hdr first">Feature</th>
                 <MatrixPlanHeader tier="copilot" name="Copilot" price={prices.copilot} featured={false} />
                 {/* The bone column follows the same rule as the featured card:
                     emphasis only on a tier you can get today. */}
@@ -471,15 +471,15 @@ function ComparisonMatrix({
               </tr>
             </thead>
             {MATRIX.map((group) => (
-              <tbody role="rowgroup" key={group.section}>
-                <tr role="row" className="pr-matrix-row">
-                  <th role="rowheader" scope="rowgroup" colSpan={3} className="pr-matrix-cell section first">
+              <tbody key={group.section}>
+                <tr className="pr-matrix-row">
+                  <th scope="rowgroup" colSpan={3} className="pr-matrix-cell section first">
                     {group.section}
                   </th>
                 </tr>
                 {group.rows.map((row) => (
-                  <tr role="row" key={row.label} className="pr-matrix-row">
-                    <th role="rowheader" scope="row" className="pr-matrix-cell first">
+                  <tr key={row.label} className="pr-matrix-row">
+                    <th scope="row" className="pr-matrix-cell first">
                       {row.label}
                       {row.hint && <span className="pr-matrix-hint">{row.hint}</span>}
                     </th>

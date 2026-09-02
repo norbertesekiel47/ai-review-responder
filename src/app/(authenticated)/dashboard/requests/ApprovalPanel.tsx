@@ -396,16 +396,18 @@ function VetoDeadline({ deadlineAt }: { deadlineAt: string }) {
 
   useEffect(() => {
     if (deadlineMs === null) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    // One interval, cleared on unmount and once the window has closed — the
+    // refetch owns what happens next.
     const tick = () => {
       const now = Date.now();
       setNowMs(now);
-      // Stop ticking once the window is closed; the refetch owns what happens next.
-      if (now < deadlineMs) timer = setTimeout(tick, VETO_TICK_MS);
+      if (now >= deadlineMs) clearInterval(interval);
     };
-    timer = setTimeout(tick, 0);
+    const first = setTimeout(tick, 0);
+    const interval = setInterval(tick, VETO_TICK_MS);
     return () => {
-      if (timer !== null) clearTimeout(timer);
+      clearTimeout(first);
+      clearInterval(interval);
     };
   }, [deadlineMs]);
 
