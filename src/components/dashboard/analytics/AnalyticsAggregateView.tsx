@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import type { AggregateDashboardData } from '@/lib/dashboard/types';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { AnalyticsTabs } from '@/components/dashboard/analytics/AnalyticsTabs';
 import { RecentRatingBreakdown } from '@/components/dashboard/kpi/RecentRatingBreakdown';
 import { AggregateKpiCards } from '@/components/dashboard/aggregate/AggregateKpiCards';
 import { AggregateIntelligenceBriefCard } from '@/components/dashboard/aggregate/AggregateIntelligenceBriefCard';
@@ -40,6 +41,9 @@ export function AnalyticsAggregateView({ data, refresh, periodToolbar }: Props) 
         {periodToolbar}
       </TopBar>
       <div className="content content--analytics">
+        {/* Routed tab bar: first child of the content box, not a capped subnav
+            row, so it lines up with the full-bleed analytics grid beneath it. */}
+        <AnalyticsTabs active="metrics" />
         <LiveRegion message="Analytics ready." />
         <div className="section-enter section-enter-1">
           <AggregateKpiCards

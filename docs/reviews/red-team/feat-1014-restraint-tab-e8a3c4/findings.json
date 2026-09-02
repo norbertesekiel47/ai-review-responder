@@ -1,0 +1,1788 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1014-restraint-tab-e8a3c4",
+  "branch": "feat/1014-restraint-tab",
+  "fork_sha": "b55b07822ef92f6c85047e6f42b5513ea8427257",
+  "merge_base_sha": "b55b07822ef92f6c85047e6f42b5513ea8427257",
+  "head_sha": "6b90d6b99c42f6541e043ffe52b84c0e1fc56dca",
+  "intake_sha256": "bdda96281dd7b49171f0f662540c20172c166cb402dc23066c0964c98a37c6d8",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-02T07:28:32.786Z",
+  "inventory": [
+    {
+      "id": "R2-M101",
+      "test": "keys the review link on the LANE, so a policy_gate_held response with held_draft’s category gets none",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "read.ts:189 lane key rewritten to a category key (source === 'held_draft' -> category === 'unsafe_content'). Named test FAILED; 27/28 others passed. Closes F1."
+    },
+    {
+      "id": "R2-M102",
+      "test": "bounds the LOCATION arm at windowEnd, not only the account arm",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "read.ts:349 upper bound on the location ENTRY arm deleted. Named test FAILED. Closes F2."
+    },
+    {
+      "id": "R2-M104",
+      "test": "resolves a review only when the response belongs to the same location",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "AND resp.business_id = r.business_id deleted from BOTH subject_review_id subqueries (read.ts:343 and :375). Named test FAILED. Closes F4."
+    },
+    {
+      "id": "R2-M105",
+      "test": "bounds the ACCOUNT arm at windowStart, so a row older than the window is excluded",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "read.ts:463 (COUNT account arm lower bound) deleted. Named test FAILED. This is the proof that the new lower-bound test asserts the COUNT statement rather than the entry arm — see F3."
+    },
+    {
+      "id": "R2-M106",
+      "test": "returns no rows for a location that is archived",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "read.ts:452-457 (COUNT location arm archived-location EXISTS guard) deleted. Named test FAILED."
+    },
+    {
+      "id": "R2-M107",
+      "test": "excludes rows belonging to an archived location from the account total",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "read.ts:465-473 (COUNT account arm archived-location branch) deleted. 3 tests FAILED."
+    },
+    {
+      "id": "R2-M108",
+      "test": "caps entries at ENTRY_LIMIT while total stays the true window count",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "truncated: total > entries.length -> truncated: false (read.ts:497). Named test FAILED."
+    },
+    {
+      "id": "R2-M110",
+      "test": "caps entries at ENTRY_LIMIT while total stays the true window count",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "LIMIT ENTRY_LIMIT deleted from the ACCOUNT entry arm (read.ts:391). Named test FAILED."
+    },
+    {
+      "id": "R2-M123",
+      "test": "excludes Refusals after windowEnd from entries and the archived-location footnote",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "read.ts:380 (account ENTRY arm upper bound) deleted. Named test FAILED — the future-dated row sorts FIRST under ORDER BY occurred_at DESC, so entries[0].category catches it. Contrast F3: an out-of-window OLD row sorts LAST and is invisible to the same assertion shape."
+    },
+    {
+      "id": "R2-M111",
+      "test": "takes scope from the payload, not from its own location context",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "killed",
+      "reason": "success-path log overridden with a client-side scope derivation (the pre-fix shape). Named test FAILED. Closes F5."
+    },
+    {
+      "id": "R2-M112",
+      "test": "omits the coverage line entirely when the ledger has no start date for this view",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "coverageLine null arm (RestraintReport.tsx:127) replaced by a windowStart fallback sentence. Named test FAILED. Closes F6."
+    },
+    {
+      "id": "R2-M113",
+      "test": "mounts the orchestrator and nothing else",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "killed",
+      "reason": "page.tsx:11 dynamic = 'force-dynamic' -> 'auto'. Named test FAILED."
+    },
+    {
+      "id": "R2-M114",
+      "test": "mounts the orchestrator and nothing else",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "killed",
+      "reason": "page.tsx:14 return <RestraintContent /> -> return <div />. Named test FAILED. With M113 this proves the new case genuinely covers page.tsx — both the dynamic export and the mount. Closes F8."
+    },
+    {
+      "id": "R2-M115",
+      "test": "reports ledgerRecording so the tab cannot print a false zero while the ledger is off",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "killed",
+      "reason": "readFlagEnabledByDefault('REFUSAL_LEDGER_ENABLED') -> true. Named test FAILED."
+    },
+    {
+      "id": "R2-M116",
+      "test": "returns the scope the SERVER decided, not one the browser can infer",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "killed",
+      "reason": "the location branch scope: 'location' -> 'account'. Named test FAILED."
+    },
+    {
+      "id": "R2-M117",
+      "test": "gives each repeated row link an accessible name that names its own row",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "row-link aria-label reduced to the bare LINK_LABEL (date dropped). Named test FAILED."
+    },
+    {
+      "id": "R2-M118",
+      "test": "RestraintReport links a held draft to its review",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "/timeline segment dropped from the review href. 3 tests FAILED (link, policy-gate, redaction)."
+    },
+    {
+      "id": "R2-M119",
+      "test": "rejects a payload that is missing a required field rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "killed",
+      "reason": "isRestraintPayload typeof value.ledgerRecording === 'boolean' -> true. Named test FAILED."
+    },
+    {
+      "id": "R2-M120",
+      "test": "says recording is paused when the ledger kill switch is off",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "ledgerLine made unconditionally null. Named test FAILED."
+    },
+    {
+      "id": "R2-M127",
+      "test": "uses singular phrasing for a single Refusal",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "the three singular count arms mutated together. Named test FAILED. See M128 for the arm this does NOT cover."
+    },
+    {
+      "id": "R2-M103",
+      "test": "bounds the ACCOUNT arm at windowStart, so a row older than the window is excluded",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "read.ts:379 (account ENTRY arm lower bound) deleted. All 28 cases passed, including the case written to close F3.",
+      "finding_id": "F3"
+    },
+    {
+      "id": "R2-M109",
+      "test": "caps entries at ENTRY_LIMIT while total stays the true window count",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "LIMIT ENTRY_LIMIT deleted from the LOCATION entry arm (read.ts:357). All 28 passed — the cap test is account-scope only.",
+      "finding_id": "F13"
+    },
+    {
+      "id": "R2-M121",
+      "test": "no covering test exists (reverse import search over read.ts, Direction B)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "read.ts:348 (location ENTRY arm lower bound) deleted. All 28 passed.",
+      "finding_id": "F14"
+    },
+    {
+      "id": "R2-M122",
+      "test": "no covering test exists (reverse import search over read.ts, Direction B)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "read.ts:450 (COUNT location arm lower bound) deleted. All 28 passed.",
+      "finding_id": "F15"
+    },
+    {
+      "id": "R2-M125",
+      "test": "no covering test exists (reverse import search over read.ts, Direction B)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "read.ts:413 (archived-location FOOTNOTE lower bound) deleted. All 28 passed.",
+      "finding_id": "F16"
+    },
+    {
+      "id": "R2-M126",
+      "test": "no covering test exists (reverse import search over read.ts, Direction B)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "resolveLinkKind contacts arm (read.ts:191) -> null. All 28 passed, though three no_permission fixtures execute the line.",
+      "finding_id": "F17"
+    },
+    {
+      "id": "R2-M128",
+      "test": "RestraintReport.test.tsx — whole file (24 cases)",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Recorded inconclusive/oracle in round 2 because the branch was unreachable from any fixture. Round 4's M301 made it reachable and killed it; the row is resolved."
+    },
+    {
+      "id": "R2-EQ-1",
+      "test": "read.ts:478 — const total = totalRow?.total ?? entries.length",
+      "file": "src/lib/refusals/read.ts",
+      "outcome": "equivalent",
+      "reason": "PROOF: the ?? right arm is unreachable. SELECT COUNT(*)::int AS total FROM … with no GROUP BY is an aggregate over the whole result set and returns exactly one row for every input, including the empty one; postgres.js destructures that row into totalRow, which therefore cannot be undefined. Any mutation of the fallback changes no observable behaviour."
+    },
+    {
+      "id": "R2-EX-1",
+      "test": "restraint.css — every rule set",
+      "file": "src/app/(authenticated)/dashboard/analytics/restraint/restraint.css",
+      "outcome": "excluded",
+      "reason": "A stylesheet: no Vitest oracle can observe a rule change. Reviewed statically instead — see F18."
+    },
+    {
+      "id": "R2-SB-1",
+      "test": "read.ts:414 — footnote UPPER window bound",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Killed in round 1 (M5) at a different HEAD; the line is unchanged but was not re-verified this round."
+    },
+    {
+      "id": "R2-SB-2",
+      "test": "read.ts:451 — COUNT location arm UPPER bound",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Reasoned asserted: the F2 test asserts log.total === 1 with a future-dated row seeded. Not proven by a run."
+    },
+    {
+      "id": "R2-SB-3",
+      "test": "read.ts:464 — COUNT account arm UPPER bound",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Reasoned asserted: the windowEnd test asserts log.total === 1. Not proven by a run."
+    },
+    {
+      "id": "R2-SB-4",
+      "test": "read.ts:190 — category === 'autonomy_paused' -> 'auto-approval'",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Statically asserted at read.integration.test.ts:386. Contrast F17, the arm below it, which is not."
+    },
+    {
+      "id": "R2-SB-5",
+      "test": "RestraintReport.tsx:163 — truncationLine body",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. A new test asserts its exact sentence."
+    },
+    {
+      "id": "R2-SB-6",
+      "test": "RestraintReport.tsx:208 — archivedPeriodLine open-period branch",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. A new test asserts “has been archived since …”."
+    },
+    {
+      "id": "R2-SB-7",
+      "test": "RestraintReport.tsx:290 — DAY_FORMAT en-US pin",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Seven date assertions across the suite."
+    },
+    {
+      "id": "R2-SB-8",
+      "test": "RestraintReport.tsx:304-314 — the notes array composition and ORDER",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "excluded",
+      "reason": "Carried from round 2 as skipped-budget and re-dispositioned in round 3 as out of scope. Deliberately not mutated for order: no ordering contract is asserted and none should be — an order assertion here would itself be a duty-2 finding."
+    },
+    {
+      "id": "R2-SB-9",
+      "test": "RestraintContent.tsx:27 — FETCH_FAILED_MESSAGE",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. See F25: statically unreachable from any test."
+    },
+    {
+      "id": "R2-SB-10",
+      "test": "RestraintContent.tsx:150 — isNullableString(value.reviewId) guard",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F26",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it survived. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-11",
+      "test": "RestraintContent.tsx:156,161 — isArchivedPeriod / isArchivedLocations predicate narrowing",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F26",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it survived. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-12",
+      "test": "RestraintContent.tsx:177 — typeof value.truncated === 'boolean' guard",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F26",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it survived. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-13",
+      "test": "route.ts:74 — the AGGREGATE branch scope: 'account'",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. M116 mutated the location branch only."
+    },
+    {
+      "id": "R2-SB-14",
+      "test": "read.integration.test.ts — the cap test’s newest-first ordering assertion",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-15",
+      "test": "refusals-route.test.ts:618 — expect(sqlCallCount.value).toBe(0)",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-16",
+      "test": "RestraintReport.tsx:329-331 — aria-labelledby / id=\"rst-summary-heading\"",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F29",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it survived. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-17",
+      "test": "RestraintReport.tsx:94 — LINK_LABEL typed as Record<NonNullable<linkKind>, string>",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-18",
+      "test": "read.ts:340,372 — the resp.review_id::text cast",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Carried from round 2 as skipped-budget and EXECUTED in round 3, where it was killed. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-19",
+      "test": "read.integration.test.ts:145 — seedResponse return-shape change (helper; Direction A)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Carried from round 2 as skipped-budget and re-dispositioned in round 3 as out of scope. Budget exhausted."
+    },
+    {
+      "id": "R2-SB-20",
+      "test": "RestraintReport.test.tsx:108-114 — renderReport signature change (helper; Direction A)",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "excluded",
+      "reason": "Carried from round 2 as skipped-budget and re-dispositioned in round 3 as out of scope. Budget exhausted."
+    },
+    {
+      "id": "R3-M301",
+      "test": "round 3 mutation — 2",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 2"
+    },
+    {
+      "id": "R3-M302",
+      "test": "round 3 mutation — 2",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 2"
+    },
+    {
+      "id": "R3-M303",
+      "test": "round 3 mutation — 3",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 3"
+    },
+    {
+      "id": "R3-M304",
+      "test": "round 3 mutation — 4",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 4"
+    },
+    {
+      "id": "R3-M305",
+      "test": "round 3 mutation — 5",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 5"
+    },
+    {
+      "id": "R3-M306",
+      "test": "round 3 mutation — 6",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 6"
+    },
+    {
+      "id": "R3-M307",
+      "test": "round 3 mutation — 7",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 7"
+    },
+    {
+      "id": "R3-M308",
+      "test": "round 3 mutation — 8",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 8"
+    },
+    {
+      "id": "R3-M309",
+      "test": "round 3 mutation — 9",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 9"
+    },
+    {
+      "id": "R3-M310",
+      "test": "round 3 mutation — 10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 10"
+    },
+    {
+      "id": "R3-M311",
+      "test": "round 3 mutation — 8",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 8"
+    },
+    {
+      "id": "R3-M312",
+      "test": "round 3 mutation — 9",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 9"
+    },
+    {
+      "id": "R3-M331",
+      "test": "round 3 mutation — 17",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 3. 17",
+      "finding_id": "F30"
+    },
+    {
+      "id": "R3-M332",
+      "test": "round 3 mutation — 17",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 3. 17",
+      "finding_id": "F27"
+    },
+    {
+      "id": "R3-M333",
+      "test": "round 3 mutation — 19",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 3. 19",
+      "finding_id": "F32"
+    },
+    {
+      "id": "R3-M334",
+      "test": "round 3 mutation — 18",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 18"
+    },
+    {
+      "id": "R3-M335",
+      "test": "round 3 mutation — 18",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 3. 18",
+      "finding_id": "F28"
+    },
+    {
+      "id": "R3-M336",
+      "test": "round 3 mutation — 20",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 3. 20",
+      "finding_id": "F30"
+    },
+    {
+      "id": "R3-M337",
+      "test": "round 3 mutation — 21",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 3. 21"
+    },
+    {
+      "id": "R4-M401a",
+      "test": "round 4 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R02"
+    },
+    {
+      "id": "R4-M401b",
+      "test": "round 4 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R02"
+    },
+    {
+      "id": "R4-M401c",
+      "test": "round 4 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R02"
+    },
+    {
+      "id": "R4-M402",
+      "test": "round 4 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R02"
+    },
+    {
+      "id": "R4-M403",
+      "test": "round 4 mutation — R03",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 4. R03",
+      "finding_id": "F34"
+    },
+    {
+      "id": "R4-M404",
+      "test": "round 4 mutation — R03",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R03"
+    },
+    {
+      "id": "R4-M405",
+      "test": "round 4 mutation — R04",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R04"
+    },
+    {
+      "id": "R4-M406",
+      "test": "round 4 mutation — R04",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 4. R04",
+      "finding_id": "F35"
+    },
+    {
+      "id": "R4-M407",
+      "test": "round 4 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 4. R05",
+      "finding_id": "F36"
+    },
+    {
+      "id": "R4-M408",
+      "test": "round 4 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R05"
+    },
+    {
+      "id": "R4-M409",
+      "test": "round 4 mutation — R06",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 4. R06",
+      "finding_id": "F34"
+    },
+    {
+      "id": "R4-M410",
+      "test": "round 4 mutation — R06",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R06"
+    },
+    {
+      "id": "R4-M411",
+      "test": "round 4 mutation — R07",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R07"
+    },
+    {
+      "id": "R4-M412",
+      "test": "round 4 mutation — R07",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R07"
+    },
+    {
+      "id": "R4-M413",
+      "test": "round 4 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R08"
+    },
+    {
+      "id": "R4-M414",
+      "test": "round 4 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R08"
+    },
+    {
+      "id": "R4-M415",
+      "test": "round 4 mutation — R09",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R09"
+    },
+    {
+      "id": "R4-M416",
+      "test": "round 4 mutation — R09",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 4. R09",
+      "finding_id": "F37"
+    },
+    {
+      "id": "R4-M417",
+      "test": "round 4 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 4. R10",
+      "finding_id": "F38"
+    },
+    {
+      "id": "R4-M418",
+      "test": "round 4 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 4. R10"
+    },
+    {
+      "id": "R5-M501",
+      "test": "round 5 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R02"
+    },
+    {
+      "id": "R5-M502",
+      "test": "round 5 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R02"
+    },
+    {
+      "id": "R5-M503",
+      "test": "round 5 mutation — R03",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R03"
+    },
+    {
+      "id": "R5-M504",
+      "test": "round 5 mutation — R03",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R03"
+    },
+    {
+      "id": "R5-M505",
+      "test": "round 5 mutation — R04",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R04"
+    },
+    {
+      "id": "R5-M506",
+      "test": "round 5 mutation — R04",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 5. R04",
+      "finding_id": "F42"
+    },
+    {
+      "id": "R5-M507",
+      "test": "round 5 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R05"
+    },
+    {
+      "id": "R5-M508",
+      "test": "round 5 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R05"
+    },
+    {
+      "id": "R5-M509",
+      "test": "round 5 mutation — R06",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 5. R06",
+      "finding_id": "F39"
+    },
+    {
+      "id": "R5-M510",
+      "test": "round 5 mutation — R06",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R06"
+    },
+    {
+      "id": "R5-M511",
+      "test": "round 5 mutation — R07",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R07"
+    },
+    {
+      "id": "R5-M512",
+      "test": "round 5 mutation — R07",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 5. R07",
+      "finding_id": "F41"
+    },
+    {
+      "id": "R5-M513",
+      "test": "round 5 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 5. R08",
+      "finding_id": "F40"
+    },
+    {
+      "id": "R5-M515",
+      "test": "round 5 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R08"
+    },
+    {
+      "id": "R5-M516",
+      "test": "round 5 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 5. R08"
+    },
+    {
+      "id": "R5-M517",
+      "test": "round 5 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 5. R08",
+      "finding_id": "F42"
+    },
+    {
+      "id": "R5-M518",
+      "test": "round 5 mutation — R09",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R09"
+    },
+    {
+      "id": "R5-M519",
+      "test": "round 5 mutation — R09",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R09"
+    },
+    {
+      "id": "R5-M520",
+      "test": "round 5 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 5. R10",
+      "finding_id": "F40"
+    },
+    {
+      "id": "R5-M521",
+      "test": "round 5 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 5. R10",
+      "finding_id": "F39"
+    },
+    {
+      "id": "R5-M522",
+      "test": "round 5 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 5. R10"
+    },
+    {
+      "id": "R6-M601",
+      "test": "round 6 mutation — R06",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R06"
+    },
+    {
+      "id": "R6-M602",
+      "test": "round 6 mutation — R07",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R07"
+    },
+    {
+      "id": "R6-M603",
+      "test": "round 6 mutation — R03",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R03"
+    },
+    {
+      "id": "R6-M604",
+      "test": "round 6 mutation — R04",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R04"
+    },
+    {
+      "id": "R6-M605",
+      "test": "round 6 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R05"
+    },
+    {
+      "id": "R6-M606",
+      "test": "round 6 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R05"
+    },
+    {
+      "id": "R6-M607",
+      "test": "round 6 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 6. R02",
+      "finding_id": "F42"
+    },
+    {
+      "id": "R6-M608",
+      "test": "round 6 mutation — R06",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R06"
+    },
+    {
+      "id": "R6-M609",
+      "test": "round 6 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 6. R08",
+      "finding_id": "F43"
+    },
+    {
+      "id": "R6-M610",
+      "test": "round 6 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 6. R10"
+    },
+    {
+      "id": "R6-M611",
+      "test": "round 6 mutation — R11",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 6. R11"
+    },
+    {
+      "id": "R6-M612",
+      "test": "round 6 mutation — R09",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 6. R09",
+      "finding_id": "F44"
+    },
+    {
+      "id": "R6-M613",
+      "test": "round 6 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 6. R10",
+      "finding_id": "F45"
+    },
+    {
+      "id": "R6-M614",
+      "test": "round 6 mutation — R12",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 6. R12",
+      "finding_id": "F42"
+    },
+    {
+      "id": "R7-M701",
+      "test": "round 7 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R02"
+    },
+    {
+      "id": "R7-M705",
+      "test": "round 7 mutation — R02",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R02"
+    },
+    {
+      "id": "R7-M702",
+      "test": "round 7 mutation — R03",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R03"
+    },
+    {
+      "id": "R7-M703",
+      "test": "round 7 mutation — R04",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R04"
+    },
+    {
+      "id": "R7-M704",
+      "test": "round 7 mutation — R04",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R04"
+    },
+    {
+      "id": "R7-M706",
+      "test": "round 7 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R05"
+    },
+    {
+      "id": "R7-M710",
+      "test": "round 7 mutation — R05",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R05"
+    },
+    {
+      "id": "R7-M707",
+      "test": "round 7 mutation — R06",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R06"
+    },
+    {
+      "id": "R7-M708",
+      "test": "round 7 mutation — R07",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 7. R07",
+      "finding_id": "F49"
+    },
+    {
+      "id": "R7-M709",
+      "test": "round 7 mutation — R08",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 7. R08",
+      "finding_id": "F47"
+    },
+    {
+      "id": "R7-M712",
+      "test": "round 7 mutation — R09",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 7. R09",
+      "finding_id": "F48"
+    },
+    {
+      "id": "R7-M715",
+      "test": "round 7 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R10"
+    },
+    {
+      "id": "R7-M711",
+      "test": "round 7 mutation — R10",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R10"
+    },
+    {
+      "id": "R7-M716",
+      "test": "round 7 mutation — R11",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R11"
+    },
+    {
+      "id": "R7-M717",
+      "test": "round 7 mutation — R12",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Executed in pass 7. R12",
+      "finding_id": "F46"
+    },
+    {
+      "id": "R7-M719",
+      "test": "round 7 mutation — R13",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 7. R13"
+    },
+    {
+      "id": "R8-M801",
+      "test": "round 8 mutation — `RestraintReport.tsx:436`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:436`"
+    },
+    {
+      "id": "R8-M804",
+      "test": "round 8 mutation — `RestraintReport.tsx:81,83`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:81,83`"
+    },
+    {
+      "id": "R8-M802",
+      "test": "round 8 mutation — `RestraintReport.tsx:434`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:434`"
+    },
+    {
+      "id": "R8-M803",
+      "test": "round 8 mutation — `RestraintReport.tsx:445`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:445`"
+    },
+    {
+      "id": "R8-M805",
+      "test": "round 8 mutation — `RestraintReport.tsx:114-115`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:114-115`"
+    },
+    {
+      "id": "R8-M813",
+      "test": "round 8 mutation — `RestraintReport.tsx:438`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:438`"
+    },
+    {
+      "id": "R8-M814",
+      "test": "round 8 mutation — `RestraintReport.tsx:96-97`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:96-97`"
+    },
+    {
+      "id": "R8-M815",
+      "test": "round 8 mutation — `RestraintReport.tsx:254`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:254`"
+    },
+    {
+      "id": "R8-M808",
+      "test": "round 8 mutation — `RestraintReport.tsx:411-413`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:411-413`"
+    },
+    {
+      "id": "R8-M806a",
+      "test": "round 8 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R8-M806b",
+      "test": "round 8 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R8-M806b′",
+      "test": "round 8 mutation — same mutant, run against **`cbcdeaf3`'s** version of the test file",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 8. same mutant, run against **`cbcdeaf3`'s** version of the test file"
+    },
+    {
+      "id": "R8-M811",
+      "test": "round 8 mutation — `RestraintReport.tsx:67,72`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 8. `RestraintReport.tsx:67,72`"
+    },
+    {
+      "id": "R9-M901",
+      "test": "round 9 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 9. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R9-M903",
+      "test": "round 9 mutation — `RestraintReport.tsx:65,71`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 9. `RestraintReport.tsx:65,71`"
+    },
+    {
+      "id": "R9-M902",
+      "test": "round 9 mutation — `RestraintReport.tsx:447`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 9. `RestraintReport.tsx:447`"
+    },
+    {
+      "id": "R9-M904",
+      "test": "round 9 mutation — `RestraintReport.tsx:68`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 9. `RestraintReport.tsx:68`"
+    },
+    {
+      "id": "R9-M905",
+      "test": "round 9 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 9. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R9-M905′",
+      "test": "round 9 mutation — same mutant, whole covering set",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 9. same mutant, whole covering set"
+    },
+    {
+      "id": "R9-M905″",
+      "test": "round 9 mutation — same mutant, run against **`cbcdeaf3`'s** version of the test file",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 9. same mutant, run against **`cbcdeaf3`'s** version of the test file"
+    },
+    {
+      "id": "R9-M906",
+      "test": "round 9 mutation — `RestraintReport.tsx:420`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 9. `RestraintReport.tsx:420`"
+    },
+    {
+      "id": "R9-M907",
+      "test": "round 9 mutation — `RestraintReport.tsx:402-427`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 9. `RestraintReport.tsx:402-427`"
+    },
+    {
+      "id": "R10-M1001",
+      "test": "round 10 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R10-M1002",
+      "test": "round 10 mutation — `RestraintReport.tsx:447`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:447`"
+    },
+    {
+      "id": "R10-M1003",
+      "test": "round 10 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R10-M1004",
+      "test": "round 10 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R10-M1005",
+      "test": "round 10 mutation — `RestraintReport.tsx:435-437`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:435-437`"
+    },
+    {
+      "id": "R10-M1005'",
+      "test": "round 10 mutation — same mutant, run against **`81f55cb9`'s** test file",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 10. same mutant, run against **`81f55cb9`'s** test file"
+    },
+    {
+      "id": "R10-M1006",
+      "test": "round 10 mutation — `RestraintReport.tsx:434-450`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:434-450`"
+    },
+    {
+      "id": "R10-M1007",
+      "test": "round 10 mutation — `RestraintReport.tsx:434-450`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:434-450`"
+    },
+    {
+      "id": "R10-M1008",
+      "test": "round 10 mutation — `RestraintReport.tsx:447`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:447`"
+    },
+    {
+      "id": "R10-M1009",
+      "test": "round 10 mutation — `RestraintReport.tsx:434,450`",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 10. `RestraintReport.tsx:434,450`"
+    },
+    {
+      "id": "R10-M1009'",
+      "test": "round 10 mutation — same mutant, whole covering set",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "excluded",
+      "reason": "Executed in pass 10. same mutant, whole covering set"
+    },
+    {
+      "id": "R10-SUB",
+      "test": "round 10 mutation — test file with the descendant loop DELETED + M1003",
+      "file": "src/components/dashboard/restraint/",
+      "outcome": "killed",
+      "reason": "Executed in pass 10. test file with the descendant loop DELETED + M1003"
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P0",
+      "title": "resolveLinkKind's per-LANE link authority was asserted by no test",
+      "at": "src/lib/refusals/read.ts:189",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 2 M101 killed after the fix: two unsafe_content rows on different lanes, both with resolving subjects, assert linkKind 'review' vs null."
+    },
+    {
+      "id": "F2",
+      "severity": "P0",
+      "title": "the LOCATION entry arm's upper window bound was asserted by no test",
+      "at": "src/lib/refusals/read.ts:349",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 2 M102 killed."
+    },
+    {
+      "id": "F3",
+      "severity": "P0",
+      "title": "the account ENTRY arm's lower window bound was asserted by nothing — the covering test pinned a DIFFERENT statement",
+      "at": "src/lib/refusals/read.ts:379",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "The case written for it asserted `total`, which the SEPARATE COUNT serves (proved by M105), and entries[0] was immune because the out-of-window row sorts LAST. Closed by an entries-length assertion; round 3 M302 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases."
+    },
+    {
+      "id": "F4",
+      "severity": "P0",
+      "title": "the cross-location guard on the review-subject correlation was asserted by no test",
+      "at": "src/lib/refusals/read.ts:343",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 2 M104 killed."
+    },
+    {
+      "id": "F5",
+      "severity": "P1",
+      "title": "RestraintContent's success path was rendered by no test",
+      "at": "src/components/dashboard/restraint/RestraintContent.tsx:1",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 2 M111 killed; scope now rides the payload."
+    },
+    {
+      "id": "F6",
+      "severity": "P1",
+      "title": "the null-coverageStart branch was rendered by no test",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:127",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 2 M112 killed. Round 3 recorded it as weakened against an empty-element regression, which F27 then closed."
+    },
+    {
+      "id": "F7",
+      "severity": "P1",
+      "title": "the ADR 0023 redaction assertion was an absence-of-substring proxy that could not fail for the reason it claimed",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:245",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "English-word regex replaced by leak-shaped sentinels, then by a positive closure (F22, F33, F42, F46, F50, F52)."
+    },
+    {
+      "id": "F8",
+      "severity": "P1",
+      "title": "the routed Restraint page had no covering test in any project",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:1",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "VERIFIED not assumed: the case lives in RestraintContent.test.tsx and covers both the `dynamic` export and the mount. Round 2 M113 and M114 both killed."
+    },
+    {
+      "id": "F9",
+      "severity": "P2",
+      "title": "the singular arm of the archived-location count phrase was unreachable from every fixture",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:197",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "archivedFootnote returns null when refusalCount is 0 and the only locationCount:1 fixture had a zero count. A {refusalCount:3, locationCount:1} fixture makes the branch reachable; round 4 M301 killed, resolving round 2's inconclusive M128."
+    },
+    {
+      "id": "F10",
+      "severity": "P2",
+      "title": "docs/directory.md's read.ts row overstated trap (d)",
+      "at": "docs/directory.md:892",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "Corrected and verified against read.ts:189-192."
+    },
+    {
+      "id": "F11",
+      "severity": "P2",
+      "title": "restraint.css shipped three rule sets for elements no component renders",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:1",
+      "duty": 4,
+      "disposition": "fixed",
+      "reason": "Removed; the scripted token diff confirms none remains. The same edit created two NEW dead rule sets, raised separately as F18."
+    },
+    {
+      "id": "F12",
+      "severity": "P2",
+      "title": "five new production files were added with no docs/directory.md row",
+      "at": "docs/directory.md:16",
+      "duty": 3,
+      "disposition": "rejected",
+      "reason": "REJECTED. docs/directory.md:16-17 states verbatim: \"`src/app/**` and `src/components/**` are described at folder level by design and are not audited.\" The finding's premise contradicts that file's own rule. Independently confirmed in round 3 and not reopened since."
+    },
+    {
+      "id": "F13",
+      "severity": "P0",
+      "title": "the LOCATION entry arm's LIMIT was asserted by nothing",
+      "at": "src/lib/refusals/read.ts:357",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "The cap test was account-scope only, and ask_withheld volume lands on a LOCATION. Parameterised over both scopes; round 3 M306 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases."
+    },
+    {
+      "id": "F14",
+      "severity": "P0",
+      "title": "the LOCATION entry arm's lower window bound was asserted by nothing",
+      "at": "src/lib/refusals/read.ts:348",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 3 M303 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases."
+    },
+    {
+      "id": "F15",
+      "severity": "P0",
+      "title": "the COUNT location arm's lower window bound was asserted by nothing",
+      "at": "src/lib/refusals/read.ts:450",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 3 M304 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases."
+    },
+    {
+      "id": "F16",
+      "severity": "P0",
+      "title": "the archived-location footnote's lower window bound was asserted by nothing",
+      "at": "src/lib/refusals/read.ts:413",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 3 M305 killed. Four of the five lower bounds in the module were blind; both proven UPPER bounds were dying only because a future-dated row sorts FIRST.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases."
+    },
+    {
+      "id": "F17",
+      "severity": "P0",
+      "title": "resolveLinkKind's `contacts` arm was asserted by no live-DB test",
+      "at": "src/lib/refusals/read.ts:191",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Three fixtures executed the line and none asserted it. Round 3 M307 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases."
+    },
+    {
+      "id": "F18",
+      "severity": "P1",
+      "title": "the notes refactor dropped two class emitters, demoting the scope line to muted text",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:230",
+      "duty": 4,
+      "disposition": "fixed",
+      "reason": "`rst-note-scope` and `rst-note-footnote` had no emitter. Notes now carry a {text, modifier} shape; round 3 M311 and M312 killed. Computed style is not observable in Vitest but the CLASS is."
+    },
+    {
+      "id": "F19",
+      "severity": "P0",
+      "title": "the read.ts row said \"three sequential scoped queries\"; the branch's own fix made it four",
+      "at": "docs/directory.md:892",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "Re-graded from the mutation subagent's P1 to P0 by the invoking agent: duty 3 grades a false structural doc claim P0. Corrected and verified — 8 `await sql<` sites resolve to 4 statements per request."
+    },
+    {
+      "id": "F20",
+      "severity": "P1",
+      "title": "a six-line comment contradicted both the code and the line appended beneath it",
+      "at": "src/app/api/dashboard/__tests__/refusals-route.test.ts:324",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "a818e7ec removed the second domain import and appended a contradicting line. The stale lines were deleted."
+    },
+    {
+      "id": "F21",
+      "severity": "P1",
+      "title": "an absence-of-substring proxy over concatenated sibling paragraph text",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:377",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "Replaced by queryByText on the sentence itself."
+    },
+    {
+      "id": "F22",
+      "severity": "P2",
+      "title": "the redaction sentinel list was allow-by-omission",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:255",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "Closed by a positive assertion over the row's whole rendered shape."
+    },
+    {
+      "id": "F23",
+      "severity": "P2",
+      "title": "source-text absence proxies stood in for \"the hand-rolled fetch machinery is gone\"",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:145",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "Replaced by the observable contract; the first replacement was weaker than the pins it replaced and is recorded as F28."
+    },
+    {
+      "id": "F24",
+      "severity": "P2",
+      "title": "the ENTRY_LIMIT sweep missed one unbounded read in the same function",
+      "at": "src/lib/refusals/read.ts:422",
+      "duty": 4,
+      "disposition": "fixed",
+      "reason": "archivedPeriods selected every archival event for a location from a table ArchivalPoller never sweeps. Bounded by ARCHIVAL_EVENT_LIMIT, newest-first then reversed; round 3 M308-M310 killed."
+    },
+    {
+      "id": "F25",
+      "severity": "P2",
+      "title": "the new FETCH_FAILED_MESSAGE copy was rendered by no test",
+      "at": "src/components/dashboard/restraint/RestraintContent.tsx:27",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Neither error case could reach it. A body carrying no `error` string does; round 3 M320 killed."
+    },
+    {
+      "id": "F26",
+      "severity": "P0",
+      "title": "isRestraintPayload's guard chain was asserted at one of roughly eighteen conjuncts",
+      "at": "src/components/dashboard/restraint/RestraintContent.tsx:149",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "The only malformed-payload case dropped the LAST conjunct. Replaced by it.each over every top-level field plus wrong-type cases; round 4 M401a-c killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P0 mechanically; the pass noted a defensible P1 re-grade because the route serialises a typed DTO."
+    },
+    {
+      "id": "F27",
+      "severity": "P0",
+      "title": "an omitted note could render as an empty paragraph and every case stayed green",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:314",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Omission cases asserted absent TEXT, and an empty paragraph contains none. Round 4 M402 killed; F37 later closed the whitespace form.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P0."
+    },
+    {
+      "id": "F28",
+      "severity": "P0",
+      "title": "the F23 replacement could not fail for the reason it claimed",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:148",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "A component-minted AbortController passed a case titled \"takes its abort signal from the library\". Now unmounts an IN-FLIGHT request; round 4 M405 killed. The first attempt at this fix asserted the abort after a successful render, which proves nothing.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P0."
+    },
+    {
+      "id": "F29",
+      "severity": "P0",
+      "title": "the summary section's accessible name was asserted by nothing",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:351",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "A bare <section> is a region landmark only when named. Round 4 M408 and M410 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P0 mechanically; the pass recommended P1."
+    },
+    {
+      "id": "F30",
+      "severity": "P0",
+      "title": "the magnitude of both caps was unpinned",
+      "at": "src/lib/refusals/read.ts:135",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Each cap probe seeded its fixture FROM the constant it pinned, so both held at any value. Magnitudes pinned in the unit suite; round 4 M411 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass: the shape is a pre-existing repo convention that the commit copied rather than invented."
+    },
+    {
+      "id": "F31",
+      "severity": "P2",
+      "title": "ARCHIVAL_EVENT_LIMIT truncation is silent, on a surface whose thesis is stating what it is not showing",
+      "at": "src/lib/refusals/read.ts:422",
+      "duty": 3,
+      "disposition": "rejected",
+      "reason": "REJECTED for this branch. Disclosing it needs a DTO field AND a new owner-facing sentence on a locked-glossary surface; both surface amendments are spent (`.feature/state.json`, `surfaceAmendments: 2`, both entries logged 2026-09-01). Reaching the cap needs 200 archive/reactivate events on ONE location — operator actions, not tenant data. Round 5 concurred with the outcome; it disputed the DTO-cost half, which is fair — `RefusalLog` already carries `truncated`. Belongs in a follow-up ticket."
+    },
+    {
+      "id": "F32",
+      "severity": "P0",
+      "title": "the F18 modifier assertions were existential",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:441",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Every note could ship a dead rst-note-null class. Counts and an exact className now asserted; round 4 M412 and M414 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass: the mutant emits a dead class, not a wrong sentence."
+    },
+    {
+      "id": "F33",
+      "severity": "P2",
+      "title": "the F22 positive closure was an equality over concatenated sibling text",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:276",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "Replaced by an assertion over the row's children — which then regressed F22 and is recorded as F35."
+    },
+    {
+      "id": "F34",
+      "severity": "P0",
+      "title": "the guard oracle was still a sample, and no fixture ever presented a legal null",
+      "at": "src/components/dashboard/restraint/RestraintContent.tsx:135",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Deleting every `value === null ||` arm passed all 28 cases, and null is the COMMON production shape here. Sweep now covers every conjunct and one case asserts the legal nulls are ACCEPTED; round 5 M501-M505 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P0 mechanically; the pass recommended P1 for the sample half and P0 for the null-arm half."
+    },
+    {
+      "id": "F35",
+      "severity": "P0",
+      "title": "the F33 replacement regressed F22 — Element.children skips text nodes",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:281",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 3's M334, the mutant that proved the F22 closure real, walked past it. The commit message's claim that each mutation was the exact raising mutant was true for seven of eight and false for this one. Closed by asserting stray text nodes, then subsumed by the whole-shape map.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P0."
+    },
+    {
+      "id": "F36",
+      "severity": "P0",
+      "title": "the query key could drop both varying inputs with every test green",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:148",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "The period toolbar and location switcher would go inert: the owner picks 90 days and reads the 30-day answer. A window change now asserts a second fetch; round 5 M509 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P0 mechanically; the pass recommended P1."
+    },
+    {
+      "id": "F37",
+      "severity": "P0",
+      "title": "the F27 assertion was one character wide",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:413",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "A note returning ' ' rendered the same blank paragraph and passed. Replaced by a note COUNT; round 5 M518 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass: a builder returning ' ' is a less likely path than the empty-string form."
+    },
+    {
+      "id": "F38",
+      "severity": "P0",
+      "title": "CategorySection's aria-labelledby was the F29 sibling and was unobserved",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:408",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Round 5 M519 killed after the region assertion was extended.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass: an accessibility contract rather than a data-correctness defect."
+    },
+    {
+      "id": "F39",
+      "severity": "P0",
+      "title": "the whole SCOPE dimension was unobservable behind a constant context mock",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:148",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Both dropping currentScope from the key and hardcoding scope=all passed 41 of 41 cases. The mock is mutable via vi.hoisted; round 6 M601 and M602 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P1 by the pass."
+    },
+    {
+      "id": "F40",
+      "severity": "P0",
+      "title": "isLinkKind could lose a member arm with the suite green",
+      "at": "src/components/dashboard/restraint/RestraintContent.tsx:134",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Either loss blanks the tab for any window holding that kind. Every live linkKind asserted ACCEPTED; round 6 M603 and M604 killed. The commit message's claim that the sweep covered every conjunct was false for exactly these two.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P1 by the pass."
+    },
+    {
+      "id": "F41",
+      "severity": "P0",
+      "title": "the region count pinned no names",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:565",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Collapsing headingId to a constant made every landmark read the same and duplicated DOM ids. Names asserted distinct; round 6 M612 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass: the mutant duplicates DOM ids rather than misreporting a decision."
+    },
+    {
+      "id": "F42",
+      "severity": "P0",
+      "title": "the row closure read only the FIRST row and only text nodes",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:519",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "A leak on the no-link row survived, and the sweep had been added to a single-row case whose one row always links. Closed three ways — element tags per row shape, blank text children, attribute names against an allowlist; round 7 M701, M702, M716 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P1 by the pass."
+    },
+    {
+      "id": "F43",
+      "severity": "P0",
+      "title": "the scope key was pinned account-vs-location, not location-vs-location",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:250",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Every location collapsed onto one cache key. A second location asserted; round 7 M704 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass."
+    },
+    {
+      "id": "F44",
+      "severity": "P0",
+      "title": "every guard-sweep row asserted the panel HEADING, which renders for any error",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx:352",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "A guard throwing a raw TypeError instead of rejecting passed all 28 rows. Each row now asserts our own rejection sentence; round 7 M703 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass."
+    },
+    {
+      "id": "F45",
+      "severity": "P0",
+      "title": "landmark and heading names were asserted distinct, never correct",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:581",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Swapping two CATEGORY_HEADING values survived. The level-2 outline is pinned in document order; round 7 M705 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass."
+    },
+    {
+      "id": "F46",
+      "severity": "P0",
+      "title": "the row closure pinned element tags without their text",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:529",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "A leak INSIDE the <time> rendered a raw response id as visible owner-facing text on the no-link row of the case titled \"leaks nothing\", and passed 87 tests. Round 8 M801 killed after the whole-shape assertion landed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P1 by the pass."
+    },
+    {
+      "id": "F47",
+      "severity": "P0",
+      "title": "the row fixture never rendered the contacts or auto-approval shapes",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:519",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "All four link kinds now render; round 8 M802 and M813 each die at the new assertion and nowhere else.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass."
+    },
+    {
+      "id": "F48",
+      "severity": "P0",
+      "title": "six of the eight CATEGORY_HEADING values were read by no test",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:76",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Swapping two survived. All eight pinned; round 8 M804 killed.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass."
+    },
+    {
+      "id": "F49",
+      "severity": "P0",
+      "title": "attribute VALUES were unconstrained on allowlisted names",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:522",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "A payload field smuggled through an allowed aria-label. Round 8 M803 killed once the shape map read values.",
+      "arbiter_reasoning": "ARBITER, recorded at the time the survivor was confirmed: the mutation is semantically meaningful for the tested behaviour — not an equivalent mutation, and not on a branch the covering tests never execute. The per-pass notes carry the full reasoning and the line counts of the executing cases. Graded P2 by the pass; it noted that F46's title-claim reasoning argues for P1."
+    },
+    {
+      "id": "F50",
+      "severity": "P1",
+      "title": "the whole-shape map REPLACED the descendant scan instead of joining it",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:522",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "Measured lost coverage: the identical mutant dies against the previous commit at the deleted loop. Both forms are kept now; round 9 M901 and M902 killed."
+    },
+    {
+      "id": "F51",
+      "severity": "P2",
+      "title": "six of the eight CATEGORY_COPY sentences were asserted nowhere",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:64",
+      "duty": 4,
+      "disposition": "fixed",
+      "reason": "The fuller half of what an owner is told a Refusal was. All eight pinned; round 9 M903 (a different pair) and M904 (a reword) both killed."
+    },
+    {
+      "id": "F52",
+      "severity": "P1",
+      "title": "the two attribute-reading assertions had intersecting gaps",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:562",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "One read name and value at depth 1, the other every depth but names only. Neither covered a descendant carrying an ALLOWED name with an arbitrary value. shape() now walks descendants; round 10 M1001 and M1002 killed, and M1005 records the sequence's first measured coverage INCREASE."
+    },
+    {
+      "id": "F53",
+      "severity": "P2",
+      "title": "a comment asserted three things its own hunk had made false",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:564",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "It claimed the map does not subsume the loop, that the map reads only direct children, and that the loop is the branch's only descendant-wide scan. Round 10 disproved all three. Corrected; the edit touches no non-comment line."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 173,
+    "killed": 120,
+    "survived_confirmed_p0": 37,
+    "equivalent": 1,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 15,
+    "findings_total": 53,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 51,
+    "rejected": 2
+  },
+  "status": "CLEAR"
+}

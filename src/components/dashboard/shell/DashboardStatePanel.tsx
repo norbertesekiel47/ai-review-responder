@@ -5,7 +5,7 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 
 /** Dashboard read surfaces that share the loading/error scaffold. */
-export type DashboardSurface = 'analytics' | 'reviews';
+export type DashboardSurface = 'analytics' | 'reviews' | 'restraint';
 
 interface SurfaceCopy {
   title: string;
@@ -33,6 +33,16 @@ const SURFACE_STATE_COPY: Record<DashboardSurface, SurfaceCopy> = {
     loadingMessage: 'Loading your reviews…',
     errorHeading: 'Unable to load reviews',
     skeletonCount: 1,
+  },
+  // The title is 'Analytics', not 'Restraint'. The tab bar names the sub-route;
+  // the TopBar names the surface. Two headings competing for the same fact is
+  // the inconsistency this slot exists to remove.
+  restraint: {
+    title: 'Analytics',
+    contentClassName: 'content content--analytics',
+    loadingMessage: 'Loading what we held back…',
+    errorHeading: 'Unable to load your restraint record',
+    skeletonCount: 2,
   },
 };
 
@@ -66,6 +76,13 @@ export function renderDashboardStatePanel(
   surface: DashboardSurface,
   state: FetchState,
   topBarActions?: ReactNode,
+  /**
+   * Rendered inside the content wrapper, ABOVE the skeleton or error card.
+   * The Analytics routes pass their tab bar here so it survives every branch —
+   * without it the bar vanishes during load on one route and persists on the
+   * other, which is exactly the inconsistency #1000 ST-2 reported.
+   */
+  beforeContent?: ReactNode,
 ): ReactNode | null {
   const branch = resolveStatePanelBranch(state);
   if (branch === 'ready') return null;
@@ -76,6 +93,7 @@ export function renderDashboardStatePanel(
     <>
       <TopBar title={copy.title}>{topBarActions}</TopBar>
       <div className={copy.contentClassName}>
+        {beforeContent}
         {branch === 'error' ? (
           <>
             <LiveRegion message={state.error ?? ''} level="assertive" />
