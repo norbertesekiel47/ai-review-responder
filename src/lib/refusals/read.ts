@@ -134,6 +134,24 @@ export interface RefusalLog {
  */
 export const ENTRY_LIMIT = 200;
 
+/**
+ * How many archival events one location read pairs into periods.
+ *
+ * The one read in this module the `ENTRY_LIMIT` sweep missed. It selects from
+ * `account_audit_log`, a table `ArchivalPoller` never sweeps, so its row set
+ * outlives the 180-day ledger retention and grows without bound. Volume is
+ * driven by operator archive and reactivate actions rather than tenant data, so
+ * the practical ceiling is low — but "low" is not a bound, and this query rides
+ * the same shared pool as the rest.
+ *
+ * The rows are taken NEWEST first and reversed in TypeScript, because pairing
+ * needs ascending order and an ascending `LIMIT` would keep the oldest events
+ * and drop the ones nearest the window — the exact inversion of what the caller
+ * asks for. Truncation degrades gracefully: a `location_reactivated` with no
+ * surviving `location_archived` before it is already skipped by the pairing.
+ */
+export const ARCHIVAL_EVENT_LIMIT = 200;
+
 interface EntryRow {
   id: string;
   /**
@@ -416,7 +434,9 @@ export async function getRefusalLog(
     : null;
 
   // Location scope only. `account_audit_log` is a table `ArchivalPoller` never
-  // sweeps, so this history outlives the 180-day ledger retention.
+  // sweeps, so this history outlives the 180-day ledger retention — which is
+  // why the read is bounded by `ARCHIVAL_EVENT_LIMIT` and reversed rather than
+  // ordered ascending in SQL.
   const archivedPeriods = scope.kind === 'location'
     ? pairArchivedPeriods(
         (await sql<{ event_type: 'location_archived' | 'location_reactivated'; created_at: Date }[]>`
@@ -425,8 +445,11 @@ export async function getRefusalLog(
           WHERE l.account_id = ${scope.accountId}
             AND l.location_id = ${scope.businessId}
             AND l.event_type IN ('location_archived', 'location_reactivated')
-          ORDER BY l.created_at ASC
-        `).map((row) => ({ eventType: row.event_type, at: row.created_at })),
+          ORDER BY l.created_at DESC
+          LIMIT ${ARCHIVAL_EVENT_LIMIT}
+        `)
+          .map((row) => ({ eventType: row.event_type, at: row.created_at }))
+          .reverse(),
         windowStart,
         windowEnd,
       )

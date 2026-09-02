@@ -268,6 +268,13 @@ describe('RestraintReport', () => {
     for (const sentinel of leaked) {
       expect(container.textContent, `rendered ${sentinel}`).not.toContain(sentinel);
     }
+
+    // POSITIVE CLOSURE. A sentinel list is allow-by-omission: a field added to
+    // the DTO later leaks straight past it. The row renders exactly two things
+    // — the formatted date and, when it links, the label — so asserting the
+    // WHOLE text is the only assertion that closes the set (red team F22).
+    expect(container.querySelector('.rst-row')?.textContent)
+      .toBe('Aug 20, 2026See the review');
     expect(screen.getByRole('link', { name: /See the review/ }))
       .toHaveAttribute('href', `/dashboard/reviews/${REVIEW_ID}/timeline`);
   });
@@ -357,7 +364,7 @@ describe('RestraintReport', () => {
   });
 
   it('RestraintReport renders one archived-period line per intersecting period in a location view', () => {
-    const { container } = renderReport(
+    renderReport(
       logWith([{ category: 'unsafe_content' }], {
         archivedLocations: null,
         archivedPeriods: [
@@ -374,7 +381,11 @@ describe('RestraintReport', () => {
     expect(screen.getByText(/archived from Aug 5, 2026 to Aug 12, 2026/)).toBeInTheDocument();
     // An OPEN period must not claim a reactivation that has not happened.
     expect(screen.getByText(/has been archived since Aug 25, 2026/)).toBeInTheDocument();
-    expect(container.textContent).not.toContain('caught up when it came back. This location has been');
+    // The CLAIM is that an open period never uses the closed-period wording.
+    // The proxy this replaces searched the concatenated text of two sibling
+    // paragraphs, so it passed the moment anything was inserted between them
+    // (red team F21). Query the sentence itself instead.
+    expect(screen.queryByText(/archived from Aug 25, 2026/)).toBeNull();
   });
 
   it('omits the coverage line entirely when the ledger has no start date for this view', () => {
@@ -425,6 +436,39 @@ describe('RestraintReport', () => {
     renderReport(logWith([{ category: 'unsafe_content' }]));
     expect(screen.getByText(/thing we chose not to do/)).toBeInTheDocument();
     expect(screen.getByText('1 time')).toBeInTheDocument();
+  });
+
+  it('marks the scope line and the footnote with their own note modifiers', () => {
+    // The refactor that collapsed three hand-written <p> elements into one
+    // `.map` dropped `rst-note-scope` and `rst-note-footnote` silently: both
+    // rule sets survived with no emitter, so the scope line lost its full
+    // contrast and nothing failed (red team F18). Computed style is not
+    // observable here, but the CLASS is — which is the assertion that keeps a
+    // future refactor from dropping them again.
+    const { container } = renderReport(logWith(
+      [{ category: 'unsafe_content' }],
+      { archivedLocations: { refusalCount: 3, locationCount: 2 } },
+    ));
+
+    const scope = container.querySelector('.rst-note-scope');
+    expect(scope?.textContent).toContain('This is your whole account');
+
+    const footnote = container.querySelector('.rst-note-footnote');
+    expect(footnote?.textContent).toBe('3 more from 2 archived locations are not shown.');
+  });
+
+  it('uses singular phrasing for a single archived location', () => {
+    // The other two singular arms were covered; this one was not, and no
+    // fixture could even REACH it — `archivedFootnote` returns null when
+    // `refusalCount` is 0, and the only `locationCount: 1` fixture had a zero
+    // count (red team F9). A non-zero count is what executes the branch.
+    renderReport(logWith(
+      [{ category: 'unsafe_content' }],
+      { archivedLocations: { refusalCount: 3, locationCount: 1 } },
+    ));
+
+    expect(screen.getByText('3 more from 1 archived location are not shown.'))
+      .toBeInTheDocument();
   });
 
   it('gives each repeated row link an accessible name that names its own row', () => {

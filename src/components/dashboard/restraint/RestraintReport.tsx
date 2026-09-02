@@ -296,6 +296,25 @@ function enterStagger(index: number): string {
   return `section-enter-${Math.min(index + 2, 6)}`;
 }
 
+/**
+ * A disclosure line plus the modifier that styles it.
+ *
+ * The notes were once emitted as three hand-written `<p>` elements and became
+ * one `.map`, which silently dropped `rst-note-scope` and `rst-note-footnote`:
+ * both rule sets survived with no emitter, so the scope line lost its full
+ * contrast and no test could see it (red team F18). Carrying the modifier ON
+ * the note is what makes the loss a compile error rather than a silent one.
+ */
+interface Note {
+  text: string;
+  modifier: 'scope' | 'footnote' | null;
+}
+
+/** A note, or nothing — every line builder returns `null` when it does not apply. */
+function note(text: string | null, modifier: Note['modifier']): Note | null {
+  return text === null ? null : { text, modifier };
+}
+
 // ── The component ───────────────────────────────────────────────────────────
 
 export function RestraintReport({ log, tabs, periodToolbar }: Props) {
@@ -304,14 +323,17 @@ export function RestraintReport({ log, tabs, periodToolbar }: Props) {
   // it. `ledger` leads the qualifiers because a paused ledger undercuts every
   // line below it.
   const notes = [
-    scopeLine(log.scope),
-    ledgerLine(log.ledgerRecording),
-    truncationLine(log),
-    coverageLine(log),
-    policyGateLine(log.autoApprovalEnabled),
-    archivedFootnote(log.archivedLocations),
-    ...log.archivedPeriods.map(archivedPeriodLine),
-  ].filter((line): line is string => line !== null);
+    // Full contrast: it leads the block because every other line qualifies a
+    // count the owner has already read, and this one says what the count IS.
+    note(scopeLine(log.scope), 'scope'),
+    note(ledgerLine(log.ledgerRecording), null),
+    note(truncationLine(log), null),
+    note(coverageLine(log), null),
+    note(policyGateLine(log.autoApprovalEnabled), null),
+    // Tabular figures: the one line that renders two counts.
+    note(archivedFootnote(log.archivedLocations), 'footnote'),
+    ...log.archivedPeriods.map((period) => note(archivedPeriodLine(period), null)),
+  ].filter((entry): entry is Note => entry !== null);
 
   return (
     <>
@@ -356,8 +378,13 @@ export function RestraintReport({ log, tabs, periodToolbar }: Props) {
                 `.rst-note:first-of-type` matched nothing and the divider that
                 separates the count from its qualifiers never rendered at all. */}
             <div className="rst-notes">
-              {notes.map((line) => (
-                <p className="rst-note" key={line}>{line}</p>
+              {notes.map(({ text, modifier }) => (
+                <p
+                  className={modifier === null ? 'rst-note' : `rst-note rst-note-${modifier}`}
+                  key={text}
+                >
+                  {text}
+                </p>
               ))}
             </div>
           </section>

@@ -143,9 +143,28 @@ describe('RestraintContent', () => {
     // the component still fetched through useQuery.
     expect(source).toContain('useQuery');
     expect(source).toMatch(/queryKey:\s*\['dashboard-refusals'/);
-    expect(source).not.toContain('useEffect');
-    expect(source).not.toContain('AbortController');
-    expect(source).not.toContain('useRef');
+  });
+
+  it('RestraintContent issues one fetch per mount and takes its abort signal from the library', async () => {
+    // BEHAVIOURAL, replacing three source-text absence pins. Those reddened on
+    // a comment that merely named one of the words and passed if the machinery
+    // moved into an imported helper — the one escape their own comment claimed
+    // to exclude (red team F23). What is observable is the contract: exactly one
+    // request per key, carrying a signal the component did not construct.
+    const signals: (AbortSignal | null)[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      signals.push(init?.signal ?? null);
+      return { ok: true, status: 200, json: async () => PAYLOAD } as unknown as Response;
+    }));
+
+    renderContent();
+    await screen.findByText('What we held back');
+
+    // One key, one request. A hand-rolled effect is what produces the second.
+    expect(signals).toHaveLength(1);
+    // React Query minted this, not an `AbortController` in the component.
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[0]?.aborted).toBe(false);
   });
 
   it('RestraintContent renders the shared dashboard state panel while loading', async () => {
@@ -165,6 +184,23 @@ describe('RestraintContent', () => {
     // The server's message reaches the owner rather than being swallowed.
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Failed to fetch refusals');
+    });
+  });
+
+  it('RestraintContent explains a failure in its own words when the server sends no message', async () => {
+    // The 500 case above stubs a body carrying an `error` string, so
+    // `errorMessageOf` takes the body arm every time and the fallback copy was
+    // rendered by no test at all (red team F25). An empty body is what reaches
+    // it — and the copy must NOT repeat the panel's own heading, which is the
+    // defect it was written to fix.
+    vi.stubGlobal('fetch', jsonFetch({}, false, 500));
+    renderContent();
+
+    expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'We could not reach your restraint record just now. Try again in a moment.',
+      );
     });
   });
 

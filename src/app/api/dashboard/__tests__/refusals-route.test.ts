@@ -321,13 +321,10 @@ describe('GET /api/dashboard/refusals', () => {
     for (const forbidden of ['sql`', 'SELECT', 'JOIN', 'WHERE', '.map(', '.filter(', '.reduce(', '.sort(']) {
       expect(code, `route source contains ${forbidden}`).not.toContain(forbidden);
     }
-    // TWO modules, and the second is a CONSTANT not a behaviour. `read` is the
-    // route's only source of refusal DATA; `write` contributes the flag NAME
-    // (`REFUSAL_LEDGER_FLAG`) so this file does not re-spell a literal that six
-    // test files were consolidated to stop re-spelling. If a third appears, or
-    // if `write` ever contributes a FUNCTION here, the route has grown a second
-    // owner and this assertion should fail.
-    // The refusals domain reaches this file through exactly ONE symbol.
+    // The refusals domain reaches this file through exactly ONE symbol. It was
+    // two until `ci:env-registry` forced the flag name back to a string literal
+    // here; if a second ever reappears, the route has grown another owner and
+    // this assertion should fail.
     expect(code.match(/@\/lib\/refusals\/\w+/g)).toEqual(['@/lib/refusals/read']);
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;

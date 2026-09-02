@@ -50,7 +50,7 @@ import {
   type RefusalCategory,
   type RefusalSource,
 } from '../vocabulary';
-import { ENTRY_LIMIT, getRefusalLog } from '../read';
+import { ARCHIVAL_EVENT_LIMIT, ENTRY_LIMIT, getRefusalLog } from '../read';
 
 /**
  * Declared locally rather than added to `schema-ready.ts`: that helper lives
@@ -366,12 +366,23 @@ describeWithDb(
         category: 'autonomy_paused',
         occurredAt: new Date(Date.now() - 60_000),
       });
+      // The third of the exactly three links the ticket names. Three fixtures
+      // already EXECUTED this arm and none asserted it, so returning null from
+      // it survived the whole suite (red team F17).
+      await seedRefusal({
+        accountId,
+        businessId,
+        source: 'ask_withheld',
+        category: 'no_permission',
+        occurredAt: new Date(Date.now() - 4 * 60_000),
+      });
 
       const log = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
-      const [suspension, unresolved, resolved] = log.entries;
+      const [suspension, unresolved, resolved, noPermission] = log.entries;
 
       // The row is KEPT in every case; only the link is contingent.
-      expect(log.total).toBe(3);
+      expect(log.total).toBe(4);
+      expect(noPermission?.linkKind).toBe('contacts');
       expect(resolved?.subjectId).toBe(resolvable.responseId);
       // The REVIEW id, resolved server-side — not the subject id. The only
       // review route takes a review id, so projecting the response id would
@@ -637,6 +648,10 @@ describeWithDb(
 
       const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
 
+      // The length assertion is load-bearing in the same way as in the
+      // windowStart case below. `entries[0]` catches a FUTURE row only because
+      // it sorts FIRST; that is sort-order luck, not a bound.
+      expect(log.entries).toHaveLength(1);
       expect(log.total).toBe(1);
       expect(log.entries[0]?.category).toBe('unsafe_content');
     });
@@ -658,12 +673,53 @@ describeWithDb(
       });
 
       const thirty = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+      // `total` alone does NOT assert this arm. It comes from the SEPARATE
+      // COUNT statement, which keeps its own lower bound — deleting the ENTRY
+      // arm's `>= windowStart` left every assertion here green (red team F3).
+      // `entries[0]` cannot catch it either: the out-of-window row is the
+      // OLDEST, so `ORDER BY occurred_at DESC` puts it LAST. The length is what
+      // pins the entry arm.
+      expect(thirty.entries).toHaveLength(1);
       expect(thirty.total).toBe(1);
       expect(thirty.entries[0]?.category).toBe('unsafe_content');
 
       // Non-vacuous: a 90d window reaches it, so the row exists and the 30d
       // result is a BOUND rather than a missing seed.
       const ninety = await getRefusalLog(sql(), { kind: 'account', accountId }, '90d');
+      expect(ninety.total).toBe(2);
+    });
+
+    it('bounds the LOCATION arm at windowStart, on the entry list and on the total alike', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const day = 24 * 60 * 60 * 1000;
+      await seedRefusal({
+        accountId, businessId, category: 'unsafe_content',
+        occurredAt: new Date(Date.now() - 2 * day),
+      });
+      // 45 days back: outside a 30d window, inside the 200-day coverage the
+      // helper seeds. The account arm had this case; the LOCATION arm did not,
+      // so deleting either of its two lower bounds was invisible (red team
+      // F14 on the entry arm, F15 on the COUNT).
+      await seedRefusal({
+        accountId, businessId, category: 'below_our_bar', subjectId: randomUUID(),
+        occurredAt: new Date(Date.now() - 45 * day),
+      });
+
+      const thirty = await getRefusalLog(
+        sql(), { kind: 'location', accountId, businessId }, '30d',
+      );
+      // Both statements, separately. `entries` pins the entry arm and `total`
+      // pins the COUNT; one without the other leaves an arm unasserted.
+      expect(thirty.entries).toHaveLength(1);
+      expect(thirty.total).toBe(1);
+      expect(thirty.entries[0]?.category).toBe('unsafe_content');
+
+      // Non-vacuous: a 90d window reaches it, so the row exists and the 30d
+      // result is a BOUND rather than a missing seed.
+      const ninety = await getRefusalLog(
+        sql(), { kind: 'location', accountId, businessId }, '90d',
+      );
+      expect(ninety.entries).toHaveLength(2);
       expect(ninety.total).toBe(2);
     });
 
@@ -706,6 +762,18 @@ describeWithDb(
       // Newest-first survives the cap, so the rows dropped are the oldest.
       const times = log.entries.map((e) => Date.parse(e.occurredAt));
       expect(times).toEqual([...times].sort((a, b) => b - a));
+
+      // The SAME data read in a LOCATION scope. The two scope arms are spelled
+      // out separately (`ci:tenant-scope` reads query blocks), so each carries
+      // its own `LIMIT` and an account-only assertion leaves the location arm
+      // unpinned — the arm where the volume actually lands, because
+      // `ask_withheld` rows carry a `business_id` (red team F13).
+      const perLocation = await getRefusalLog(
+        sql(), { kind: 'location', accountId, businessId }, '30d',
+      );
+      expect(perLocation.entries).toHaveLength(ENTRY_LIMIT);
+      expect(perLocation.total).toBe(ENTRY_LIMIT + extra);
+      expect(perLocation.truncated).toBe(true);
     }, 60_000);
 
     // --- The footnote: an ACCOUNT-scope line, and only there (#1005) ---
@@ -720,6 +788,14 @@ describeWithDb(
       await seedRefusal({
         accountId, businessId: archived, source: 'batch_halted', category: 'wrong_moment',
       });
+      // Outside the window. The footnote states a count for THE SAME window the
+      // tab prints, so this row must not reach it — its lower bound was
+      // asserted by nothing (red team F16), the upper bound being the only one
+      // any fixture exercised.
+      await seedRefusal({
+        accountId, businessId: archived, source: 'ask_withheld', category: 'no_permission',
+        occurredAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
+      });
       await archiveLocation(archived);
 
       const log = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
@@ -728,6 +804,11 @@ describeWithDb(
       // location held them, so `locationCount` is 1 and not 2.
       expect(log.total).toBe(1);
       expect(log.archivedLocations).toEqual({ refusalCount: 2, locationCount: 1 });
+
+      // Non-vacuous: a 90d window reaches the third row, so the 30d count is a
+      // BOUND rather than a missing seed.
+      const ninety = await getRefusalLog(sql(), { kind: 'account', accountId }, '90d');
+      expect(ninety.archivedLocations).toEqual({ refusalCount: 3, locationCount: 1 });
     });
 
     it('reports a zero archived-location footnote count when no archived location has refusals in the window', async () => {
@@ -779,6 +860,40 @@ describeWithDb(
       // location's gaps, and an account view is not showing one location.
       const account = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
       expect(account.archivedPeriods).toEqual([]);
+    });
+
+    it('bounds the archival-event read and keeps the NEWEST events, not the oldest', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      // A BOUND PROBE, not realistic history. Repeated archives cannot occur in
+      // production (archive refuses an archived location), but the pairing
+      // handles them — `openedAt ??=` keeps the FIRST — which is exactly what
+      // makes the dropped row observable: the surviving earliest event is what
+      // dates the open period.
+      //
+      // `account_audit_log` is never swept, so this read was the one unbounded
+      // query in the module (red team F24). An ASCENDING `LIMIT` would be the
+      // wrong fix — it keeps the oldest events and drops the ones nearest the
+      // window — so this pins the DIRECTION as much as the cap.
+      await sql()`
+        INSERT INTO account_audit_log (id, account_id, location_id, event_type, created_at)
+        SELECT gen_random_uuid(), ${accountId}::uuid, ${businessId}::uuid, 'location_archived',
+               NOW() - interval '150 days' + make_interval(hours => i)
+        FROM generate_series(0, ${ARCHIVAL_EVENT_LIMIT}) AS i
+      `;
+
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+
+      // One OPEN period: nothing ever reactivated.
+      expect(log.archivedPeriods).toHaveLength(1);
+      expect(log.archivedPeriods[0]?.reactivatedAt).toBeNull();
+
+      // ARCHIVAL_EVENT_LIMIT + 1 rows were seeded one hour apart, so the cap
+      // drops exactly the oldest. Unbounded, the period would date from the
+      // very first event; bounded, it dates from the second.
+      const oldest = Date.now() - 150 * 24 * 60 * 60 * 1000;
+      const started = Date.parse(log.archivedPeriods[0]?.archivedAt ?? '');
+      expect(started - oldest).toBeGreaterThan(30 * 60 * 1000);
+      expect(started - oldest).toBeLessThan(90 * 60 * 1000);
     });
 
     it('reads archived periods from account_audit_log and never re-derives a refusal from it', async () => {
