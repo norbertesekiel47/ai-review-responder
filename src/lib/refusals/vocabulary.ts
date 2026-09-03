@@ -577,6 +577,80 @@ export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
 ] as const satisfies readonly AutoApprovalBlockReason[];
 
 /**
+ * The members that MUST hold a rank — the map's non-`null` keys (#1080).
+ *
+ * KEYED ON `extends null`, NEVER ON `RefusalCategory`, and the difference is not
+ * stylistic. `Extract<(typeof MAP)[K], RefusalCategory>` would make this
+ * derivation depend on the category SET, so renaming a category would fire an
+ * error about precedence totality — the indirect re-coupling #1003 rejected when
+ * it refused to pin this list against `REFUSAL_CATEGORIES`. `null` is the veto
+ * marker itself, so keying on it asks only the question being asked.
+ *
+ * It reads the map through its OWN `as const satisfies` type for the same reason
+ * `resolvePolicyGateRefusal` does: widen it and every value becomes
+ * `RefusalCategory | null`, every key survives `extends null`, and this resolves
+ * to the full 22 — an assertion that fires on a healthy tree.
+ */
+type RankableBlockReason = {
+  [K in AutoApprovalBlockReason]: (typeof POLICY_GATE_HELD_REFUSAL_CATEGORIES)[K] extends null
+    ? never
+    : K;
+}[AutoApprovalBlockReason];
+
+/**
+ * `T` if it is `never`, a `TS2344` naming `T`'s members otherwise.
+ *
+ * The whole point is that it is CONSUMED. Six spellings of this assertion
+ * compile clean on a healthy tree AND on a seeded hole — the bare alias with no
+ * consumer, `type _X = U extends never ? true : false`, an unconsumed "error
+ * object" conditional, `const _x: U[] = []`, `const _x = [] satisfies U[]`, and
+ * `declare const _probe: U`. The last two match this module's own `satisfies`
+ * idiom, which is exactly why they would survive review. A constraint violation
+ * is the one shape that cannot go quiet.
+ *
+ * `T extends never` and not `[T] extends [never]` because `T` is a CONSTRAINT
+ * here, not a conditional's checked type — there is no distribution to suppress.
+ * The distributive trap belongs to the rejected `T extends never ? … : …` form,
+ * which fires on a healthy tree because a naked type parameter distributes over
+ * `never` and yields `never`.
+ */
+export type AssertNever<T extends never> = T;
+
+/**
+ * The mapped members `P` fails to rank. `never` when `P` is total.
+ *
+ * PARAMETERIZED over the ranks rather than reading
+ * `AUTO_APPROVAL_BLOCK_PRECEDENCE` directly, and that is what gives it a real
+ * consumer: `vocabulary.test.ts` seeds a hole in the type ARGUMENT, so the
+ * committed case routes through the real map and a real precedence tuple. An
+ * unparameterized alias fires at its own declaration site here whether or not a
+ * test names it, which would make any test referencing it assert nothing.
+ */
+export type UnrankedIn<P extends readonly AutoApprovalBlockReason[]> = Exclude<
+  RankableBlockReason,
+  P[number]
+>;
+
+// THE ASSERTION. Private, self-consuming, `_`-prefixed for
+// `eslint.config.mjs`'s `varsIgnorePattern: '^_'` — `tsconfig.json` sets no
+// `noUnusedLocals`, so nothing else needs to reference it.
+//
+// A mapped member left out of `AUTO_APPROVAL_BLOCK_PRECEDENCE` fails HERE, by
+// name, at `pnpm typecheck` — instead of type-checking cleanly and throwing
+// `unranked_auto_approval_block_reason` inside the response-persist transaction.
+//
+// IF YOU ARRIVED HERE FROM A `TS2536` rather than a `TS2344`, the fault is a
+// 23rd `AutoApprovalBlockReason` with no entry in
+// `POLICY_GATE_HELD_REFUSAL_CATEGORIES`. Add the map entry; the `TS1360` on the
+// map's own `satisfies` clause is the primary report and this one is fallout.
+//
+// A member listed TWICE in precedence is NOT caught: `P[number]` collapses
+// duplicates and `Exclude` cannot see them. That is deliberate rather than
+// missed — `vocabulary.test.ts` already asserts `new Set(precedence).size`, and
+// `Array.prototype.find` below makes a later duplicate unreachable anyway.
+type _PrecedenceIsTotal = AssertNever<UnrankedIn<typeof AUTO_APPROVAL_BLOCK_PRECEDENCE>>;
+
+/**
  * One draft's Refusal, or `null` when the draft is not one.
  *
  * `allRefusalCodes` is a NON-EMPTY tuple because migration 116's C5 rejects an
@@ -649,10 +723,26 @@ export function resolvePolicyGateRefusal(
 
   const winner = AUTO_APPROVAL_BLOCK_PRECEDENCE.find((member) => blockReasons.includes(member));
   if (winner === undefined) {
-    // Unreachable while the map is total and the partition holds — every
-    // non-`null` member is in the precedence list, and `vocabulary.test.ts`
-    // asserts that. Reaching it means a member was mapped to a category and
-    // never ranked, so the row would have no code to record.
+    // Unreachable, and since #1080 the COMPILER carries that claim rather than a
+    // test: `_PrecedenceIsTotal` above fails `pnpm typecheck` — naming the
+    // member — the moment one is mapped to a category and left unranked. (This
+    // comment used to cite `vocabulary.test.ts`, which asserted the partition at
+    // run time only; that case still stands, unedited, as the run-time half.)
+    //
+    // THE THROW STAYS, AND NOT AS "defence in depth". `Array.prototype.find`
+    // returns `T | undefined` UNCONDITIONALLY — its signature says nothing about
+    // the set it searched, so no amount of proof about precedence totality lets
+    // the compiler narrow `winner`. Delete this branch and `refusalCode: winner`
+    // below stops type-checking. It is STRUCTURALLY REQUIRED.
+    //
+    // Read that difference carefully before applying the precedent ten lines
+    // below, where `veto_member_won_precedence` was DELETED as "unreachable by
+    // construction". That one was provable at its own use site — the tuple's
+    // literal types make the map lookup non-nullable — so removing it cost
+    // nothing. This one is not, and the realistic regression is not deletion but
+    // `find(...)!`, which silences the same compiler error by asserting a fact
+    // nothing checks and puts `undefined` into `refusalCode` — the hidden-bug
+    // shape `working-rules.md` bans.
     throw new Error(`unranked_auto_approval_block_reason:${blockReasons.join(',')}`);
   }
 

@@ -64,7 +64,8 @@
   "allowed_edit_surface": [
     "src/lib/refusals/vocabulary.ts",
     "src/lib/refusals/__tests__/vocabulary.test.ts",
-    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts"
+    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "the precedence totality derivation rejects a precedence list missing a mapped rank",

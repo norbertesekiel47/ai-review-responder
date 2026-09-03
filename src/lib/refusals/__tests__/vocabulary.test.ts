@@ -44,6 +44,11 @@ import {
 // the RED phase would take every pre-existing case down with it. Same reason
 // `write.integration.test.ts` reaches its set-based arm this way.
 import * as vocabulary from '../vocabulary';
+// TYPE-ONLY, so the namespace-import rule above does not apply: `import type`
+// erases before the module is ever loaded, so it cannot fail at collection the
+// way a value import of a missing export would. These two are #1080's whole
+// deliverable — the derivation and the constraint that consumes it.
+import type { AssertNever, UnrankedIn } from '../vocabulary';
 
 /** The table under test. Applied to staging and production; never edited here. */
 const MIGRATION_116 = 'supabase/migrations/116_refusal_events.sql';
@@ -639,5 +644,103 @@ describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
     // future re-map migration-bearing. The vocabulary owns the mapping; the
     // database owns the closed set.
     expect(columnCheckMembers('refusal_category')).toContain(heldDraftCategory());
+  });
+});
+
+/**
+ * #1080 — the precedence list's TOTALITY, moved from a run-time assertion into
+ * the type system.
+ *
+ * WHY `@ts-expect-error` AND NOT A MATCHER. `pnpm typecheck` is where these two
+ * cases fire: the repo has 22 `@ts-expect-error` uses, zero `expectTypeOf`, and
+ * no vitest `typecheck` block, so the inversion IS the assertion — the day a
+ * directive stops being necessary it becomes `TS2578` itself. Test files are
+ * inside `tsconfig.json`'s `include`, so the gate's `typecheck` row (separate
+ * from its `lint` row) sees them. Precedent: `write.test.ts`'s
+ * `occurredAt` case.
+ *
+ * WHY THE HOLE IS SEEDED IN THE TYPE ARGUMENT rather than in the production
+ * tuple. `UnrankedIn<P>` is parameterized precisely so a hole can be seeded
+ * without editing `vocabulary.ts`; the case then routes through the REAL
+ * `RankableBlockReason` (and so the real map) and a real precedence tuple. That
+ * makes this a permanent committed proof that the derivation fires, not one-shot
+ * red-step evidence that can go stale.
+ *
+ * Each case carries a run-time companion, and neither is decoration: they assert
+ * that the seeded hole is a REAL hole and that the probe is a REAL non-member,
+ * so a precedence edit that made either premise false fails here rather than
+ * quietly making the compile-time half vacuous.
+ */
+describe('Refusal ledger vocabulary — precedence totality (#1080)', () => {
+  it('the precedence totality derivation rejects a precedence list missing a mapped rank', () => {
+    type Ranks = typeof vocabulary.AUTO_APPROVAL_BLOCK_PRECEDENCE;
+    type Holed = readonly Exclude<Ranks[number], 'daily_cap_exhausted'>[];
+
+    // @ts-expect-error — dropping a rank leaves daily_cap_exhausted unranked
+    type _Holed = AssertNever<UnrankedIn<Holed>>;
+
+    // The premises the directive above depends on. If `daily_cap_exhausted` ever
+    // leaves the precedence list or gains a `null` mapping, `Holed` stops being
+    // holed, the directive becomes unnecessary, and TS2578 fails the typecheck
+    // row — but these two lines say WHICH premise moved.
+    expect(blockPrecedence(), 'daily_cap_exhausted is no longer ranked').toContain(
+      'daily_cap_exhausted',
+    );
+    expect(policyGateMap().daily_cap_exhausted, 'daily_cap_exhausted is now a veto').not.toBeNull();
+  });
+
+  it('the precedence totality derivation accepts the current precedence list unchanged', () => {
+    type Ranks = typeof vocabulary.AUTO_APPROVAL_BLOCK_PRECEDENCE;
+
+    // NO directive, and its absence is the assertion: the shipped list ranks
+    // every mapped member, so this resolves to `never` and compiles silently.
+    type _Whole = AssertNever<UnrankedIn<Ranks>>;
+
+    // ANTI-VACUITY, and it is the guard this case exists for. If
+    // `AUTO_APPROVAL_BLOCK_PRECEDENCE` ever lost its `as const` and widened to
+    // `readonly AutoApprovalBlockReason[]`, `Ranks[number]` would swallow the
+    // whole union, `UnrankedIn<Ranks>` would be `never` for the WRONG reason,
+    // and `_Whole` would pass while proving nothing. With the literal tuple, a
+    // veto member is not assignable — so this directive is load-bearing and
+    // becomes TS2578 the day the widening happens.
+    // @ts-expect-error — moderation_held is a veto member, never a rank
+    const notARank: Ranks[number] = 'moderation_held';
+
+    expect(blockPrecedence(), 'moderation_held is now ranked').not.toContain(notARank);
+  });
+
+  it('resolvePolicyGateRefusal still throws unmapped_auto_approval_block_reason for a code in neither list', () => {
+    // The REVERSE hole, and the case above it in the resolver. #1080 closes the
+    // unranked hole at compile time; the unmapped one was already closed by the
+    // map's own `satisfies`, and this pins that the two faults still report
+    // under DIFFERENT names — a resolver that collapsed them would leave
+    // support unable to tell a missing map entry from a missing rank.
+    expect(() => resolve(['not_a_block_reason'])).toThrow(
+      /^unmapped_auto_approval_block_reason:not_a_block_reason$/,
+    );
+
+    // And the veto pass runs over EVERY member before any ranking, so an
+    // unmapped code is still a fault when it arrives behind a ranked one.
+    expect(() => resolve([blockPrecedence()[0]!, 'not_a_block_reason'])).toThrow(
+      /^unmapped_auto_approval_block_reason:not_a_block_reason$/,
+    );
+  });
+
+  it('resolvePolicyGateRefusal resolves the same winner for every locked tier after the change', () => {
+    const precedence = blockPrecedence();
+    const map = policyGateMap();
+
+    // Per TIER, not per window: the change is type-level, so the claim being
+    // pinned is that each of #1003's six locked tiers still elects its OWN first
+    // member and reports its own category. Reversed input, so a resolver that
+    // took the first element it saw would elect the tier's LAST member.
+    for (const tier of LOCKED_TIER_ORDER) {
+      const members = precedence.filter((member) => map[member] === tier);
+      expect(members.length, `tier ${tier} has no members`).toBeGreaterThan(0);
+
+      const resolved = resolve([...members].reverse());
+      expect(resolved?.refusalCode, `tier ${tier} elected the wrong member`).toBe(members[0]);
+      expect(resolved?.refusalCategory, `tier ${tier} reported the wrong category`).toBe(tier);
+    }
   });
 });

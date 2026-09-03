@@ -65,6 +65,20 @@ function vetoMembers(): readonly string[] {
 }
 
 /**
+ * The members that MUST hold a rank — the map's non-`null` keys.
+ *
+ * DRAWN FROM THE MAP, NEVER FROM `AUTO_APPROVAL_BLOCK_PRECEDENCE`, and the whole
+ * value of #1080's property is in that choice. A member mapped to a category and
+ * left out of the precedence list is exactly the defect under test; a pool read
+ * off the precedence list could not contain it, and the property would be
+ * vacuous in precisely the case it exists to catch.
+ */
+function rankableMembers(): readonly string[] {
+  const map = policyGateMap();
+  return Object.keys(map).filter((member) => map[member] !== null);
+}
+
+/**
  * A non-empty subset of `pool`, in an ARBITRARY order.
  *
  * `fc.shuffledSubarray` rather than `fc.subarray`: `subarray` preserves the
@@ -125,6 +139,36 @@ describe('policy_gate_held precedence resolver', () => {
           // category derived from the array's position.
           && resolved.refusalCategory === map[resolved.refusalCode]
         );
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it('invariants: no subset of the mapped non-veto block reasons in any order throws unranked_auto_approval_block_reason', () => {
+    const rankable = rankableMembers();
+
+    // #1080's invariant 7 — the `unranked_auto_approval_block_reason` throw at
+    // `vocabulary.ts` is unreachable. `_PrecedenceIsTotal` now proves it at
+    // compile time; this is the run-time half, and the two fail in different
+    // places, so neither can go quiet on its own.
+    //
+    // THE POOL IS THE MAP'S NON-NULL KEYS, NOT ALL 22, and that is load-bearing.
+    // `resolvePolicyGateRefusal` returns `null` on the first `null`-mapped member
+    // BEFORE it ever reaches `find`, so a subset drawn from the full union
+    // witnesses a hole only when it contains the hole member AND none of the
+    // seven vetoes — roughly 0.4% per run, ~86% over 500 runs. A 14% false green
+    // on the one property meant to pin totality is not a property. The sibling
+    // case above records the same trap for its own reason.
+    //
+    // A throw is a FAILURE here rather than a caught expectation: fast-check
+    // surfaces the exception with the shrunk input, which names the offending
+    // subset. The boolean below adds the positive claim — every such subset
+    // elects a winner, and the winner is itself a rankable member.
+    fc.assert(
+      fc.property(nonEmptyShuffledSubset(rankable), (codes) => {
+        const resolved = resolve(codes);
+        if (resolved === null) return false;
+        return rankable.includes(resolved.refusalCode);
       }),
       { numRuns: 500 },
     );
