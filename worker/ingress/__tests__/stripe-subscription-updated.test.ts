@@ -113,6 +113,11 @@ function subscription(overrides: Record<string, unknown> = {}) {
   } as unknown as Stripe.Subscription;
 }
 
+// D6 makes the event context a REQUIRED argument. Every pre-existing case
+// passes a fresh, in-window context so its behaviour is unchanged; the bound
+// itself is proven in the dedicated suite at the bottom of this file.
+const FRESH_EVENT_CONTEXT = { id: 'evt_test', created: Math.floor(Date.now() / 1000) };
+
 function queueProjection(options: {
   account?: ReturnType<typeof account>;
   snapshotChanged?: boolean;
@@ -217,7 +222,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
 
     const outcome = await processSubscriptionUpdated(subscription({
       items: { data: [] }, // stale event snapshot must be ignored
-    }));
+    }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'updated',
@@ -239,7 +244,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
   it('changed-false replay repairs the deferred status and activation mirror', async () => {
     queueProjection({ snapshotChanged: false });
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'updated',
@@ -276,7 +281,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       },
     }));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', variant: 'founding' });
     expect(snapshotUpdates()[0]!.values).toEqual(
@@ -307,7 +312,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       },
     }));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'updated', tier: 'autopilot', variant: 'founding', snapshotChanged: true,
@@ -332,7 +337,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     }));
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'status_only', reason: 'unmapped_base_price',
@@ -360,7 +365,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     mockRetrieveSubscription.mockResolvedValue(subscription());
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'variant_mismatch',
@@ -414,7 +419,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     });
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await processSubscriptionUpdated(subscription());
+    await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(order).toEqual(['status', 'commit', 'alert']);
     expect(mockEnqueueStripeSubscriptionMirrorSync).not.toHaveBeenCalled();
@@ -436,7 +441,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       primaryBusinessId: null,
     });
 
-    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }));
+    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', tier: 'copilot' });
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
@@ -488,7 +493,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     });
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }));
+    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'status_only', reason: 'unmapped_base_price' });
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
@@ -586,7 +591,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       });
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const outcome = await processSubscriptionUpdated(subscription());
+      const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
       expect(outcome).toMatchObject({ kind: 'status_only', reason });
       expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
@@ -615,8 +620,8 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     queueProjection({ snapshotChanged: true });
     queueProjection({ snapshotChanged: false });
 
-    const first = await processSubscriptionUpdated(subscription());
-    const second = await processSubscriptionUpdated(subscription());
+    const first = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
+    const second = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(first).toMatchObject({ kind: 'updated', snapshotChanged: true });
     expect(second).toMatchObject({ kind: 'updated', snapshotChanged: false });
@@ -645,7 +650,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
           price: { id: 'price_copilot_list', unit_amount: 2900 },
         }],
       },
-    }));
+    }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', tier: 'autopilot' });
     expect(snapshotUpdates()[0]!.values).toEqual(
@@ -665,7 +670,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
           price: { id: 'price_copilot_overage', unit_amount: 1500 },
         }],
       },
-    }));
+    }), FRESH_EVENT_CONTEXT);
 
     const update = snapshotUpdates()[0]!;
     expect(update.values).toContain(2);
@@ -693,7 +698,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     }));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', tier: 'autopilot' });
     expect(outcome.alerts).toEqual([
@@ -717,7 +722,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     harness.sqlReturnQueue.push(mkTaggedResult([]));
     mockRetrieveSubscription.mockRejectedValueOnce(new Error('Stripe unavailable'));
 
-    await expect(processSubscriptionUpdated(subscription())).rejects.toThrow('Stripe unavailable');
+    await expect(processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT)).rejects.toThrow('Stripe unavailable');
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     expect(snapshotUpdates()).toEqual([]);
@@ -737,7 +742,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       mkTaggedResult([]),
     );
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'ignored', reason: 'account_disappeared' });
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
@@ -759,7 +764,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     );
     mockRetrieveSubscription.mockResolvedValueOnce(subscription({ customer: 'cus_other' }));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'ignored', reason: 'provider_customer_mismatch' });
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
@@ -775,7 +780,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       active_offboarding_subscription_id: null,
     }]));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'ignored', reason: 'stale_subscription' });
     expect(mockRetrieveSubscription).not.toHaveBeenCalled();
@@ -791,7 +796,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       active_offboarding_subscription_id: null,
     }]));
 
-    const outcome = await processSubscriptionUpdated(subscription({ status: 'active' }));
+    const outcome = await processSubscriptionUpdated(subscription({ status: 'active' }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'ignored',
@@ -809,7 +814,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
   it('multi-account customer resolution prioritizes the exact current subscription', async () => {
     queueProjection();
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', accountId: ACCOUNT_ID });
     const resolutionSql = harness.sqlCalls[0]!.text;
@@ -831,7 +836,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       active_offboarding_subscription_id: SUBSCRIPTION_ID,
     }]));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'ignored',
@@ -851,7 +856,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
   it('takes entitlement then billing before the account row and drains the exact SQL queue', async () => {
     queueProjection();
 
-    await processSubscriptionUpdated(subscription());
+    await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     const entitlementIndex = harness.sqlCalls.findIndex((call) =>
       call.values.includes(`${ACCOUNT_ID}:tier_entitlement`),

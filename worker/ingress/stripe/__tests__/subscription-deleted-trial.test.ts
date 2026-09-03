@@ -63,6 +63,11 @@ function deletedSub(): any {
   return { id: SUB_ID, customer: CUSTOMER_ID, status: 'canceled' };
 }
 
+// A fresh, in-window event context for the pre-existing cases: D6 makes the
+// argument required, and an in-window context preserves today's behaviour
+// exactly (the out-of-order retry window is still open).
+const FRESH_EVENT_CONTEXT = { id: 'evt_test', created: Math.floor(Date.now() / 1000) };
+
 function queueAccount(status: string) {
   sqlReturnQueue.push([{
     id: ACCOUNT_ID,
@@ -82,7 +87,7 @@ beforeEach(() => {
 describe('subscription.deleted — cancel during trial', () => {
   it('trialing account → applier cancels (emits trial_cancelled)', async () => {
     queueAccount('trialing');
-    await processSubscriptionDeleted(deletedSub());
+    await processSubscriptionDeleted(deletedSub(), FRESH_EVENT_CONTEXT);
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, lockedAccountId, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
@@ -107,7 +112,10 @@ describe('subscription.deleted — cancel during trial', () => {
       changed: true, activated: false, primaryBusinessId: null,
     });
 
-    await processSubscriptionDeleted({ id: 'sub_1', customer: 'cus_1', status: 'canceled' } as any);
+    await processSubscriptionDeleted(
+      { id: 'sub_1', customer: 'cus_1', status: 'canceled' } as any,
+      FRESH_EVENT_CONTEXT,
+    );
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
@@ -133,7 +141,7 @@ describe('subscription.deleted — cancel during trial', () => {
       changed: true, activated: false, primaryBusinessId: null,
     });
 
-    await processSubscriptionDeleted(deletedSub());
+    await processSubscriptionDeleted(deletedSub(), FRESH_EVENT_CONTEXT);
 
     // The old `const [acctRow]` took A1 (mismatched) and skipped; the fix resolves A2.
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
@@ -148,7 +156,7 @@ describe('subscription.deleted — cancel during trial', () => {
       { id: 'acct-y', subscription_status: 'active', stripe_subscription_id: 'sub_y', active_offboarding_subscription_id: null },
     ]);
 
-    await processSubscriptionDeleted(deletedSub()); // deletes SUB_ID, owned by neither account
+    await processSubscriptionDeleted(deletedSub(), FRESH_EVENT_CONTEXT); // deletes SUB_ID, owned by neither account
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
   });

@@ -248,7 +248,7 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   // its dedup was unserialized), then when round-1 O3 replaced the copied
   // payload/enqueue block with the shared `enqueueInitialImport`. A line-keyed
   // allowlist shifts whenever anything is inserted above the entry.
-  'worker/ingress/stripe/shared.ts:147',
+  'worker/ingress/stripe/shared.ts:280',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
   // :167 → :168, :176 → :177, :283 unchanged (admin-invite-funnel T5 + D-11).

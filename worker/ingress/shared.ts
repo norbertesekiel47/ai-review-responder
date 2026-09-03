@@ -15,14 +15,35 @@ import { sql, jsonb } from '../../src/lib/db/server';
 const RECLAIM_AFTER_MINUTES = 10;
 
 /**
+ * The terminal `inbound_events.status` values a reclaim will take over.
+ *
+ * `'stale_ignored'` is written when a Stripe subscription event is ACKED for age
+ * (D7/D9: no account resolved and the out-of-order retry window has closed).
+ * That status exists precisely so the row stays reclaimable: closing it as
+ * `'processed'` would make this function return `'duplicate'` when an operator
+ * resends the event from the Stripe dashboard — strictly worse than the three
+ * days of retries the ack replaces. `'processed'` is therefore the ONE status
+ * that must never appear in this set.
+ *
+ * There is no CHECK constraint on `inbound_events.status`, so adding a member is
+ * a code change with no migration; `idx_ie_status` is partial on
+ * `status != 'processed'`, so the new value is indexed. The predicate below
+ * spells the members literally — this constant is what the tests assert against,
+ * mirroring the `OUTBOX_IN_FLIGHT_STATUSES` idiom.
+ */
+export const RECLAIMABLE_INBOUND_EVENT_STATUSES = ['failed', 'stale_ignored'] as const;
+
+/**
  * Claim an inbound webhook event for exactly-once processing.
  *
  * Returns:
  *   'claimed'   — caller owns processing; proceed with business logic.
  *   'duplicate' — another worker/request already handled this event; return 200 no-op.
  *
- * Reclaim semantics: a row stuck in status='received' for > 10min, or status='failed',
- * is reclaimable — covers worker crashes + transient retry windows.
+ * Reclaim semantics: a row stuck in status='received' for > 10min, or holding one
+ * of RECLAIMABLE_INBOUND_EVENT_STATUSES ('failed', 'stale_ignored'), is
+ * reclaimable — covers worker crashes, transient retry windows, and an operator
+ * resending an event that was acked for age.
  */
 export async function claimInboundEvent(
   source: string,
@@ -43,7 +64,7 @@ export async function claimInboundEvent(
     UPDATE inbound_events
     SET received_at = NOW(), status = 'received', error_message = NULL
     WHERE external_event_key = ${dedupKey}
-      AND (status = 'failed' OR (status = 'received'
+      AND (status = 'failed' OR status = 'stale_ignored' OR (status = 'received'
             AND received_at < NOW() - make_interval(mins => ${RECLAIM_AFTER_MINUTES})))
     RETURNING id
   `;
@@ -58,6 +79,24 @@ export async function markInboundEventProcessed(dedupKey: string): Promise<void>
   await sql`
     UPDATE inbound_events
     SET status = 'processed', processed_at = NOW()
+    WHERE external_event_key = ${dedupKey}
+  `;
+}
+
+/**
+ * Mark an inbound webhook event as deliberately NOT processed because it arrived
+ * too late to be worth retrying (D9). `processed_at` is stamped because
+ * ArchivalPoller sweeps this row on that column, on the same 30-day clock as a
+ * processed row. The status is `'stale_ignored'` and never `'processed'` —
+ * see RECLAIMABLE_INBOUND_EVENT_STATUSES for why that distinction is
+ * load-bearing.
+ *
+ * Idempotent — if the dedup key has no row, the UPDATE is a no-op.
+ */
+export async function markInboundEventStaleIgnored(dedupKey: string): Promise<void> {
+  await sql`
+    UPDATE inbound_events
+    SET status = 'stale_ignored', processed_at = NOW()
     WHERE external_event_key = ${dedupKey}
   `;
 }

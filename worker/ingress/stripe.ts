@@ -3,7 +3,12 @@ import Stripe from 'stripe';
 import { getWorkerConfig } from '../../src/lib/config/worker';
 import { sql } from '../../src/lib/db/server';
 import { claimInboundEvent } from './shared';
-import { LOG_PREFIX, getStripe } from './stripe/shared';
+import {
+  LOG_PREFIX,
+  callVoidHandlerReportingAckForAge,
+  getStripe,
+  type StripeEventContext,
+} from './stripe/shared';
 import { processCheckoutSessionCompleted } from './stripe/checkout-completed';
 import { processInvoicePaymentFailed } from './stripe/invoice-payment-failed';
 import { processInvoicePaymentActionRequired } from './stripe/invoice-payment-action-required';
@@ -67,7 +72,21 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
     return;
   }
 
+  // D6: the two subscription handlers take this as a REQUIRED argument. A
+  // silently-defaulted context is exactly the failure this change fixes — the
+  // compiler must prove every call site supplies one.
+  const eventContext: StripeEventContext = { id: event.id, created: event.created };
+
   try {
+    // D9: a subscription handler may ACK an event for age instead of processing
+    // it — the account never got provisioned and three more days of Stripe
+    // retries buy nothing. Each case computes that answer EXPLICITLY.
+    // processSubscriptionUpdated reports through its typed outcome;
+    // processSubscriptionDeleted is pinned to Promise<void> by its contract
+    // suite, so the dispatcher wraps that ONE call in the scope it reports
+    // through (see callVoidHandlerReportingAckForAge).
+    let ackedForAge = false;
+
     switch (event.type) {
       case 'checkout.session.completed':
         await processCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
@@ -86,23 +105,50 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
         break;
 
       case 'customer.subscription.deleted':
-        await processSubscriptionDeleted(event.data.object as Stripe.Subscription);
+        ackedForAge = await callVoidHandlerReportingAckForAge(() =>
+          processSubscriptionDeleted(event.data.object as Stripe.Subscription, eventContext),
+        );
         break;
 
-      case 'customer.subscription.updated':
-        await processSubscriptionUpdated(event.data.object as Stripe.Subscription);
+      case 'customer.subscription.updated': {
+        const outcome = await processSubscriptionUpdated(
+          event.data.object as Stripe.Subscription,
+          eventContext,
+        );
+        ackedForAge = outcome.kind === 'ignored' && outcome.reason === 'stale_no_account';
         break;
+      }
 
       default:
         console.log(`${LOG_PREFIX} Unhandled event type: ${event.type} — ignoring`);
         break;
     }
 
-    await sql`
-      UPDATE inbound_events
-      SET status = 'processed', processed_at = NOW()
-      WHERE external_event_key = ${event.id}
-    `;
+    if (ackedForAge) {
+      // NOT 'processed'. 'processed' is the one status claimInboundEvent
+      // refuses to reclaim, so it would make an operator's manual resend from
+      // the Stripe dashboard return 'duplicate' — strictly worse than the three
+      // days of retries this branch replaces. 'stale_ignored' keeps that replay
+      // path open, and ArchivalPoller sweeps it on the same 30-day clock.
+      //
+      // Spelled inline, like this dispatcher's other two inbound_events writes.
+      // worker/ingress/shared.ts owns the same statement as
+      // markInboundEventStaleIgnored for lanes that go through the helpers.
+      console.warn(
+        `${LOG_PREFIX} Acking event ${event.id} (${event.type}) for age — recording inbound_events as stale_ignored`,
+      );
+      await sql`
+        UPDATE inbound_events
+        SET status = 'stale_ignored', processed_at = NOW()
+        WHERE external_event_key = ${event.id}
+      `;
+    } else {
+      await sql`
+        UPDATE inbound_events
+        SET status = 'processed', processed_at = NOW()
+        WHERE external_event_key = ${event.id}
+      `;
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`${LOG_PREFIX} Failed to process event ${event.id} (${event.type}): ${message}`);

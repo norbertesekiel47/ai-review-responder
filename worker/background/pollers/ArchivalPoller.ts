@@ -85,11 +85,16 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
-    // 2. Processed inbound events older than 30 days
+    // 2. Terminally-closed inbound events older than 30 days. BOTH terminal
+    // statuses sweep on ONE clock in ONE predicate: 'processed' (handled) and
+    // 'stale_ignored' (acked for age — D9, retained so an operator resend can
+    // still be reclaimed by claimInboundEvent). Keeping that replay path open
+    // must not cost an unbounded table, and a second query with its own
+    // interval would be a second retention policy to drift.
     const [eventsResult] = await sql<{ count: string }[]>`
       WITH candidates AS (
         SELECT id FROM inbound_events
-        WHERE status = 'processed'
+        WHERE status IN ('processed', 'stale_ignored')
           AND processed_at < NOW() - INTERVAL '30 days'
         LIMIT 5000
       ),

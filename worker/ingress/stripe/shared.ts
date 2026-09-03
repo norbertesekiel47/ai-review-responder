@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { captureMessage } from '@sentry/node';
 import type Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
 import { zernioPublishingEnabled } from '../../../src/lib/publishing/flags';
@@ -32,6 +34,137 @@ export class AccountNotProvisionedYetError extends Error {
     );
     this.name = 'AccountNotProvisionedYetError';
   }
+}
+
+/**
+ * How long a subscription.* event with no resolvable account stays worth
+ * retrying (D7). Stripe redelivers for ~3 days; checkout.session.completed —
+ * the ONLY writer of `accounts.stripe_customer_id` — lands within seconds of
+ * the subscription event when it lands at all. Past this bound the retries are
+ * no longer racing a checkout that is about to finish: they are hammering a
+ * genuinely orphaned customer for three days and burying the real signal.
+ *
+ * ONE owner for the number, because TWO throw sites consume it
+ * (subscription-updated's `!reference` arm and subscription-deleted's
+ * `acctRows.length === 0` arm) and `AccountNotProvisionedYetError` already
+ * lives here.
+ */
+export const OUT_OF_ORDER_RETRY_WINDOW_SECONDS = 900;
+
+/**
+ * The enclosing Stripe event's identity, threaded from the dispatcher into the
+ * two subscription handlers. It is an OBJECT rather than a bare timestamp on
+ * purpose: a `Stripe.Subscription` does not carry its enclosing event's id, and
+ * the acked-for-age warning is worthless to an operator without one — the id is
+ * how they find the retained `inbound_events` row and replay it.
+ */
+export interface StripeEventContext {
+  id: string;
+  created: number;
+}
+
+/**
+ * Is the out-of-order retry window still OPEN for an event created at
+ * `eventCreatedSeconds` (unix seconds)?
+ *
+ * Boundary, deliberately: an age STRICTLY GREATER than the window closes it, so
+ * an age of exactly 900 is still open.
+ *
+ * Every unusable timestamp leaves the window OPEN, so the failure direction is
+ * always today's retry behaviour rather than a silent ack of an event we never
+ * processed. That covers a NEGATIVE age (clock skew, a future provider
+ * timestamp) and a non-finite one (a fixture or provider payload with no
+ * `created` — `NaN <= 900` is false, which would otherwise ack everything).
+ *
+ * Pure: it reads only the wall clock and its argument, which is what lets both
+ * handlers prove the same boundary under a frozen clock.
+ */
+export function outOfOrderRetryWindowOpen(eventCreatedSeconds: number): boolean {
+  if (!Number.isFinite(eventCreatedSeconds)) return true;
+  const ageSeconds = Math.floor(Date.now() / 1000) - eventCreatedSeconds;
+  return ageSeconds <= OUT_OF_ORDER_RETRY_WINDOW_SECONDS;
+}
+
+/**
+ * The single operator-facing warning for an event acked because its
+ * out-of-order retry window closed.
+ *
+ * It carries the stripe customer id AND the event id because it is the
+ * operator's only handle on the acked event — the id finds the retained
+ * `inbound_events` row (kept reclaimable as `stale_ignored`), the customer id
+ * correlates it to the account that never got provisioned. A bare "an event was
+ * acked" line would not do that job.
+ *
+ * Best-effort: an observability outage must not turn an intentional ack into a
+ * failed event.
+ */
+export function warnStripeSubscriptionEventAckedForAge(input: {
+  eventContext: StripeEventContext;
+  eventType: string;
+  customerId: string;
+  subscriptionId: string;
+}): void {
+  try {
+    captureMessage('stripe_subscription_event_acked_for_age', {
+      level: 'warning',
+      tags: {
+        feature: 'stripe_subscription_out_of_order',
+        event_type: input.eventType,
+      },
+      extra: {
+        event_id: input.eventContext.id,
+        event_created: input.eventContext.created,
+        event_type: input.eventType,
+        stripe_customer_id: input.customerId,
+        stripe_subscription_id: input.subscriptionId,
+        retry_window_seconds: OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+      },
+    });
+  } catch {
+    // Observability is best-effort — never let it re-open a closed window.
+  }
+}
+
+interface VoidHandlerAckReport {
+  ackedForAge: boolean;
+}
+
+/**
+ * The report channel for `processSubscriptionDeleted` ONLY.
+ *
+ * `processSubscriptionUpdated` reports an age-ack through its typed return
+ * value (`kind: 'ignored'`, `reason: 'stale_no_account'`) and needs none of
+ * this. `processSubscriptionDeleted` cannot: its `Promise<void>` signature is
+ * pinned by the contract suite, which asserts the age-ack case RESOLVES TO
+ * UNDEFINED — so a returned `{ ackedForAge }` is not available to it.
+ *
+ * Async-local rather than module-local because Fastify serves webhook requests
+ * concurrently: a module-level flag would let one event's ack close another
+ * event's row. The dispatcher wraps exactly ONE handler call (see
+ * `worker/ingress/stripe.ts`), never the whole switch, so the only function
+ * that can write into a live scope is the one being called.
+ */
+const voidHandlerAckScope = new AsyncLocalStorage<VoidHandlerAckReport>();
+
+/**
+ * Dispatcher side: call the void subscription handler and learn whether it
+ * acked the event for age.
+ */
+export async function callVoidHandlerReportingAckForAge(
+  run: () => Promise<void>,
+): Promise<boolean> {
+  const report: VoidHandlerAckReport = { ackedForAge: false };
+  await voidHandlerAckScope.run(report, run);
+  return report.ackedForAge;
+}
+
+/**
+ * Handler side: report that this event was acked for age. A no-op outside a
+ * dispatcher-opened scope (unit tests call the handler directly).
+ */
+export function recordStripeEventAckedForAge(): void {
+  const report = voidHandlerAckScope.getStore();
+  if (report) report.ackedForAge = true;
 }
 
 export function extractCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null): string | null {

@@ -1,10 +1,22 @@
 import Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
-import { LOG_PREFIX, extractCustomerId, AccountNotProvisionedYetError } from './shared';
+import {
+  LOG_PREFIX,
+  extractCustomerId,
+  AccountNotProvisionedYetError,
+  recordStripeEventAckedForAge,
+  warnStripeSubscriptionEventAckedForAge,
+  outOfOrderRetryWindowOpen,
+  OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+  type StripeEventContext,
+} from './shared';
 import { applyStripeSubscriptionStateUnderEntitlementLock } from './apply-subscription-state';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 
-export async function processSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
+export async function processSubscriptionDeleted(
+  sub: Stripe.Subscription,
+  eventContext: StripeEventContext,
+): Promise<void> {
   const subscriptionId = sub.id;
   if (!subscriptionId) {
     console.warn(`${LOG_PREFIX} customer.subscription.deleted missing subscription id — skipping`);
@@ -49,8 +61,27 @@ export async function processSubscriptionDeleted(sub: Stripe.Subscription): Prom
     // THROW so the wrapper replies 500 and Stripe redelivers once
     // checkout-completed has written stripe_customer_id. Cancellation re-applies
     // idempotently (status-guarded UPDATE skips an already-cancelled account).
-    console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — signaling retry`);
-    throw new AccountNotProvisionedYetError(customerId);
+    //
+    // D7 bounds that throw. The window predicate and its boundary live in
+    // ./shared so this arm and subscription-updated's cannot drift apart.
+    if (outOfOrderRetryWindowOpen(eventContext.created)) {
+      console.warn(`${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} — signaling retry`);
+      throw new AccountNotProvisionedYetError(customerId);
+    }
+    console.warn(
+      `${LOG_PREFIX} customer.subscription.deleted no account found for customer=${customerId} after ${OUT_OF_ORDER_RETRY_WINDOW_SECONDS}s — acking event=${eventContext.id}; the inbound_events row is retained as stale_ignored and stays replayable`,
+    );
+    warnStripeSubscriptionEventAckedForAge({
+      eventContext,
+      eventType: 'customer.subscription.deleted',
+      customerId,
+      subscriptionId,
+    });
+    // This handler's Promise<void> signature is pinned by its contract suite
+    // (the age-ack case must RESOLVE TO UNDEFINED), so the ack is reported to
+    // the dispatcher through the scope it opened around this call.
+    recordStripeEventAckedForAge();
+    return;
   }
 
   // Subscription-lineage scope: a Stripe customer can map to MULTIPLE accounts.
