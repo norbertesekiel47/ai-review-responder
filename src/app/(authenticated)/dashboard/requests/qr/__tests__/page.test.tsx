@@ -14,9 +14,10 @@ import type { OwnerReviewQrLocation } from '@/lib/locations/review-qr';
 // assertion that the moved page still mounts its three parts, and it pins the
 // routed pill bar the mobile path depends on.
 
-const { requireOwnerAccessMock, getLocationsMock } = vi.hoisted(() => ({
+const { requireOwnerAccessMock, getLocationsMock, watchEnabledMock } = vi.hoisted(() => ({
   requireOwnerAccessMock: vi.fn(),
   getLocationsMock: vi.fn(),
+  watchEnabledMock: vi.fn<() => boolean>(() => true),
 }));
 
 vi.mock('@/lib/db/browser', () => ({
@@ -25,6 +26,9 @@ vi.mock('@/lib/db/browser', () => ({
   }),
 }));
 vi.mock('@/lib/db/server', () => ({ sql: {} }));
+vi.mock('@/lib/solicitation/flags', () => ({
+  solicitationWatchEnabled: watchEnabledMock,
+}));
 vi.mock('@/lib/auth/require-owner-access', () => ({
   requireOwnerAccess: requireOwnerAccessMock,
 }));
@@ -72,6 +76,8 @@ beforeEach(() => {
   requireOwnerAccessMock.mockResolvedValue({ accountId: 'acct-1' });
   getLocationsMock.mockReset();
   getLocationsMock.mockResolvedValue([LOCATION]);
+  watchEnabledMock.mockReset();
+  watchEnabledMock.mockReturnValue(true);
 });
 
 describe('the moved Review QR page', () => {
@@ -98,6 +104,21 @@ describe('the moved Review QR page', () => {
       'aria-current',
       'page',
     );
+  });
+
+  it('offers no pills at all when watch-mode is off, rather than dead ones', async () => {
+    // This page is ungated because Review QR is visible to every owner, but
+    // `/dashboard/requests` and its contacts child both notFound() with the
+    // flag off. An ungated bar would offer two links to nowhere — the standard
+    // ReviewQrClient states as "no owner may ever get a dead link".
+    watchEnabledMock.mockReturnValue(false);
+    const { container } = render(withProviders(await ReviewQrPage()));
+    expect(container.querySelector('.tabs--routed')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Contacts' })).not.toBeInTheDocument();
+    // The surface itself still renders — the page is NOT flag-gated.
+    expect(
+      screen.getByText(/printable qr codes that send customers/i),
+    ).toBeInTheDocument();
   });
 
   it('scopes the location read to the owner account the access check returned', async () => {
