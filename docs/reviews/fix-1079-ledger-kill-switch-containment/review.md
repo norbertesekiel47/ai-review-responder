@@ -130,6 +130,54 @@ difference between an oracle and an assertion, so the root ran it directly:
 Both restored; 99/99 green across the three suites afterwards, live-DB lane
 included.
 
+## Round 2, and why this branch stops at `gate_green`
+
+Red team ran twice — round 1 at `659810f2`, round 2 at `7269bdad`. Two rounds is
+the cap. Round 2 returned **0 P0, 3 P1, 2 P2, every one a documentation edit**,
+and it re-derived rather than trusted the branch's claims: it reproduced all
+three guard-deletion experiments including both quoted failure strings, confirmed
+`wouldRecordRefusal` agrees with the resolver exhaustively and cannot throw, and
+confirmed the two-read window is zero.
+
+Its sharpest finding was this branch's own defect class one layer out: the
+correction reached every authoritative surface and **stopped short of three
+artifacts the branch itself created**, one of which —
+`docs/reviews/finding-checklists/async.md` — is PRESCRIPTIVE and was handing
+future async reviewers the refuted `some` predicate as guidance. That was fixed
+first.
+
+Round 2 also corrected the branch's own reasoning twice, both measured:
+
+- `some` is **not** wrong on a veto-ONLY set — it is false there too, because the
+  only member maps to `null`. It over-warns on a MIXED set, shrunk counterexample
+  `["policy_not_enabled","current_rating_missing"]`. So the `!== null` test inside
+  the callback saves the veto-only case, not the length check.
+- The length check is load-bearing for the function read in isolation AND
+  unreachable at its only call site, because guard 2 precedes it. That makes the
+  mutant **proven-equivalent**, not a coverage gap.
+
+**Fixing those findings moved the tree, and the budget was spent.** So
+`red-team-status.mjs` reports the evidence stale, and it offers no authorization
+escape for staleness — that check is a bare `git diff --quiet` and its
+`authorizations` array pairs only with an `accepted-risk` finding disposition.
+
+Owner-adjudicated 2026-09-03: **ship on round 2's evidence.** The basis is
+measurable rather than asserted — the delta since round 2 contains **zero
+non-comment production changes**, verified by filtering `git diff -U0` on both
+production files. The code round 2 verified under mutation is byte-identical to
+the code that ships; the rest is one test comment and prose.
+
+`head_sha` was deliberately NOT edited. Setting it to the current SHA would
+assert that round 2 ran against this tree, which is false, and would defeat the
+check that makes red-team evidence worth having. The branch therefore carries the
+`gate_green` phase rather than `reviewed`. Nothing about the work is incomplete —
+review-ready is the deliverable, and this is review-ready.
+
+Sidecar edits, disclosed in full: the five findings were set to
+`disposition: "fixed"`, and `counts` plus `status` were synced to the values the
+checker itself recomputes from those dispositions. No evidence, reasoning,
+severity, SHA or `intake_sha256` was altered.
+
 ## Unresolved, carried forward deliberately
 
 - **An UNMAPPED block reason raises no operator signal on this lane while the
