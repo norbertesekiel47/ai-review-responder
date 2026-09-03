@@ -103,6 +103,7 @@
     "worker/ingress/__tests__/shared.test.ts",
     "worker/background/pollers/ArchivalPoller.ts",
     "worker/background/pollers/__tests__/ArchivalPoller.test.ts",
+    "worker/background/pollers/health-alert/__tests__/checks.test.ts",
     "worker/ingress/stripe.ts",
     "worker/ingress/stripe/shared.ts",
     "worker/ingress/stripe/subscription-deleted.ts",

@@ -55,3 +55,39 @@ from every future gate run on this branch.
 
 **Verdict:** ACCEPT
 
+
+## D3 — surface amendment 3 was recorded but never applied
+
+**What happened.** `.feature/state.json` logs `surfaceAmendments: 3`, and entry
+3 (2026-09-03T11:09:06Z) states that
+`worker/background/pollers/health-alert/__tests__/checks.test.ts` joins
+`allowed_edit_surface`. Neither intake copy contained that path. The recorded
+`intakeSha256` `f8ae6bc7…` matched both copies, so the amendment was logged at
+the `plan_approved` transition and the intake edit was dropped in the same
+step.
+
+**Why it matters.** `tests_to_add` title 43,
+`checkFailedInboundEvents does not count stale_ignored rows`, had no legal home
+file. The in-session edit-surface guard blocks the write, and
+`ci:feature-surface` blocks it again at merge. Verified with the audit's own
+matcher: zero entries matched the path. `*` crosses `/` in that matcher, but
+no entry carries a wildcard, so
+`worker/background/pollers/__tests__/ArchivalPoller.test.ts` does not cover a
+sibling directory. Entry 3's stated reasoning was wrong on that point.
+
+**What I did.** Added the one path to both intake copies, immediately after the
+`ArchivalPoller.test.ts` entry. Both copies stay byte-identical
+(`5a5b508c…`). Re-recorded `intakeSha256` and `planContractSha256`.
+
+**Why this spends no review round.** Plan rounds are 3 of 3 and RISK is high,
+so `contract-changed` reporting CHANGED would normally escalate. It was
+escalated: the owner was asked on resume and chose to apply the logged
+amendment. Nothing in the design moved. The plan's T4 section already says
+this behaviour is pinned by a test rather than assumed, and no plan heading
+changed. This is the application of an amendment the owner approved before the
+plan locked, not a new one, so it does not consume amendment budget either.
+
+**Impact on the feature.** None on behaviour. It makes the promised test
+writable.
+
+**Verdict:** ACCEPT
