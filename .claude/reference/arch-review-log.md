@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 11** — last reset to 0 by the
+**Merges since last architecture pass: 12** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -151,6 +151,21 @@ Merges since the 2026-08-26 pass:
   and the whole upload is discarded, which is worse than offering none.
   Client-side Blob download, no new endpoint (the `downloadRejectedRowsCsv`
   precedent in the same folder).
+
+- 2026-09-03 — `feat(#1093)` (map #1084, decision #1085): the onboarding Category
+  field becomes a closed 92-item vocabulary. New
+  `src/lib/shared/business-categories.ts` (15 groups / 92 subcategories, `as const`);
+  `resolveVertical` gains a TOTAL `SUBCATEGORY_VERTICALS` table consulted before
+  the keyword matcher, which is retained for legacy free-text rows. Touches
+  `src/lib/solicitation/restraint-policy.ts` ·
+  `src/app/onboarding/business/{StepProfile,StepLocation}.tsx` ·
+  `src/app/onboarding/_shared/field-styles.ts`. Takes the counter to **12**.
+  **No migration and no new column** — the subcategory string goes in the
+  existing `businesses.category`. Measured before the change: keyword matching
+  dropped 48 of the 92 to `other` and resolved two WRONGLY, and a vertical picks
+  a freshness window, so those were wrong send/withhold decisions rather than
+  mislabels. Owner decision 2026-09-03: a Google prefill outside the vocabulary
+  is DROPPED, not pre-selected as a guess.
 
 ---
 

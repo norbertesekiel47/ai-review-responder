@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
 import type { WizardFormData } from './BusinessWizardClient';
+import { matchSubcategory } from '@/lib/shared/business-categories';
 import { StepHeading } from './StepHeading';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
@@ -98,15 +99,24 @@ export function StepLocation({
       // a value the user typed/edited is never overwritten or cleared.
       const patch: Partial<WizardFormData> = {};
 
+      // #1093: Category is a closed vocabulary now, so a Google category that is
+      // not one of the 92 cannot be shown in the select. Normalize ONCE, here,
+      // and let the three modes below run unchanged against the result —
+      // `lastPrefillRef` included, so a re-pick still compares like with like.
+      // A place whose category does not match reads as "this place has no
+      // category we can offer", which is mode (c): clear rather than keep the
+      // previous place's answer.
+      const prefillCategory = matchSubcategory(prefill.category);
+
       // category
       if (!dirtyRef.current?.category) {
         if (
-          prefill.category &&
-          (!data.category || prefill.category !== lastPrefillRef.current.category)
+          prefillCategory &&
+          (!data.category || prefillCategory !== lastPrefillRef.current.category)
         ) {
-          patch.category = prefill.category;
+          patch.category = prefillCategory;
         } else if (
-          prefill.category === null &&
+          prefillCategory === null &&
           lastPrefillRef.current.category !== null &&
           data.category
         ) {
@@ -141,7 +151,9 @@ export function StepLocation({
       // dirty flag, but the prefill value still represents what THIS place
       // would have set.
       lastPrefillRef.current = {
-        category: prefill.category,
+        // The NORMALIZED value, not the raw one: the comparisons above are
+        // against vocabulary members, so the snapshot must be too.
+        category: prefillCategory,
         website: prefill.website,
       };
     } catch (err) {

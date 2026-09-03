@@ -6,6 +6,7 @@ import type { PlaceSelection } from '@/components/places/PlaceAutocomplete';
 import { StepLocation } from '../StepLocation';
 import type { WizardFormData } from '../BusinessWizardClient';
 import { initialWizardFormData } from '../payload';
+import { matchSubcategory } from '@/lib/shared/business-categories';
 
 // The Google widget is replaced by two fixed picks + a clear so the prefill
 // choreography (first pick, re-pick, clear, stale response) can be driven.
@@ -103,22 +104,25 @@ function Harness({
 }
 
 describe('StepLocation — place prefill', () => {
+  // #1093: Category is a closed 92-item vocabulary. The prefill fixtures below
+  // use vocabulary values so the three prefill MODES stay covered; the separate
+  // describe at the end covers what happens to a value outside it.
   it('fills empty Profile fields from the first pick and shows the fetching notice meanwhile', async () => {
-    stubPrefill({ 'place-a': { category: 'Cafe', website: 'https://a.example' } }, 5);
+    stubPrefill({ 'place-a': { category: 'Cafes & Coffee Shops', website: 'https://a.example' } }, 5);
     render(<Harness />);
 
     fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
 
     expect(screen.getByTestId('placeId')).toHaveTextContent('place-a');
     expect(screen.getByText(/fetching business details/i)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafe'));
+    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafes & Coffee Shops'));
     expect(screen.getByTestId('website')).toHaveTextContent('https://a.example');
     expect(screen.queryByText(/fetching business details/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue/i })).not.toBeDisabled();
   });
 
   it('never overwrites a field the owner has edited', async () => {
-    stubPrefill({ 'place-a': { category: 'Cafe', website: 'https://a.example' } });
+    stubPrefill({ 'place-a': { category: 'Cafes & Coffee Shops', website: 'https://a.example' } });
     const onUpdate = vi.fn();
     render(
       <Harness
@@ -137,31 +141,31 @@ describe('StepLocation — place prefill', () => {
 
   it('re-picking a different place overwrites an unedited prefill and clears a field the new place lacks', async () => {
     stubPrefill({
-      'place-a': { category: 'Cafe', website: 'https://a.example' },
-      'place-b': { category: 'Bar', website: null },
+      'place-a': { category: 'Cafes & Coffee Shops', website: 'https://a.example' },
+      'place-b': { category: 'Bars & Nightclubs', website: null },
     });
     render(<Harness />);
 
     fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
-    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafe'));
+    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafes & Coffee Shops'));
 
     fireEvent.click(screen.getByRole('button', { name: 'pick B' }));
 
-    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Bar'));
+    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Bars & Nightclubs'));
     // Place B has no website: the stale 'https://a.example' must not masquerade as B's.
     expect(screen.getByTestId('website')).toHaveTextContent('');
   });
 
   it('leaves the fields alone when the new place answers the same values', async () => {
     stubPrefill({
-      'place-a': { category: 'Cafe', website: 'https://a.example' },
-      'place-b': { category: 'Cafe', website: 'https://a.example' },
+      'place-a': { category: 'Cafes & Coffee Shops', website: 'https://a.example' },
+      'place-b': { category: 'Cafes & Coffee Shops', website: 'https://a.example' },
     });
     const onUpdate = vi.fn();
     render(<Harness onUpdate={onUpdate} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
-    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafe'));
+    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafes & Coffee Shops'));
     onUpdate.mockClear();
 
     fireEvent.click(screen.getByRole('button', { name: 'pick B' }));
@@ -186,8 +190,8 @@ describe('StepLocation — place prefill', () => {
   it('aborts the superseded lookup when a second place is picked before the first answers', async () => {
     const fetchMock = stubPrefill(
       {
-        'place-a': { category: 'Cafe', website: 'https://a.example' },
-        'place-b': { category: 'Bar', website: 'https://b.example' },
+        'place-a': { category: 'Cafes & Coffee Shops', website: 'https://a.example' },
+        'place-b': { category: 'Bars & Nightclubs', website: 'https://b.example' },
       },
       10,
     );
@@ -196,7 +200,7 @@ describe('StepLocation — place prefill', () => {
     fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
     fireEvent.click(screen.getByRole('button', { name: 'pick B' }));
 
-    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Bar'));
+    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Bars & Nightclubs'));
     expect(screen.getByTestId('website')).toHaveTextContent('https://b.example');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstSignal = (fetchMock.mock.calls[0]![1] as RequestInit).signal!;
@@ -205,7 +209,7 @@ describe('StepLocation — place prefill', () => {
   });
 
   it('cancels an in-flight lookup on unmount', async () => {
-    const fetchMock = stubPrefill({ 'place-a': { category: 'Cafe', website: null } }, 50);
+    const fetchMock = stubPrefill({ 'place-a': { category: 'Cafes & Coffee Shops', website: null } }, 50);
     const { unmount } = render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
 
@@ -218,11 +222,11 @@ describe('StepLocation — place prefill', () => {
 
 describe('StepLocation — clearing and switching modes', () => {
   it('clearing the place resets the selection and any untouched prefilled fields', async () => {
-    stubPrefill({ 'place-a': { category: 'Cafe', website: 'https://a.example' } });
+    stubPrefill({ 'place-a': { category: 'Cafes & Coffee Shops', website: 'https://a.example' } });
     const onUpdate = vi.fn();
     render(<Harness onUpdate={onUpdate} />);
     fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
-    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafe'));
+    await waitFor(() => expect(screen.getByTestId('category')).toHaveTextContent('Cafes & Coffee Shops'));
     onUpdate.mockClear();
 
     fireEvent.click(screen.getByRole('button', { name: 'clear place' }));
@@ -252,7 +256,7 @@ describe('StepLocation — clearing and switching modes', () => {
   });
 
   it('switching to a Maps URL drops the picked place; switching back drops the URL', async () => {
-    stubPrefill({ 'place-a': { category: 'Cafe', website: null } }, 50);
+    stubPrefill({ 'place-a': { category: 'Cafes & Coffee Shops', website: null } }, 50);
     const onUpdate = vi.fn();
     render(<Harness onUpdate={onUpdate} />);
     fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
@@ -277,5 +281,55 @@ describe('StepLocation — clearing and switching modes', () => {
 
     expect(onUpdate).toHaveBeenLastCalledWith({ inputMode: 'autocomplete', googleMapsUrl: '' });
     await act(async () => {});
+  });
+});
+
+// #1093 / owner decision 2026-09-03: a Google category outside the 92 is
+// DROPPED, and the owner picks. SerpAPI returns free text ('Mexican
+// restaurant', 'Hair salon') that will essentially never equal one of our
+// options, so this is the common path, not the edge case. Pre-selecting a
+// guessed option would be worse: an owner does not re-read a field that already
+// looks answered.
+describe('StepLocation — a Google category outside the vocabulary', () => {
+  it('does not fill the category when Google answers free text', async () => {
+    stubPrefill({ 'place-a': { category: 'Mexican restaurant', website: 'https://a.example' } });
+    render(<Harness />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
+
+    // Website still prefills — only the category is vocabulary-bound.
+    await waitFor(() =>
+      expect(screen.getByTestId('website')).toHaveTextContent('https://a.example'),
+    );
+    expect(screen.getByTestId('category')).toHaveTextContent('');
+  });
+
+  it('clears a vocabulary category when the next place answers free text', async () => {
+    // Mode (c): place B's answer is not offerable, so keeping place A's is
+    // stale data masquerading as B's — the exact failure the mode exists for.
+    stubPrefill({
+      'place-a': { category: 'Cafes & Coffee Shops', website: 'https://a.example' },
+      'place-b': { category: 'Mexican restaurant', website: 'https://b.example' },
+    });
+    render(<Harness />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick A' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('category')).toHaveTextContent('Cafes & Coffee Shops'),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick B' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('website')).toHaveTextContent('https://b.example'),
+    );
+    expect(screen.getByTestId('category')).toHaveTextContent('');
+  });
+
+  it('matches case- and whitespace-insensitively when Google does say one of the 92', () => {
+    // The one case where a prefill still lands. Asserted on the matcher rather
+    // than the component: the component just calls it.
+    expect(matchSubcategory('  restaurants ')).toBe('Restaurants');
+    expect(matchSubcategory('Mexican restaurant')).toBeNull();
   });
 });

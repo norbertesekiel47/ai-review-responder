@@ -3,9 +3,14 @@
 import type { RefObject } from 'react';
 import type { WizardFormData } from './BusinessWizardClient';
 import { StepHeading } from './StepHeading';
+import {
+  BUSINESS_CATEGORY_GROUPS,
+  isBusinessSubcategory,
+} from '@/lib/shared/business-categories';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
   fieldClass,
+  selectClass,
   labelClass,
   primaryButtonClass,
   ghostButtonClass,
@@ -30,6 +35,12 @@ export function StepProfile({
   onNext,
 }: StepProfileProps) {
   const canContinue = data.businessName.trim().length > 0;
+  // Non-empty, but not one of the 92 — a row written before #1093. Offered back
+  // as an option so it survives; `null` for every value the vocabulary covers.
+  const legacyCategory =
+    data.category.length > 0 && !isBusinessSubcategory(data.category)
+      ? data.category
+      : null;
 
   return (
     <LazyMotion features={domAnimation}>
@@ -60,17 +71,34 @@ export function StepProfile({
         <label htmlFor="biz-category" className={labelClass}>
           Category
         </label>
-        <input
+        <select
           id="biz-category"
-          type="text"
           value={data.category}
           onChange={(e) => {
             if (dirtyRef.current) dirtyRef.current.category = true;
             update({ category: e.target.value });
           }}
-          placeholder="Restaurant, Salon, Dentist…"
-          className={fieldClass}
-        />
+          className={selectClass}
+        >
+          <option value="">Choose a category…</option>
+          {/* A stored value from BEFORE the vocabulary existed (#1085 keeps
+              those legal rather than migrating them) is offered back as its own
+              option. Without this the select would render blank and the owner's
+              existing category would be silently dropped the next time they
+              saved the step. */}
+          {legacyCategory !== null && (
+            <option value={legacyCategory}>{legacyCategory} (current)</option>
+          )}
+          {BUSINESS_CATEGORY_GROUPS.map((group) => (
+            <optgroup key={group.category} label={group.category}>
+              {group.subcategories.map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
       </div>
 
       <div>
