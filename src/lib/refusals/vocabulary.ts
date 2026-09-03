@@ -586,10 +586,17 @@ export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
  * it refused to pin this list against `REFUSAL_CATEGORIES`. `null` is the veto
  * marker itself, so keying on it asks only the question being asked.
  *
- * It reads the map through its OWN `as const satisfies` type for the same reason
- * `resolvePolicyGateRefusal` does: widen it and every value becomes
- * `RefusalCategory | null`, every key survives `extends null`, and this resolves
- * to the full 22 — an assertion that fires on a healthy tree.
+ * It reads the map through its OWN inferred type for the same reason
+ * `resolvePolicyGateRefusal` does. The clause that carries that is `satisfies`,
+ * not `as const` — MEASURED, because the obvious guess is the other way round:
+ * dropping `as const` from the map produces ZERO diagnostics, since `satisfies
+ * Record<AutoApprovalBlockReason, RefusalCategory | null>` contextually types
+ * every property and the per-key literals survive intact. What breaks this is
+ * respelling the map as a type ANNOTATION (`const
+ * POLICY_GATE_HELD_REFUSAL_CATEGORIES: Record<AutoApprovalBlockReason,
+ * RefusalCategory | null> = { … }`): then every value is `RefusalCategory |
+ * null`, no key survives `extends null`, this resolves to the full 22, and the
+ * assertion below fires on a healthy tree.
  */
 type RankableBlockReason = {
   [K in AutoApprovalBlockReason]: (typeof POLICY_GATE_HELD_REFUSAL_CATEGORIES)[K] extends null

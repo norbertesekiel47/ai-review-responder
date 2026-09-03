@@ -1,0 +1,212 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1080-precedence-totality-88d213",
+  "branch": "fix/1080-precedence-totality",
+  "fork_sha": "f797d25064c31997dfe400414baf99967b63315f",
+  "merge_base_sha": "f797d25064c31997dfe400414baf99967b63315f",
+  "head_sha": "0bb77f47d305bdcf616f38f34946073616411433",
+  "intake_sha256": "7ebe561126c6d2c494e7d11e6c0a8912807e56f6994e5ebfb3f8378ee3077f20",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-03T09:20:00Z",
+  "inventory": [
+    {
+      "id": "INV-01",
+      "test": "the precedence totality derivation rejects a precedence list missing a mapped rank",
+      "file": "src/lib/refusals/__tests__/vocabulary.test.ts:672",
+      "outcome": "killed",
+      "reason": "M2 (RankableBlockReason rewritten to yield never for every key) and M3 (AssertNever<T extends never> -> AssertNever<T>, the exact feat/refusal-log incident shape) each produce TS2578 'Unused @ts-expect-error directive' at vocabulary.test.ts:679. Production _PrecedenceIsTotal goes silent under both, so this case is the sole detector of a vacuous derivation."
+    },
+    {
+      "id": "INV-02",
+      "test": "the precedence totality derivation accepts the current precedence list unchanged",
+      "file": "src/lib/refusals/__tests__/vocabulary.test.ts:692",
+      "outcome": "killed",
+      "reason": "M1 (drop 'rating_below_threshold' from AUTO_APPROVAL_BLOCK_PRECEDENCE) -> TS2344 at vocabulary.test.ts:697 naming the member. M5c (precedence widened by explicit annotation) -> TS2578 at vocabulary.test.ts:706, so the anti-vacuity directive is load-bearing against the real widening."
+    },
+    {
+      "id": "INV-03",
+      "test": "resolvePolicyGateRefusal still throws unmapped_auto_approval_block_reason for a code in neither list",
+      "file": "src/lib/refusals/__tests__/vocabulary.test.ts:714",
+      "outcome": "killed",
+      "reason": "M11 (rename the unmapped throw to unranked_...) fails this case and only this case: 1 failed / 29 passed. It is the unique detector of the two faults collapsing into one name."
+    },
+    {
+      "id": "INV-04",
+      "test": "resolvePolicyGateRefusal resolves the same winner for every locked tier after the change",
+      "file": "src/lib/refusals/__tests__/vocabulary.test.ts:729",
+      "outcome": "killed",
+      "reason": "M10 (winner = blockReasons[0]) fails it, alongside three pre-existing cases. Not vacuous, but structurally insensitive to precedence order - see RT1080-04.",
+      "finding_id": "RT1080-04"
+    },
+    {
+      "id": "INV-05",
+      "test": "invariants: no subset of the mapped non-veto block reasons in any order throws unranked_auto_approval_block_reason",
+      "file": "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts:147",
+      "outcome": "killed",
+      "reason": "M1 (drop a mapped rank) fails it with Error: unranked_auto_approval_block_reason:rating_below_threshold surfaced by fast-check with the shrunk subset. Confirms the run-time half of the totality claim.",
+      "finding_id": "RT1080-02"
+    },
+    {
+      "id": "INV-06",
+      "test": "pnpm typecheck (tsc --noEmit) - the gate row covering type RankableBlockReason",
+      "file": "src/lib/refusals/vocabulary.ts:594",
+      "outcome": "killed",
+      "reason": "M2 kills via INV-01. M4c (map widened by explicit annotation) fires TS2344 naming 'policy_not_enabled' on a HEALTHY tree, confirming the derivation fails loudly rather than silently when the map loses its literal types."
+    },
+    {
+      "id": "INV-07",
+      "test": "pnpm typecheck (tsc --noEmit) - the gate row covering export type AssertNever",
+      "file": "src/lib/refusals/vocabulary.ts:617",
+      "outcome": "killed",
+      "reason": "M3 (constraint removed) -> TS2578 at vocabulary.test.ts:679. The shipped spelling is a constraint violation on a consumed type argument, not any of the six vacuous spellings, and not the distributive T extends never false positive (the healthy tree is 0 diagnostics)."
+    },
+    {
+      "id": "INV-08",
+      "test": "pnpm typecheck (tsc --noEmit) - the gate row covering export type UnrankedIn",
+      "file": "src/lib/refusals/vocabulary.ts:629",
+      "outcome": "killed",
+      "reason": "M2 and M3 both route through UnrankedIn and both are caught. Parameterization is load-bearing: the committed @ts-expect-error seeds its hole in the type ARGUMENT, so it consumes the real RankableBlockReason and a real precedence tuple."
+    },
+    {
+      "id": "INV-09",
+      "test": "pnpm typecheck (tsc --noEmit) - the gate row covering type _PrecedenceIsTotal",
+      "file": "src/lib/refusals/vocabulary.ts:651",
+      "outcome": "killed",
+      "reason": "M1 -> TS2344 'Type \"rating_below_threshold\" does not satisfy the constraint never' at the declaration site, naming the member. Healthy tree: 0 diagnostics, so the seven null-mapped veto members never fire."
+    },
+    {
+      "id": "INV-10",
+      "test": "vitest: the vocabulary + property suites over resolvePolicyGateRefusal",
+      "file": "src/lib/refusals/vocabulary.ts:697",
+      "outcome": "killed",
+      "reason": "M10 (winner = blockReasons[0]) -> 4 failed / 26 passed; M11 (unmapped throw renamed) -> 1 failed / 29 passed. The diff's only hunk here replaces comment lines, so behaviour is unchanged; the resolver was mutated anyway to prove the surrounding coverage is real."
+    },
+    {
+      "id": "INV-11",
+      "test": "pnpm typecheck - AUTO_APPROVAL_BLOCK_PRECEDENCE loses `as const`, keeps `satisfies`",
+      "file": "src/lib/refusals/vocabulary.ts:577",
+      "outcome": "equivalent",
+      "reason": "PROOF: M5 produces zero tsc diagnostics AND M5b (same edit plus a dropped rank) still fires TS2344 at vocabulary.ts:650 and vocabulary.test.ts:697 naming the member. The `satisfies readonly AutoApprovalBlockReason[]` contextual type preserves the element literal types, so Ranks[number] remains the fifteen listed literals and every guarantee of the change is preserved byte-for-byte. Run-time behaviour is untouched. The mutant changes nothing - which is itself the evidence for RT1080-01, filed as a docs finding rather than against this row."
+    },
+    {
+      "id": "INV-12",
+      "test": "pnpm typecheck - POLICY_GATE_HELD_REFUSAL_CATEGORIES loses `as const`, keeps `satisfies`",
+      "file": "src/lib/refusals/vocabulary.ts:487",
+      "outcome": "equivalent",
+      "reason": "PROOF: M4 produces zero tsc diagnostics AND M4b (same edit plus a dropped rank) still fires TS2344 naming the member at both sites. The satisfies contextual type keeps each value at its RefusalCategory literal, so RankableBlockReason resolves identically and resolvePolicyGateRefusal's non-nullable lookup is unchanged. Behaviour preserved. Evidence for RT1080-05."
+    },
+    {
+      "id": "INV-13",
+      "test": "vitest: within-tier reorder of AUTO_APPROVAL_BLOCK_PRECEDENCE (triage_high_severity <-> daily_cap_exhausted)",
+      "file": "src/lib/refusals/vocabulary.ts:570",
+      "outcome": "excluded",
+      "reason": "M8 survived 30/30, but the mutated axis is OUT OF SCOPE for this diff: the intake's non-goals forbid reordering the fifteen members, the branch does not touch the order, and vocabulary.ts:516-520 plus #1003 declare within-tier order non-contractual (it changes the stored refusal_code only, never refusal_category - all four tier-6 members map to owner_review_required). Executed as a diagnostic that independently confirms that documented claim, not as a coverage claim against this branch."
+    },
+    {
+      "id": "INV-14",
+      "test": "vitest: cross-tier move of AUTO_APPROVAL_BLOCK_PRECEDENCE (daily_cap_exhausted to position 1)",
+      "file": "src/lib/refusals/vocabulary.ts:557",
+      "outcome": "killed",
+      "reason": "M9 -> 1 failed / 29 passed, killed by the PRE-EXISTING 'AUTO_APPROVAL_BLOCK_PRECEDENCE groups its members into the six locked category tiers in order' (vocabulary.test.ts:547). The locked cross-tier contract is covered; the new tier case did not fire, which is RT1080-04."
+    },
+    {
+      "id": "INV-15",
+      "test": "ci:fallow (dead-code / stale-suppression gate) over the six changed files",
+      "file": ".claude/reference/arch-review-log.md:1510",
+      "outcome": "killed",
+      "reason": "The log's causal claim was re-derived, not trusted: M6 (delete the production _PrecedenceIsTotal line) leaves the stale suppression at vocabulary.ts:554 in place, while M7 (remove the test's two `typeof vocabulary.AUTO_APPROVAL_BLOCK_PRECEDENCE` references) clears it to zero. The log's stated cause is therefore correct, and `pnpm ci:fallow` exits 0 as it claims.",
+      "finding_id": "RT1080-06"
+    },
+    {
+      "id": "INV-16",
+      "test": "docs vs reality - fix-1080-precedence-totality-plan.md, arch-review-log.md, .feature/intake.json",
+      "file": "docs/superpowers/plans/fix-1080-precedence-totality-plan.md:1",
+      "outcome": "excluded",
+      "reason": "Documentation is not mutation-testable. Handled under Duty 3 instead: prevalidate-plan.py reports 22 citations checked, 1 unresolved, and every citation was additionally re-resolved by hand at both f797d250 and HEAD. Results in RT1080-03.",
+      "finding_id": "RT1080-03"
+    },
+    {
+      "id": "INV-17",
+      "test": "reverse-import surface of src/lib/refusals/vocabulary.ts (24 importers, 11 production)",
+      "file": "src/lib/refusals/vocabulary.ts:1",
+      "outcome": "excluded",
+      "reason": "The diff changes zero runtime lines in this module, so no downstream importer's behaviour can move. The type-level surface is covered repo-wide by the tsc gate row, which is green at HEAD and mutation-tested in INV-06 through INV-09. Live-DB integration importers were additionally out of reach by contract: db_touching is false and REPWORTH_DISABLE_LIVE_DB_SUITES=1 was set for the whole pass."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT1080-01",
+      "severity": "P1",
+      "title": "The anti-vacuity docblock names a trigger that does not fire: dropping `as const` from AUTO_APPROVAL_BLOCK_PRECEDENCE produces neither the claimed vacuity nor the claimed TS2578",
+      "at": "src/lib/refusals/__tests__/vocabulary.test.ts:699-705",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Measured three ways. M5: `as const` removed, `satisfies readonly AutoApprovalBlockReason[]` kept -> tsc --noEmit reports ZERO diagnostics, so the promised TS2578 does not appear. M5b: the same edit plus a dropped rank -> TS2344 still fires at vocabulary.ts:650 and vocabulary.test.ts:697 naming \"rating_below_threshold\", so _Whole is NOT vacuous under that edit and Ranks[number] does not swallow the union - the satisfies contextual type preserves the element literals. M5c: the real widening, `export const AUTO_APPROVAL_BLOCK_PRECEDENCE: readonly AutoApprovalBlockReason[] = [...]` -> TS2578 fires at vocabulary.test.ts:706 exactly as described. The guard is genuine and load-bearing; the comment misidentifies which edit triggers it and asserts a hazard the named edit does not create. Graded P1 not P0 because no shipped guarantee is misrepresented: the assertion works and the guard fires on the real hazard. Behavioural replacement: name the annotated form, or say 'any widening that erases the element literal types'."
+    },
+    {
+      "id": "RT1080-02",
+      "severity": "P1",
+      "title": "The property test's false-green arithmetic is wrong by roughly 5x, and the same figure is repeated in the plan and the intake",
+      "at": "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts:159",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "The comment claims a 22-member pool would witness a hole 'roughly 0.4% per run, ~86% over 500 runs. A 14% false green'. 0.4% is the independent-coin model (1/2 * 1/2^7 = 1/256), which is not how fc.shuffledSubarray samples. Measured against fast-check@4.9.0 from this lockfile: the subset LENGTH histogram over 100000 draws from a 22-member pool is roughly uniform (lengths 1-5 at ~7.1% each, 6-22 at ~3.8% each, mean 10.05), not binomial; the per-run witness rate is 4049/200000 = 2.02%; and detection over 500 runs across 4000 independent trials is 1.0000, i.e. a false-green rate near 0%, not 14%. The design decision the paragraph justifies (pool = the map's non-null keys) remains correct and strictly better, so this is a false justification rather than a wrong test - P1, not P0. The same numbers appear at plan:245 and in .feature/intake.json edge_cases[9], so a later reader has three chances to inherit them."
+    },
+    {
+      "id": "RT1080-03",
+      "severity": "P1",
+      "title": "Committed plan citations are fork-relative and stale at HEAD; one cited file does not exist at all",
+      "at": "docs/superpowers/plans/fix-1080-precedence-totality-plan.md:33",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "prevalidate-plan.py: 22 citations checked, 1 unresolved. UNRESOLVABLE: docs/reviews/refusal-ledger-audit/spec-verification.md:78 (plan:33 and an intake non-goal) does not exist at HEAD - it is untracked in the root checkout and absent here, so a reader of the committed plan cannot follow it. STALE (each verified to resolve exactly at f797d250 and to be wrong at HEAD): vocabulary.test.ts:513 -> 518, :513-540 -> 518-545, :527 -> 532, :192 -> 197; vocabulary.ts:650 -> 724, :652-655 -> 726-729, :656 -> 746, :659-664 -> 749-754, :643-648 -> 717-722. The test file gained 5 lines above the shift point and vocabulary.ts gained ~74. arch-review-log.md repeats vocabulary.test.ts:527. Re-resolved and CORRECT at HEAD: vocabulary.ts:555-577, :455-462, :498-504; .fallowrc.jsonc:71; eslint.config.mjs:122-126; scripts/verify-gate.sh:7; verify-gate.sh:451-475; .claude/commands/feature.md:409; write.test.ts:227-230; worker-types.ts:183-190. Stale line numbers are P1 by the skill's own grading; the unresolvable file is the worse half of this finding."
+    },
+    {
+      "id": "RT1080-04",
+      "severity": "P2",
+      "title": "The new locked-tier case cannot detect any reordering of AUTO_APPROVAL_BLOCK_PRECEDENCE",
+      "at": "src/lib/refusals/__tests__/vocabulary.test.ts:729-747",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "`members` is derived from blockPrecedence().filter(...) and the assertion is resolved.refusalCode === members[0], so expected and actual move together and the case is structurally insensitive to precedence order. Measured: M9 (cross-tier move of daily_cap_exhausted to position 1) -> 1 failed / 29 passed, and the failure is the PRE-EXISTING 'groups its members into the six locked category tiers in order' at vocabulary.test.ts:547; the new case passed. M8 (within-tier swap) -> 30/30 passed. It is not vacuous - M10 (winner = blockReasons[0]) kills it - but it shares that kill with three pre-existing cases, and its unique contribution is input-order independence, not order regression. Recorded so no later reader mistakes it for the reorder guard, which is owned entirely by vocabulary.test.ts:547."
+    },
+    {
+      "id": "RT1080-05",
+      "severity": "P2",
+      "title": "The RankableBlockReason docblock mis-attributes which half of `as const satisfies` is load-bearing",
+      "at": "src/lib/refusals/vocabulary.ts:589-592",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "The docblock says the map is read through its OWN `as const satisfies` type and that widening it makes every key survive `extends null` and resolve to the full 22. Measured: M4 (drop `as const`, keep `satisfies`) -> zero diagnostics, values keep their RefusalCategory literals through the contextual type; M4b (same plus a dropped rank) -> TS2344 still names the member, so the derivation is intact; M4c (the real widening, an explicit Record<...> annotation) -> TS2344 naming \"policy_not_enabled\" on a HEALTHY tree plus TS2322 at the lookup. So the SAFETY property claimed is TRUE - a widened map fails loudly, never silently - and only the attribution is imprecise: `satisfies` carries it, `as const` is belt-and-braces. Same class as RT1080-01 but lower stakes because the conclusion is right."
+    },
+    {
+      "id": "RT1080-06",
+      "severity": "P2",
+      "title": "The branch surfaces a stale fallow suppression at vocabulary.ts:554; documented, non-gating, and its recorded cause verified",
+      "at": "src/lib/refusals/vocabulary.ts:554",
+      "duty": 5,
+      "disposition": "rejected",
+      "reason": "Not a defect: arch-review-log.md already records it as a deliberate non-gating side effect with a stated reason, and every fact in that record was independently verified - `FALLOW_BASE=f797d250 pnpm ci:fallow` reports the stale suppression but exits 0 (src/lib/refusals/vocabulary.ts:554; scripts/verify-gate.sh:7 confirms ci:fallow* is excluded from the local gate), and the log's causal claim holds: M7 (removing the test's two `typeof vocabulary.AUTO_APPROVAL_BLOCK_PRECEDENCE` references) clears it while M6 (removing the production _PrecedenceIsTotal line) does not, so the test's typeof reference is indeed the first statically visible cross-module consumer, exactly as .fallowrc.jsonc:71 would predict."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 17,
+    "killed": 12,
+    "survived_confirmed_p0": 0,
+    "equivalent": 2,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 3,
+    "findings_total": 6,
+    "p0_open": 0,
+    "p1_open": 3,
+    "p2_open": 2,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 1
+  },
+  "status": "OPEN_P1"
+}
