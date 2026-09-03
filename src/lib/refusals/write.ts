@@ -80,6 +80,83 @@ const logger = createWorkerLogger('[refusals:write]');
 export const REFUSAL_LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /**
+ * Is the Refusal ledger recording? THE WRITE PATH'S ONE READER OF THE FLAG.
+ *
+ * WHY IT IS EXPORTED. Both write arms below read the switch, but by then a
+ * caller has already done ledger work: `recordPolicyGateRefusal`
+ * (`worker/jobs/response-generation/persist.ts`) RESOLVES a Refusal category
+ * from the gate's block reasons before either arm is reached, and a resolver
+ * fault there aborted the response-persist transaction with the switch already
+ * off (#1079). A kill switch that cannot stop the code in front of it is not a
+ * lever. So the read gets one name, and a caller with work to skip asks first.
+ *
+ * IT IS SIDE-EFFECT-FREE, AND THAT IS A CONTRACT, not an implementation detail.
+ * It reads the flag and returns: NO logging, NO Sentry, NO latch mutation.
+ * `warnLedgerDisabled` and `endDisabledEpisode` stay private to this module, so
+ * a caller cannot claim the ledger has a gap as a side effect of merely asking
+ * whether it is on. A caller that HAS established a gap says so explicitly, via
+ * `noteRefusalLedgerDark` below.
+ *
+ * THE WORD IS "SIDE-EFFECT-FREE" AND NOT "PURE", deliberately. `vocabulary.ts`
+ * defines PURE for this same feature area as "no DB handle, no clock, no flag
+ * read" — and this function's whole body is a flag read that MUST differ between
+ * calls. Branch review round 1 (standards axis) caught the two meanings
+ * colliding inside one area; the property relied on here is the absence of
+ * transports and latch writes, which is what the contract now names.
+ *
+ * READ LIVE, PER CALL — never hoisted to a module-scope `const`. The rule and
+ * its reason are spelled out at `writeRefusalEvent` below and in
+ * `src/lib/llm/circuit-breaker.ts`.
+ *
+ * THE ONE SANCTIONED SECOND READER is `src/app/api/dashboard/refusals/route.ts`,
+ * on the READ path, which keeps its own literal spelling of the flag name so
+ * `ci:env-registry` can see it. That is deliberate and is not a duplicate of
+ * this predicate.
+ */
+export function isRefusalLedgerEnabled(): boolean {
+  return readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG);
+}
+
+/**
+ * Record that a decision WOULD have been recorded and was not, because the
+ * ledger is off. The side-effecting sibling of `isRefusalLedgerEnabled`.
+ *
+ * WHY IT EXISTS, and why it is not a second flag read. #1079 moved the kill
+ * switch in front of `recordPolicyGateRefusal`'s vocabulary resolve, which
+ * contained the fault it had to contain — and took the lane's ledger-dark
+ * warning with it, because the two write arms below are now unreachable on that
+ * lane when the switch is off. Branch review round 1 (async axis) showed the
+ * loss was avoidable: the premise that a guard cannot know whether a row would
+ * have been written WITHOUT running the throwing resolver is false. Membership
+ * in the category map is decidable with `Object.hasOwn`, which cannot throw, so
+ * the caller establishes the gap itself and then says so here.
+ *
+ * IT IS THE SAME WARNING, NOT A SECOND ONE. It calls the same private
+ * `warnLedgerDisabled` the write arms call, so it shares their once-per-episode
+ * latch and their cooldown: a lane that warns here does not make the next arm
+ * warn again, and the operator still sees one line per disabled episode.
+ *
+ * THE CALLER OWNS THE PRECONDITION, and it is narrow: call this ONLY when a row
+ * would genuinely have been written. `writeRefusalEvents`' contract below states
+ * the rule this protects — an empty build, and equally a decision every one of
+ * whose reasons maps to `null`, withheld nothing and has no ledger GAP to warn
+ * about. Warning there would put noise on the one signal that says the ledger is
+ * dark. The predicate that satisfies this is EVERY-mapped-and-non-null, never
+ * SOME: one `null`-mapped member vetoes the whole row (#1003), so a `some` test
+ * would warn about a decision that was never going to be recorded. THE
+ * COUNTEREXAMPLE IS A MIXED SET, NOT A VETO-ONLY ONE — `some` is false on a
+ * veto-only set too, because its only member maps to `null`; it goes wrong on a
+ * set holding one mapped non-null member AND one `null`-mapped member, which is
+ * why the `!== null` test must sit INSIDE the callback. The shipped predicate is
+ * `wouldRecordRefusal` in `worker/jobs/response-generation/persist.ts`, whose
+ * docblock carries the machine-produced counterexample; this docblock states the
+ * rule, not the measurement.
+ */
+export function noteRefusalLedgerDark(): void {
+  warnLedgerDisabled();
+}
+
+/**
  * How long a SYNCHRONOUSLY-THROWN capture suppresses the next warning attempt.
  *
  * Exported because the eval pins the recovery case on it: a cooldown counted in
@@ -362,11 +439,14 @@ export async function writeRefusalEvent(
   input: WriteRefusalEventInput,
 ): Promise<void> {
   // READ LIVE, PER CALL, INSIDE THE BODY. A `const enabled =
-  // readFlagEnabledByDefault(…)` at module scope can never observe a mid-process
+  // isRefusalLedgerEnabled()` at module scope can never observe a mid-process
   // toggle — it would satisfy "off means off" on a fresh process and then hold
   // the ledger dark for the life of the worker after someone flips it back on.
-  // Same rule `circuit-breaker.ts` states for its own kill switch.
-  if (!readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG)) {
+  // Same rule `circuit-breaker.ts` states for its own kill switch. The predicate
+  // is SIDE-EFFECT-FREE, so the warning stays HERE, in the arm that would have
+  // written — or is raised explicitly by a caller that established the gap
+  // itself, through `noteRefusalLedgerDark`.
+  if (!isRefusalLedgerEnabled()) {
     // Return BEFORE touching the deciding transaction. This is the lever the
     // ticket names — "not a revert deploy": a decision still lands, unrecorded.
     warnLedgerDisabled();
@@ -508,8 +588,8 @@ export async function writeRefusalEvents(
   if (inputs.length === 0) return;
 
   // READ LIVE, PER CALL, INSIDE THE BODY — the same rule, and the same reason,
-  // as the single-row arm.
-  if (!readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG)) {
+  // as the single-row arm. AFTER the empty check above, never before it.
+  if (!isRefusalLedgerEnabled()) {
     warnLedgerDisabled();
     return;
   }

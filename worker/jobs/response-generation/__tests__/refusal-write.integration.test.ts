@@ -1,9 +1,16 @@
 // Live-Postgres eval for the two Refusal lanes #1013 writes — `held_draft` and
 // `policy_gate_held` — through the REAL persist boundary.
 //
-// Titles 13-36, VERBATIM from `.feature/intake.json` `tests_to_add`. The verify
-// gate's `promised-tests` row matches on exact text, so a reworded title reads
-// as an unwritten test.
+// TITLES ARE VERBATIM FROM THE INTAKE OF THE TICKET THAT OWNS THEM, and the
+// citation names the TICKET, never a path. `.feature/intake.json` is per-RUN
+// scratch: it held #1013's titles 13-36 when this file was written and holds a
+// different ticket's the moment another `/feature` run arms this worktree — so
+// "titles 13-36 of `.feature/intake.json`" stopped being true without anything
+// here changing (#1079 T5).
+//   * #1013 owns titles 13-36 — the two lanes' original eval.
+//   * #1079 owns the five kill-switch-containment cases at the end of this file.
+// The verify gate's `promised-tests` row matches on exact text, so a reworded
+// title reads as an unwritten test.
 //
 // WHY A LIVE DATABASE AND NOT `persist.test.ts`'s mocked transaction. The unit
 // suite proves which STATEMENTS persist issues, in what order. Only a real
@@ -54,7 +61,10 @@ import { TRIAGE_SOURCE } from '@/lib/reviews/triage-schema';
 // carried their own `'REFUSAL_LEDGER_ENABLED'` literal before the #1010
 // follow-up centralised it; a rename would have left them green while testing a
 // flag that no longer exists.
-import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
+import {
+  REFUSAL_LEDGER_FLAG,
+  resetRefusalLedgerWarningForTests,
+} from '@/lib/refusals/write';
 import { persistResponseAndNotify, type PersistResponseInput } from '../persist';
 
 // ---------------------------------------------------------------------------
@@ -99,28 +109,81 @@ vi.mock('@/lib/refusals/write', async (importOriginal) => {
   };
 });
 
+/**
+ * A VOCABULARY fault, distinct from every poison above it (#1079).
+ *
+ * The other switches bend an ANSWER the resolver returns. This one makes the
+ * resolver itself THROW — the fault `REFUSAL_LEDGER_ENABLED` could not contain,
+ * because `recordPolicyGateRefusal` resolved three lines before anything read
+ * the flag.
+ */
+const resolverPoison = { throwWith: null as Error | null };
+
+/**
+ * The resolver as a SPY, so its CALL COUNT is directly observable (#1079 T3).
+ *
+ * The count is the only oracle that separates the shipped fix from the one this
+ * branch rejects. "No refusal row with the flag off" is already true on HEAD and
+ * is equally true of a `try/catch` wrapped around the resolve — the shape that
+ * leaves a vocabulary fault running inside the deciding transaction. Only
+ * "the resolver was never CALLED" distinguishes them.
+ *
+ * `mockClear` (never `mockReset`) in `beforeEach`: the implementation is
+ * installed once, here, when the module factory runs.
+ */
+const resolvePolicyGateRefusalSpy = vi.hoisted(() =>
+  vi.fn<(codes: readonly string[]) => unknown>(),
+);
+
 vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/refusals/vocabulary')>();
+  resolvePolicyGateRefusalSpy.mockImplementation((codes: readonly string[]) => {
+    if (resolverPoison.throwWith) throw resolverPoison.throwWith;
+    const resolveFn = (actual as Record<string, unknown>).resolvePolicyGateRefusal;
+    if (typeof resolveFn !== 'function') return null;
+    const resolved = (resolveFn as (c: readonly string[]) => unknown)(codes) as
+      | { refusalCode: string; refusalCategory: string; allRefusalCodes: readonly string[] }
+      | null;
+    if (resolved && poison.breakC5) {
+      // C5 requires the winner to be a MEMBER of the set it won. Naming a code
+      // outside the array is the smallest way to make the database refuse a
+      // row the writer believes is well formed.
+      return { ...resolved, refusalCode: 'not_a_member_of_the_set' };
+    }
+    return resolved;
+  });
   return {
     ...actual,
     get HELD_DRAFT_REFUSAL_CATEGORY() {
       return poison.heldDraftCategory
         ?? (actual as Record<string, unknown>).HELD_DRAFT_REFUSAL_CATEGORY;
     },
-    resolvePolicyGateRefusal(codes: readonly string[]) {
-      const resolveFn = (actual as Record<string, unknown>).resolvePolicyGateRefusal;
-      if (typeof resolveFn !== 'function') return null;
-      const resolved = (resolveFn as (c: readonly string[]) => unknown)(codes) as
-        | { refusalCode: string; refusalCategory: string; allRefusalCodes: readonly string[] }
-        | null;
-      if (resolved && poison.breakC5) {
-        // C5 requires the winner to be a MEMBER of the set it won. Naming a code
-        // outside the array is the smallest way to make the database refuse a
-        // row the writer believes is well formed.
-        return { ...resolved, refusalCode: 'not_a_member_of_the_set' };
-      }
-      return resolved;
-    },
+    resolvePolicyGateRefusal: resolvePolicyGateRefusalSpy,
+  };
+});
+
+/**
+ * A PARTIAL `@sentry/node` mock — two functions replaced, everything else real.
+ *
+ * `withLedgerAttribution`'s capture is the branch's whole observability claim,
+ * and without a spy "tagged subsystem=refusal_ledger" is unverifiable: with no
+ * DSN configured the real `captureException` returns an event id and drops the
+ * envelope, so a capture that never carried the tags is indistinguishable from
+ * one that did. `write.test.ts` is the house precedent for the hoisted stub;
+ * the spread keeps this file from depending on which OTHER Sentry APIs the
+ * persist graph happens to touch.
+ */
+const sentryStub = vi.hoisted(() => ({
+  captureException: vi.fn(),
+  captureMessage: vi.fn(),
+}));
+
+vi.mock('@sentry/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@sentry/node')>();
+  return {
+    ...actual,
+    captureException: sentryStub.captureException,
+    captureMessage: sentryStub.captureMessage,
   };
 });
 
@@ -319,6 +382,22 @@ async function laneCount(source: string): Promise<number> {
 }
 
 /**
+ * The LEDGER-DARK captures only, so another subsystem's `captureMessage` cannot
+ * inflate a count.
+ *
+ * Filtered by TAG rather than by message text: the tags are what an operator
+ * actually alerts on, and a reworded message must not silently empty this.
+ * `write.test.ts` filters the console line for the same reason.
+ */
+function ledgerDarkCaptures(): unknown[] {
+  return sentryStub.captureMessage.mock.calls.filter((call) => {
+    const options = call[1] as { tags?: Record<string, unknown> } | undefined;
+    return options?.tags?.subsystem === 'refusal_ledger'
+      && options.tags.flag === REFUSAL_LEDGER_FLAG;
+  });
+}
+
+/**
  * Apply a temporary fixture mutation, run `body`, and ALWAYS restore.
  *
  * The `try/finally` is the entire point. Branch review round 1 (standards axis,
@@ -386,6 +465,11 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
   beforeEach(() => {
     savedEnv = {};
     setFlags({ [AUTO_APPROVAL_FLAG]: 'true', [MODERATION_FLAG]: 'true', [REFUSAL_LEDGER_FLAG]: 'true' });
+    // CLEAR, never RESET — `mockReset` would strip the implementation the module
+    // factory installed once, and every later case would resolve `undefined`.
+    resolvePolicyGateRefusalSpy.mockClear();
+    sentryStub.captureException.mockClear();
+    sentryStub.captureMessage.mockClear();
   });
 
   afterEach(async () => {
@@ -396,6 +480,7 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     poison.heldDraftCategory = null;
     poison.breakC5 = false;
     ledgerPoison.throwOnLane = null;
+    resolverPoison.throwWith = null;
   });
 
   afterAll(async () => {
@@ -1019,5 +1104,245 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
       expect(row?.account_id, source).toBe(accountId());
       expect(row?.business_id, source).toBe(businessId);
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // #1079 — the kill switch must contain a VOCABULARY fault, not just a write
+  // fault.
+  //
+  // The two cases above prove the flag writes no ROW. Neither can see that
+  // `recordPolicyGateRefusal` still RESOLVED a category first, so a throw from
+  // `resolvePolicyGateRefusal` aborted the whole persist with the switch already
+  // off — and reported as a generic `worker_job` failure. These five own the
+  // call count and the attribution.
+  // -------------------------------------------------------------------------
+
+  it('with REFUSAL_LEDGER_ENABLED off, persistResponseAndNotify invokes no refusals vocabulary resolver on the policy lane and the draft row commits', async () => {
+    const reviewId = randomUUID();
+    // THE POLICY-LANE FIXTURE, and the next case reuses it verbatim: an
+    // `autopilot` tenant, the live-ingest lane, a configured threshold, clean
+    // moderation, not approved — a GENUINE candidate whose `triage_high_severity`
+    // block reason resolves to a real Refusal. Every arm matters, because the
+    // assertion below is an assertion of ABSENCE: a copilot tier, a wrong origin
+    // lane, a null threshold, `held` or `approved` each make guards 1-3 return
+    // before the resolver and make this pass on HEAD.
+    await seedReview(reviewId, { triageSeverity: 'high' });
+    setFlags({ [REFUSAL_LEDGER_FLAG]: 'false' });
+
+    await persistResponseAndNotify(sql(), makeInput(reviewId));
+
+    // THE CLAIM. Not "no row was written" — that is true on HEAD and true of a
+    // `try/catch` around the resolve. The vocabulary never RAN.
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+
+    // …and containment means the decision still lands. The switch is a lever,
+    // not a revert deploy.
+    const responseId = await responseIdFor(reviewId);
+    expect(responseId).toBeDefined();
+    expect(await refusals(responseId!, 'policy_gate_held')).toHaveLength(0);
+  });
+
+  it('with REFUSAL_LEDGER_ENABLED on, the same policy-lane fixture invokes the resolver exactly once and writes its refusal row', async () => {
+    // THE MANDATORY POSITIVE CONTROL for the case above. Without it that zero is
+    // unfalsifiable: any defect in the fixture — a veto member, a wrong tier, a
+    // structural block — produces zero calls on HEAD too, and the pair would be
+    // a permanent false green. The ONLY difference here is the flag.
+    const reviewId = randomUUID();
+    await seedReview(reviewId, { triageSeverity: 'high' });
+    setFlags({ [REFUSAL_LEDGER_FLAG]: 'true' });
+
+    await persistResponseAndNotify(sql(), makeInput(reviewId));
+
+    expect(resolvePolicyGateRefusalSpy).toHaveBeenCalledTimes(1);
+    expect(resolvePolicyGateRefusalSpy.mock.calls[0]![0]).toContain('triage_high_severity');
+
+    const responseId = await responseIdFor(reviewId);
+    const rows = await refusals(responseId!, 'policy_gate_held');
+    expect(rows, 'the fixture really does write a Refusal').toHaveLength(1);
+    expect(rows[0]!.refusal_code).toBe('triage_high_severity');
+  });
+
+  it('with REFUSAL_LEDGER_ENABLED off, a throwing vocabulary resolver never runs and the draft row still commits', async () => {
+    // THE ARMED FORM OF THE FLAG-OFF CASE ABOVE, and it closes that case's gap.
+    // There the only evidence was a spy count, which proves the resolver the SPY
+    // models was not called. Here the resolver is LOADED — the same
+    // `vocabulary_resolver_exploded` the flag-on cases below use to abort a
+    // persist — so any reachable path into it, spied or not, converts the
+    // containment claim from an absence into a rejection this case would show.
+    const reviewId = randomUUID();
+    await seedReview(reviewId, { triageSeverity: 'high' });
+    resolverPoison.throwWith = new Error('vocabulary_resolver_exploded');
+    setFlags({ [REFUSAL_LEDGER_FLAG]: 'false' });
+
+    // NO REJECTION, and that IS the containment guarantee (#1079). An armed
+    // resolver that is never reached cannot throw; the two flag-on cases below
+    // are the control that shows the same arming really does abort a persist
+    // when the switch is on, so this resolve is not the poison failing to work.
+    await persistResponseAndNotify(sql(), makeInput(reviewId));
+
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+    // The attribution wrapper never fired either — no ledger fault was reported,
+    // because none happened.
+    expect(sentryStub.captureException).not.toHaveBeenCalled();
+
+    // …and the decision still LANDS. A switch that dropped the draft would be a
+    // revert deploy, not a lever.
+    const responseId = await responseIdFor(reviewId);
+    expect(responseId, 'the draft committed with the resolver armed').toBeDefined();
+    expect(await refusals(responseId!, 'policy_gate_held')).toHaveLength(0);
+  });
+
+  it('with REFUSAL_LEDGER_ENABLED off, a would-have-recorded decision warns once and a veto-only decision does not', async () => {
+    // THE ORACLE FOR THE WHOLE FINDING, in both directions. Guard 4 keeps the
+    // lane's ledger-dark warning without running the resolver, and the rule it
+    // must respect is `writeRefusalEvents`' contract (bullet 1): a decision that
+    // records NOTHING either way has no ledger GAP, so warning about it puts
+    // noise on the one signal that says the ledger is dark.
+    //
+    // THE LATCH IS MODULE-LEVEL, so each half resets it. Without that, half B's
+    // zero would be satisfied by half A having already latched — the false green
+    // this case exists to avoid.
+
+    // HALF A — every block reason maps to a real category, so a row WOULD have
+    // been written. `triage_high_severity` is the same fixture the two cases
+    // above use, and the flag-on control there proves it really does record.
+    resetRefusalLedgerWarningForTests();
+    sentryStub.captureMessage.mockClear();
+    const recordedReviewId = randomUUID();
+    await seedReview(recordedReviewId, { triageSeverity: 'high' });
+    setFlags({ [REFUSAL_LEDGER_FLAG]: 'false' });
+
+    await persistResponseAndNotify(sql(), makeInput(recordedReviewId));
+
+    expect(resolvePolicyGateRefusalSpy, 'still contained').not.toHaveBeenCalled();
+    expect(
+      ledgerDarkCaptures(),
+      'a withheld row reports the gap',
+    ).toHaveLength(1);
+
+    // HALF B — a `null`-mapped VETO member is present, so the decision records
+    // nothing on ANY flag setting and there is no gap to report. The copilot
+    // downgrade is the `autopilot_tier_required` fixture from the ordering case
+    // above, where the flag-on run is already proven to write zero rows.
+    //
+    // THIS HALF IS THE `every`-VS-`some` DISCRIMINATOR. The set also carries the
+    // earlier mapped threshold reason, so `some(mapped && non-null)` is TRUE
+    // here and a `some` implementation warns — exactly the noise #1003's veto
+    // rule forbids.
+    resetRefusalLedgerWarningForTests();
+    sentryStub.captureMessage.mockClear();
+    const vetoedReviewId = randomUUID();
+    await seedReview(vetoedReviewId, { starRating: 2 });
+    await withTemporary(
+      () => sql()`UPDATE accounts SET subscription_tier = 'copilot' WHERE id = ${accountId()}::uuid`,
+      () => sql()`UPDATE accounts SET subscription_tier = 'autopilot' WHERE id = ${accountId()}::uuid`,
+      async () => {
+        await persistResponseAndNotify(
+          sql(),
+          makeInput(vetoedReviewId, { preLlmSubscriptionTier: 'copilot' }),
+        );
+      },
+    );
+
+    expect(resolvePolicyGateRefusalSpy, 'still contained').not.toHaveBeenCalled();
+    expect(
+      ledgerDarkCaptures(),
+      'a decision that records nothing either way reports no gap',
+    ).toHaveLength(0);
+
+    // And the draft landed on this half too — the silence is "no gap", never
+    // "no decision".
+    expect(await responseIdFor(vetoedReviewId)).toBeDefined();
+  });
+
+  it('a policy-gate resolver throw with the flag on captures exactly once with subsystem refusal_ledger and refusal_lane policy_gate_held and rethrows the same error instance', async () => {
+    const reviewId = randomUUID();
+    await seedReview(reviewId, { triageSeverity: 'high' });
+    const injected = new Error('vocabulary_resolver_exploded');
+    resolverPoison.throwWith = injected;
+
+    const rejection = await persistResponseAndNotify(sql(), makeInput(reviewId)).catch(
+      (error: unknown) => error,
+    );
+
+    // ATTRIBUTION is the whole point of moving the resolve inside the wrapper.
+    // Before this branch the throw escaped it and an operator saw
+    // `subsystem=worker_job` on the terminal attempt — nothing naming the ledger
+    // or its flag.
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+    const [captured, options] = sentryStub.captureException.mock.calls[0] as [
+      unknown,
+      { tags?: Record<string, unknown> },
+    ];
+    expect(captured, 'the REAL error is reported, not a wrapper').toBe(injected);
+    expect(options.tags).toMatchObject({
+      subsystem: 'refusal_ledger',
+      refusal_lane: 'policy_gate_held',
+      flag: REFUSAL_LEDGER_FLAG,
+    });
+
+    // THE SAME INSTANCE, not an equal one. A wrapper that re-threw
+    // `new Error(String(error))` would satisfy every message assertion and lose
+    // the stack that says which vocabulary entry failed.
+    expect(rejection).toBe(injected);
+  });
+
+  it('a policy-gate resolver throw with the flag on still aborts the persist transaction, leaves no response row, and the rejection carries the injected error message', async () => {
+    // THE OVER-APPLICATION GUARD. Containment is by NON-EXECUTION with the flag
+    // OFF; with the flag ON a vocabulary fault must still abort, because a draft
+    // that commits without its Refusal is the thing invariant #4's sibling rule
+    // forbids. A `try/catch` added around the resolve to "fix" #1079 dies here.
+    const reviewId = randomUUID();
+    await seedReview(reviewId, { triageSeverity: 'high' });
+    const before = await laneCount('policy_gate_held');
+    resolverPoison.throwWith = new Error('vocabulary_resolver_exploded');
+
+    await expect(persistResponseAndNotify(sql(), makeInput(reviewId))).rejects.toThrow(
+      /vocabulary_resolver_exploded/,
+    );
+
+    // A plain JS throw leaves the Postgres transaction HEALTHY, so nothing but
+    // the rethrow can roll this back.
+    expect(await responseIdFor(reviewId)).toBeUndefined();
+    expect(await laneCount('policy_gate_held')).toBe(before);
+  });
+
+  it('the held_draft lane still writes its refusal row and still aborts on a writer fault with the flag on', async () => {
+    // THE UNTOUCHED-LANE PIN. `recordModerationAndHold`'s write takes only
+    // literals and the module constant, so it has no pre-write resolve and gains
+    // no guard — this case is what makes that claim falsifiable rather than
+    // asserted.
+    const writeReviewId = randomUUID();
+    await seedReview(writeReviewId);
+    await persistResponseAndNotify(sql(), makeInput(writeReviewId, { moderation: HIGH_MODERATION }));
+
+    const writtenResponseId = await responseIdFor(writeReviewId);
+    expect(await refusals(writtenResponseId!, 'held_draft')).toHaveLength(1);
+    // …and the policy lane's new guard did not leak onto it.
+    //
+    // ON THIS FIXTURE THE COUNT IS A GUARD-1 ORACLE, NOT A PIN, and an earlier
+    // version of this comment had it backwards ("this lane calls no resolver on
+    // ANY implementation"). #1079's red-team pass measured it: delete
+    // `if (held) return;` from `persist.ts` and THIS assertion fails. With
+    // `held` true the gate emits `moderation_held`, so `approved` is false and
+    // guards 2, 3 and 4 all pass — the resolver runs, and the recorded call is
+    // `["moderation_flagged","moderation_held"]`.
+    //
+    // That is the same measurement `recordPolicyGateRefusal`'s docblock now
+    // states from the implementation side; leaving the old wording here would
+    // have contradicted the docblock this assertion exists to corroborate.
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+
+    const abortReviewId = randomUUID();
+    await seedReview(abortReviewId);
+    const before = await laneCount('held_draft');
+    ledgerPoison.throwOnLane = 'held_draft';
+
+    await expect(
+      persistResponseAndNotify(sql(), makeInput(abortReviewId, { moderation: HIGH_MODERATION })),
+    ).rejects.toThrow(/ledger_write_failed_plain_js/);
+
+    expect(await responseIdFor(abortReviewId)).toBeUndefined();
+    expect(await laneCount('held_draft')).toBe(before);
   });
 });

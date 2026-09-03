@@ -31,7 +31,93 @@ vi.mock('../../../../src/lib/agents/run-spine', () => ({
   recordOutcome: vi.fn(),
 }));
 
+// ---------------------------------------------------------------------------
+// #1079 — two PARTIAL mocks, both pass-through by default.
+//
+// They exist for the flag property at the bottom of this file and change
+// nothing for the cases above: the gate override is `null` unless a case sets
+// it, and the resolver spy delegates to the real vocabulary. The integration
+// suite's `poison` switches are the precedent for the shape.
+// ---------------------------------------------------------------------------
+
+/**
+ * The gate's `blockReasons`, DICTATED for one case rather than derived.
+ *
+ * `blockReasons` is COMPUTED from the stub's rows on the real path, and many
+ * members are mutually exclusive — so a generated array cannot reach
+ * `recordPolicyGateRefusal` without this. `null` means "use the real gate".
+ *
+ * ONLY the two fields the property is about are replaced. Every other field of
+ * the decision stays the REAL one, because `buildAutoApprovalDecisionSummary`
+ * reads five of them and a hand-built decision would be a second, drifting
+ * definition of the gate's own DTO.
+ */
+const gateOverride = { blockReasons: null as readonly string[] | null };
+
+vi.mock('../auto-approval', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auto-approval')>();
+  return {
+    ...actual,
+    evaluateAutoApprovalCandidate: (
+      ...args: Parameters<typeof actual.evaluateAutoApprovalCandidate>
+    ): AutoApprovalDecision => {
+      const decision = actual.evaluateAutoApprovalCandidate(...args);
+      if (gateOverride.blockReasons === null) return decision;
+      return {
+        ...decision,
+        approved: false,
+        blockReasons: [...gateOverride.blockReasons] as AutoApprovalDecision['blockReasons'],
+      };
+    },
+  };
+});
+
+/**
+ * The vocabulary resolver as a SPY, so its CALL COUNT is observable.
+ *
+ * The count is the property's only oracle. "No refusal row with the flag off"
+ * is satisfied by a `try/catch` around the resolve — the shape #1079 rejects,
+ * because it leaves a vocabulary fault running inside the deciding transaction.
+ * Only "never CALLED" separates them.
+ */
+const resolvePolicyGateRefusalSpy = vi.hoisted(() =>
+  vi.fn<(codes: readonly string[]) => unknown>(),
+);
+
+vi.mock('../../../../src/lib/refusals/vocabulary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/refusals/vocabulary')>();
+  // Installed ONCE, here. `vi.clearAllMocks()` (which this file uses) clears
+  // call history and keeps implementations; `mockReset` would strip this and
+  // make every later case resolve `undefined`.
+  resolvePolicyGateRefusalSpy.mockImplementation((codes: readonly string[]) =>
+    (actual.resolvePolicyGateRefusal as (c: readonly string[]) => unknown)(codes),
+  );
+  return { ...actual, resolvePolicyGateRefusal: resolvePolicyGateRefusalSpy };
+});
+
+/**
+ * The ledger-dark note as a SPY, so guard 4's WARNING is observable (#1079).
+ *
+ * IT IS A SEPARATE ORACLE FROM THE RESOLVER SPY ABOVE, and has to be. With the
+ * flag off the resolver count is zero for EVERY input, so it cannot say which
+ * of those inputs would have produced a row — that is the whole question the
+ * warning answers. Only this count separates "the ledger has a gap here" from
+ * "this decision recorded nothing either way".
+ *
+ * The rest of the module stays REAL — `isRefusalLedgerEnabled` above all, since
+ * the property drives it through the actual env flag.
+ */
+const noteRefusalLedgerDarkSpy = vi.hoisted(() => vi.fn<() => void>());
+
+vi.mock('../../../../src/lib/refusals/write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/refusals/write')>();
+  return { ...actual, noteRefusalLedgerDark: noteRefusalLedgerDarkSpy };
+});
+
 import { hasStaleReviewContent, persistResponseAndNotify } from '../persist';
+import type { AutoApprovalDecision } from '../auto-approval';
+import { POLICY_GATE_HELD_REFUSAL_CATEGORIES } from '../../../../src/lib/refusals/vocabulary';
+import { REFUSAL_LEDGER_FLAG } from '../../../../src/lib/refusals/write';
 import { findActiveReviewRun, recordStep, recordOutcome } from '../../../../src/lib/agents/run-spine';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 import {
@@ -942,5 +1028,160 @@ describe('content-freshness gate (ADR 0017)', () => {
           .toBe(loaded !== null && current !== null && loaded !== current);
       },
     ));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1079 — the kill switch decides whether the VOCABULARY runs at all.
+//
+// House style: `policy-gate-precedence.property.test.ts`'s `invariants` describe
+// block, with the `invariants: ` prefix INSIDE the `it()` string so the gate's
+// `promised-tests` exact match still works.
+//
+// It lives here, and not in a new property file, because this file already owns
+// the stub-transaction harness (`mockSql`/`mockTx`/`txQueue`) and already
+// imports fast-check. A second file would be a second owner of the persist
+// fixture.
+// ---------------------------------------------------------------------------
+
+/** Every member of the gate's block vocabulary — 22 today, `null`-mapped included. */
+const ALL_BLOCK_REASONS = Object.keys(POLICY_GATE_HELD_REFUSAL_CATEGORIES);
+
+describe('invariants', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    txQueue.length = 0;
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+    // RESET ON BOTH SIDES, deliberately. `gateOverride` is MODULE scope and this
+    // block is declared LAST in the file, so an `afterEach`-only reset made the
+    // ~51 cases ABOVE depend on this describe having already run — order
+    // coupling that vitest's file order happens to satisfy and `--shard`,
+    // `.only` or a re-order would not. The `afterEach` copy stays: it is what
+    // protects a case in ANOTHER file's run from this block's last property.
+    gateOverride.blockReasons = null;
+  });
+
+  afterEach(() => {
+    delete process.env.AUTO_APPROVAL_ENABLED;
+    delete process.env.OPENAI_MODERATION_ENABLED;
+    delete process.env[REFUSAL_LEDGER_FLAG];
+    gateOverride.blockReasons = null;
+  });
+
+  it('invariants: the flag decides the resolver call count — off yields zero calls, on yields exactly one receiving the generated block reasons verbatim and in order', async () => {
+    // A BICONDITIONAL, and that is what makes it depend on the generated input.
+    // The one-sided form ("off ⇒ zero calls") is a tautology here: with the flag
+    // off the guard returns WITHOUT inspecting `blockReasons`, so no generator
+    // over the 2^22 subsets can make the implementation branch. The ON arm is
+    // what carries the mutation-killing power — it kills the `try/catch` swallow
+    // AND the shape that inlines the precedence tuple into `persist.ts` and
+    // never calls the vocabulary at all.
+    //
+    // NOT a transaction-query count. The persist issues the lock preamble, the
+    // responses INSERT, the api_costs updates, the runtime-state reads and the
+    // spine checkpoints long before the ledger, so "zero queries" is false by
+    // construction and would fail on a correct implementation.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uniqueArray(fc.constantFrom(...ALL_BLOCK_REASONS), { minLength: 1 }),
+        fc.boolean(),
+        async (blockReasons, ledgerEnabled) => {
+          mockTx.mockClear();
+          mockSql.begin.mockClear();
+          resolvePolicyGateRefusalSpy.mockClear();
+          txQueue.length = 0;
+          queuePersistRows();
+
+          // The gate's verdict is DICTATED so the generated array survives to
+          // the lane; every other field of the decision stays the real one.
+          gateOverride.blockReasons = blockReasons;
+          if (ledgerEnabled) delete process.env[REFUSAL_LEDGER_FLAG];
+          else process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+          await persistResponseAndNotify(mockSql, baseInput());
+
+          if (!ledgerEnabled) {
+            expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+            return;
+          }
+
+          // EXACTLY ONE — never zero (the inline reimplementation) and never
+          // two (a guard that resolved to decide whether to resolve).
+          expect(resolvePolicyGateRefusalSpy).toHaveBeenCalledTimes(1);
+          // VERBATIM AND IN ORDER. `toEqual` on an array is order-sensitive, so
+          // this also pins `vocabulary.ts`'s "the input VERBATIM, in its own
+          // order" against a caller that sorted or de-duplicated on the way in.
+          expect(resolvePolicyGateRefusalSpy.mock.calls[0]![0]).toEqual(blockReasons);
+        },
+      ),
+      { numRuns: 60 },
+    );
+  });
+
+  it('invariants: with the ledger off, the warning fires exactly when every block reason maps to a real category', async () => {
+    // THE ORACLE FOR THE WHOLE FINDING. Containment (#1079) moved the switch in
+    // front of the resolve; the review that accepted it proved the lane could
+    // KEEP its ledger-dark warning anyway, because map membership is decidable
+    // with `Object.hasOwn` and `Object.hasOwn` cannot throw.
+    //
+    // A BICONDITIONAL, AND BOTH DIRECTIONS BITE — unlike the property above,
+    // whose OFF arm is a tautology. Here the flag is off for every run and the
+    // generated set is the only thing that moves the expectation, so the
+    // generator does real work in both arms.
+    //
+    // IT IS THE `every`-VS-`some` DISCRIMINATOR. `wouldRecordRefusal` must be
+    // `every`: one `null`-mapped member vetoes the entire row (#1003), so a
+    // `some` implementation warns about a decision that was never going to be
+    // recorded — noise on the one signal that says the ledger is dark. Any
+    // generated set MIXING a mapped member with a `null`-mapped one is a
+    // counterexample to `some`, and `uniqueArray` over the full 22-member
+    // vocabulary reaches those sets easily.
+    //
+    // AND THE RESOLVER MUST STILL NEVER RUN. The warning is not allowed to buy
+    // itself back by resolving; that is the fault the switch exists to contain.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uniqueArray(fc.constantFrom(...ALL_BLOCK_REASONS), { minLength: 1 }),
+        async (blockReasons) => {
+          mockTx.mockClear();
+          mockSql.begin.mockClear();
+          resolvePolicyGateRefusalSpy.mockClear();
+          noteRefusalLedgerDarkSpy.mockClear();
+          txQueue.length = 0;
+          queuePersistRows();
+
+          gateOverride.blockReasons = blockReasons;
+          process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+          await persistResponseAndNotify(mockSql, baseInput());
+
+          // The EXPECTATION, computed from the map rather than from the
+          // implementation: a row would have been written iff every member is
+          // mapped to a NON-null category. `minLength: 1` keeps the empty set
+          // out of the generator, and NOTHING ELSE COVERS THE MECHANISM the
+          // empty set would exercise: the approved-draft cases above prove the
+          // BEHAVIOUR ("an approved draft warns nothing") but reach it at guard
+          // 2, which returns before guard 4, so no case anywhere executes
+          // `wouldRecordRefusal`'s `blockReasons.length > 0` conjunct. Red team
+          // measured it — dropping the conjunct survives 99/99. Guard 2 is what
+          // makes that conjunct defence in depth against a future guard reorder,
+          // and it is tested by nothing.
+          const everyMemberRecords = blockReasons.every(
+            (code) =>
+              Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code)
+              && POLICY_GATE_HELD_REFUSAL_CATEGORIES[
+                code as keyof typeof POLICY_GATE_HELD_REFUSAL_CATEGORIES
+              ] !== null,
+          );
+
+          expect(noteRefusalLedgerDarkSpy).toHaveBeenCalledTimes(everyMemberRecords ? 1 : 0);
+          // Containment is unchanged by the warning: the throwing resolver is
+          // still never reached with the switch off.
+          expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 120 },
+    );
   });
 });

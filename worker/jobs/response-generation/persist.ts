@@ -16,6 +16,7 @@ import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { resolveDailyCap } from '../../../src/lib/auto-approval/policy';
 import {
   GENERATE_RESPONSE_ORIGIN_LANE,
+  type AutoApprovalBlockReason,
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
 import { OUTBOX_COMPLETION_REASON } from '../../../src/lib/shared/outbox-completion-reason';
@@ -35,9 +36,15 @@ import {
 } from '../../../src/lib/agents/run-spine';
 import {
   HELD_DRAFT_REFUSAL_CATEGORY,
+  POLICY_GATE_HELD_REFUSAL_CATEGORIES,
   resolvePolicyGateRefusal,
 } from '../../../src/lib/refusals/vocabulary';
-import { REFUSAL_LEDGER_FLAG, writeRefusalEvent } from '../../../src/lib/refusals/write';
+import {
+  REFUSAL_LEDGER_FLAG,
+  isRefusalLedgerEnabled,
+  noteRefusalLedgerDark,
+  writeRefusalEvent,
+} from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
@@ -690,22 +697,109 @@ function isGenuineAutoCandidate(
 }
 
 /**
+ * Would this block-reason set have produced a Refusal row?
+ *
+ * GUARD 4'S WARNING PREDICATE, AND NOTHING ELSE. It exists so the kill switch can
+ * still report a real ledger gap without running `resolvePolicyGateRefusal` —
+ * the throwing code the switch is there to contain (#1079). It answers the same
+ * question the resolver answers, for the subset of inputs where the answer is
+ * decidable without throwing, which is every input that matters here.
+ *
+ * IT CANNOT THROW, and that is the property that keeps it inside the containment
+ * guarantee. `Object.hasOwn` is the resolver's own membership test
+ * (`vocabulary.ts`), and an unmapped member returns `false` here where the
+ * resolver would throw — correct, because an unmapped member records no row
+ * either way, so there is no gap to warn about.
+ *
+ * `every`, NEVER `some`. A single `null`-mapped member vetoes the whole row
+ * whatever its position (#1003), so `some(mapped && non-null)` returns true for
+ * a set that resolves to nothing — and warning there is exactly the noise
+ * `writeRefusalEvents`' contract forbids. The review that found the missing
+ * warning proposed `some`; this is the corrected form.
+ *
+ * BE PRECISE ABOUT WHERE `some` BREAKS, because the loose version of that
+ * sentence shipped on this branch and named the wrong set. `some` does NOT
+ * over-warn on a veto-ONLY set — it is false there too, because the only member
+ * maps to `null`. It over-warns on a MIXED set: one mapped non-null member plus
+ * one `null`-mapped member. Red team's shrunk counterexample is
+ * `["policy_not_enabled","current_rating_missing"]`, and the live-DB half-B case
+ * refuted `some` a second time on the copilot/2-star fixture. So the `!== null`
+ * test INSIDE the callback is what saves the veto-only case — NOT the length
+ * check.
+ *
+ * THE LENGTH CHECK IS LOAD-BEARING HERE AND UNREACHABLE AT THE CALL SITE, and
+ * both halves are true at once. Read in isolation this function needs it:
+ * `every` is vacuously true on `[]`, so without the conjunct an empty set would
+ * report a gap. At its ONLY call site it can never be false — guard 2
+ * (`if (autoDecision.approved) return;`) runs first, and across BOTH
+ * `AutoApprovalDecision` construction sites in `./auto-approval`
+ * `approved === true` ⟺ `blockReasons` is empty
+ * (`evaluateAutoApprovalCandidate` sets `approved: blockReasons.length === 0`,
+ * and `structurallyBlockedDecision` throws rather than returning a
+ * structurally-blocked decision with an empty set). Red team measured the
+ * consequence: dropping the conjunct SURVIVES the whole touched surface, 99/99.
+ * That mutant is PROVEN-EQUIVALENT, not an untested gap — keep the conjunct as
+ * defence in depth against a future guard reorder, and do not read its survival
+ * as missing coverage.
+ */
+function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): boolean {
+  return blockReasons.length > 0
+    && blockReasons.every(
+      (code) => Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code)
+        && POLICY_GATE_HELD_REFUSAL_CATEGORIES[code] !== null,
+    );
+}
+
+/**
  * Records the `policy_gate_held` **Refusal** for a draft the auto-approval gate
  * held for the owner. Runs on the OPEN transaction `tx`, so the row is atomic
  * with the decision it records (#1013).
  *
- * FOUR GUARDS, AND ONLY THE LAST ONE DECIDES ANYTHING. Branch review round 1
- * mutation-tested each: deleting guards 1, 2 or 3 individually changes no
- * outcome and kills no test, because guard 4 already covers each case. They are
- * EARLY RETURNS and defence in depth, not independent conditions — an earlier
- * version of this docblock claimed "each answers a different question", which
- * was false and is corrected here rather than left to mislead the next reader.
+ * (`wouldRecordRefusal` sits above this docblock — it is guard 4's warning
+ * predicate, and its contract is stated there.)
+ *
+ * FIVE GUARDS, AND TWO OF THEM DECIDE SOMETHING — guard 4, which decides
+ * whether the ledger RUNS AT ALL, and guard 5, which decides whether this
+ * decision is recordable.
+ *
+ * WHICH GUARDS ARE SAFE TO DELETE — RE-MEASURED AT #1079, ONE AT A TIME, AND THE
+ * ANSWER CHANGED. Branch review round 1 recorded "deleting guard 1, 2 or 3
+ * individually changes no outcome and kills no test". #1079's red-team passes
+ * re-ran that experiment and found it true for exactly one of the three. The
+ * VERDICTS below are the measurement — do not re-derive them from reading the
+ * code. A SURVIVOR COUNT, unlike a verdict, is a property of the test surface it
+ * was taken against and goes stale the moment a case is added, so each count
+ * below names its surface: re-measure it or drop it, never edit it to fit.
+ *
+ *   - GUARD 1 — deletion KILLS a test. `refusal-write.integration.test.ts`'s
+ *     held_draft pin asserts the resolver spy stays at zero, and guard 1 is what
+ *     keeps it there: with `held` true the gate emits `moderation_held`, so
+ *     `approved` is false and guards 2-4 all pass. The recorded call is
+ *     `["moderation_flagged","moderation_held"]`. THE COMMIT THAT RE-ASSERTED THE
+ *     OLD CLAIM IS THE COMMIT THAT FALSIFIED IT — that pin did not exist when
+ *     round 1 measured.
+ *   - GUARD 2 — deletion SURVIVES. The old claim holds here, and only here.
+ *     Re-measured at red-team round 2 against the two suites that cover this
+ *     function — `persist.test.ts` + `refusal-write.integration.test.ts`, 85
+ *     cases at that point — where it survived 85/85. (Round 1 published 82/82
+ *     against the 82-case version of the same two suites; this branch then added
+ *     three cases, which is what moved the number and not the verdict.)
+ *   - GUARD 3 — deletion KILLS a pre-existing test AND CHANGES THE OUTCOME: a
+ *     `policy_gate_held` row is written for a structural non-candidate
+ *     ("expected length +0 but got 1"). This was already false at the fork point;
+ *     round 1 simply never measured it. Deleting guard 3 is a ledger
+ *     data-correctness defect, not a tidy-up.
+ *
+ * Guards 1-3 are EARLY RETURNS and defence in depth, not independent conditions —
+ * an earlier version of this docblock claimed "each answers a different
+ * question", which was false and is corrected here rather than left to mislead
+ * the next reader. "Defence in depth" is not "free to remove".
  *
  *   1. `held` — a high-severity flag belongs to the `held_draft` lane. #998's
  *      suppression rule, and the ONLY condition inherited from the `policy_gate`
  *      step's guard. REDUNDANT WITH THE VETO: `evaluateAutoApprovalCandidate`
  *      always emits `moderation_held` when `held` is true, and that member maps
- *      to `null`, so guard 4 suppresses the row anyway. Kept because it names
+ *      to `null`, so guard 5 suppresses the row anyway. Kept because it names
  *      the rule at the site a reader looks for it, and because it skips work.
  *   2. `approved` — nothing was refused. Redundant: `approved` means
  *      `blockReasons` is empty, and the resolver returns `null` for an empty
@@ -718,8 +812,51 @@ function isGenuineAutoCandidate(
  *      The narrowing earns its keep on the LOG side, which has no veto concept —
  *      which is why one predicate owns both, and why the threshold arm's only
  *      oracle is the fallback-log assertion in the integration suite.
- *   4. the resolver returned nothing — the set was empty, or a `null`-mapped
- *      member vetoed it. THIS is the load-bearing guard.
+ *   4. `isRefusalLedgerEnabled()` — THE KILL SWITCH, AND IT IS NOT REDUNDANT
+ *      WITH ANY OTHER GUARD. It covers what guard 5 cannot: `write.ts` read the
+ *      switch AFTER this function had already resolved a category, so a
+ *      `resolvePolicyGateRefusal` throw — an unmapped or unranked block reason —
+ *      aborted the whole response persist with the switch already OFF, and
+ *      `generate_response` burned its attempts against a lever an operator had
+ *      already pulled (#1079). Containment here is by NON-EXECUTION: nothing
+ *      below this line runs.
+ *
+ *      IT STILL WARNS, BUT ONLY WHEN A ROW WOULD GENUINELY HAVE BEEN WRITTEN.
+ *      The rule is `writeRefusalEvents`' contract in `src/lib/refusals/write.ts`
+ *      (bullet 1, cited BY SYMBOL — a line range here went stale inside its own
+ *      commit): a decision that records nothing either way has no ledger GAP,
+ *      and warning about it would put noise on the one signal that says the
+ *      ledger is dark. An earlier draft of this branch concluded the guard could
+ *      not know that without running the resolver it exists to avoid, and gave
+ *      the warning up. Branch review round 1 (async axis) showed that premise is
+ *      FALSE: map membership is decidable with `Object.hasOwn`, which cannot
+ *      throw, so `wouldRecordRefusal` below settles it inside the containment
+ *      guarantee and `noteRefusalLedgerDark` raises the same once-per-episode
+ *      line the write arms raise.
+ *
+ *      THE PREDICATE IS `every`, NEVER `some`, and the difference is the whole
+ *      correctness of this arm. One `null`-mapped member vetoes the entire row
+ *      (#1003), so `some(mapped && non-null)` would warn about a decision that
+ *      was never going to be recorded — re-breaking the exact rule this arm
+ *      exists to respect. The review that found the gap proposed `some`; it is
+ *      wrong for that reason. AND THE REASON IS NARROWER THAN THE OBVIOUS ONE:
+ *      `some` does not over-warn on a veto-ONLY set (it is false there too — the
+ *      only member maps to `null`); it over-warns on a MIXED set, one mapped
+ *      non-null member plus one `null`-mapped one. Red team shrank it to
+ *      `["policy_not_enabled","current_rating_missing"]`. `wouldRecordRefusal`'s
+ *      docblock carries the full statement and the measurement; do not restate
+ *      it loosely here.
+ *
+ *      A SECOND, LIVE READ still happens inside `writeRefusalEvent`. THE WINDOW
+ *      BETWEEN THEM IS ZERO, not "microseconds": no `await` separates them —
+ *      `withLedgerAttribution` and `writeRefusalEvent` each run synchronously to
+ *      their first `await`, and the second read is `writeRefusalEvent`'s first
+ *      statement. A mid-process flip cannot land between them, so there is
+ *      nothing here to defend against and nothing for a test to exercise.
+ *   5. the resolver returned nothing — the set was empty, or a `null`-mapped
+ *      member vetoed it. THIS is the guard that decides whether a Refusal is
+ *      recordable, and it now lives INSIDE `withLedgerAttribution` so the
+ *      resolve it depends on is attributed too.
  *
  * NOT CAUGHT AT THE CALL SITE, on the same terms as the `held_draft` write and
  * `write.ts`'s own contract: a CHECK violation is a writer bug and must abort
@@ -743,24 +880,36 @@ async function recordPolicyGateRefusal(
   if (held) return;
   if (autoDecision.approved) return;
   if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
+  // Guard 4 — the kill switch, BEFORE the resolve. Nothing below this line runs.
+  // The warning is raised only when a row would genuinely have been written; see
+  // the docblock and `wouldRecordRefusal`.
+  if (!isRefusalLedgerEnabled()) {
+    if (wouldRecordRefusal(autoDecision.blockReasons)) noteRefusalLedgerDark();
+    return;
+  }
 
-  const refusal = resolvePolicyGateRefusal(autoDecision.blockReasons);
-  if (!refusal) return;
+  // The RESOLVE is inside the wrapper, not before it. A vocabulary fault is a
+  // ledger fault and must report as one; outside, it escaped attribution and
+  // surfaced as a generic persist failure (#1079).
+  await withLedgerAttribution('policy_gate_held', responseId, async () => {
+    const refusal = resolvePolicyGateRefusal(autoDecision.blockReasons);
+    if (!refusal) return;
 
-  await withLedgerAttribution('policy_gate_held', responseId, () => writeRefusalEvent(tx, {
-    accountId,
-    businessId,
-    refusalSource: 'policy_gate_held',
-    refusalCode: refusal.refusalCode,
-    allRefusalCodes: refusal.allRefusalCodes,
-    refusalCategory: refusal.refusalCategory,
-    subjectType: 'response',
-    subjectId: responseId,
-    // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
-    // why `occurred_at` is writer-supplied. The gate decided inside this
-    // transaction, so its transaction timestamp IS the decision time.
-    occurredAt: 'transaction_time',
-  }));
+    await writeRefusalEvent(tx, {
+      accountId,
+      businessId,
+      refusalSource: 'policy_gate_held',
+      refusalCode: refusal.refusalCode,
+      allRefusalCodes: refusal.allRefusalCodes,
+      refusalCategory: refusal.refusalCategory,
+      subjectType: 'response',
+      subjectId: responseId,
+      // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
+      // why `occurred_at` is writer-supplied. The gate decided inside this
+      // transaction, so its transaction timestamp IS the decision time.
+      occurredAt: 'transaction_time',
+    });
+  });
 }
 
 /**
@@ -775,6 +924,18 @@ async function recordPolicyGateRefusal(
  * `generate_response` burns its attempts in about 75 seconds, and the only
  * signal is `attachJobFailureSink`'s generic `subsystem=worker_job` issue on the
  * terminal attempt. Nothing said "the ledger did this" or "flip its flag".
+ *
+ * IT COVERS TWO FAULT CLASSES, NOT ONE. The `policy_gate_held` invocation also
+ * wraps the VOCABULARY RESOLVE (#1079) — an unmapped or unranked block reason
+ * throwing out of `resolvePolicyGateRefusal`. That is neither a CHECK violation
+ * nor a writer bug, and unlike one it is genuinely SUPPRESSED by the flag now
+ * that guard 4 returns before the resolve. So the Sentry issue this wrapper
+ * raises for a vocabulary fault is the record of that fault only for a flag
+ * flipped IN RESPONSE to it: a fault arriving into an already-off flag never
+ * runs the resolver and raises nothing, and an operator who resolves the issue
+ * once the aborts stop removes the record while the hole stays open. Recorded
+ * rather than argued away — the `held_draft` invocation still wraps a write and
+ * nothing else.
  *
  * IT CHANGES NO CONTROL FLOW. The error is re-thrown, so the transaction still
  * aborts and no response commits without its required row. This is NOT the

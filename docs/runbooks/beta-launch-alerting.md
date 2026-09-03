@@ -52,14 +52,30 @@ email shares the Resend provider with the product.
   `cost_event:limit_exceeded` (emitted from `generate-draft.ts`) page the same
   Discord channel.
 - [ ] **Refusal ledger disabled routed to Discord** — issues tagged
-  `subsystem:refusal_ledger` at level `warning`. Emitted by **both** insert
-  helpers — `writeRefusalEvent` and the set-based `writeRefusalEvents`
-  (`src/lib/refusals/write.ts`) — through the shared `warnLedgerDisabled()`, once
-  per **disabled episode** whenever
-  `REFUSAL_LEDGER_ENABLED=false` and a write is attempted. **This is the only
-  signal that the ledger has a gap** — the ledger structurally cannot show its
-  own absence, since an absent row and a decision that never happened look
-  identical at read time. **It is CONFIG-1's shape exactly** (see the audit note
+  `subsystem:refusal_ledger` at level `warning`. Emitted by **three** callers —
+  the two insert helpers `writeRefusalEvent` and the set-based
+  `writeRefusalEvents`, plus `noteRefusalLedgerDark` — all through the shared
+  private `warnLedgerDisabled()` (`src/lib/refusals/write.ts`), once per
+  **disabled episode**.
+
+  **The trigger is "a row would have been written", NOT "a write was
+  attempted".** #1079 changed this; the row said the latter until then. On the
+  two insert helpers the two coincide. On the `policy_gate_held` lane they no
+  longer do — the kill switch now returns BEFORE the vocabulary resolve, so no
+  write is attempted there at all, and that lane raises the line through
+  `noteRefusalLedgerDark` only when every block reason maps to a real category,
+  which is the condition under which a row would genuinely have been recorded. A
+  decision every one of whose reasons maps to `null` records nothing either way
+  and correctly stays silent.
+
+  **This is the only signal that the ledger has a gap** — the ledger
+  structurally cannot show its own absence, since an absent row and a decision
+  that never happened look identical at read time. One blind spot #1079 leaves
+  standing, stated so an operator is not surprised by it: an UNMAPPED block
+  reason (the #1080 fault class) raises nothing on this lane while the switch is
+  off, because it would have thrown rather than written. The Restraint tab's
+  `ledgerRecording` disclaimer is what tells an operator the ledger is off at
+  all. **It is CONFIG-1's shape exactly** (see the audit note
   below): a `warning`-level `captureMessage` does not reliably classify as high
   priority, so today it is captured-but-not-paged. CONFIG-1's option (b) —
   raising the level — is **wrong here**: a flipped kill switch is a deliberate
