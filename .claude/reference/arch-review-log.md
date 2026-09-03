@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 10** — last reset to 0 by the
+**Merges since last architecture pass: 11** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -140,6 +140,17 @@ Merges since the 2026-08-26 pass:
   added rows to the review TABLE at the foot of this file instead, and left the
   counter untouched). Eight unrecorded merges, not reconciled here: reconciling
   them is the next architecture pass's job, not this change's.
+
+- 2026-09-03 — `feat(#1091)` (map #1084): a downloadable contacts CSV template
+  on `/dashboard/requests/contacts`. New `src/lib/solicitation/contacts-csv-template.ts`
+  (pure, `todayUtc` injected) + `TemplateCard.tsx`; wired into `ContactsClient`
+  in both the per-location and aggregate branches. Takes the counter to **11**.
+  Built in code beside `contacts-csv.ts` rather than shipped as a static asset
+  so one eval suite feeds the template back through `parseContactsCsv` — a
+  template that drifts from the header contract earns `missing_required_header`
+  and the whole upload is discarded, which is worse than offering none.
+  Client-side Blob download, no new endpoint (the `downloadRejectedRowsCsv`
+  precedent in the same folder).
 
 ---
 
