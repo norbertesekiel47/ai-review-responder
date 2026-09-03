@@ -10,6 +10,10 @@ import {
   strengthOf,
   STRENGTH_LABELS,
 } from '@/components/auth/shared/strength';
+import {
+  MIN_PASSWORD_LENGTH,
+  firstUnmetPasswordRule,
+} from '@/lib/shared/password-rules';
 import { fireConfetti } from './fireConfetti';
 import { Field } from './Field';
 import {
@@ -67,6 +71,11 @@ export function SignupForm() {
   // Hint shown only after the owner tries to submit without accepting Terms,
   // so the disabled CTA isn't a silent dead end.
   const [termsHint, setTermsHint] = useState(false);
+  // Same idea for the password rules (#1090): the requirements list above the
+  // button already marks the unmet rule, but a click deserves a reason. The
+  // server enforces the same list, so this only saves a round trip — it is not
+  // the gate.
+  const [passwordHint, setPasswordHint] = useState('');
 
   const reqListId = useId();
   const strengthMsgId = useId();
@@ -85,7 +94,7 @@ export function SignupForm() {
 
   const { submit, loading, error, errorKind } = useSignupSubmit();
   const oauth = useGoogleOAuth({ flow: 'owner', next: '/signup/finish' });
-  const displayError = error || oauth.error;
+  const displayError = passwordHint || error || oauth.error;
 
   const strength = useMemo(() => strengthOf(pwd), [pwd]);
   const requirements = useMemo(() => passwordRequirements(pwd), [pwd]);
@@ -108,6 +117,15 @@ export function SignupForm() {
       setTermsHint(true);
       return;
     }
+    // Block on the SAME rules `passwordSchema` enforces (#1090). Before this
+    // the form displayed a "A number" requirement, submitted regardless, and
+    // the server accepted the result.
+    const unmetRule = firstUnmetPasswordRule(pwd);
+    if (unmetRule) {
+      setPasswordHint(unmetRule.failureMessage);
+      return;
+    }
+    setPasswordHint('');
     void captureSignupStarted('email');
     const result = await submit({
       ownerEmail: email,
@@ -183,12 +201,12 @@ export function SignupForm() {
         name="password"
         type="password"
         autoComplete="new-password"
-        placeholder="At least 8 characters"
+        placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
         icon={<LockIcon />}
         value={pwd}
         onChange={(e) => dispatch({ type: 'setPwd', pwd: e.target.value })}
         required
-        minLength={8}
+        minLength={MIN_PASSWORD_LENGTH}
         describedById={`${reqListId} ${strengthMsgId}`}
       />
 

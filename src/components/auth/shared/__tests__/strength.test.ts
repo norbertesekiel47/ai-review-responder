@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { strengthOf, STRENGTH_LABELS } from '../strength';
+import { strengthOf, STRENGTH_LABELS, passwordRequirements } from '../strength';
+import { PASSWORD_RULES } from '@/lib/shared/password-rules';
 
 describe('strengthOf', () => {
   it('returns 0 for empty input', () => {
@@ -25,5 +26,34 @@ describe('strengthOf', () => {
 describe('STRENGTH_LABELS', () => {
   it('has five entries (indices 0-4)', () => {
     expect(STRENGTH_LABELS).toHaveLength(5);
+  });
+});
+
+// #1090: the requirements list is the USER-FACING face of PASSWORD_RULES, and
+// the two must not be able to drift. The defect this replaces was exactly that
+// drift — the list showed "A number" while nothing enforced it.
+describe('passwordRequirements', () => {
+  it("the reset form's displayed requirements and the schema agree on every rule", () => {
+    const shown = passwordRequirements('abcdefghij');
+    expect(shown.map((requirement) => requirement.label)).toEqual(
+      PASSWORD_RULES.map((rule) => rule.label),
+    );
+  });
+
+  it('marks the number requirement unmet for a digitless password', () => {
+    const digit = passwordRequirements('abcdefghij').find((r) => r.label === 'A number');
+    expect(digit?.met).toBe(false);
+  });
+
+  it('marks every requirement met for a password the schema accepts', () => {
+    expect(passwordRequirements('abcdefg1').every((requirement) => requirement.met)).toBe(true);
+  });
+
+  it('does not present mixed case as a requirement', () => {
+    // Mixed case is scored by strengthOf as GUIDANCE. Listing it here would
+    // claim a rule the server does not enforce — the #1090 defect inverted.
+    expect(passwordRequirements('abcdefg1').map((r) => r.label)).not.toContain(
+      'Upper & lowercase letters',
+    );
   });
 });

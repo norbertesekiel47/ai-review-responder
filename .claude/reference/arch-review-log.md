@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 9** — last reset to 0 by the
+**Merges since last architecture pass: 10** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -124,6 +124,19 @@ Merges since the 2026-08-26 pass:
   `worker/jobs/response-generation/{persist,auto-approval}.ts`. Takes the
   counter to **9**. `policy_gate_held` writes zero rows in production until the
   ordered `AUTO_APPROVAL_ENABLED` flip, so only `held_draft` is live at merge.
+
+- 2026-09-03 — `fix(#1090)` (map #1084): the password number requirement the
+  auth forms displayed and nothing enforced. New single owner
+  `src/lib/shared/password-rules.ts`; `passwordSchema`, both submit guards and
+  the displayed requirements list now derive from it, replacing three
+  hand-written copies of the same rules — one of which was wrong. Touches
+  `src/lib/shared/{password-rules,schemas}.ts` ·
+  `src/components/auth/{ResetPasswordFormClient.tsx,shared/strength.ts,auth-island/SignupForm.tsx}`.
+  Takes the counter to **10**. Scope held to the reported defect: mixed case
+  LEFT the requirements list rather than becoming a rule, because promoting it
+  would have tightened self-serve signup beyond the ask. **The count may lag
+  reality** — #1071, #1069, #1073, #1074 and #1075 merged with no entry in this
+  section; not reconciled here.
 
 ---
 
