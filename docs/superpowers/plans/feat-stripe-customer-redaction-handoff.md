@@ -3,6 +3,17 @@
 Written at the step 3 → 4 boundary, 2026-09-03. Resume with
 `/feature-resume feat/stripe-customer-redaction`.
 
+**The run is PARKED.** `.feature/intake.json` was renamed to
+`.feature/intake.parked.json` as a deliberate act, so the stop gate does not
+block an unrelated session on a gate that is legitimately red before
+implementation exists. Rename it back on resume. The durable audit copy at
+`docs/superpowers/plans/feat-stripe-customer-redaction-intake.json` is
+authoritative and was byte-identical to the arming copy when parked.
+`state.json` records `headSha` `bc2cddf3`; HEAD is now `4e2ac5b0`, one commit
+later, which is the T0 start plus this handoff. Treat the recorded phase
+`plan_approved` as still correct — that commit added tests and documentation
+only.
+
 ## Artifacts, by path
 
 Read these; this file never restates them.
