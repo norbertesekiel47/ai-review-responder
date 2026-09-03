@@ -67,6 +67,7 @@
     "src/app/(authenticated)/dashboard/requests/qr/ReviewQrClient.tsx",
     "src/app/(authenticated)/dashboard/requests/qr/__tests__/PrintButton.test.tsx",
     "src/app/(authenticated)/dashboard/requests/qr/__tests__/ReviewQrClient.test.tsx",
+    "src/app/(authenticated)/dashboard/requests/qr/__tests__/page.test.tsx",
     "src/app/(authenticated)/dashboard/requests/qr/__tests__/print-page-source.test.ts",
     "src/app/(authenticated)/dashboard/requests/qr/page.tsx",
     "src/app/(authenticated)/dashboard/requests/qr/print/[businessId]/page.tsx",
