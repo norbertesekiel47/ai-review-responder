@@ -1,0 +1,495 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-stripe-customer-redaction-17cab2",
+  "branch": "feat/stripe-customer-redaction",
+  "fork_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
+  "merge_base_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
+  "head_sha": "00f6d56be77d77b4f1e45ff28a99b7c6bda778fe",
+  "intake_sha256": "8a550fc4c129c53aa892db096937bc9b65d828ca03d0b8abc5b50828f488ad4f",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-03T21:18:22Z",
+  "inventory": [
+    {
+      "id": "T01",
+      "test": "redactStripeCustomer clears name, email, phone, description, address, shipping, business_name and individual_name in one update call",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T02",
+      "test": "redactStripeCustomer unsets every pre-existing metadata key and writes only the offboarding id key",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T03",
+      "test": "redactStripeCustomer never calls customers.del",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T04",
+      "test": "redactStripeCustomer returns already_redacted and issues no update when the customer is already cleared",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "inconclusive",
+      "reason": "M2: src/lib/account-offboarding/stripe-customer-redaction.ts:227 `REDACTED_CUSTOMER_FIELDS.every(...)` -> `.some(...)`. The test still PASSED. Arbiter: the mutated line IS executed by this test, and `.some` is not equivalent to `.every` \u2014 with the offboarding marker present and one field still populated, `.some` returns already_redacted and issues NO update, leaving that identifier live at Stripe. But this test supplies all-eight-cleared, for which the two agree, so the mutation is not meaningful FOR THE TESTED BEHAVIOUR. The oracle cannot discriminate; that is a claim about the oracle, not proof the mutant preserves behaviour, so this is inconclusive rather than a confirmed survivor. See F08.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "T05",
+      "test": "redactStripeCustomer treats a resource_missing error as success",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T06",
+      "test": "redactStripeCustomer treats a deleted customer returned by retrieve as success",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T07",
+      "test": "redactStripeCustomer rethrows a retryable Stripe error type",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T08",
+      "test": "redactStripeCustomer sends a deterministic idempotency key derived from the offboarding id",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T09",
+      "test": "runStripeCustomerRedactionPurgeStage is a no-op when the offboarding row carries no stripe_customer_id",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T10",
+      "test": "runStripeCustomerRedactionPurgeStage skips the Stripe call and records skipped_shared_customer when another non-purged account holds the same customer id",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "killed",
+      "reason": "M8: worker/jobs/account-offboarding/purge-stages.ts:782 `(sharing?.count ?? 0) > 0` -> `> 1`. Test failed."
+    },
+    {
+      "id": "T11",
+      "test": "runStripeCustomerRedactionPurgeStage appends a system provider-redaction record that extractConcreteAdminProviderDispositions ignores",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T12",
+      "test": "runStripeCustomerRedactionPurgeStage never writes the raw stripe customer id into provider_dispositions",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "killed",
+      "reason": "M9: worker/jobs/account-offboarding/purge-stages.ts:722 replaced the sha256 digest with the raw customerId. Test failed."
+    },
+    {
+      "id": "T13",
+      "test": "handleAccountOffboardingPurge runs the redaction stage between runAuditAndCostPayloadPurgeStage and runParentTombstonePurgeStage",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts",
+      "outcome": "killed",
+      "reason": "M10: worker/jobs/account-offboarding/PurgeWorker.ts moved runStripeCustomerRedactionPurgeStage AFTER runParentTombstonePurgeStage. Test failed \u2014 the subsequence assertion catches the dangerous direction, not merely 'before the tombstone'."
+    },
+    {
+      "id": "T14",
+      "test": "handleAccountOffboardingPurge does not finalize the purge when the redaction stage throws a retryable error",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T15",
+      "test": "PROVIDER_DATA_RETENTION classifies the Stripe Customer object as retain_compliance_limited_pii",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T16",
+      "test": "PROVIDER_DATA_RETENTION entries never appear in ACCOUNT_OFFBOARDING_TABLES or PURGE_VERIFICATION_TABLES",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T17",
+      "test": "verificationQuery still throws missing_purge_verification_sql for an unknown table name",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T18",
+      "test": "buildAccountOffboardingEmailHtml renders the payment-processor retention sentence in the purge receipt",
+      "file": "src/lib/notifications/__tests__/email-templates.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T19",
+      "test": "buildAccountOffboardingEmailHtml renders no payment-processor sentence for any non purge_receipt email type",
+      "file": "src/lib/notifications/__tests__/email-templates.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T20",
+      "test": "the privacy policy deletion paragraph names retained paid invoices and their billing name and address",
+      "file": "src/lib/legal/__tests__/content.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T21",
+      "test": "processSubscriptionUpdated throws AccountNotProvisionedYetError when the event is 60 seconds old and no account exists",
+      "file": "worker/ingress/__tests__/stripe-subscription-updated.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T22",
+      "test": "processSubscriptionUpdated logs and returns without throwing when the event is older than 15 minutes and no account exists",
+      "file": "worker/ingress/__tests__/stripe-subscription-updated.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T23",
+      "test": "processSubscriptionDeleted throws AccountNotProvisionedYetError when the event is 60 seconds old and no account exists",
+      "file": "worker/ingress/stripe/__tests__/subscription-deleted-trial.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T24",
+      "test": "processSubscriptionDeleted logs and returns without throwing when the event is older than 15 minutes and no account exists",
+      "file": "worker/ingress/stripe/__tests__/subscription-deleted-trial.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T25",
+      "test": "processSubscriptionUpdated throws at an event age of exactly 900 seconds and acks at 901 under a frozen clock",
+      "file": "worker/ingress/__tests__/stripe-subscription-updated.test.ts",
+      "outcome": "killed",
+      "reason": "M1: worker/ingress/stripe/shared.ts:84 `ageSeconds <= OUT_OF_ORDER_RETRY_WINDOW_SECONDS` -> `<`. Test failed (1 failed / 0 passed)."
+    },
+    {
+      "id": "T26",
+      "test": "processSubscriptionDeleted throws at an event age of exactly 900 seconds and acks at 901 under a frozen clock",
+      "file": "worker/ingress/stripe/__tests__/subscription-deleted-trial.test.ts",
+      "outcome": "killed",
+      "reason": "M1b: the same one-character mutation at worker/ingress/stripe/shared.ts:84. Test failed (1 failed / 0 passed) \u2014 both handlers share one predicate."
+    },
+    {
+      "id": "T27",
+      "test": "processSubscriptionUpdated throws rather than acking for a future event timestamp",
+      "file": "worker/ingress/__tests__/stripe-subscription-updated.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T28",
+      "test": "processSubscriptionDeleted throws rather than acking for a future event timestamp",
+      "file": "worker/ingress/stripe/__tests__/subscription-deleted-trial.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T29",
+      "test": "the stripe webhook replies 200 when a stale no-account subscription event is acked",
+      "file": "worker/ingress/__tests__/stripe.test.ts",
+      "outcome": "killed",
+      "reason": "M13: worker/ingress/stripe.ts:122 `ackedForAge = outcome.kind === 'ignored' && outcome.reason === 'stale_no_account'` -> `false`. Test failed \u2014 the `customer.subscription.updated` arm IS pinned."
+    },
+    {
+      "id": "T30",
+      "test": "handleStripeWebhook passes the event context to both subscription handlers",
+      "file": "worker/ingress/__tests__/stripe.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "M12: worker/ingress/stripe.ts:113 `ackedForAge = ack.ackedForAge` -> `ackedForAge = false`. The test PASSED. Arbiter: the line is on an executed branch (this test drives `case 'customer.subscription.deleted'`), and the mutation is decisively meaningful \u2014 under it a `customer.subscription.deleted` event the handler acked for age closes its `inbound_events` row as `processed`, the one status D9 says must never appear, so an operator's dashboard resend returns `duplicate` and is silently swallowed. Not equivalent, not unexecuted. A full `npx vitest run worker/ingress/` under the mutant returned exactly the same result as HEAD (472 passed, 1 pre-existing unrelated failure), so ZERO tests in the repo kill it.",
+      "finding_id": "F02"
+    },
+    {
+      "id": "T31",
+      "test": "redactStripeCustomer leaves exactly the offboarding metadata key when the fake applies Stripe merge semantics",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T32",
+      "test": "redactStripeCustomer rethrows a permanent Stripe error that is not resource_missing",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T33",
+      "test": "acquireStripeCustomerBindingLock hashes the customer id with its own dedicated suffix",
+      "file": "src/lib/accounts/__tests__/billing-locks.test.ts",
+      "outcome": "killed",
+      "reason": "M11: src/lib/accounts/billing-locks.ts:7 `':stripe_customer_binding'` -> `':tier_entitlement'` (a deliberate key collision). Test failed."
+    },
+    {
+      "id": "T34",
+      "test": "applyStripeSubscriptionStateUnderEntitlementLock takes the customer binding lock before writing stripe_customer_id",
+      "file": "worker/ingress/stripe/__tests__/apply-subscription-state.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T35",
+      "test": "runStripeCustomerRedactionPurgeStage takes the customer binding lock before counting sharing accounts",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T36",
+      "test": "a concurrent stripe_customer_id binding cannot interleave with the redaction guard",
+      "file": "src/lib/accounts/__tests__/billing-locks.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Live-DB suite. A validated localhost test database was wired into the run environment, so this row is a budget decision, not an infrastructure one."
+    },
+    {
+      "id": "T37",
+      "test": "the feature test suite contains no todo or skipped tests",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T38",
+      "test": "buildCheckoutSessionParams never sets a customer field, so Stripe always mints a new Customer",
+      "file": "src/lib/payments/__tests__/create-checkout-session.test.ts",
+      "outcome": "killed",
+      "reason": "M7: src/lib/payments/create-checkout-session.ts:207 added `customer: 'cus_reused_mutant'` to the returned Session params. Test failed \u2014 the D10 pin is real, not a tautology."
+    },
+    {
+      "id": "T39",
+      "test": "applyStripeSubscriptionState takes the customer binding lock on its own exported entry point",
+      "file": "worker/ingress/stripe/__tests__/apply-subscription-state.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T40",
+      "test": "the redaction guard still skips when the writer wins the binding lock first",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "T41",
+      "test": "a stale no-account subscription event is recorded with the stale_ignored status, not processed",
+      "file": "worker/ingress/__tests__/shared.test.ts",
+      "outcome": "killed",
+      "reason": "M3: worker/ingress/shared.ts:99 `status = 'stale_ignored'` -> `'processed'`. Test failed."
+    },
+    {
+      "id": "T42",
+      "test": "claimInboundEvent reclaims a stale_ignored row so a resent Stripe event reprocesses",
+      "file": "worker/ingress/__tests__/shared.test.ts",
+      "outcome": "killed",
+      "reason": "M4: worker/ingress/shared.ts:67 removed `OR status = 'stale_ignored'` from the reclaim predicate. Test failed."
+    },
+    {
+      "id": "T43",
+      "test": "checkFailedInboundEvents does not count stale_ignored rows",
+      "file": "worker/background/pollers/health-alert/__tests__/checks.test.ts",
+      "outcome": "killed",
+      "reason": "M6: worker/background/pollers/health-alert/checks.ts:277 `WHERE status = 'failed'` -> `WHERE status IN ('failed','stale_ignored')`. Test failed. (The sed also rewrote a second identical line at :89, which this test does not read.)"
+    },
+    {
+      "id": "T44",
+      "test": "ArchivalPoller sweeps stale_ignored rows on the same 30-day clock as processed rows",
+      "file": "worker/background/pollers/__tests__/ArchivalPoller.test.ts",
+      "outcome": "killed",
+      "reason": "M5: worker/background/pollers/ArchivalPoller.ts:97 `status IN ('processed','stale_ignored')` -> `status = 'processed'`. Test failed."
+    },
+    {
+      "id": "T45",
+      "test": "the acked-for-age Sentry warning is raised from an event context carrying both id and created",
+      "file": "worker/ingress/__tests__/stripe.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the 14 candidates covering the branch's three headline claims. Baseline green at HEAD (part of the 251-test, 14-file baseline run)."
+    },
+    {
+      "id": "B01",
+      "test": "runStripeCustomerRedactionPurgeStage / PurgeWorker \u2014 production hunk: the UPDATE-side `resource_missing` short circuit",
+      "file": "src/lib/account-offboarding/stripe-customer-redaction.ts",
+      "outcome": "inconclusive",
+      "reason": "Direction B reverse-import search: `redactStripeCustomer`'s update-side `if (isResourceMissing(err)) return { outcome: 'customer_absent' }` (stripe-customer-redaction.ts:192) has NO covering candidate. Every `resource_missing` test (T05) rejects on `customers.retrieve`; the only `customers.update` rejections in the suite are `StripeConnectionError` (T07) and `parameter_unknown` (T32). Uncovered change. See F06.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "B02",
+      "test": "outOfOrderRetryWindowOpen \u2014 production hunk: the non-finite `created` guard",
+      "file": "worker/ingress/stripe/shared.ts",
+      "outcome": "inconclusive",
+      "reason": "Direction B reverse-import search: `if (!Number.isFinite(eventCreatedSeconds)) return true` (shared.ts:82) has NO covering candidate. T27/T28 supply a NEGATIVE age (-3600), which the `<=` comparison handles without the guard; no test in either boundary suite supplies NaN, undefined, or a missing `created`. The module's own docstring calls the guard load-bearing (\"`NaN <= 900` is false, which would otherwise ack everything\"). Uncovered change. See F07.",
+      "inconclusive_class": "oracle"
+    }
+  ],
+  "findings": [
+    {
+      "id": "F01",
+      "severity": "P0",
+      "duty": 3,
+      "disposition": "open",
+      "title": "docs/directory.md documents an ack mechanism that does not exist at HEAD \u2014 three false symbol claims",
+      "at": "docs/directory.md:1763, docs/directory.md:1795, docs/directory.md:1796",
+      "reason": "Re-resolved every symbol in the branch's changed directory.md rows against HEAD with `git grep <sym> 00f6d56b`. Three claims are FALSE, all describing the AsyncLocalStorage ack channel that D4 records as DELETED: (1) :1763 says the dispatcher reads the ack \"from `callVoidHandlerReportingAckForAge` for the `Promise<void>` delete handler\"; (2) :1795 lists \"the ack report channel (`callVoidHandlerReportingAckForAge`/`recordStripeEventAckedForAge`) the `Promise<void>` delete handler uses\" among worker/ingress/stripe/shared.ts's exports; (3) :1796 says subscription-deleted.ts \"acks for age via `recordStripeEventAckedForAge()` (returns undefined either way)\". Neither symbol exists anywhere in the repo at 00f6d56b except in those two doc lines. `processSubscriptionDeleted` is declared `Promise<StripeSubscriptionAck>` (subscription-deleted.ts:18-21) and returns `ACKED_FOR_AGE`/`HANDLED_NORMALLY`, never undefined. A reader following these rows would look for a reporting seam that is not there and would believe the delete handler returns void. `ci:directory-map` checks row EXISTENCE, not row content, which is why the gate was green. This is the fourth self-description defect on a branch whose deviations already record three."
+    },
+    {
+      "id": "F02",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "The `customer.subscription.deleted` arm of D9 is defended by zero tests \u2014 forcing it to write `processed` passes the whole ingress suite",
+      "at": "worker/ingress/stripe.ts:113",
+      "arbiter_reasoning": "The mutated statement is on an executed branch: promised test 30 drives `case 'customer.subscription.deleted'` through the dispatcher. The mutation is not equivalent \u2014 `ackedForAge = false` makes a stale, acked-for-age delete event close its inbound_events row as `processed` instead of `stale_ignored`, and `claimInboundEvent` returns `duplicate` for `processed`, so an operator's manual resend from the Stripe dashboard is silently swallowed. That is precisely the outcome the branch names as D9's most important detail and states it prevents. I confirmed the survivor is total, not local: `npx vitest run worker/ingress/` under the mutant produced 472 passed / 1 failed, byte-identical to the same command at HEAD (the one failure is an unrelated pre-existing rate-limit test, see F14). No test in the repository kills it.",
+      "reason": "The CODE at HEAD is correct \u2014 `ackedForAge = ack.ackedForAge` does the right thing. What is absent is any test that would notice if it stopped. The asymmetry is sharp and measurable: the sibling `customer.subscription.updated` arm at stripe.ts:122 is properly pinned (M13 forced it to `false` and promised test 29 failed immediately), while the deleted arm at :113 is pinned by nothing. Claim 2 of the review brief \u2014 \"the ack writes stale_ignored, never processed\" \u2014 is therefore TRUE in the code and UNPROVEN by the suite for one of its two handlers. Cheapest fix: one dispatcher test mirroring promised test 29 for `customer.subscription.deleted`, with `mockProcessSubscriptionDeleted.mockResolvedValue({ ackedForAge: true })`, asserting `markInboundEventStaleIgnored` was called and `markInboundEventProcessed` was not."
+    },
+    {
+      "id": "F03",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Promised test 30's delete half asserts through the dispatcher's CATCH arm, so it proves nothing about that arm's success path",
+      "at": "worker/ingress/__tests__/stripe.test.ts:~197 (beforeEach `mockProcessSubscriptionDeleted.mockResolvedValue(undefined)`)",
+      "reason": "Proven by running the test at HEAD under the isolated environment and capturing stderr: `[ingress/stripe] Failed to process event evt_ctx_deleted (customer.subscription.deleted): Cannot read properties of undefined (reading 'ackedForAge')`. The suite's mock resolves `undefined`, but the dispatcher does `ackedForAge = ack.ackedForAge`, so the delete half of the test throws a TypeError, is caught by handleStripeWebhook's catch arm, and marks the event failed. The test still passes because its only assertion is `expect(mockProcessSubscriptionDeleted).toHaveBeenCalledWith(...)`, which was already satisfied before the throw. Consequence: no test anywhere executes the delete arm's ack->status-close path successfully, which is the mechanism behind F02. This is the same class as the branch's own D4 note about a test pinning `resolves.toBeUndefined()` \u2014 a stale mock shape outliving the signature change. Fix: make the mock resolve `HANDLED_NORMALLY`/`{ackedForAge:false}`."
+    },
+    {
+      "id": "F04",
+      "severity": "P1",
+      "duty": 5,
+      "disposition": "open",
+      "title": "The new acked-for-age Sentry signal has no rule row, while the change removes the error-level alert it replaces",
+      "at": "worker/ingress/stripe/shared.ts:100 (`captureMessage('stripe_subscription_event_acked_for_age')`) vs docs/runbooks/beta-launch-alerting.md",
+      "reason": "Static comparison of the emitted signal against the runbook. The branch emits a NEW signal \u2014 `captureMessage('stripe_subscription_event_acked_for_age', { level: 'warning', tags: { feature: 'stripe_subscription_out_of_order', event_type } })` \u2014 and `docs/runbooks/beta-launch-alerting.md` contains no matching row: grep for `stripe_subscription_event_acked_for_age`, `acked_for_age`, `stale_ignored` and `stripe_subscription_out_of_order` all return zero hits, and the branch changes no file under docs/runbooks/. All six facets are therefore unrecorded: signal identity, filter, level, grouping title, threshold/cadence and destination action. The gap is worse than a missing row because of what the change simultaneously removes: the intake names the success signal as \"HealthAlertPoller's inbound_events_failed:stripe:customer.subscription.* rate ... should fall to zero for the no-account class\" \u2014 i.e. an ERROR-level, thresholded, documented alert is deliberately retired, and the only replacement is a WARNING-level captureMessage which the same runbook says three times (lines 79, 180, 306) \"does not reliably classify as high priority\" and for which \"no Discord route is configured yet\". An operator therefore loses a page and gains nothing routed."
+    },
+    {
+      "id": "F05",
+      "severity": "P1",
+      "duty": 5,
+      "disposition": "open",
+      "title": "The intake's first observability promise \u2014 a structured log line per redaction outcome \u2014 was not delivered",
+      "at": "worker/jobs/account-offboarding/purge-stages.ts:760-818 (runStripeCustomerRedactionPurgeStage)",
+      "reason": "The intake's `observability[0]` reads: \"A structured worker log line per redaction outcome: redacted, already_redacted, skipped_shared_customer, not_applicable, customer_absent. The stripe customer id is scrubbed.\" `runStripeCustomerRedactionPurgeStage` emits no log line at all, and purge-stages.ts imports no logger (`grep -n 'logger|createWorkerLogger'` over the file at HEAD returns nothing). The only durable record of an outcome is the `provider_dispositions` append, which is queryable but is not an operator-visible log line and does not reach the worker's JSON log stream. Two of the five promised outcome names also do not exist in the code: `not_applicable` is not a member of `StripeCustomerRedactionOutcome` nor of the stage's record union. Combined with F04 this leaves the whole redaction stage with no live observability surface: no log line, no metric, and no alert rule for the one Sentry signal the feature does emit."
+    },
+    {
+      "id": "F06",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "Uncovered change: the UPDATE-side `resource_missing` short circuit has no covering test",
+      "at": "src/lib/account-offboarding/stripe-customer-redaction.ts:192",
+      "reason": "Reverse-import search over the module's only test file found no candidate exercising `customers.update` rejecting with `code: 'resource_missing'`. Promised test 5 rejects on `customers.retrieve`; the two update-side rejection tests use `StripeConnectionError` (T07) and `parameter_unknown` (T32). The branch's claim 4 \u2014 \"only `resource_missing` and a deleted customer are success\" \u2014 is therefore proven for the retrieve path and unproven for the update path, even though the update path is the one that performs the irreversible write and the one whose misclassification would finalize a purge whose redaction silently failed."
+    },
+    {
+      "id": "F07",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "Uncovered change: the non-finite `created` guard in outOfOrderRetryWindowOpen has no covering test",
+      "at": "worker/ingress/stripe/shared.ts:82",
+      "reason": "Reverse-import search across both boundary suites found no test supplying a non-finite `created`. Promised tests 27 and 28 supply a NEGATIVE age (`eventContext(-3600)`), which the `ageSeconds <= 900` comparison rejects on its own with the guard removed, so they do not cover it. The function's own docstring singles the guard out as load-bearing \u2014 \"a non-finite one (a fixture or provider payload with no `created` \u2014 `NaN <= 900` is false, which would otherwise ack everything)\" \u2014 and that is the more dangerous half of the fail-open story, because a provider payload missing `created` would silently ack every subscription event with no resolvable account. Documented as essential, defended by nothing."
+    },
+    {
+      "id": "F08",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "The already_redacted short circuit does not discriminate `.every` from `.some` \u2014 a marker-present, field-dirty customer is untested",
+      "at": "src/lib/account-offboarding/stripe-customer-redaction.ts:227",
+      "reason": "Mutation M2 changed `REDACTED_CUSTOMER_FIELDS.every(...)` to `.some(...)` and promised test 4 still passed. The test seeds all eight fields null plus a matching marker, an input for which the two quantifiers agree, so it cannot tell them apart. Under `.some`, a Customer carrying this offboarding's marker with even one field still populated is reported `already_redacted`, NO update is issued, and that identifier stays live at Stripe \u2014 the exact privacy failure the stage exists to prevent. Reachability is narrow but not nil: the marker can only match when this same offboarding already redacted this customer, so the state needs a write to the Customer at Stripe between the first update and a retry, or a future change that adds a ninth field to REDACTED_CUSTOMER_FIELDS while old markers exist. One test \u2014 marker present, `email` populated, expect `redacted` and one update call \u2014 closes it."
+    },
+    {
+      "id": "F09",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Fragile assertion: promised test 43 asserts SQL query text and structural absences instead of the behaviour its title names",
+      "at": "worker/background/pollers/health-alert/__tests__/checks.test.ts:222-236",
+      "reason": "The title is \"checkFailedInboundEvents does not count stale_ignored rows\", but the test never supplies a stale_ignored row and never asserts anything about the returned findings \u2014 it pushes `[]` into the mock and then inspects the template string: `expect(queryText).toContain(\"status = 'failed'\")`, `.not.toContain('stale_ignored')`, `.not.toContain('IN (')`, `.not.toContain('!=')`. The last two are absence-of-token proxies of exactly the class this duty exists to catch: `not.toContain('IN (')` and `not.toContain('!=')` are stand-ins for \"the predicate stayed failed-only\", and they will fail on a legitimate rewrite that keeps the behaviour (adding an unrelated `AND source IN (...)` filter, or expressing the same window with `!=`), while passing any widening that avoids those two byte sequences. The behavioural replacement is cheap and stronger: push a row set containing a stale_ignored group into `sqlReturnQueue` and assert no `inbound_events_failed:*` finding is emitted for it. The kill I measured (M6) confirms the test does pin SOMETHING, so this is fragility, not a fake."
+    },
+    {
+      "id": "F10",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Promised test 40 is a behavioural duplicate of test 10 and exercises no lock ordering, despite a title that claims a race",
+      "at": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts:138-152",
+      "reason": "\"the redaction guard still skips when the writer wins the binding lock first\" has an identical arrangement to promised test 10 \u2014 the same three `sqlReturnQueue` pushes with `{ count: 1 }` \u2014 and identical assertions (`mockRedactStripeCustomer` not called; the append names `skipped_shared_customer`). Nothing in it represents a writer winning a lock; the mock returns `count: 1` unconditionally, so the two orderings are indistinguishable at this seam. Evidence that it adds no discriminating power: mutation M8 (`> 0` -> `> 1`) is the single mutation covering this behaviour and it kills test 10, so test 40 can only ever repeat that verdict. The genuine ordering claim is already carried by test 35 (lock index 0, before the count index) and by the live-DB test 36; test 40 either needs a distinguishing arrangement or is honest padding on the count of 45."
+    },
+    {
+      "id": "F11",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Promised test 8 carries a tautological second assertion",
+      "at": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts:247-249",
+      "reason": "`expect(stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID)).toBe(stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID))` compares a pure function's output to itself and cannot fail for any implementation, including a random one, provided it is memoised or simply deterministic within a tick \u2014 and a genuinely random implementation would already have been caught by the first assertion. The first assertion (the key passed to `customers.update` equals the exported helper's output) is real and does the work; the second is decoration. Determinism ACROSS calls with the same input is worth pinning as a literal expected string, not as a self-comparison."
+    },
+    {
+      "id": "F12",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "The deliberately duplicated 900-second boundary tests cannot detect the drift their comment cites",
+      "at": "worker/ingress/stripe/shared.ts:80-85",
+      "reason": "Both suites carry a comment saying the boundary is proven separately per handler because \"one shared boundary test could exercise processSubscriptionUpdated while processSubscriptionDeleted quietly used >= 900\". That drift is structurally impossible at HEAD: there is exactly ONE comparison in the codebase, the pure `outOfOrderRetryWindowOpen`, and both handlers call it. Measured: mutation M1 (`<=` -> `<`) killed promised test 25 and, unchanged, killed promised test 26 (M1b) \u2014 one character, two kills. The duplication is therefore free insurance against a refactor that inlines the predicate, but the stated rationale no longer describes the code. Claim 5 of the review brief SURVIVES this attack: the boundary is not merely implemented identically at both handlers, it is implemented once. Recording it so a later reader does not mistake the comment for a description of two implementations."
+    },
+    {
+      "id": "F13",
+      "severity": "P2",
+      "duty": 4,
+      "disposition": "open",
+      "title": "RECLAIMABLE_INBOUND_EVENT_STATUSES has no CI audit, unlike the OUTBOX_IN_FLIGHT_STATUSES idiom it says it mirrors",
+      "at": "worker/ingress/shared.ts:37",
+      "reason": "Sibling search across the repo for consumers of `inbound_events.status`: `rg -n 'inbound_events' --glob '!**/__tests__/**' --glob '!*.md'`. Every consumer that needed updating was updated \u2014 ArchivalPoller's sweep (widened), checks.ts's failed-only alert (correctly left alone), the purge's payload scrub (status-independent), purge-verification.ts (status-independent), and claimInboundEvent's reclaim. Two near-misses that are genuinely safe: `worker/ingress/resend.ts:150` tests `existing.status !== 'processed'`, but that branch is only reachable after claimInboundEvent returns 'duplicate', which a stale_ignored row never does; and the Telegram/Twilio/Zernio handlers inherit the widened reclaim without writing the new status. So: zero missed siblings, recorded as a sound negative. What the search did surface is an enforcement gap. The constant's docstring says the SQL \"spells the members literally ... mirroring the OUTBOX_IN_FLIGHT_STATUSES idiom\", but that idiom's other half is `ci:outbox-status`, which checks members AND order against the hand-spelled SQL; nothing equivalent exists for this constant. A third member added to the array with no SQL change passes lint, typecheck and promised test 42, which asserts only that the array contains 'failed' and 'stale_ignored'."
+    },
+    {
+      "id": "F14",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "One pre-existing test fails under the isolated environment at HEAD \u2014 recorded so it is not mistaken for mutant damage",
+      "at": "worker/ingress/__tests__/ (ingress rate-limit hook \u2014 absolute-form request targets)",
+      "reason": "`npx vitest run worker/ingress/` at unmutated HEAD under the red-team scrubbed environment returns 472 passed / 1 failed: \"ingress rate-limit hook \u2014 absolute-form request targets enforces the ingress rate limit on an absolute-form request target\". The identical result appeared under mutation M12, which is how I established that M12 is killed by zero tests. Because it reproduces at HEAD it is not a defect this branch introduced; the most likely cause is the deliberately minimal dotenv the run substitutes (the environment allowlist is PATH/HOME/TMPDIR/NODE_ENV/CI/MOCK_EXTERNAL_APIS plus the localhost test DB). Flagged only so a later reader comparing my numbers against the branch's green gate evidence is not misled."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 47,
+    "killed": 12,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 3,
+    "skipped_budget": 31,
+    "excluded": 0,
+    "findings_total": 14,
+    "p0_open": 2,
+    "p1_open": 8,
+    "p2_open": 4,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
