@@ -164,3 +164,27 @@ from review findings against the declared behaviour, not from new scope. Stated
 for the owner to overrule.
 
 **Verdict:** ACCEPT, surfaced.
+
+## D8 — re-classification trigger fired; the lane is unchanged
+
+The gate's `reclassify` row fired: production 560 lines against an estimate of
+190, tests 565 against 230. Both buckets are over 2x, so step 0 was re-run with
+the measured numbers rather than the guess.
+
+**Outcome: SIZE = standard, RISK = normal, SURFACE = ui — identical.**
+
+- **Not epic.** The surface is enumerable and tight — the sidebar, three tab
+  bars, one stylesheet block and one route move. It spans ONE risk domain. It
+  decomposed into five tracers, not more than eight.
+- **Still normal risk.** No worker, webhook, migration, billing or auth. The
+  round-1 findings were severe but their blast radius is navigation and CSS.
+- **Where the number came from.** ~380 of the 560 is the seven-file `git mv`,
+  which `--numstat` counts as added AND deleted. The genuinely new production
+  code is roughly 180 lines — close to the original estimate. The estimate was
+  not badly wrong; it failed to account for a move being counted twice.
+
+**Lesson worth carrying:** estimate a route move at double its line count, or
+the trigger fires on every branch that moves a folder. Recorded here rather
+than silently bumping the number.
+
+The intake now carries the measured figures.

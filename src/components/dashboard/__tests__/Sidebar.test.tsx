@@ -384,23 +384,33 @@ describe('Sidebar — exactly one current page', () => {
   // The intake invariant. Reviews' and Analytics' first child shares its
   // parent's href, so both rows announced themselves as the current page until
   // the parent learned to yield (standards review, 2026-09-03).
-  for (const [pathname, label] of [
-    ['/dashboard/reviews', 'Reviews'],
-    ['/dashboard/analytics', 'Analytics'],
-  ] as const) {
-    it(`marks exactly one link aria-current on ${pathname}`, () => {
-      pathnameMock.mockReturnValue(pathname);
-      const { container } = render(
-        wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
-      );
-      expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
-      // The SECTION is still visibly open — `.active` and aria-current are
-      // different facts, and only the second is exclusive.
-      const parent = screen.getByRole('link', { name: new RegExp(`^${label}$`) });
-      expect(parent.className).toContain('active');
-      expect(parent).not.toHaveAttribute('aria-current');
-    });
+  /** One rendered nav, one `aria-current`. Written out per route rather than
+   *  looped: the gate matches promised test titles VERBATIM, and a template
+   *  literal produces none. */
+  function expectSingleCurrent(pathname: string, section: RegExp, child: string) {
+    pathnameMock.mockReturnValue(pathname);
+    const { container } = render(
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+    );
+    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    // The SECTION is still visibly open — `.active` and aria-current are
+    // different facts, and only the second is exclusive.
+    const parent = screen.getByRole('link', { name: section });
+    expect(parent.className).toContain('active');
+    expect(parent).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: child })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   }
+
+  it('marks exactly one link aria-current on /dashboard/reviews', () => {
+    expectSingleCurrent('/dashboard/reviews', /^Reviews$/, 'Needs Action');
+  });
+
+  it('marks exactly one link aria-current on /dashboard/analytics', () => {
+    expectSingleCurrent('/dashboard/analytics', /^Analytics$/, 'Metrics');
+  });
 
   it('keeps aria-current on the parent when no child owns the page', () => {
     pathnameMock.mockReturnValue('/dashboard/requests');

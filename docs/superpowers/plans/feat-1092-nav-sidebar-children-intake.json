@@ -107,11 +107,12 @@
     "deriveNavSection folds the moved Review QR route into requests",
     "the old settings Review QR path redirects to the Requests one",
     "offers Review QR as a top-level row when solicitation is disabled",
-    "marks exactly one link aria-current on /dashboard/reviews"
+    "marks exactly one link aria-current on /dashboard/reviews",
+    "marks exactly one link aria-current on /dashboard/analytics"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 190,
-  "estimated_test_lines": 230,
+  "estimated_prod_lines": 560,
+  "estimated_test_lines": 565,
   "dependencies_added": [],
   "rollback_plan": "Revert the squash commit. No migration, no schema, no flag change and no external state, so a revert fully restores the previous navigation; printed Review QR codes are unaffected either way because GET /q/[businessId] never moves.",
   "observability": [],
