@@ -4,12 +4,30 @@ Branch: `fix/1079-ledger-kill-switch-containment`
 Intake: `.feature/intake.json` (size=small, risk=high, surface=backend, db_touching=true)
 Revision 3 — after plan-skeptic rounds 1 (9 findings) and 2 (12 findings). All ACCEPT.
 
+> **CITATIONS IN THIS DOCUMENT ARE BY SYMBOL, NOT BY LINE.** Revision 3 carried
+> ~17 `path:line` citations. This branch inserted ~36 lines into `write.ts` and
+> ~90 into `persist.ts`, so by the time red team round 2 resolved them every
+> sampled one was wrong, and two (`persist.ts:743` and `:745`, cited as the guard
+> list) had drifted into the REPLACEMENT docblock — `:745` landing on
+> *"individually changes no outcome and kills no test"*, the exact sentence this
+> branch retired. A line range is what rotted, twice, on this branch and its
+> sibling. Every citation below now names a function, constant, interface, or
+> named section; re-anchor by symbol rather than "fixing" a number.
+
+> **ANNOTATIONS ADDED AFTER THE FACT ARE MARKED IN PLACE.** This document is a
+> superseded planning artifact, and this branch exists because a retained claim
+> in a superseded document was believed. Claims the branch went on to measure as
+> false are left standing (so the reasoning that produced the design is legible)
+> with a **`SUPERSEDED IN REVIEW`** note attached at the claim, not filed at the
+> bottom. Four such notes exist: the guard-cannot-know premise, the PURE contract
+> word, the two-read window, and the T2 "do NOT warn" bullet.
+
 ## The defect, restated
 
-`recordPolicyGateRefusal` (`worker/jobs/response-generation/persist.ts:747`)
+`recordPolicyGateRefusal` (in `worker/jobs/response-generation/persist.ts`)
 calls `resolvePolicyGateRefusal` three lines before anything reads
 `REFUSAL_LEDGER_ENABLED`. The flag is read inside `writeRefusalEvent`
-(`src/lib/refusals/write.ts:369`). So a resolver throw:
+(`src/lib/refusals/write.ts`). So a resolver throw:
 
 1. aborts the persist transaction with the flag OFF, and
 2. escapes `withLedgerAttribution`, so it reports as a generic persist failure.
@@ -22,6 +40,15 @@ The resolver moves inside the attribution wrapper.
 
 ### The predicate is PURE — this is the round-1 correction
 
+> **SUPERSEDED IN REVIEW — the word, not the property.** "PURE" is wrong as the
+> contract word and was retired repo-wide for **SIDE-EFFECT-FREE** before this
+> branch shipped: `vocabulary.ts` defines PURE for this same feature area as "no
+> DB handle, no clock, no flag read", and `isRefusalLedgerEnabled`'s whole body
+> is a flag read that MUST be non-deterministic across calls. The contract is
+> real and load-bearing; only the noun is wrong. Read every "pure predicate" in
+> this section — including the heading and the T1 title — as "side-effect-free
+> predicate". The shipped docblock on `isRefusalLedgerEnabled` says so.
+
 Round 1 showed that folding `warnLedgerDisabled()` and `endDisabledEpisode()`
 into the extracted predicate breaks the module's own rule (`writeRefusalEvents`'
 contract, bullet 1 — cited by symbol; the line range this plan first carried
@@ -31,25 +58,55 @@ nothing either way, so warning on it puts noise on the one signal that says the
 ledger is dark. The persist guard cannot know whether a row would have been
 written without running the resolver — which is the thing it exists to avoid.
 
+> **SUPERSEDED IN REVIEW — this premise is FALSE, and the branch disproved it.**
+> The sentence immediately above ("the persist guard cannot know…") is the
+> premise the whole "accepted cost" section below rests on, and the async review
+> axis refuted it: map membership is decidable with `Object.hasOwn`, which cannot
+> throw, so a guard CAN decide whether a row would have been written without
+> running the resolver it exists to avoid. The shipped code is
+> `wouldRecordRefusal` in `persist.ts`, and the warning is preserved through
+> `noteRefusalLedgerDark`. The predicate is `every`, NEVER `some` — one
+> `null`-mapped member vetoes the whole row (#1003), and `some` over-warns on a
+> MIXED set (one mapped non-null member plus one `null`-mapped one; red team's
+> shrunk counterexample is `["policy_not_enabled","current_rating_missing"]`).
+> Note that `some` is NOT wrong on a veto-ONLY set — it is false there too — so
+> it is the `!== null` test inside the callback, not the length check, that saves
+> that case. The T2 bullet carries the same note; this one is here because THIS
+> is the normative section, and the T2 note is ~80 lines away.
+
 So:
 
 - `isRefusalLedgerEnabled(): boolean` — reads the flag live, per call. **No
   transports, no latch mutation, no logging.** Its docblock says so, and names
-  `src/app/api/dashboard/refusals/route.ts:76` as the sanctioned second reader
-  that must keep its own literal spelling for `ci:env-registry`.
+  `src/app/api/dashboard/refusals/route.ts` — the route's own
+  `readFlagEnabledByDefault('REFUSAL_LEDGER_ENABLED')` call — as the sanctioned
+  second reader that must keep its own literal spelling for `ci:env-registry`.
 - `warnLedgerDisabled()` and `endDisabledEpisode()` stay **private** and stay
   exactly where they are, inside `writeRefusalEvent` and `writeRefusalEvents`.
 
 ### The accepted cost, stated rather than hidden
 
+> **SUPERSEDED IN REVIEW — the cost was NOT accepted as shipped.** This section
+> describes the shape the plan chose before the guard-cannot-know premise was
+> refuted. What shipped keeps the warning on this lane, via `wouldRecordRefusal`
+> + `noteRefusalLedgerDark`; only an UNMAPPED reason stays silent, which is
+> correct because it would have thrown rather than written. The mitigation
+> inventory below is still accurate and is still the reason the residual silence
+> is tolerable.
+
 With the flag off, the `policy_gate_held` lane returns before the resolver and
 therefore no longer emits the once-per-episode "ledger is dark" line, which it
 does today. The signal is not lost globally: the `held_draft` lane and the six other
 production write sites still emit it, and the latch is module-level. Those six
-are FOUR solicitation sites (`dispatch.ts:1474`, `ask-generation.ts:698`,
-`batch-builder.ts:670`, `approval.ts:637`) plus
-`src/lib/auto-approval/suspension.ts:331` and
-`worker/jobs/publisher/auto-policy-downgrade.ts:208` — and those last two are
+are FOUR solicitation sites — the `writeRefusalEvents` calls in
+`src/lib/solicitation/dispatch.ts` (indexing
+`OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES`), `ask-generation.ts`
+(`OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES`), `batch-builder.ts`
+(`ASK_WITHHELD_REFUSAL_CATEGORIES`) and `approval.ts`
+(`BATCH_HALTED_REFUSAL_CATEGORIES`) — plus
+`src/lib/auto-approval/suspension.ts` (`AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES`)
+and `worker/jobs/publisher/auto-policy-downgrade.ts`
+(`AUTO_POST_REVOKED_REFUSAL_CATEGORIES`) — and those last two are
 the ones most likely to be live in a worker process that is also running
 `ResponseGeneratorWorker`, which is what makes the mitigation real. A period
 in which ONLY this lane is active goes silent. This is inherent to containment
@@ -76,32 +133,35 @@ this same wave.
 
 ### T1 — `write.ts` exports a pure ledger-enabled predicate
 
+(Read "pure" as **side-effect-free** — see the superseded note above.)
+
 - Seam: `src/lib/refusals/write.ts`.
 - Export `isRefusalLedgerEnabled()`: exactly
   `readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG)`, live and per call, nothing else.
-- `writeRefusalEvent` (`write.ts:369`) and `writeRefusalEvents` (`write.ts:512`)
-  each become `if (!isRefusalLedgerEnabled()) { warnLedgerDisabled(); return; }`
+- `writeRefusalEvent` and `writeRefusalEvents` each become
+  `if (!isRefusalLedgerEnabled()) { warnLedgerDisabled(); return; }`
   followed by `endDisabledEpisode()`. Behaviour is byte-for-byte what it is
   today; only the flag read moves behind one name.
 - ORDER IS LOAD-BEARING and UNCHANGED: `writeRefusalEvents` keeps its
-  `inputs.length === 0` return at `write.ts:508`, BEFORE the predicate call.
+  `inputs.length === 0` early return BEFORE the predicate call.
   The predicate's docblock carries an explicit line saying a caller with a
   possibly-empty batch must return before calling it.
-- Never a module-scope const — the live-read rule at `write.ts:364-368`.
+- Never a module-scope const — the live-read rule stated in
+  `isRefusalLedgerEnabled`'s own docblock.
 - Blocking edge: none. T2 and T3 depend on this.
-- Precedent: the function contract at `write.ts:353-359`; the live-read rule at
-  `write.ts:364-368`; `src/lib/llm/circuit-breaker.ts`.
+- Precedent: the function contract and the live-read rule, both in
+  `isRefusalLedgerEnabled`'s docblock; `src/lib/llm/circuit-breaker.ts`.
 - Tests: "writeRefusalEvent and writeRefusalEvents together emit exactly one
   disabled warning across one disabled episode"; "writeRefusalEvents issues no
   statement and emits no disabled warning for an empty input while the flag is
   off". Both in `src/lib/refusals/__tests__/write.test.ts`, isolated with
-  `resetRefusalLedgerWarningForTests` (`write.ts:237`).
+  `resetRefusalLedgerWarningForTests` (exported from `write.ts`).
 
 ### T2 — the lane guards before it resolves, and attributes the resolve
 
 - Seam: `recordPolicyGateRefusal` in `worker/jobs/response-generation/persist.ts`.
-- Insert the flag guard AFTER `isGenuineAutoCandidate` (`persist.ts:745`) and
-  BEFORE `resolvePolicyGateRefusal` (`persist.ts:747`): return when
+- Insert the flag guard AFTER the `isGenuineAutoCandidate` narrowing and
+  BEFORE the `resolvePolicyGateRefusal` call: return when
   `isRefusalLedgerEnabled()` is false. Do NOT warn on that arm; carry a comment
   saying why, citing `writeRefusalEvents`' contract by symbol.
 
@@ -112,18 +172,20 @@ this same wave.
   one `null`-mapped member vetoes the whole row) and raises the same
   once-per-episode line through `noteRefusalLedgerDark`. The warning is
   preserved; only an UNMAPPED reason stays silent, which is correct because it
-  would have thrown rather than written.
+  would have thrown rather than written. The precise shape of the `some` error
+  is recorded on `wouldRecordRefusal`'s docblock: `some` is false on a veto-ONLY
+  set as well, and goes wrong only on a MIXED set.
 - Move `resolvePolicyGateRefusal(autoDecision.blockReasons)` INSIDE the
   `withLedgerAttribution('policy_gate_held', responseId, …)` callback. A `null`
   resolve returns from the callback and writes nothing — byte-identical to
   today. A throw is now tagged `subsystem: 'refusal_ledger'`,
   `refusal_lane: 'policy_gate_held'`.
-- `withLedgerAttribution` (`persist.ts:788-807`) is UNCHANGED: capture, rethrow
+- `withLedgerAttribution`'s BODY is UNCHANGED: capture, rethrow
   unchanged, reporter stays guarded.
 - **Renumber the guard docblock, and fix the TWO SENTENCES it breaks.** Round 2
   found that "stays attached to the original four" is satisfiable by renumbering
-  the list and leaving the prose stale. Both of these are at `persist.ts:697-702`
-  and both become false:
+  the list and leaving the prose stale. Both of these are in
+  `recordPolicyGateRefusal`'s docblock and both become false:
     1. the headline *"FOUR GUARDS, AND ONLY THE LAST ONE DECIDES ANYTHING"* —
        after the change two of five decide something;
     2. *"…because guard 4 already covers each case"* — the mutation result's
@@ -132,15 +194,22 @@ this same wave.
   the-deciding-guard claim, and the new guard's own entry states what it covers
   that the deciding guard does not.
 
+  > Red team round 1 then falsified that recorded result for two of its three
+  > guards, and round 2 found its surviving survivor-count stale. The shipped
+  > docblock carries the re-measurement, per guard, with the surface each count
+  > was taken against — treat this bullet as the instruction, and the docblock as
+  > the answer.
+
 - **`withLedgerAttribution`'s docblock gains the vocabulary case.** Its CODE is
-  unchanged. Its docblock (`persist.ts:769-786`) justifies itself entirely in
+  unchanged. Its docblock justifies itself entirely in
   terms of the write — *"Both write sites are deliberately uncaught: a
   migration-116 CHECK violation is a writer bug"*. After T2 the
   `policy_gate_held` invocation also attributes a VOCABULARY fault, which is
   neither a CHECK violation nor a writer bug, and which the flag now genuinely
   suppresses. Leaving it untouched ships the same class of stale comment this
   branch is fixing ninety lines above it.
-- The `held_draft` site at `persist.ts:877` has no pre-write resolve — verified
+- The `held_draft` write site (the second `writeRefusalEvent` call in
+  `persistResponseAndNotify`) has no pre-write resolve — verified
   at HEAD, every argument is a literal or the module constant
   `HELD_DRAFT_REFUSAL_CATEGORY`. It gains no guard and no behaviour change.
 - Blocking edge: T1.
@@ -152,16 +221,18 @@ resolver passes every other title while being the shape this plan rejects.
 
 - Seam: `persistResponseAndNotify`, via
   `worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts`.
-  The suite already mocks the vocabulary module (`:105-127`), so the resolver
+  The suite already mocks the vocabulary module (its
+  `vi.mock('@/lib/refusals/vocabulary', …)` factory), so the resolver
   becomes a `vi.fn()` and the count is directly observable.
 - Red first: with `REFUSAL_LEDGER_ENABLED=false`, assert `resolvePolicyGateRefusal`
   is invoked ZERO times across a full persist, and the draft row commits.
 - **THE POSITIVE CONTROL IS MANDATORY, not implied.** A zero-count assertion is
   an assertion of ABSENCE, so every fixture defect makes it pass — wrong tier,
   `originLane !== LIVE_INGEST_NEW`, a null threshold, `held === true`, or
-  `approved === true` each make guards 1-3 (`persist.ts:743-745`) return before
-  the resolver on HEAD too. The suite's own header warns about exactly this
-  class at `refusal-write.integration.test.ts:31-35`. So: **the SAME fixture,
+  `approved === true` each make guards 1-3 (the `held`, `approved` and
+  `isGenuineAutoCandidate` early returns in `recordPolicyGateRefusal`) return
+  before the resolver on HEAD too. The suite's own file-header comment warns
+  about exactly this class. So: **the SAME fixture,
   with the flag ON, must record EXACTLY ONE resolver invocation.** Without it
   the red-first claim is unverifiable and the test is a permanent false green.
 - Bind title 1 to the POLICY lane fixture that writes a row with the flag on.
@@ -185,12 +256,13 @@ resolver passes every other title while being the shape this plan rejects.
 
 ### T4 — the property test the router requires, as a BICONDITIONAL
 
-`.claude/commands/feature.md:409` requires at least one `fast-check` property
-per declared invariant for a feature touching approval / auto-approval logic.
+`.claude/commands/feature.md` (the rule requiring at least one `fast-check`
+property per declared invariant for a feature touching approval / auto-approval
+logic) is what makes this tracer mandatory.
 
 **Round 2 killed revision 2's version of this tracer.** Two blockers at HEAD:
-`recordPolicyGateRefusal` is NOT exported (`persist.ts:729` is a bare
-`async function`; the file exports only `PersistResponseInput`,
+`recordPolicyGateRefusal` is NOT exported (it is a bare `async function`; the
+file exports only `PersistResponseInput`,
 `PersistResponseOutcome`, `hasStaleReviewContent` and `persistResponseAndNotify`),
 so the property must drive the full persist — and therefore "ZERO queries on the
 transaction" is **false by construction**: the lock preamble, the `responses`
@@ -200,6 +272,12 @@ and the gate reads all fire first. It failed on a correct implementation.
 Worse, with the flag off the guard returns WITHOUT inspecting `blockReasons`, so
 a generator over 2^22 subsets produces inputs the implementation cannot branch
 on. That is a tautology dressed as a property, with no mutation-killing power.
+
+> **Partly superseded.** The shipped guard 4 DOES inspect `blockReasons`, through
+> `wouldRecordRefusal`, so the flag-off arm is no longer input-blind. The
+> biconditional below is still the right shape and is what shipped; a second
+> property (`invariants: with the ledger off, the warning fires exactly when
+> every block reason maps to a real category`) covers the inspecting arm.
 
 - Seam: `persistResponseAndNotify`, in
   `worker/jobs/response-generation/__tests__/persist.test.ts` — which ALREADY
@@ -213,14 +291,16 @@ on. That is a tautology dressed as a property, with no mutation-killing power.
   depend on the generated input:
     * flag OFF ⇒ `resolvePolicyGateRefusal` receives ZERO calls;
     * flag ON  ⇒ EXACTLY ONE call, receiving the generated array VERBATIM and
-      IN ORDER — which also pins `vocabulary.ts:668-672`'s "the input VERBATIM,
+      IN ORDER — which also pins `resolvePolicyGateRefusal`'s own docblock
+      contract in `src/lib/refusals/vocabulary.ts`: "the input VERBATIM,
       in its own order".
   This kills both the `try/catch` swallow and the inline-reimplementation shape
   from T3; the revision-2 form killed neither.
 - Do NOT assert a transaction query count. If a query-level assertion is wanted,
   narrow it to "no statement whose text contains `INSERT INTO refusal_events`",
   the idiom the sibling suites already use
-  (`batch-builder.integration.test.ts:2423`, `approval.integration.test.ts:3109`).
+  (`batch-builder.integration.test.ts` and `approval.integration.test.ts` both
+  filter recorded statement text this way).
 - House style: `policy-gate-precedence.property.test.ts`'s `invariants` describe
   block; the `invariants: ` prefix goes INSIDE the `it()` string so the
   `promised-tests` exact match still works.
@@ -228,21 +308,24 @@ on. That is a tautology dressed as a property, with no mutation-killing power.
 
 ### T5 — cross-references corrected in the same change
 
-- `refusal-write.integration.test.ts:4` claims "Titles 13-36, VERBATIM from
-  `.feature/intake.json` `tests_to_add`". That file will hold THIS ticket's
-  intake. Anchor the citation to the ticket that owns those titles (#1013)
-  rather than to a path whose contents change per run.
-- `.claude/CLAUDE.md:88` requires cross-references be cleaned in the same change.
+- `refusal-write.integration.test.ts`'s file-header comment claims "Titles 13-36,
+  VERBATIM from `.feature/intake.json` `tests_to_add`". That file will hold THIS
+  ticket's intake. Anchor the citation to the ticket that owns those titles
+  (#1013) rather than to a path whose contents change per run.
+- `.claude/CLAUDE.md` § "Working rules" (the bullet on deleting a doc or ticking a
+  checklist item) requires cross-references be cleaned in the same change.
 - Blocking edge: T3 (edit the file once).
 
 ## Invariants this plan must not break
 
 - `write.ts` remains the only module that spells `INSERT INTO refusal_events`
-  in production (verified: `write.ts:395` and `write.ts:543`; every other hit is
-  a test seeding rows).
+  in production (verified: the statements inside `writeRefusalEvent` and
+  `writeRefusalEvents`; every other hit is a test seeding rows).
 - `write.ts` is the only WRITE-PATH reader of `REFUSAL_LEDGER_ENABLED`.
-  `src/app/api/dashboard/refusals/route.ts:76` is a deliberate READ-path second
-  reader and is out of surface — do not "fix" it, it would break `ci:env-registry`.
+  `src/app/api/dashboard/refusals/route.ts`'s own
+  `readFlagEnabledByDefault('REFUSAL_LEDGER_ENABLED')` is a deliberate READ-path
+  second reader and is out of surface — do not "fix" it, it would break
+  `ci:env-registry`.
 - With the flag ON, both persist write sites stay uncaught — a migration-116
   CHECK violation is a writer bug and must abort the transaction.
 - `resolvePolicyGateRefusal` keeps both throws and its three-step order; this
@@ -256,6 +339,18 @@ on. That is a tautology dressed as a property, with no mutation-killing power.
   A mid-process flip to `false` between them lets the resolver run with the flag
   off. The window is synchronous and microseconds wide; it is the price of the
   pure predicate and is recorded as an edge case rather than defended against.
+
+  > **SUPERSEDED IN REVIEW — the window is ZERO, not "microseconds wide", and
+  > the flip described cannot happen.** Both the async axis and red team round 2
+  > derived it independently: guard 4's read reaches `writeRefusalEvent`'s read
+  > via `await withLedgerAttribution(…)` → `return await write();` → the async
+  > arrow's body → `await writeRefusalEvent(…)`, and an async call runs its body
+  > synchronously up to its OWN first `await`. `isRefusalLedgerEnabled()` is
+  > `writeRefusalEvent`'s FIRST statement, so both reads execute in one
+  > run-to-completion segment. No suspension point exists between them, so no
+  > other task can flip the env in between — there is nothing here to defend
+  > against and nothing for a test to exercise. The shipped guard-4 docblock says
+  > exactly this.
 
 ## Surface change from revision 2
 

@@ -717,8 +717,30 @@ function isGenuineAutoCandidate(
  * `writeRefusalEvents`' contract forbids. The review that found the missing
  * warning proposed `some`; this is the corrected form.
  *
- * An EMPTY set returns false: `every` is vacuously true on `[]`, so the length
- * check carries it. An approved draft refused nothing.
+ * BE PRECISE ABOUT WHERE `some` BREAKS, because the loose version of that
+ * sentence shipped on this branch and named the wrong set. `some` does NOT
+ * over-warn on a veto-ONLY set — it is false there too, because the only member
+ * maps to `null`. It over-warns on a MIXED set: one mapped non-null member plus
+ * one `null`-mapped member. Red team's shrunk counterexample is
+ * `["policy_not_enabled","current_rating_missing"]`, and the live-DB half-B case
+ * refuted `some` a second time on the copilot/2-star fixture. So the `!== null`
+ * test INSIDE the callback is what saves the veto-only case — NOT the length
+ * check.
+ *
+ * THE LENGTH CHECK IS LOAD-BEARING HERE AND UNREACHABLE AT THE CALL SITE, and
+ * both halves are true at once. Read in isolation this function needs it:
+ * `every` is vacuously true on `[]`, so without the conjunct an empty set would
+ * report a gap. At its ONLY call site it can never be false — guard 2
+ * (`if (autoDecision.approved) return;`) runs first, and across BOTH
+ * `AutoApprovalDecision` construction sites in `./auto-approval`
+ * `approved === true` ⟺ `blockReasons` is empty
+ * (`evaluateAutoApprovalCandidate` sets `approved: blockReasons.length === 0`,
+ * and `structurallyBlockedDecision` throws rather than returning a
+ * structurally-blocked decision with an empty set). Red team measured the
+ * consequence: dropping the conjunct SURVIVES the whole touched surface, 99/99.
+ * That mutant is PROVEN-EQUIVALENT, not an untested gap — keep the conjunct as
+ * defence in depth against a future guard reorder, and do not read its survival
+ * as missing coverage.
  */
 function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): boolean {
   return blockReasons.length > 0
@@ -742,9 +764,12 @@ function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): b
  *
  * WHICH GUARDS ARE SAFE TO DELETE — RE-MEASURED AT #1079, ONE AT A TIME, AND THE
  * ANSWER CHANGED. Branch review round 1 recorded "deleting guard 1, 2 or 3
- * individually changes no outcome and kills no test". #1079's red-team pass
- * re-ran that experiment against the CURRENT tests and found it true for exactly
- * one of the three. Do not re-derive this; the numbers are the measurement:
+ * individually changes no outcome and kills no test". #1079's red-team passes
+ * re-ran that experiment and found it true for exactly one of the three. The
+ * VERDICTS below are the measurement — do not re-derive them from reading the
+ * code. A SURVIVOR COUNT, unlike a verdict, is a property of the test surface it
+ * was taken against and goes stale the moment a case is added, so each count
+ * below names its surface: re-measure it or drop it, never edit it to fit.
  *
  *   - GUARD 1 — deletion KILLS a test. `refusal-write.integration.test.ts`'s
  *     held_draft pin asserts the resolver spy stays at zero, and guard 1 is what
@@ -753,7 +778,12 @@ function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): b
  *     `["moderation_flagged","moderation_held"]`. THE COMMIT THAT RE-ASSERTED THE
  *     OLD CLAIM IS THE COMMIT THAT FALSIFIED IT — that pin did not exist when
  *     round 1 measured.
- *   - GUARD 2 — deletion SURVIVES, 82/82. The old claim holds here, and only here.
+ *   - GUARD 2 — deletion SURVIVES. The old claim holds here, and only here.
+ *     Re-measured at red-team round 2 against the two suites that cover this
+ *     function — `persist.test.ts` + `refusal-write.integration.test.ts`, 85
+ *     cases at that point — where it survived 85/85. (Round 1 published 82/82
+ *     against the 82-case version of the same two suites; this branch then added
+ *     three cases, which is what moved the number and not the verdict.)
  *   - GUARD 3 — deletion KILLS a pre-existing test AND CHANGES THE OUTCOME: a
  *     `policy_gate_held` row is written for a structural non-candidate
  *     ("expected length +0 but got 1"). This was already false at the fork point;
@@ -809,7 +839,13 @@ function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): b
  *      (#1003), so `some(mapped && non-null)` would warn about a decision that
  *      was never going to be recorded — re-breaking the exact rule this arm
  *      exists to respect. The review that found the gap proposed `some`; it is
- *      wrong for that reason.
+ *      wrong for that reason. AND THE REASON IS NARROWER THAN THE OBVIOUS ONE:
+ *      `some` does not over-warn on a veto-ONLY set (it is false there too — the
+ *      only member maps to `null`); it over-warns on a MIXED set, one mapped
+ *      non-null member plus one `null`-mapped one. Red team shrank it to
+ *      `["policy_not_enabled","current_rating_missing"]`. `wouldRecordRefusal`'s
+ *      docblock carries the full statement and the measurement; do not restate
+ *      it loosely here.
  *
  *      A SECOND, LIVE READ still happens inside `writeRefusalEvent`. THE WINDOW
  *      BETWEEN THEM IS ZERO, not "microseconds": no `await` separates them —

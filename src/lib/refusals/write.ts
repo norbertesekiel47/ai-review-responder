@@ -143,7 +143,14 @@ export function isRefusalLedgerEnabled(): boolean {
  * about. Warning there would put noise on the one signal that says the ledger is
  * dark. The predicate that satisfies this is EVERY-mapped-and-non-null, never
  * SOME: one `null`-mapped member vetoes the whole row (#1003), so a `some` test
- * would warn about a decision that was never going to be recorded.
+ * would warn about a decision that was never going to be recorded. THE
+ * COUNTEREXAMPLE IS A MIXED SET, NOT A VETO-ONLY ONE — `some` is false on a
+ * veto-only set too, because its only member maps to `null`; it goes wrong on a
+ * set holding one mapped non-null member AND one `null`-mapped member, which is
+ * why the `!== null` test must sit INSIDE the callback. The shipped predicate is
+ * `wouldRecordRefusal` in `worker/jobs/response-generation/persist.ts`, whose
+ * docblock carries the machine-produced counterexample; this docblock states the
+ * rule, not the measurement.
  */
 export function noteRefusalLedgerDark(): void {
   warnLedgerDisabled();

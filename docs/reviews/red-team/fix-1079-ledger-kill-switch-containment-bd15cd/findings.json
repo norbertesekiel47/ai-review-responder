@@ -5,153 +5,153 @@
   "branch": "fix/1079-ledger-kill-switch-containment",
   "fork_sha": "f797d25064c31997dfe400414baf99967b63315f",
   "merge_base_sha": "f797d25064c31997dfe400414baf99967b63315f",
-  "head_sha": "659810f23660fd12cc6c8a6223fe8bfc04547d58",
-  "intake_sha256": "bd6f73ef929b5a1283327be33952d54f985bf3234f4c55e00706ccdbcf6c5e65",
+  "head_sha": "7269bdad3fdcbf436572698f66685c1db0641757",
+  "intake_sha256": "beeb0c90a3cab674675fa9d804eecc666033f9d5916705486db04d78d529d732",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-03T05:22:14.741Z",
+  "round": 2,
+  "generated_at": "2026-09-03T10:05:00Z",
   "inventory": [
     {
-      "id": "RT-INV-01",
-      "test": "with REFUSAL_LEDGER_ENABLED off, persistResponseAndNotify invokes no refusals vocabulary resolver on the policy lane and the draft row commits",
-      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M1 — guard 4 (persist.ts:781 `if (!isRefusalLedgerEnabled()) return;`) deleted. FAILED: \"expected vi.fn() to not be called at all, but actually been called 1 times\" with the call recorded as [\"triage_high_severity\"]. The recorded argument is the decisive evidence: the fixture really does reach the resolver on the policy lane, so the zero-count assertion is biting rather than passing on a fixture defect."
-    },
-    {
-      "id": "RT-INV-02",
-      "test": "with REFUSAL_LEDGER_ENABLED on, the same policy-lane fixture invokes the resolver exactly once and writes its refusal row",
-      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M2 — guard 4 inverted to `if (isRefusalLedgerEnabled()) return;`. FAILED: \"expected vi.fn() to be called 1 times, but got 0 times\". The mandatory positive control is non-vacuous and is the SAME fixture as RT-INV-01 (identical seedReview + makeInput; the flag value is the only difference)."
-    },
-    {
-      "id": "RT-INV-03",
-      "test": "a policy-gate resolver throw with the flag on captures exactly once with subsystem refusal_ledger and refusal_lane policy_gate_held and rethrows the same error instance",
-      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M3 — the resolve hoisted back OUT of withLedgerAttribution (the pre-branch shape). FAILED: captureException \"expected 1 times, but got 0 times\". The attribution claim is real, not asserted."
-    },
-    {
-      "id": "RT-INV-04",
-      "test": "a policy-gate resolver throw with the flag on still aborts the persist transaction, leaves no response row, and the rejection carries the injected error message",
-      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M7 — a swallowing try/catch wrapped around the resolve while keeping guard 4 (precisely the alternative shape the branch documents as rejected). FAILED: \"promise resolved { kind: 'persisted' } instead of rejecting\". The over-application guard does the job it claims."
-    },
-    {
-      "id": "RT-INV-05",
-      "test": "writeRefusalEvent and writeRefusalEvents together emit exactly one disabled warning across one disabled episode",
+      "id": "RT2-INV-01",
+      "test": "noteRefusalLedgerDark shares the write arms' once-per-episode latch",
       "file": "src/lib/refusals/__tests__/write.test.ts",
       "outcome": "killed",
-      "reason": "M9 — the predicate made impure on the LATCH half (`if (on) endDisabledEpisode();`). FAILED with the case’s own message: \"the predicate did not end the episode: expected [ …(2) ] to have a length of 1 but got 2\"."
+      "reason": "Mutant M-NOTE-NOOP: noteRefusalLedgerDark's body emptied (write.ts:148-150). Baseline green, mutant FAILED. Re-derives the root's own claim rather than trusting it."
     },
     {
-      "id": "RT-INV-06",
-      "test": "writeRefusalEvents issues no statement and emits no disabled warning for an empty input while the flag is off",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "id": "RT2-INV-02",
+      "test": "invariants: with the ledger off, the warning fires exactly when every block reason maps to a real category",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
       "outcome": "killed",
-      "reason": "Killed TWICE. M5 — the predicate made impure on the WARNING half (`if (!on) warnLedgerDisabled();`): FAILED \"expected [ Array(1) ] to have a length of +0 but got 1\". M6 — the flag read hoisted above the `inputs.length === 0` return: FAILED identically. Both halves of the purity contract and the ordering contract are load-bearing."
+      "reason": "Mutant M-EVERY-SOME: wouldRecordRefusal's `.every(` -> `.some(` (persist.ts:724). Baseline green, mutant FAILED with counterexample [[\"policy_not_enabled\",\"current_rating_missing\"]] after 1 test, shrunk 2x. Confirms the docblock's central every-vs-some claim is genuinely test-enforced."
     },
     {
-      "id": "RT-INV-07",
+      "id": "RT2-INV-03",
+      "test": "with REFUSAL_LEDGER_ENABLED off, a would-have-recorded decision warns once and a veto-only decision does not",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Two mutants, both killed on live Postgres. M-NOTE-NOOP failed half A ('a withheld row reports the gap: expected [] to have a length of 1'). M-EVERY-SOME failed half B ('a decision that records nothing either way reports no gap: expected [ [ ...(2) ] ] to have a length of +0 but got 1'), confirming half B really is the every-vs-some discriminator its comment claims to be."
+    },
+    {
+      "id": "RT2-INV-04",
+      "test": "with REFUSAL_LEDGER_ENABLED off, a throwing vocabulary resolver never runs and the draft row still commits",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant M-GUARD4-NORETURN: the `return;` removed from guard 4's off-arm (persist.ts:852) so the arm warns and then falls through to the resolve. Baseline green, mutant FAILED with the armed poison 'vocabulary_resolver_exploded'. The new warning branch does not weaken containment."
+    },
+    {
+      "id": "RT2-INV-05",
       "test": "the held_draft lane still writes its refusal row and still aborts on a writer fault with the flag on",
       "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
       "outcome": "killed",
-      "reason": "M10 — guard 1 (`if (held) return;`, persist.ts:776) deleted. FAILED: \"expected vi.fn() to not be called at all, but actually been called 1 times\" with [\"moderation_flagged\",\"moderation_held\"]. The pin is real. This same run is the evidence for finding RT-1.",
-      "finding_id": "RT-1"
+      "reason": "Mutant M-DEL-GUARD1: `if (held) return;` deleted (persist.ts:844). Baseline green, mutant FAILED: 'expected vi.fn() to not be called at all, but actually been called 1 times' with the recorded call [\"moderation_flagged\",\"moderation_held\"]. Independently re-derives the guard-1 number the docblock and the test comment now publish, including the exact recorded call."
     },
     {
-      "id": "RT-INV-08",
+      "id": "RT2-INV-06",
+      "test": "a structural non-candidate draft writes no policy_gate_held row",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant M-DEL-GUARD3: `if (!isGenuineAutoCandidate(originLane, runtimeState)) return;` deleted (persist.ts:846). Baseline green, mutant FAILED with 'expected [ { ...(9) } ] to have a length of +0 but got 1' — a spurious policy_gate_held row for a structural non-candidate. Re-derives the guard-3 number the docblock publishes, including its quoted failure text."
+    },
+    {
+      "id": "RT2-INV-07",
       "test": "invariants: the flag decides the resolver call count — off yields zero calls, on yields exactly one receiving the generated block reasons verbatim and in order",
       "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
       "outcome": "killed",
-      "reason": "Killed TWICE, once per arm, and BOTH counterexamples came from the generator. M1 (guard 4 deleted) FAILED with counterexample [[\"policy_not_enabled\"],false] — the OFF arm. M8 (the array sorted before the resolver call) FAILED with counterexample [[\"policy_not_enabled\",\"moderation_flagged\"],true] — the ON arm, killing the \"verbatim and in order\" clause. The property depends on its generated input and is not a tautology. Separately verified non-flaky: all 22 members of POLICY_GATE_HELD_REFUSAL_CATEGORIES are mapped and all 15 non-null members appear in AUTO_APPROVAL_BLOCK_PRECEDENCE, so no generated subset can reach the resolver’s unmapped/unranked throws."
+      "reason": "Mutant M-GUARD4-NORETURN (the same mutant as RT2-INV-04). Baseline green inside the 85-case HEAD run of both suites; mutant FAILED with counterexample [[\"policy_not_enabled\"],false] after 5 tests. Re-entered the inventory because the fix hunk edited the production line this test covers."
     },
     {
-      "id": "RT-INV-09",
-      "test": "a structural non-candidate draft writes no policy_gate_held row (pre-existing; enters the inventory via Direction A because the @/lib/refusals/vocabulary mock it depends on was rewritten into a spy)",
-      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M12 — guard 3 (`if (!isGenuineAutoCandidate(...)) return;`, persist.ts:778) deleted. FAILED: \"expected [ { …(9) } ] to have a length of +0 but got 1\" — a policy_gate_held row was WRITTEN. The rewritten spy neutralises no pre-existing assertion. Second evidence line for finding RT-1.",
-      "finding_id": "RT-1"
+      "id": "RT2-INV-08",
+      "test": "wouldRecordRefusal's `blockReasons.length > 0` conjunct (covering candidate: the new property in persist.test.ts)",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "outcome": "equivalent",
+      "reason": "Mutant M-DROP-LENGTH: the `blockReasons.length > 0 &&` conjunct removed, leaving the vacuously-true `every` on []. SURVIVES 99/99 across persist.test.ts, refusal-write.integration.test.ts and write.test.ts. PROOF OF EQUIVALENCE at the call site, not a judgement: wouldRecordRefusal has exactly one caller (persist.ts:851, inside guard 4); guard 2 (`if (autoDecision.approved) return;`, persist.ts:845) runs first; and across BOTH AutoApprovalDecision construction sites `approved` is true only when blockReasons is empty — auto-approval.ts:376 sets `approved: blockReasons.length === 0`, and auto-approval.ts:321-327 throws rather than returning a structurally-blocked decision with an empty set. Guard 4 is therefore unreachable with an empty array, so the conjunct can never change an outcome. This is a claim about the MUTANT, not about the oracle. The false COVERAGE claim attached to it is filed separately as RT2-3."
     },
     {
-      "id": "RT-INV-10",
-      "test": "the 25 other pre-existing integration cases and the 64 pre-existing unit cases that share the rewritten @/lib/refusals/vocabulary spy and the new file-global ../auto-approval mock (Direction A, helper change)",
-      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts + worker/jobs/response-generation/__tests__/persist.test.ts + src/lib/refusals/__tests__/write.test.ts",
+      "id": "RT2-INV-09",
+      "test": "writeRefusalEvent and writeRefusalEvents together emit exactly one disabled warning across one disabled episode",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
       "outcome": "excluded",
-      "reason": "Green full-file baselines at HEAD under the isolated environment — 30/30 integration and 65/65 unit — establish that neither rewritten helper silently disables an assertion. Individually mutation-covered by RT-INV-09 (integration) and RT-INV-08 (unit), both killed. Excluded from separate mutation only because a helper-neutralisation defect would have surfaced as a baseline skip or pass-through, and none did."
+      "reason": "Excluded from execution: the fix hunk changed only this case's comments, and the production lines it covers (writeRefusalEvent's and writeRefusalEvents' flag arms, write.ts:443-447 and 584-588) are byte-identical to 659810f2, where round 1 recorded this candidate killed. Its shared-latch property is additionally exercised at HEAD by RT2-INV-01."
     },
     {
-      "id": "RT-INV-11",
-      "test": "guard 2 (`if (autoDecision.approved) return;`, persist.ts:777) — run as a Duty-3 doc-claim probe, not as a coverage candidate",
+      "id": "RT2-INV-10",
+      "test": "writeRefusalEvents issues no statement and emits no disabled warning for an empty input while the flag is off",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "excluded",
+      "reason": "Excluded from execution for the same reason as RT2-INV-09: comment-only change in the fix hunk, covered production lines byte-identical to 659810f2, killed there in round 1."
+    },
+    {
+      "id": "RT2-INV-11",
+      "test": "guard 2 deletion — `if (autoDecision.approved) return;` (docblock-claim verification)",
       "file": "worker/jobs/response-generation/persist.ts",
       "outcome": "excluded",
-      "reason": "Unchanged pre-existing code outside every behaviour-affecting hunk of this diff; the skill forbids opening fronts against unchanged code, so this is recorded as a documentation probe. M11 (guard 2 deleted) SURVIVED the full integration + persist suites, 82/82 passing — which CONFIRMS the docblock’s claim for this one guard. PROVEN behaviour-preserving, not merely plausible: `approved` implies an empty `blockReasons`, and `resolvePolicyGateRefusal` returns null for an empty set at src/lib/refusals/vocabulary.ts:627 (`const [first] = blockReasons; if (first === undefined) return null;`) before any throw is reachable, so the deletion cannot write a row or raise."
-    },
-    {
-      "id": "RT-INV-12",
-      "test": "the pre-existing writeRefusalEvent disabled-arm cases that now route through the extracted predicate (Direction B: the src/lib/refusals/write.ts:405 guard re-spelling)",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "The re-spelling `readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG)` -> `isRefusalLedgerEnabled()` is behaviour-identical by construction, so it is covered by mutating the extracted predicate itself: M5 and M9 both alter isRefusalLedgerEnabled and both were killed through writeRefusalEvent call paths. The seam is live, not dead code."
+      "reason": "Excluded as a SCOPE call, not as an unmeasured row: guard 2 is unchanged production code outside the round-2 fix hunks, and a survivor there is not a round-2 finding. Run anyway to check the docblock's published number. M-DEL-GUARD2 SURVIVES 85/85 across persist.test.ts + refusal-write.integration.test.ts at HEAD, so the docblock's 'survives' verdict is correct; its stated count of 82 is round 1's and is filed as RT2-4."
     }
   ],
   "findings": [
     {
-      "id": "RT-1",
-      "severity": "P0",
-      "title": "The guard docblock re-asserts a mutation-testing result that is false for two of its three guards — and this branch’s own new test is what falsified one of them",
-      "at": "worker/jobs/response-generation/persist.ts:703",
-      "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "The rewritten docblock states: \"Branch review round 1 mutation-tested the original three: deleting guard 1, 2 or 3 individually changes no outcome and kills no test, because the resolver guard already covers each case.\" The branch did not merely leave this sentence alone — it renumbered it, and then explicitly bounded the staleness risk to guard 4 (\"THAT RESULT IS ABOUT THOSE THREE AND THE RESOLVER GUARD (now numbered 5) AND NOTHING ELSE — guard 4 post-dates it (#1079)\"). That re-scoping publishes the claim as CURRENT at 659810f2. Three individual mutations measured at HEAD: guard 1 deleted (M10) KILLS the branch’s own new test T7, \"the held_draft lane still writes its refusal row…\", because that test’s `expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled()` did not exist when round 1 measured — the same commit that re-asserts the claim is the commit that falsifies it. Guard 3 deleted (M12) KILLS the pre-existing \"a structural non-candidate draft writes no policy_gate_held row\" AND changes the OUTCOME: a policy_gate_held row is written (\"expected [ { …(9) } ] to have a length of +0 but got 1\"), so both halves of the sentence fail there; that half was already false at the fork point f797d250 (the test predates the branch) and is re-published rather than introduced. Guard 2 deleted (M11) SURVIVES 82/82 — the claim holds for exactly one of the three. This is not an equivalent-mutant question and not a style objection: the docblock’s stated purpose is to tell the next reader which guards are safe to remove, and it currently licenses removing guard 3, which would write a spurious Refusal row for a structural non-candidate — a data-correctness defect in the ledger the Restraint tab renders. Classified P0 under the skill’s \"a misleading FALSE claim is P0\", and because the branch holds itself to precisely this standard three lines later (\"an earlier version of this docblock claimed 'each answers a different question', which was false and is corrected here rather than left to mislead the next reader\"). No runtime behaviour is wrong; the fix is a docblock correction naming which guard is actually unpinned and which two are now pinned, and by what."
-    },
-    {
-      "id": "RT-2",
+      "id": "RT2-1",
       "severity": "P1",
-      "title": "The alerting runbook’s refusal-ledger rule row is contradicted on its threshold/cadence facet, and still calls the warning the ledger’s only gap detector",
-      "at": "docs/runbooks/beta-launch-alerting.md:54",
-      "duty": 5,
-      "disposition": "open",
-      "arbiter_reasoning": "Six-facet comparison of the documented rule against the signal emitted at 659810f2. Signal identity: MATCHES (captureMessage, tags.subsystem=refusal_ledger via warnLedgerDisabled). Filter: MATCHES, with a pre-existing ambiguity not added here — withLedgerAttribution also tags subsystem=refusal_ledger at level error, and its capture body is unchanged by this diff (only its docblock moved), so this diff adds no new operator-actionable terminal path, it widens an existing one. Level: MATCHES. Grouping title: n/a. Threshold/cadence: CONTRADICTED — the row says the warning fires \"once per disabled episode whenever REFUSAL_LEDGER_ENABLED=false and a write is attempted\", but guard 4 now returns before any write is attempted on the policy_gate_held lane, so with the flag off that lane contributes nothing to the episode. Destination action: MATCHES. The branch itself records this as an accepted cost in three places (intake observability[3], the arch-review-log row, and the persist.ts guard-4 docblock), and I verified the compensating claim is TRUE: the held_draft lane at persist.ts:930 and all six other production write sites still call writeRefusalEvent(s) with no flag guard, so they still warn. What is missing is the runbook — the operator-facing document that specifies the alert rule and asserts in bold \"This is the only signal that the ledger has a gap\". It now overstates that coverage with no mention of the blind spot. Scope note for the adjudicator: docs/runbooks/beta-launch-alerting.md is NOT in the intake’s allowed_edit_surface, so this is a scope decision for the root rather than an implementer miss; the fix is one sentence."
-    },
-    {
-      "id": "RT-3",
-      "severity": "P2",
-      "title": "The write.ts:488-492 citation the branch treats as its governing rule does not resolve at HEAD (already logged by the async axis)",
-      "at": "worker/jobs/response-generation/persist.ts:743",
+      "title": "The plan document still states, unannotated, the two premises this branch measured as false — that the guard cannot know whether a row would have been written, and that the two-read window is microseconds wide",
+      "at": "docs/superpowers/plans/fix-1079-ledger-kill-switch-containment-plan.md:30",
       "duty": 3,
-      "disposition": "open",
-      "arbiter_reasoning": "Independently verified at 659810f2: lines 488-492 of src/lib/refusals/write.ts are the close of a docblock plus three fields of `interface RefusalEventRow`. The empty-input no-warn rule the branch repeatedly cites as its governing constraint is at src/lib/refusals/write.ts:525-529 (\"AN EMPTY INPUT ISSUES NO STATEMENT … The check runs BEFORE the kill-switch read on purpose\"). The same commit that cites 488-492 is the commit that shifted it, by inserting 36 lines above it. Four occurrences: persist.ts:743, write.test.ts:646, write.test.ts:698, and the arch-review-log row at .claude/reference/arch-review-log.md:1510. SEVERITY DELIBERATELY SET BELOW THE SKILL’S DEFAULT: under the rubric in isolation a stale line number is P1, but the async review axis already recorded this defect twice in docs/reviews/finding-checklists/async.md at [low] during this same wave, and my numbers agree with theirs exactly (:525-529). Filing it as a blocking P1 here would count one defect twice across two axes and force user adjudication on an already-triaged low. Recorded at P2 with the verification attached so the root can dedupe against the async record; the fix both axes converge on is to cite the owner by SYMBOL rather than by line range. Separately observed and NOT filed: every path:line citation in the intake (write.ts:353-359, :364-368, :488-492, :369; persist.ts:788-807, :877) resolves against the fork point rather than HEAD, which is correct and expected for a locked pre-change contract."
+      "disposition": "fixed",
+      "reason": "The fix commit edited this file — it converted a stale line-range citation to a symbol citation and appended a 'SUPERSEDED IN REVIEW' note under the T2 bullet at line 106 — so the author's own convention here is to annotate a superseded claim. Three were left unannotated and are false at HEAD. (1) Lines 30-32, inside the normative 'Chosen shape (owner-approved)' section: 'The persist guard cannot know whether a row would have been written without running the resolver — which is the thing it exists to avoid.' The branch's own wouldRecordRefusal (persist.ts:723) disproves this, and every other artifact says so — arch-review-log clause (c), the guard-4 docblock (persist.ts:797-806), the runbook. (2) Lines 257-258: 'The window is synchronous and microseconds wide; it is the price of the pure predicate and is recorded as an edge case rather than defended against.' I re-derived the window myself: guard 4's read (persist.ts:850) reaches writeRefusalEvent's read (write.ts:443) via `await withLedgerAttribution(...)` -> `return await write();` -> the async arrow's body -> `await writeRefusalEvent(...)`, and an async call runs its body synchronously up to its own first await, so writeRefusalEvent's flag read — its FIRST statement — executes in the same run-to-completion segment as guard 4's. No suspension point exists, so no other task can flip the env between them. The window is ZERO, exactly what persist.ts:809-813 and the arch-review-log now say. (3) Lines 20, 23 and 77 keep 'PURE' as the contract word, which the branch retired repo-wide for SIDE-EFFECT-FREE precisely because vocabulary.ts:595 defines PURE in this feature area as excluding a flag read. Filed P1 rather than P0 deliberately: every AUTHORITATIVE surface (production docblocks, .claude/reference/arch-review-log.md, docs/runbooks/beta-launch-alerting.md, docs/reviews/fix-1079-.../review.md) carries the corrected version, and the plan is a superseded planning artifact. It is also the document a later reader opens first, and this branch exists because a retained claim in a superseded document was believed — escalate to P0 if the root judges the plan normative."
     },
     {
-      "id": "RT-4",
-      "severity": "P2",
-      "title": "The new file-global auto-approval mock leaves a dictated gate verdict in module state that only the last describe block resets",
-      "at": "worker/jobs/response-generation/__tests__/persist.test.ts:55",
+      "id": "RT2-2",
+      "severity": "P1",
+      "title": "The new accepted-findings checklist ships the REFUTED `some` predicate as forward-facing guidance to future async reviewers, with no correction",
+      "at": "docs/reviews/finding-checklists/async.md:9",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "docs/reviews/finding-checklists/async.md is created BY THIS BRANCH and its own header says 'Reviewers on this axis receive this file and check the diff against every line' — it is a prescriptive input to future reviews, not a closed historical log. Its second entry states: 'blockReasons.some(c => Object.hasOwn(MAP, c) && MAP[c] !== null) is total, non-throwing, and returns false for exactly the empty and all-null-mapped sets write.ts:525-529 protects.' The clause after 'exactly' is FALSE and I have a machine-produced counterexample: with `.every(` replaced by `.some(` the property failed on [\"policy_not_enabled\",\"current_rating_missing\"] — a MIXED set, one mapped and one null-mapped, that resolves to no row and on which `some` returns true. The integration half-B run refuted it a second time on live Postgres with the ['autopilot_tier_required','rating_below_positive_quadrant'] fixture. This is the single error the branch corrected most emphatically: persist.ts:807-812, write.ts:139-144, the arch-review-log row and review.md:69-74 all say `every`, never `some`. The one artifact a future reviewer is actually handed is the one that still says `some`. The file's own header restricts edits ('Lines are appended by review-log.mjs triage; edit only to prune entries that no longer apply'), so the remedy is a scope call for the root: prune the entry, append the correction, or accept the risk on the record."
+    },
+    {
+      "id": "RT2-3",
+      "severity": "P1",
+      "title": "The new property's comment claims guard 4's length check is covered by the approved-draft cases; no test reaches that expression and deleting it survives 99/99",
+      "at": "worker/jobs/response-generation/__tests__/persist.test.ts:1162",
       "duty": 2,
-      "disposition": "open",
-      "arbiter_reasoning": "vi.mock('../auto-approval') is now file-global in persist.test.ts and consults the module-level mutable `gateOverride`, which is reset to null only in the afterEach of the `invariants` describe at line 1031. That is correct today for exactly one structural reason — `invariants` is the last describe in the file — and the 65/65 green unit baseline confirms no current leakage. It is a latent hazard rather than a present defect: a describe added after `invariants`, or a reorder, would inherit a dictated `approved: false` plus a generated blockReasons array into unrelated cases, and the failure would surface far from its cause (the file’s own queuePersistRows comment already documents how an off-by-one in the tx queue resurfaces as an unrelated tier error). Recorded as P2, non-blocking; a top-level beforeEach resetting gateOverride, or moving the state into the describe, closes it. Not classified as a fragile assertion under Duty 2’s three named shapes — I searched for those specifically and found none: every absence assertion added by this diff carries a proven positive control (T1 by T2, killed under M2; T6 by its trailing non-empty batch, killed under M5 and M6; T5 by its resetRefusalLedgerWarningForTests new-episode arm, killed under M9; T7 killed under M10), the single order assertion (toEqual on the resolver argument in T8) has an explicit ordering contract in vocabulary.ts and is killed under M8, tags are compared with toMatchObject rather than exact equality, and ALL_BLOCK_REASONS is derived via Object.keys rather than hardcoded (its \"22 today\" comment verified accurate: 15 mapped + 7 null)."
+      "disposition": "fixed",
+      "reason": "The comment reads: '`minLength: 1` keeps the empty set out of the generator; the \"empty warns nothing\" half is guard 4's length check and is covered by the approved-draft cases above.' The BEHAVIOUR is covered — an approved draft warns nothing — but not by the named mechanism, and the named mechanism is uncovered. An approved decision returns at guard 2 (persist.ts:845) and never reaches guard 4, so no approved-draft case executes `blockReasons.length > 0` at all. Measured, not reasoned: M-DROP-LENGTH survives 99/99 across the three touched suites (RT2-INV-08). The expression is in fact unreachable-as-false at its only call site — proof recorded on RT2-INV-08 — so believing the comment has no correctness consequence today, and that is why this is P1 and not P0. It is filed because it is the exact defect class the branch is about: a comment attributing an outcome to the wrong mechanism, sitting beside three carefully-corrected mechanism attributions. The honest wording is that guard 2 makes the length check defence in depth against a future guard reorder, tested by nothing."
+    },
+    {
+      "id": "RT2-4",
+      "severity": "P2",
+      "title": "The guard docblock publishes '82/82' for guard 2 as a re-measurement 'against the CURRENT tests'; the current surface is 85 and the number is round 1's",
+      "at": "worker/jobs/response-generation/persist.ts:757",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "The docblock says 'RE-MEASURED AT #1079, ONE AT A TIME ... re-ran that experiment against the CURRENT tests', then 'GUARD 2 — deletion SURVIVES, 82/82', and closes with 'Do not re-derive this; the numbers are the measurement'. I re-derived it: at HEAD the two relevant suites hold 85 cases (persist.test.ts + refusal-write.integration.test.ts, all passing at HEAD), and M-DEL-GUARD2 survives 85/85. The VERDICT is right and guard 2 is genuinely unpinned; only the count is stale, because the branch added three cases after round 1 took that number. A docblock that forbids re-derivation must carry a number matching the tree it ships with. One-word fix: 85/85, or drop the count."
+    },
+    {
+      "id": "RT2-5",
+      "severity": "P2",
+      "title": "The fix converted one stale line citation in the plan document and left at least sixteen others, several of which now resolve to text that contradicts them",
+      "at": "docs/superpowers/plans/fix-1079-ledger-kill-switch-containment-plan.md:82",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "Round 1's RT-3 class, unfinished. The five `write.ts:488-492` citations the round-2 brief named are all gone — verified: no `write.ts:<digits>` or `persist.ts:<digits>` citation survives anywhere in src/, worker/, .claude/reference/arch-review-log.md or docs/runbooks/beta-launch-alerting.md. The plan document keeps sixteen more and every one I resolved at HEAD is wrong, because this branch inserted ~36 lines into write.ts and ~90 into persist.ts. Sampled: write.ts:369 -> a swallow comment inside warnLedgerDisabled (claimed: writeRefusalEvent); write.ts:512 -> a #1002 backfill comment (claimed: writeRefusalEvents); write.ts:237 -> a blank line (claimed: resetRefusalLedgerWarningForTests); persist.ts:729 and :877 -> bare closing braces; persist.ts:788 -> the withLedgerAttribution docblock's vocabulary-fault bullet (claimed: the wrapper's contract at 788-807). Two resolve to actively misleading text: persist.ts:743 and :745, cited as the guard list, now land inside the REPLACEMENT docblock, and :745 reads 'individually changes no outcome and kills no test' — the exact sentence this branch retired. Graded P2 to match round 1's grading of the identical class; the skill's scale would allow P1 for a stale line number, and the resolve-to-contradicting-text cases are the ones that argue for it."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 12,
-    "killed": 10,
+    "inventory_total": 11,
+    "killed": 7,
     "survived_confirmed_p0": 0,
-    "equivalent": 0,
+    "equivalent": 1,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 2,
-    "findings_total": 4,
-    "p0_open": 1,
-    "p1_open": 1,
+    "excluded": 3,
+    "findings_total": 5,
+    "p0_open": 0,
+    "p1_open": 3,
     "p2_open": 2,
     "accepted_risk": 0,
     "fixed": 0,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "OPEN_P1"
 }

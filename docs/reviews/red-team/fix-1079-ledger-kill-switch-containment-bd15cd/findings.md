@@ -1,45 +1,255 @@
-# Red team — `fix/1079-ledger-kill-switch-containment`
+# Red team — `fix/1079-ledger-kill-switch-containment` — **round 2 of 2**
+
+> **THIS IS THE ROUND-2 REPORT AND IT REPLACES THE ROUND-1 ONE.** Round 2 is the
+> CAP: `round: 2` of a maximum 2, so no round 3 exists and nothing below is
+> deferred to one. Round 1's report (status `OPEN_P0`, head `659810f2`) described
+> a tree that no longer exists — its P0 was fixed at `b430c30a`, and leaving it
+> here made this file contradict the `findings.json` sidecar beside it. The
+> round-1 content is preserved in git history at this path; this file is
+> reconstructed from that validated sidecar, which is the machine-read record the
+> `reviewed` transition parses.
 
 | | |
 |---|---|
 | Mode | feature (dispatched inside `/feature` step 7's review wave) |
-| Round | 1 of 2 |
-| Risk | high (from `.feature/intake.json`, sha256 `bd6f73ef…dcbf5e65`) |
+| Round | **2 of 2 — the cap** |
+| Risk | high (from `.feature/intake.json`, sha256 `beeb0c90…d529d732`) |
 | Fork / merge-base | `f797d25064c31997dfe400414baf99967b63315f` |
-| Head | `659810f23660fd12cc6c8a6223fe8bfc04547d58` |
-| Mutation runs used | 18 of 30 |
-| **Status** | **`OPEN_P0`** |
+| Head | `7269bdad3fdcbf436572698f66685c1db0641757` |
+| Run id | `feature-fix-1079-ledger-kill-switch-containment-bd15cd` |
+| Generated | 2026-09-03T10:05:00Z |
+| **Status** | **`OPEN_P1`** |
 
 ## Verdict in one paragraph
 
-The engineering claims this branch makes about itself are **true and they are
-proven true**. Both claims the dispatch flagged as most attackable survived a
-direct attempt to break them: the zero-resolver-invocation assertion is not
-vacuous (deleting the guard makes it fail *with the resolver's recorded argument
-in the failure message*, so the fixture demonstrably reaches the resolver), and
-the property test is a real biconditional whose **both** arms produce
-generator-derived counterexamples. All eight promised test titles are present
-verbatim **and** each one has at least one confirmed kill, so the verify gate's
-title-only match is not hiding an empty assertion anywhere. Ten of twelve
-inventory rows are killed; nothing is inconclusive, nothing was skipped for
-budget, and no mutant survived that measures this diff.
-
-The one blocking finding is **documentation, not code**: the rewritten guard
-docblock re-publishes a mutation-testing result that is now false for two of its
-three guards — and the branch's *own new test* is what falsified one of them.
+**The code is right, and round 2 re-proved it under mutation rather than
+inheriting round 1's word for it.** Every claim the fix commits make about
+runtime behaviour held: the new warning arm does not weaken containment, the
+`every`-not-`some` rule is genuinely test-enforced on both the unit property and
+live Postgres, and the two guard numbers round 1 corrected were independently
+re-derived here — including their exact recorded call and failure text. Seven of
+eleven inventory rows are killed, one is a **proven-equivalent** mutant with the
+proof attached, three are excluded for stated reasons, and nothing is
+inconclusive or skipped for budget. **No P0.** All five findings are
+documentation accuracy: the corrections this branch made propagated to every
+authoritative surface — the production docblocks, `.claude/reference/arch-review-log.md`,
+`docs/runbooks/beta-launch-alerting.md`, `docs/reviews/fix-1079-…/review.md` —
+and stopped short of three artifacts the branch itself created or edited. One of
+those, the new async finding-checklist, is **prescriptive** — its header says
+async reviewers receive it and check the diff against every line — and it is the
+one artifact still carrying the refuted `some` predicate.
 
 ## Severity table
 
 | ID | Sev | Duty | Where | Finding |
 |---|---|---|---|---|
-| RT-1 | **P0** | 3 | `worker/jobs/response-generation/persist.ts:703` | The guard docblock re-asserts "deleting guard 1, 2 or 3 individually changes no outcome and kills no test". False for guard 1 (falsified by this branch's own new test) and false for guard 3 on **both** halves. True only for guard 2. |
-| RT-2 | P1 | 5 | `docs/runbooks/beta-launch-alerting.md:54` | The refusal-ledger alert rule row is contradicted on its threshold/cadence facet and still asserts in bold that the warning is the ledger's only gap detector, with no mention of the blind spot this branch deliberately opened. |
-| RT-3 | P2 | 3 | `worker/jobs/response-generation/persist.ts:743` | `write.ts:488-492` — the citation the branch treats as its governing rule — does not resolve at HEAD; the rule is at `:525-529`. Already logged by the async axis; severity lowered to avoid double-counting. |
-| RT-4 | P2 | 2 | `worker/jobs/response-generation/__tests__/persist.test.ts:55` | The new file-global `../auto-approval` mock keeps a dictated gate verdict in module state that only the last `describe` resets. Latent, not present. |
+| RT2-1 | P1 | 3 | `docs/superpowers/plans/…-plan.md` § "Chosen shape (owner-approved)" | The plan keeps three claims the branch disproved, unannotated: the guard-cannot-know premise, the "microseconds wide" window (measured ZERO), and `PURE` as the contract word. |
+| RT2-2 | P1 | 3 | `docs/reviews/finding-checklists/async.md`, entry 2 | The new, PRESCRIPTIVE checklist ships the refuted `some` predicate as forward-facing guidance to future async reviewers, with no correction. |
+| RT2-3 | P1 | 2 | `worker/jobs/response-generation/__tests__/persist.test.ts`, the new property's expectation comment | Claims guard 4's length check "is covered by the approved-draft cases above". The behaviour is covered; the named mechanism is not, and cannot be. |
+| RT2-4 | P2 | 3 | `recordPolicyGateRefusal`'s docblock, guard-2 row | Publishes `82/82` under "re-ran against the CURRENT tests" and "do not re-derive this". At HEAD the surface is 85 cases and guard 2 survives 85/85. |
+| RT2-5 | P2 | 3 | `docs/superpowers/plans/…-plan.md` | Sixteen more line-number citations; every sampled one is wrong at HEAD, and two now land on text that contradicts them. |
+
+Counts: 5 findings — 0 P0, 3 P1, 2 P2. 0 accepted-risk, 0 rejected, 0 authorizations.
 
 ---
 
-## RT-1 (P0) — the docblock's recorded mutation result is now false
+## RT2-2 (P1) — the one artifact a future reviewer is handed still says `some`
+
+`docs/reviews/finding-checklists/async.md` is **created by this branch**, and its
+own header says *"Reviewers on this axis receive this file and check the diff
+against every line"*. It is a prescriptive input to future reviews, not a closed
+historical log. Its second entry states:
+
+> `blockReasons.some(c => Object.hasOwn(MAP, c) && MAP[c] !== null)` is total,
+> non-throwing, and returns false for **exactly** the empty and all-null-mapped
+> sets `write.ts:525-529` protects.
+
+The clause after "exactly" is **false**, and it is machine-refuted twice:
+
+| Refutation | Evidence |
+|---|---|
+| Unit property (`persist.test.ts`) | Mutant M-EVERY-SOME (`.every(` → `.some(`) FAILED with counterexample `[["policy_not_enabled","current_rating_missing"]]` after 1 test, shrunk twice. |
+| Live DB (`refusal-write.integration.test.ts`, half B) | The same mutant FAILED on the copilot/2-star fixture: *"a decision that records nothing either way reports no gap: expected [ [ …(2) ] ] to have a length of +0 but got 1"*. |
+
+**And the reason matters as much as the verdict.** The branch's own docblocks
+state it slightly wrong too. Precisely:
+
+- `some` does **NOT** over-warn on a veto-**ONLY** set — it is false there as
+  well, because the only member maps to `null`.
+- It over-warns on a **MIXED** set: one mapped non-null member plus one
+  `null`-mapped member. `["policy_not_enabled","current_rating_missing"]` is the
+  shrunk counterexample.
+- Therefore the **`!== null` test inside the callback** is what saves the
+  veto-only case — **not** the length check.
+
+Every other artifact on this branch says `every`, never `some`. The checklist's
+own header restricts edits ("edit only to prune entries that no longer apply"),
+so the remedy is a scope call for the root: prune the entry, correct it in place,
+or accept the risk on the record.
+
+## RT2-1 (P1) — three disproved claims left standing in the plan
+
+The fix commit already edited this document — it converted a stale line-range
+citation to a symbol citation and appended a `SUPERSEDED IN REVIEW` note under
+the T2 bullet — so **annotating in place is this file's own established
+convention**. Three claims were left unannotated and are false at HEAD:
+
+1. **The guard-cannot-know premise**, inside the normative "Chosen shape
+   (owner-approved)" section: *"The persist guard cannot know whether a row would
+   have been written without running the resolver — which is the thing it exists
+   to avoid."* This is exactly the premise `wouldRecordRefusal` disproves, and
+   every other artifact says so. The existing `SUPERSEDED IN REVIEW` note sits
+   ~76 lines below it and does not reach it.
+2. **The two-read window**, in "Known second-order effects": *"The window is
+   synchronous and microseconds wide."* Re-derived here: guard 4's read reaches
+   `writeRefusalEvent`'s read via `await withLedgerAttribution(…)` →
+   `return await write();` → the async arrow's body → `await writeRefusalEvent(…)`,
+   and an async call runs its body synchronously up to its own first `await`.
+   `isRefusalLedgerEnabled()` is `writeRefusalEvent`'s FIRST statement, so both
+   reads land in one run-to-completion segment. **No suspension point exists.
+   The window is ZERO**, which is what the shipped guard-4 docblock and the
+   arch-review-log now say.
+3. **`PURE` as the contract word**, three times (the section heading, the shape
+   paragraph, the T1 title). The branch retired it repo-wide for
+   **SIDE-EFFECT-FREE** precisely because `vocabulary.ts` defines PURE in this
+   feature area as excluding a flag read.
+
+**Filed P1 rather than P0 deliberately:** every AUTHORITATIVE surface carries the
+corrected version and the plan is a superseded planning artifact. It is also the
+document a later reader opens first — and this branch exists *because a retained
+claim in a superseded document was believed*. Escalate to P0 if the root judges
+the plan normative.
+
+## RT2-3 (P1) — a comment attributing an outcome to the wrong mechanism
+
+The new property's expectation comment reads:
+
+> `minLength: 1` keeps the empty set out of the generator; the "empty warns
+> nothing" half is guard 4's length check and is covered by the approved-draft
+> cases above.
+
+The **behaviour** is covered — an approved draft warns nothing. The **named
+mechanism** is not, and cannot be: an approved decision returns at guard 2
+(`if (autoDecision.approved) return;`) and never reaches guard 4, so no
+approved-draft case executes `blockReasons.length > 0` at all.
+
+Measured, not reasoned: **M-DROP-LENGTH survives 99/99** across the three touched
+suites (RT2-INV-08).
+
+The honest wording is that **guard 2 makes the length check defence in depth
+against a future guard reorder, and nothing tests it.** P1 rather than P0 because
+the expression is provably unreachable-as-false at its only call site, so
+believing the comment has no correctness consequence today. It is filed because
+it is the exact defect class the branch is about: a comment attributing an
+outcome to the wrong mechanism, sitting beside three carefully corrected
+mechanism attributions.
+
+## RT2-4 (P2) — a docblock that forbids re-derivation, carrying round 1's number
+
+`recordPolicyGateRefusal`'s docblock says *"RE-MEASURED AT #1079, ONE AT A TIME
+… re-ran that experiment against the CURRENT tests"*, then *"GUARD 2 — deletion
+SURVIVES, 82/82"*, and closes with *"Do not re-derive this; the numbers are the
+measurement."*
+
+Re-derived anyway: at HEAD the two suites that cover this function
+(`persist.test.ts` + `refusal-write.integration.test.ts`) hold **85 cases**, all
+passing, and **M-DEL-GUARD2 survives 85/85**. The **verdict is right** — guard 2
+is genuinely unpinned — and only the count is stale, because the branch added
+three cases after round 1 took that number. A docblock that forbids
+re-derivation must carry a number matching the tree it ships with, and must name
+the surface the number is a property of.
+
+## RT2-5 (P2) — the stale-citation class, unfinished
+
+Round 1's RT-3 class. The five `write.ts:488-492` citations the round-2 brief
+named are **all gone** — verified: no `write.ts:<digits>` or
+`persist.ts:<digits>` citation survives anywhere in `src/`, `worker/`,
+`.claude/reference/arch-review-log.md` or `docs/runbooks/beta-launch-alerting.md`.
+
+The plan document keeps **sixteen more**, and every one resolved at HEAD is
+wrong — this branch inserted ~36 lines into `write.ts` and ~90 into `persist.ts`:
+
+| Cited | Claimed | Actually at HEAD |
+|---|---|---|
+| `write.ts:369` | `writeRefusalEvent` | a swallow comment inside `warnLedgerDisabled` |
+| `write.ts:512` | `writeRefusalEvents` | a #1002 backfill comment |
+| `write.ts:237` | `resetRefusalLedgerWarningForTests` | a blank line |
+| `persist.ts:729`, `:877` | the function / the `held_draft` site | bare closing braces |
+| `persist.ts:788` | `withLedgerAttribution`'s contract | the wrapper docblock's vocabulary-fault bullet |
+| **`persist.ts:743`, `:745`** | **the guard list** | **inside the REPLACEMENT docblock — `:745` reads *"individually changes no outcome and kills no test"*, the exact sentence this branch retired** |
+
+Those last two are worse than wrong: they hand a future reviewer the retired
+claim as if it were current. **Re-anchor every citation BY SYMBOL.** A line range
+is what rotted, twice, on this branch and its sibling.
+
+Graded P2 to match round 1's grading of the identical class; the skill's scale
+would allow P1 for a stale line number, and the resolve-to-contradicting-text
+cases are the ones that argue for it.
+
+---
+
+## Mutation inventory — 11 rows, 7 killed, 1 equivalent, 3 excluded
+
+| ID | Outcome | Test / target | Mutant and evidence |
+|---|---|---|---|
+| RT2-INV-01 | **killed** | `noteRefusalLedgerDark shares the write arms' once-per-episode latch` (`write.test.ts`) | M-NOTE-NOOP: `noteRefusalLedgerDark`'s body emptied. Baseline green, mutant FAILED. Re-derives the root's own claim rather than trusting it. |
+| RT2-INV-02 | **killed** | `invariants: with the ledger off, the warning fires exactly when every block reason maps to a real category` (`persist.test.ts`) | M-EVERY-SOME: `wouldRecordRefusal`'s `.every(` → `.some(`. FAILED with `[["policy_not_enabled","current_rating_missing"]]` after 1 test, shrunk 2×. Confirms the docblock's central every-vs-some claim is genuinely test-enforced. |
+| RT2-INV-03 | **killed** | `with REFUSAL_LEDGER_ENABLED off, a would-have-recorded decision warns once and a veto-only decision does not` (integration) | Two mutants, both killed on live Postgres. M-NOTE-NOOP failed half A (*"a withheld row reports the gap: expected [] to have a length of 1"*). M-EVERY-SOME failed half B, confirming half B really is the every-vs-some discriminator its comment claims to be. |
+| RT2-INV-04 | **killed** | `with REFUSAL_LEDGER_ENABLED off, a throwing vocabulary resolver never runs and the draft row still commits` (integration) | M-GUARD4-NORETURN: the `return;` removed from guard 4's off-arm, so the arm warns then falls through to the resolve. FAILED with the armed poison `vocabulary_resolver_exploded`. **The new warning branch does not weaken containment.** |
+| RT2-INV-05 | **killed** | `the held_draft lane still writes its refusal row and still aborts on a writer fault with the flag on` | M-DEL-GUARD1: `if (held) return;` deleted. FAILED: *"expected vi.fn() to not be called at all, but actually been called 1 times"*, recorded call `["moderation_flagged","moderation_held"]` — independently re-deriving the guard-1 number the docblock publishes, exact call included. |
+| RT2-INV-06 | **killed** | `a structural non-candidate draft writes no policy_gate_held row` | M-DEL-GUARD3: the `isGenuineAutoCandidate` early return deleted. FAILED with *"expected [ { …(9) } ] to have a length of +0 but got 1"* — a spurious `policy_gate_held` row for a structural non-candidate. Re-derives the guard-3 number including its quoted failure text. |
+| RT2-INV-07 | **killed** | `invariants: the flag decides the resolver call count — off yields zero calls, on yields exactly one receiving the generated block reasons verbatim and in order` | M-GUARD4-NORETURN (same mutant as INV-04). Baseline green inside the 85-case HEAD run of both suites; FAILED with `[["policy_not_enabled"],false]` after 5 tests. Re-entered the inventory because the fix hunk edited the production line this test covers. |
+| RT2-INV-08 | **equivalent** | `wouldRecordRefusal`'s `blockReasons.length > 0` conjunct | M-DROP-LENGTH SURVIVES **99/99** across `persist.test.ts`, `refusal-write.integration.test.ts` and `write.test.ts`. **Proof, not judgement:** `wouldRecordRefusal` has exactly one caller (inside guard 4); guard 2 runs first; and across BOTH `AutoApprovalDecision` construction sites `approved` is true only when `blockReasons` is empty (`evaluateAutoApprovalCandidate` sets `approved: blockReasons.length === 0`; `structurallyBlockedDecision` throws rather than returning a structurally-blocked decision with an empty set). Guard 4 is therefore unreachable with an empty array, so the conjunct can never change an outcome. This is a claim about the MUTANT, not the oracle — the false COVERAGE claim attached to it is filed separately as RT2-3. |
+| RT2-INV-09 | excluded | `writeRefusalEvent and writeRefusalEvents together emit exactly one disabled warning across one disabled episode` | The fix hunk changed only this case's comments, and the production lines it covers (both flag arms) are byte-identical to `659810f2`, where round 1 recorded this candidate killed. Its shared-latch property is additionally exercised at HEAD by INV-01. |
+| RT2-INV-10 | excluded | `writeRefusalEvents issues no statement and emits no disabled warning for an empty input while the flag is off` | Same reason as INV-09: comment-only change in the fix hunk, covered production lines byte-identical to `659810f2`, killed there in round 1. |
+| RT2-INV-11 | excluded | guard 2 deletion (docblock-claim verification) | Excluded as a SCOPE call, not an unmeasured row: guard 2 is unchanged production code outside the round-2 fix hunks, and a survivor there is not a round-2 finding. Run anyway to check the published number — **M-DEL-GUARD2 SURVIVES 85/85** at HEAD, so the verdict is correct and only the count is stale (filed as RT2-4). |
+
+## What this round attacked hardest, and what held
+
+- **Containment is not weakened by the new warning arm.** The obvious way the
+  round-1 fix could have gone wrong is that guard 4's off-arm now *does something*
+  before returning. M-GUARD4-NORETURN removes the `return;` so the arm warns and
+  falls through — and it is killed twice: on live Postgres by the armed poison
+  (INV-04) and by the biconditional property with a generated counterexample
+  (INV-07). The arm warns and still executes nothing below it.
+- **The `every`-vs-`some` rule is enforced, not merely asserted.** Killed on the
+  unit property with a shrunk counterexample and again on the live-DB
+  discriminator case (INV-02, INV-03). This is the branch's central correctness
+  claim and it is genuinely pinned.
+- **The two guard numbers round 1 corrected were re-derived from scratch**
+  (INV-05, INV-06), including the exact recorded call and failure text the
+  docblock quotes. The docblock's verdicts are right; only its guard-2 count is
+  stale.
+- **One mutant survived and it is proven equivalent, with the proof taken at the
+  call site** (INV-08) — not waved through as "probably fine". The false coverage
+  claim attached to it is filed separately (RT2-3) rather than folded into the
+  equivalence.
+
+## Method and environment — round 2
+
+- Live-DB lane: the shared local Postgres was used as-is. `pnpm test:db:setup`
+  was **not** run, per the wave brief. Gate invocations carried `VITEST_WORKERS=2`.
+- Baselines were taken green at HEAD (`7269bdad`) before every mutant, and each
+  mutated file was restored to its HEAD blob and verified by object id.
+- Nothing was skipped for budget; nothing is inconclusive.
+- **Round 2 is the CAP.** There is no round 3, and nothing above is deferred to one.
+
+## Authorizations — round 2
+
+None. No finding on this pass is `accepted-risk`.
+
+---
+
+# Appendix — round 1 (SUPERSEDED)
+
+> **Historical record only, measured at `659810f2`.** Round 1's P0 (RT-1) was
+> fixed at `b430c30a`; its RT-3 class is carried forward as round 2's RT2-5. Every
+> `path:line` citation and every survivor count below is as of `659810f2` and
+> does **not** resolve at HEAD — that staleness is the very defect class round 2
+> filed as RT2-4 and RT2-5. Read the round-2 sections above for the current
+> position; read this appendix only for the round-1 evidence trail.
+
+## RT-1 (P0, FIXED at `b430c30a`) — the docblock's recorded mutation result is now false
 
 `persist.ts:703-707` says:
 
@@ -88,7 +298,7 @@ holds itself to exactly this standard three lines further down:
 guard is actually unpinned (guard 2, with the proof) and what now pins the other
 two.
 
-## RT-2 (P1) — the alerting runbook overstates the ledger's gap detector
+## RT-2 (round 1, P1) — the alerting runbook overstates the ledger's gap detector
 
 All six facets compared against the signal emitted at HEAD:
 
@@ -119,7 +329,7 @@ gap**"*. It now overstates that coverage with no mention of the blind spot.
 not in the intake's `allowed_edit_surface`, so this is a scope decision for the
 root, not an implementer miss. The fix is one sentence.
 
-## RT-3 (P2) — a stale citation, deliberately not double-counted
+## RT-3 (round 1, P2 — carried forward as round 2's RT2-5) — a stale citation, deliberately not double-counted
 
 At `659810f2`, `src/lib/refusals/write.ts:488-492` is the close of a docblock
 plus three fields of `interface RefusalEventRow`. The empty-input no-warn rule
@@ -145,7 +355,7 @@ for a locked pre-change contract.
 
 ---
 
-## What I attacked hardest, and what held
+## What round 1 attacked hardest, and what held
 
 ### Claim 1 — "with the flag off the vocabulary resolver is invoked ZERO times"
 
@@ -215,7 +425,7 @@ Both halves are load-bearing and both are pinned:
 - **M6** — flag read hoisted above the `inputs.length === 0` return → T6 fails.
   The documented ordering is real.
 
-## Duty 4 — missed sibling cases: **zero, from a sound search**
+## Duty 4 (round 1) — missed sibling cases: **zero, from a sound search**
 
 **Pattern searched.** The shape #1079 fixes is *a caller performing ledger work
 that can throw, in front of `write.ts`'s flag read, inside the deciding
@@ -259,7 +469,7 @@ All six **line numbers resolve correctly**, but `suspension.ts` is
 is `worker/jobs/publisher/` (not `src/lib/refusals/`). Recorded as an
 observation, not filed.
 
-## Duty 2 — fragile assertions: none of the three named shapes
+## Duty 2 (round 1) — fragile assertions: none of the three named shapes
 
 Searched the three changed test files for absence-of-tag proxies, exact string
 counts on rendered output, and order assertions with no ordering contract.
@@ -278,7 +488,7 @@ counts on rendered output, and order assertions with no ordering contract.
 The one thing worth recording is RT-4, a latent state-leak hazard rather than a
 fragile assertion.
 
-## Other invariants re-derived against HEAD
+## Other invariants re-derived (round 1, against `659810f2`)
 
 | Claim | Verdict |
 |---|---|
@@ -289,7 +499,7 @@ fragile assertion.
 | The resolver returns `null` (not a throw) for an empty set, as guard 2's redundancy argument requires | **true** — `vocabulary.ts:627` |
 | `withLedgerAttribution`'s capture body is unchanged by this diff | **true** — docblock-only hunk |
 
-## Method and environment
+## Method and environment — round 1
 
 - Baselines and mutants ran under an identical isolated environment built by
   `mutation-runner.mjs env` (allowlist: `PATH`, temporary `HOME`, `TMPDIR`,
@@ -314,7 +524,7 @@ fragile assertion.
   than coverage measurements.
 - 18 of 30 mutation runs used. Nothing was skipped for budget.
 
-## Restoration
+## Restoration — round 1
 
 Every mutated file was restored to its `659810f2` blob and verified by object
 id; `git status --porcelain --untracked-files=no` is empty apart from this
@@ -330,6 +540,6 @@ and the real file is at `.env.local.red-team-backup`. The root's
 mutation entry will be found already at its original oid and marked restored
 without a write.
 
-## Authorizations
+## Authorizations — round 1
 
-None. No finding on this pass is `accepted-risk`.
+None. No finding on that pass was `accepted-risk`.

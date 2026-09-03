@@ -1159,8 +1159,14 @@ describe('invariants', () => {
           // The EXPECTATION, computed from the map rather than from the
           // implementation: a row would have been written iff every member is
           // mapped to a NON-null category. `minLength: 1` keeps the empty set
-          // out of the generator; the "empty warns nothing" half is guard 4's
-          // length check and is covered by the approved-draft cases above.
+          // out of the generator, and NOTHING ELSE COVERS THE MECHANISM the
+          // empty set would exercise: the approved-draft cases above prove the
+          // BEHAVIOUR ("an approved draft warns nothing") but reach it at guard
+          // 2, which returns before guard 4, so no case anywhere executes
+          // `wouldRecordRefusal`'s `blockReasons.length > 0` conjunct. Red team
+          // measured it — dropping the conjunct survives 99/99. Guard 2 is what
+          // makes that conjunct defence in depth against a future guard reorder,
+          // and it is tested by nothing.
           const everyMemberRecords = blockReasons.every(
             (code) =>
               Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code)
