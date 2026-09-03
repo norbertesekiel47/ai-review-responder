@@ -4,7 +4,13 @@ _Locked via grill (Claude + Norbert), 2026-09-03. Four design decisions were put
 
 Branch: `feat/stripe-customer-redaction` · Intake contract: `feat-stripe-customer-redaction-intake.json` · Fork point: `dc61f074`
 
-Classification: `standard` · `high` · `backend` · `db_touching: true` (no migration; the flag is true only because two live-DB integration suites are edited).
+Classification: `standard` · `high` · `backend` · `db_touching: true` (no migration; the flag is true only because live-DB integration suites are edited).
+
+Plan review: Codex round 1 returned `VERDICT: REVISE` with ten findings. Eight
+are folded in below (D8, D9, and the T0/T1/T2/T4 revisions); the citation
+corrections are applied in place. Round-1 session id
+`01a066d6-7a49-7001-b248-83f0ab4d80d4` — a verification round resumes it rather
+than starting cold.
 
 ## Goal
 
@@ -20,13 +26,15 @@ The Stripe Customer is **never deleted**. Deletion detaches its invoices and can
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | A shared Stripe Customer is **skipped, not redacted**. | `accounts.stripe_customer_id` has no unique constraint (`supabase/migrations/001_initial_schema.sql:91`), and `worker/ingress/stripe/subscription-deleted.ts:55` states the rule outright: "a Stripe customer can map to MULTIPLE accounts". Blind redaction would erase a live co-tenant's billing contact. |
-| D2 | The classification lives in a **separate export in the same file**, `PROVIDER_DATA_RETENTION`. | `src/lib/account-offboarding/__tests__/table-disposition.test.ts:104` pins `TABLE_DISPOSITIONS` to exact set equality with the real tenant tables, and `purge-verification.ts:737` throws `missing_purge_verification_sql` for any entry with no SQL branch. A Stripe object has no SQL. One file stays the owner of both inventories. |
-| D3 | Stripe failures are classified **like `stripe-invoices.ts`**. | Retryable → throw, BullMQ retries, the purge does not finalize. Permanent `resource_missing` → success, the identifiers are already gone. Mirrors `cancelDeleteDataSubscription`'s existing already-in-desired-state tolerance (`worker/jobs/account-offboarding/teardown-stripe.ts:87`). |
+| D1 | A shared Stripe Customer is **skipped, not redacted**. | `accounts.stripe_customer_id` has no unique constraint (`supabase/migrations/001_initial_schema.sql:91`; the index added by `034_multi_location_schema.sql:51` is non-unique), and `worker/ingress/stripe/subscription-deleted.ts:56` states the rule outright: "a Stripe customer can map to MULTIPLE accounts". Blind redaction would erase a live co-tenant's billing contact. |
+| D2 | The classification lives in a **separate export in the same file**, `PROVIDER_DATA_RETENTION`. | `src/lib/account-offboarding/__tests__/table-disposition.test.ts:107-108` pins `TABLE_DISPOSITIONS` to exact set equality with the real tenant tables, and `purge-verification.ts:737` throws `missing_purge_verification_sql` for any entry with no SQL branch. A Stripe object has no SQL. One file stays the owner of both inventories. |
+| D3 | Stripe failures are classified **like `stripe-invoices.ts`**. | Retryable → throw, BullMQ retries, the purge does not finalize. Permanent `resource_missing` → success, the identifiers are already gone. Every OTHER permanent type propagates. Mirrors `cancelDeleteDataSubscription`'s already-in-desired-state tolerance, whose rationale begins at `worker/jobs/account-offboarding/teardown-stripe.ts:79`. |
 | D4 | The retry bound is **15 minutes**, read from the Stripe **event's** `created`. | `checkout.session.completed` normally lands in seconds. 15 minutes covers a worker restart or a brief DB outage. The Subscription object's own `created` is a different clock and must never be used. |
 | D5 | The redaction stage runs **late**, immediately before the tombstone — not first. | This is a real tradeoff, decided deliberately. Running first would fail fast with nothing destroyed, but a subsequent local failure would leave a **live** account whose Stripe billing contact is wiped — the same hazard D1 exists to prevent. Running late means every local destruction has already committed, so the point of no return has passed and redaction is the last irreversible act. |
 | D6 | The event-age argument is **required**, not optional with a default. | A silent default that disables the bound is the exact failure mode this change exists to fix. The compiler proves every call site supplies it. Cost: two integration test files join the edit surface. |
 | D7 | The 15-minute rule has **one owner**, `worker/ingress/stripe/shared.ts`. | Two throw sites must not carry two copies of the constant. `shared.ts` already owns `AccountNotProvisionedYetError` (line 28), so it is the natural home. |
+| D8 | The D1 guard is serialized by a **customer-keyed advisory lock**, not left to chance. | Plan round 1 findings 4 and 9. A count in its own `sql.begin` does not serialize against a later write binding the same customer to another account. `accounts.stripe_customer_id` has exactly two writers, `apply-subscription-state.ts:365` and `:378`, both `COALESCE(stripe_customer_id, $1)` — write-once, so a binding only lands on an account whose column is NULL. A lock keyed on the customer id, held by both the guard and those writes, closes it. Owner-approved 2026-09-03. |
+| D9 | An acked stale webhook gets **no reconciliation worker**. | Plan round 1 findings 7 and 10 proposed a deferred-reconciliation outbox topic. Rejected as scope expansion: the `inbound_events` row already persists the signed payload with `status='processed'`, so the event stays durably recorded and operator-replayable, and `checkout-completed.ts:628` already reads provider-current state and rolls back on `canceled`. Today's code reaches the same end state after three days of retries plus an alert storm. The mitigation kept is an enriched Sentry warning carrying the customer id and event id. Owner-approved 2026-09-03. |
 
 ## Ordering — the load-bearing constraint
 
@@ -43,8 +51,8 @@ The new stage therefore runs **after `runAuditAndCostPayloadPurgeStage`
 (line 649) and before `runParentTombstonePurgeStage` (line 685)**.
 
 Retry safety follows from the same table: `account_offboardings.stripe_customer_id`
-survives until finalize, and `loadPurgeOffboarding` (line 60) re-reads it, so a
-retry after a failed redaction still has the id.
+survives until finalize, and `loadPurgeOffboarding` (declared line 61) re-reads
+it, so a retry after a failed redaction still has the id.
 
 `runRawPayloadPurgeStage` (line 459) consumes `row.stripe_customer_id` at lines
 481, 489 and 533 to scrub raw payloads. It runs earlier and is unaffected: the
@@ -58,8 +66,14 @@ before any implementation.
 ### T0 — eval task: the 28 promised tests, failing
 
 Author every `tests_to_add` title from the intake as a real test body, committed
-red before implementation. Slices not yet buildable use `.todo`. This is the
-spec in executable form; each later tracer names the tests it turns green.
+red before implementation. This is the spec in executable form; each later
+tracer names the tests it turns green.
+
+**No `.todo`, no `.skip`, no conditional skip.** Plan round 1 finding 1: `pnpm
+test` is ordinary `vitest run` (`package.json:18`), and a pending test does not
+make it fail. A suite of 35 `.todo` titles would exit 0 with zero feature
+behaviour, so a pending test is not a promise. The last title in
+`tests_to_add` is the meta-check that enforces this on the feature's own files.
 
 Blocking edges: none. Runs alone.
 
@@ -95,19 +109,53 @@ outcome: `redacted` · `already_redacted` · `customer_absent`.
 4. **Error classification** via `RETRYABLE_STRIPE_ERROR_TYPES` /
    `PERMANENT_STRIPE_ERROR_TYPES` from `src/lib/payments/stripe-error-inspect.ts`,
    exactly as `stripe-invoices.ts:445-446` does. A deleted customer or
-   `resource_missing` returns `customer_absent`, which is success.
+   `resource_missing` returns `customer_absent`, which is success. **Every other
+   permanent type propagates** — plan round 1 finding 3: `stripe-error-inspect.ts:26`
+   classifies authentication, permission, idempotency and invalid-request errors
+   as permanent, and mapping all of them to `customer_absent` would finalize a
+   purge whose redaction silently failed on bad parameters or credentials.
 
 `customers.del` is never referenced. A test asserts the fake client's `del` is
 never called.
 
-Turns green: the eight `redactStripeCustomer` tests.
+**The fake client must simulate Stripe's real metadata semantics** — plan round 1
+finding 2, the sharpest one. A fake that treats `metadata` as replacement makes
+the test pass for an implementation that sends only the offboarding key, while
+real Stripe merges and retains every prior key. So the fake merges, treats `''`
+as deletion, is seeded with several pre-existing keys, and the assertion is that
+the resulting remote metadata holds exactly one key.
+
+Turns green: the ten `redactStripeCustomer` tests.
 
 Blocking edges: T0. Runs alone — it carries the first-task enforcement spot check.
 
-### T2 — the purge stage and its ordering
+### T2 — the purge stage, its ordering, and the D8 lock
 
-Edits `worker/jobs/account-offboarding/purge-stages.ts` and
-`worker/jobs/account-offboarding/PurgeWorker.ts`.
+Edits `worker/jobs/account-offboarding/purge-stages.ts`,
+`worker/jobs/account-offboarding/PurgeWorker.ts`,
+`src/lib/accounts/billing-locks.ts` and
+`worker/ingress/stripe/apply-subscription-state.ts`.
+
+**The lock ships in this tracer, not a later one.** A guard without the
+writer-side lock is a false guarantee, so the two halves must land together.
+
+`src/lib/accounts/billing-locks.ts` is the single owner of billing advisory
+locks and gains `acquireStripeCustomerBindingLock(tx, stripeCustomerId)`,
+following the file's existing shape: `pg_advisory_xact_lock(hashtext(<key> +
+<suffix>))` with its own dedicated suffix.
+
+**Lock order is fixed and must not be inverted.** The writer side takes it
+INSIDE `applyStripeSubscriptionStateUnderEntitlementLock`
+(`apply-subscription-state.ts:228`), so the order at every writer is
+account-scoped tier entitlement lock first, customer-keyed binding lock second.
+Taking it at the six call sites that open the transaction instead would touch
+`checkout-completed.ts`, `invoice-paid.ts`, `invoice-payment-failed.ts`,
+`subscription-updated.ts`, `subscription-deleted.ts` and
+`billing-reconciliation/reconcile-account.ts` — six files for no extra safety.
+The redaction stage takes ONLY the binding lock and requests no other lock, so
+it cannot participate in a cycle. The comment in `billing-locks.ts` about the
+account → business → entitlement → account deadlock is why this ordering is
+stated rather than assumed.
 
 New exported stage `runStripeCustomerRedactionPurgeStage(sql, stripe, row)`.
 The three-argument shape has precedent in `runAuthBindingPurgeStage`
@@ -116,11 +164,13 @@ The three-argument shape has precedent in `runAuthBindingPurgeStage`
 Inside one `sql.begin`:
 
 1. `row.stripe_customer_id` null → return `not_applicable`, no Stripe call.
-2. **The D1 guard.** Count `accounts` rows sharing this `stripe_customer_id`
+2. **Take `acquireStripeCustomerBindingLock`** before the count, and hold it for
+   the whole transaction including the Stripe call. This is D8.
+3. **The D1 guard.** Count `accounts` rows sharing this `stripe_customer_id`
    other than `row.account_id`, excluding accounts whose own offboarding is
    already purged. Non-zero → skip the Stripe call, append a
    `skipped_shared_customer` record, return.
-3. Otherwise call `redactStripeCustomer` and append a record naming the outcome.
+4. Otherwise call `redactStripeCustomer` and append a record naming the outcome.
 
 The record is appended to `account_offboardings.provider_dispositions` with a
 **new type discriminator** distinct from `admin_provider_disposition`. This is
@@ -136,8 +186,15 @@ reference.
 `PurgeWorker.ts` inserts one call between `runAuditAndCostPayloadPurgeStage` and
 `runParentTombstonePurgeStage`, resolving `getStripe()` at the worker boundary.
 
-Turns green: the six stage and worker tests, including the ordering assertion
-and the "does not finalize on a retryable error" assertion.
+**The ordering test asserts the full three-call subsequence**, not merely
+"before the tombstone" — plan round 1 finding 5. A redaction stage inserted
+first would still satisfy a "before tombstone" assertion while violating D5, so
+the test pins audit → redaction → tombstone by call order.
+
+Turns green: the eleven stage, worker and lock tests, including the subsequence
+assertion, the "does not finalize on a retryable error" assertion, and the
+live-DB concurrency test proving a competing binding cannot interleave with the
+guard.
 
 Blocking edges: T1.
 
@@ -179,9 +236,19 @@ Four production files plus five test call sites.
 2. `worker/ingress/stripe/subscription-updated.ts:593` and
    `worker/ingress/stripe/subscription-deleted.ts:53` — each throw site becomes
    a branch. Window open → throw `AccountNotProvisionedYetError`, unchanged.
-   Window closed → log, raise one Sentry **warning** so the case stays visible
-   after `HealthAlertPoller` stops counting it, and return. `subscription-updated`
-   returns its existing `ignoredOutcome` shape.
+   Window closed → log, raise one Sentry **warning**, and return.
+   `subscription-updated` returns its existing `ignoredOutcome` shape.
+
+   The warning **carries the stripe customer id and the event id** (D9). It is
+   the operator's handle for finding the retained `inbound_events` row and
+   replaying it, so a bare "an event was acked" line would not do the job the
+   rejected reconciliation worker was proposed for.
+
+   **Both branches are tested independently, under a frozen clock** — plan
+   round 1 finding 6. One generic boundary test could exercise a single handler
+   while the other used `>= 900`, and an unfrozen clock can cross a second
+   mid-test and stop testing the stated boundary. So: 900 throws and 901 acks,
+   proven separately for each handler, and the future-timestamp case likewise.
 3. `worker/ingress/stripe.ts` — pass `event.created` into both handlers at
    lines 89 and 93. The existing `eventAgeSeconds` computation at line 50 and
    the 7-day `STALE_EVENT_THRESHOLD_SECONDS` guard are untouched.
@@ -192,13 +259,14 @@ Four production files plus five test call sites.
    `src/lib/accounts/__tests__/billing-locks.integration.test.ts`.
 
 Why this kills the alert class: a throw makes the dispatcher write
-`inbound_events.status = 'failed'` (`worker/ingress/stripe.ts:107`), and
-`worker/background/pollers/health-alert/checks.ts:276` counts exactly those rows
-as `inbound_events_failed:stripe:<event_type>`. Returning instead writes
-`processed`, so the alert stops.
+`inbound_events.status = 'failed'` (`worker/ingress/stripe.ts:109-112`), and
+`worker/background/pollers/health-alert/checks.ts` counts exactly those rows —
+the `FROM` is line 276, the failed predicate line 277, and the alert key
+`inbound_events_failed:<source>:<event_type>` line 284. Returning instead lets
+the dispatcher write `processed` (line 101), so the alert stops.
 
-Turns green: the seven webhook tests, including both boundary cases and the
-future-timestamp case.
+Turns green: the ten webhook tests, including both per-handler boundary cases,
+both future-timestamp cases, and the enriched-warning assertion.
 
 Blocking edges: T0 only. Disjoint from T1, T2 and T3.
 
