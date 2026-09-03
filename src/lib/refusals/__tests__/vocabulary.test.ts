@@ -44,6 +44,11 @@ import {
 // the RED phase would take every pre-existing case down with it. Same reason
 // `write.integration.test.ts` reaches its set-based arm this way.
 import * as vocabulary from '../vocabulary';
+// TYPE-ONLY, so the namespace-import rule above does not apply: `import type`
+// erases before the module is ever loaded, so it cannot fail at collection the
+// way a value import of a missing export would. These two are #1080's whole
+// deliverable — the derivation and the constraint that consumes it.
+import type { AssertNever, UnrankedIn } from '../vocabulary';
 
 /** The table under test. Applied to staging and production; never edited here. */
 const MIGRATION_116 = 'supabase/migrations/116_refusal_events.sql';
@@ -639,5 +644,198 @@ describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
     // future re-map migration-bearing. The vocabulary owns the mapping; the
     // database owns the closed set.
     expect(columnCheckMembers('refusal_category')).toContain(heldDraftCategory());
+  });
+});
+
+/**
+ * #1080 — the precedence list's TOTALITY, moved from a run-time assertion into
+ * the type system.
+ *
+ * WHY `@ts-expect-error` AND NOT A MATCHER. `pnpm typecheck` is where these two
+ * cases fire: the repo has no `expectTypeOf` call and no vitest `typecheck`
+ * block anywhere, so `@ts-expect-error` is the only type-level assertion the
+ * tooling here supports, and the inversion IS the assertion — the day a
+ * directive stops being necessary it becomes `TS2578` itself. Test files are
+ * inside `tsconfig.json`'s `include`, so the gate's `typecheck` row (separate
+ * from its `lint` row) sees them. Precedent: `write.test.ts`'s
+ * `occurredAt` case.
+ *
+ * WHY NOT THE REPO'S OTHER COMPILE-TIME ASSERTION SHAPE, and the departure is
+ * deliberate rather than unconsidered (`working-rules.md` asks for the precedent
+ * to be named). The one existing example is
+ * `src/lib/solicitation/__tests__/restraint-policy.test.ts`'s
+ * `'is sentiment-blind at the TYPE level, not only in serialized output'`, which
+ * declares `type AssertSentimentBlind<T> = … extends never ? true : never` and
+ * consumes it as `const candidateIsBlind: AssertSentimentBlind<AskCandidate> =
+ * true`. That shape works and stays; it is not copied here because its failure
+ * is a `TS2322` reading "Type 'true' is not assignable to type 'never'." —
+ * MEASURED by compiling that alias shape over a seeded type under this repo's
+ * own `tsc`, not recalled. An earlier version of this paragraph quoted it as
+ * `'boolean'` and was simply wrong: TypeScript reports the LITERAL type of the
+ * initializer here (red-team round 2, RT1080-10). What matters either way is
+ * that the message names a type, never the offending MEMBER. Naming the
+ * unranked member is this ticket's entire deliverable, and only a constraint
+ * violation (`TS2344` on `AssertNever<T extends never>`) prints it.
+ *
+ * WHY THE HOLE IS SEEDED IN THE TYPE ARGUMENT rather than in the production
+ * tuple. `UnrankedIn<P>` is parameterized precisely so a hole can be seeded
+ * without editing `vocabulary.ts`; the case then routes through the REAL
+ * `RankableBlockReason` (and so the real map) and a real precedence tuple. That
+ * makes this a permanent committed proof that the derivation fires, not one-shot
+ * red-step evidence that can go stale.
+ *
+ * Each case carries a run-time companion, and neither is decoration: they assert
+ * that the seeded hole is a REAL hole and that the probe is a REAL non-member,
+ * so a precedence edit that made either premise false fails here rather than
+ * quietly making the compile-time half vacuous.
+ */
+describe('Refusal ledger vocabulary — precedence totality (#1080)', () => {
+  it('the precedence totality derivation rejects a precedence list missing a mapped rank', () => {
+    type Ranks = typeof vocabulary.AUTO_APPROVAL_BLOCK_PRECEDENCE;
+    type Holed = readonly Exclude<Ranks[number], 'daily_cap_exhausted'>[];
+
+    // @ts-expect-error — dropping a rank leaves daily_cap_exhausted unranked
+    type _Holed = AssertNever<UnrankedIn<Holed>>;
+
+    // The premises the directive above depends on. If `daily_cap_exhausted` ever
+    // leaves the precedence list or gains a `null` mapping, `Holed` stops being
+    // holed, the directive becomes unnecessary, and TS2578 fails the typecheck
+    // row — but these two lines say WHICH premise moved.
+    expect(blockPrecedence(), 'daily_cap_exhausted is no longer ranked').toContain(
+      'daily_cap_exhausted',
+    );
+    expect(policyGateMap().daily_cap_exhausted, 'daily_cap_exhausted is now a veto').not.toBeNull();
+  });
+
+  it('the precedence totality derivation accepts the current precedence list unchanged', () => {
+    type Ranks = typeof vocabulary.AUTO_APPROVAL_BLOCK_PRECEDENCE;
+
+    // NO directive, and its absence is the assertion: the shipped list ranks
+    // every mapped member, so this resolves to `never` and compiles silently.
+    type _Whole = AssertNever<UnrankedIn<Ranks>>;
+
+    // ANTI-VACUITY, and it is the guard this case exists for. If
+    // `AUTO_APPROVAL_BLOCK_PRECEDENCE` were ever respelled as a type ANNOTATION
+    // — `const AUTO_APPROVAL_BLOCK_PRECEDENCE: readonly AutoApprovalBlockReason[]
+    // = [...]` — `Ranks[number]` would widen to the whole 22-member union,
+    // `UnrankedIn<Ranks>` would be `never` for the WRONG reason, and `_Whole`
+    // would pass while proving nothing. `'moderation_held'` would then be
+    // assignable, the directive below would be unnecessary, and TS2578 would
+    // fail the typecheck row.
+    //
+    // MEASURED, because the obvious guess is wrong: dropping `as const` alone
+    // does NOT widen anything and produces ZERO diagnostics. `satisfies readonly
+    // AutoApprovalBlockReason[]` contextually types the elements, so the fifteen
+    // literals survive with or without `as const` and `_Whole` keeps asserting.
+    // The `as const` earns its place elsewhere (it freezes the ORDER into a
+    // tuple type); it is the `satisfies` clause that this guard watches.
+    // @ts-expect-error — moderation_held is a veto member, never a rank
+    const notARank: Ranks[number] = 'moderation_held';
+
+    expect(blockPrecedence(), 'moderation_held is now ranked').not.toContain(notARank);
+  });
+
+  it('resolvePolicyGateRefusal still throws unmapped_auto_approval_block_reason for a code in neither list', () => {
+    // The REVERSE hole, and the case above it in the resolver. #1080 closes the
+    // unranked hole at compile time; the unmapped one was already closed by the
+    // map's own `satisfies`. The anchored regex pins the exact fault name, so
+    // the pre-existing case at `'resolvePolicyGateRefusal throws on a code in
+    // neither the veto set nor the precedence list'` (which matches loosely on
+    // the offending code) is not merely restated here.
+    expect(() => resolve(['not_a_block_reason'])).toThrow(
+      /^unmapped_auto_approval_block_reason:not_a_block_reason$/,
+    );
+
+    // And the veto pass runs over EVERY member before any ranking, so an
+    // unmapped code is still a fault when it arrives behind a ranked one.
+    expect(() => resolve([blockPrecedence()[0]!, 'not_a_block_reason'])).toThrow(
+      /^unmapped_auto_approval_block_reason:not_a_block_reason$/,
+    );
+
+    // BOTH NAMES, and the second one is asserted from SOURCE TEXT because it can
+    // no longer be provoked at run time — an `unranked` throw needs a mapped
+    // member with no rank, which is exactly what `_PrecedenceIsTotal` now makes a
+    // compile error. Without this, a resolver that collapsed the two faults into
+    // one name would pass the two expectations above unchanged, and support could
+    // not tell a missing map entry from a missing rank. The regexes above prove
+    // the unmapped path does not report as `unranked`; these two lines prove the
+    // module still declares a SECOND, differently-named fault for the other hole.
+    //
+    // MATCHED ON THE TEMPLATE TEXT ONLY, never on the interpolated expression.
+    // The first spelling of these two assertions included `${code}` and
+    // `${blockReasons.join(',')}`, so renaming the resolver's loop variable —
+    // a behaviour-preserving refactor that moves no fault name — failed this
+    // case reporting "the unmapped fault lost its own name", which was untrue
+    // (red-team round 2, RT1080-08). An oracle that reports a false cause on a
+    // refactor teaches the next reader to distrust it. The literal prefix up to
+    // the `:` is the part a rename cannot move, and it is also the part support
+    // greps for in a log line.
+    const source = readRepoFile(VOCABULARY_MODULE);
+    expect(
+      source,
+      'vocabulary.ts no longer throws an Error whose message text begins `unmapped_auto_approval_block_reason:`',
+    ).toContain('new Error(`unmapped_auto_approval_block_reason:');
+    expect(
+      source,
+      'vocabulary.ts no longer throws a SECOND, differently named Error whose message text begins `unranked_auto_approval_block_reason:` — the two faults may have been folded into one',
+    ).toContain('new Error(`unranked_auto_approval_block_reason:');
+  });
+
+  it('resolvePolicyGateRefusal resolves the same winner for every locked tier after the change', () => {
+    const precedence = blockPrecedence();
+    const map = policyGateMap();
+
+    // WHAT THIS CASE CAN AND CANNOT DETECT, stated because an earlier spelling
+    // derived both sides from `precedence.filter(...)` and so detected NEITHER.
+    // A CROSS-tier move is owned by the contiguity case
+    // ('AUTO_APPROVAL_BLOCK_PRECEDENCE groups its members into the six locked
+    // category tiers in order'). A WITHIN-tier swap is deliberately unpinned —
+    // `vocabulary.ts` records that within-tier order changes the stored
+    // `refusal_code` only, carries no `vocabulary_version` obligation, and has no
+    // contract to break. So this case pins the three claims that are left, and
+    // each is derived independently of the thing it checks:
+    //
+    //   1. TIER MEMBERSHIP comes from the MAP's key order, never from
+    //      `precedence`. A member mapped to a category and dropped from the
+    //      precedence list therefore still appears in `members`, where filtering
+    //      `precedence` could not contain it at all. The per-tier rank assertion
+    //      below is what reports it, and it runs FIRST — it names the tier and
+    //      lists the unranked members. (An earlier version of this bullet said
+    //      the member "blows up in `resolve` below with
+    //      `unranked_auto_approval_block_reason` naming it". That narration
+    //      pre-dated the per-tier assertion and was wrong twice over: the
+    //      assertion pre-empts the resolver, and the resolver would only throw
+    //      if EVERY member of the tier had lost its rank — with one ranked
+    //      member left, `find` still elects a winner and nothing throws.
+    //      Red-team round 2, RT1080-09.)
+    //   2. ORDER-INVARIANCE: the resolver elects by rank, not by input position,
+    //      so the forward and reversed inputs must agree. Both sides here come
+    //      from the resolver on different inputs, so nothing cancels out.
+    //   3. The reported CATEGORY is the map's, not one derived from position.
+    for (const tier of LOCKED_TIER_ORDER) {
+      const members = Object.keys(map).filter((member) => map[member] === tier);
+      expect(members.length, `tier ${tier} has no members`).toBeGreaterThan(0);
+
+      // (1) Every mapped member of this tier holds a rank. This is #1080's
+      // run-time half, stated per tier.
+      expect(
+        members.filter((member) => !precedence.includes(member)),
+        `tier ${tier} has mapped members with no rank`,
+      ).toEqual([]);
+
+      const forward = resolve(members);
+      const reversed = resolve([...members].reverse());
+
+      // (2) Reversing the input cannot change the winner.
+      expect(reversed?.refusalCode, `tier ${tier} elects by input position`).toBe(
+        forward?.refusalCode,
+      );
+      // …and the winner is the tier's highest-ranked member, read off precedence.
+      expect(forward?.refusalCode, `tier ${tier} elected the wrong member`).toBe(
+        precedence.find((member) => members.includes(member)),
+      );
+      // (3) The category is the map's.
+      expect(forward?.refusalCategory, `tier ${tier} reported the wrong category`).toBe(tier);
+    }
   });
 });

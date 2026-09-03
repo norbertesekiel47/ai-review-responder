@@ -1,17 +1,24 @@
 // Property tests for the `policy_gate_held` precedence resolver — #1013 T1.
 //
-// Titles 10 and 11, VERBATIM from `.feature/intake.json` `tests_to_add`. The
-// verify gate's `promised-tests` row matches on exact text, so a reworded title
-// reads as an unwritten test.
+// The three `invariants:` titles are VERBATIM from the `tests_to_add` of the
+// intake that promised each one (#1013's titles 10 and 11, then #1080's title
+// 5). The verify gate's `promised-tests` row matches on exact text, so a
+// reworded title reads as an unwritten test. The fourth case — the exhaustive
+// singleton sweep — was promised by nobody and is free to be renamed.
 //
 // WHY PROPERTIES AND NOT MORE EXAMPLES. `.claude/commands/feature.md` requires
 // at least one `fast-check` property per declared invariant for a feature
 // touching approval / auto-approval logic, and this resolver is exactly that:
 // its input is any SUBSET of 22 members in any ORDER, which is 22! orderings
-// over 2^22 subsets. Examples cannot cover that space, and the two invariants
-// below are precisely the ones an example set would under-sample — #1003's veto
-// rule is a claim about EVERY position, and C5's membership rule is a claim
-// about EVERY input.
+// over 2^22 subsets. Examples cannot cover that space, and the invariants below
+// are precisely the ones an example set would under-sample — #1003's veto rule
+// is a claim about EVERY position, and C5's membership rule is a claim about
+// EVERY input.
+//
+// WHERE A PROPERTY IS THE WRONG TOOL, THIS FILE DOES NOT USE ONE. #1080's
+// totality claim has a finite, enumerable witness set — one singleton per mapped
+// member — so it is swept exhaustively rather than sampled, and the property
+// beside it is narrowed to the order dimension a sweep cannot reach.
 //
 // House style: `src/lib/reviews/__tests__/sentiment.test.ts`'s `invariants`
 // describe block.
@@ -22,10 +29,12 @@
 // failing tests naming what is missing.
 
 import fc from 'fast-check';
-// No `expect` import: both cases assert through `fc.assert`, whose property
-// predicates return booleans. A counterexample fails the run with the shrunk
-// input, which is more useful here than a matcher's message.
-import { describe, it } from 'vitest';
+// The PROPERTY cases assert through `fc.assert`, whose predicates return
+// booleans: a counterexample fails the run with the shrunk input, which is more
+// useful there than a matcher's message. `expect` is imported for the one
+// DETERMINISTIC case below, which enumerates a finite pool exhaustively and so
+// wants a matcher that names the offending member outright.
+import { describe, expect, it } from 'vitest';
 import * as vocabulary from '../../../../src/lib/refusals/vocabulary';
 
 interface ResolvedRefusal {
@@ -62,6 +71,20 @@ function resolve(codes: readonly string[]): ResolvedRefusal | null {
 function vetoMembers(): readonly string[] {
   const map = policyGateMap();
   return Object.keys(map).filter((member) => map[member] === null);
+}
+
+/**
+ * The members that MUST hold a rank — the map's non-`null` keys.
+ *
+ * DRAWN FROM THE MAP, NEVER FROM `AUTO_APPROVAL_BLOCK_PRECEDENCE`, and the whole
+ * value of #1080's property is in that choice. A member mapped to a category and
+ * left out of the precedence list is exactly the defect under test; a pool read
+ * off the precedence list could not contain it, and the property would be
+ * vacuous in precisely the case it exists to catch.
+ */
+function rankableMembers(): readonly string[] {
+  const map = policyGateMap();
+  return Object.keys(map).filter((member) => map[member] !== null);
 }
 
 /**
@@ -125,6 +148,60 @@ describe('policy_gate_held precedence resolver', () => {
           // category derived from the array's position.
           && resolved.refusalCategory === map[resolved.refusalCode]
         );
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it('every mapped non-veto block reason alone resolves to itself, exhaustively', () => {
+    const rankable = rankableMembers();
+
+    // THE PROOF OF #1080's INVARIANT 7 AT RUN TIME, and it is deterministic
+    // rather than sampled. The SINGLETON IS THE WITNESS: `resolve([member])`
+    // reaches `find` for every mapped non-`null` member — nothing else in the
+    // input can veto first — so a member left out of `AUTO_APPROVAL_BLOCK_
+    // PRECEDENCE` throws `unranked_auto_approval_block_reason` on its own
+    // singleton, every run, naming itself. The pool is finite (fifteen today),
+    // so sweeping it is exhaustive over the witnesses and no sampling argument
+    // is needed. The property below then covers the ORDER dimension, which a
+    // singleton sweep cannot reach.
+    expect(rankable.length, 'the map has no non-veto members to sweep').toBeGreaterThan(0);
+
+    for (const member of rankable) {
+      // A missing rank throws HERE, and the thrown message carries the member.
+      const resolved = resolve([member]);
+      expect(resolved?.refusalCode, `${member} did not elect itself`).toBe(member);
+    }
+  });
+
+  it('invariants: no subset of the mapped non-veto block reasons in any order throws unranked_auto_approval_block_reason', () => {
+    const rankable = rankableMembers();
+
+    // #1080's invariant 7 over ORDER and CO-OCCURRENCE — the dimension the
+    // exhaustive singleton sweep above cannot reach. `_PrecedenceIsTotal` proves
+    // totality at compile time and the sweep proves it at run time; this case
+    // adds that no combination or ordering of ranked members reaches the
+    // `unranked_auto_approval_block_reason` throw either.
+    //
+    // THE POOL IS THE MAP'S NON-NULL KEYS, NOT ALL 22, and that is load-bearing.
+    // `resolvePolicyGateRefusal` returns `null` on the first `null`-mapped member
+    // BEFORE it ever reaches `find`, so any subset drawn from the full union that
+    // happens to contain one of the seven vetoes never gets as far as the code
+    // path under test — the case would be vacuous exactly when the veto lands in
+    // the sample, and how often that happens is a property of the generator
+    // rather than of the resolver. Drawing from the mapped non-`null` keys
+    // removes the question instead of estimating it. The sibling case above
+    // records the same trap for its own reason.
+    //
+    // A throw is a FAILURE here rather than a caught expectation: fast-check
+    // surfaces the exception with the shrunk input, which names the offending
+    // subset. The boolean below adds the positive claim — every such subset
+    // elects a winner, and the winner is itself a rankable member.
+    fc.assert(
+      fc.property(nonEmptyShuffledSubset(rankable), (codes) => {
+        const resolved = resolve(codes);
+        if (resolved === null) return false;
+        return rankable.includes(resolved.refusalCode);
       }),
       { numRuns: 500 },
     );

@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The module is the auto-approval Refusal vocabulary; the failure it prevents breaks draft generation for every account with a configured policy.",
+    "The identical shape shipped wrong once before on the parked feat/refusal-log branch (RENDER_WITHHOLD_REASONS) and was caught only in review — a vacuous type assertion that compiles but proves nothing is the specific hazard here.",
+    "#1003 locked constraints this fix must satisfy without re-coupling two arrays, so a wrong construction quietly re-introduces a rejected coupling."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "A block reason mapped to a non-null Refusal category but missing from AUTO_APPROVAL_BLOCK_PRECEDENCE is a compile error naming that member, not a runtime throw inside the response-persist transaction.",
+  "non_goals": [
+    "Do not edit worker/jobs/response-generation/persist.ts or src/lib/refusals/write.ts — the containment fix is #1079 and runs in a sibling worktree in this same wave.",
+    "Do not edit src/lib/shared/worker-types.ts — its 22 = 7 + 15 partition claim (the 'TWENTY-TWO MEMBERS, and the count is load-bearing rather than incidental' paragraph of the AutoApprovalBlockReason docblock) stays true because vocabulary.test.ts's 'every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list' case is not modified. CITED BY SYMBOL, never by line — this branch's own commits shift line numbers in both files.",
+    "Do not edit the 'A code in NEITHER list THROWS' paragraph of resolvePolicyGateRefusal's docblock in src/lib/refusals/vocabulary.ts — it is about the unmapped throw and already appeals to the compiler (the map's own `satisfies` clause), not to a test.",
+    "Do not derive the precedence ORDER from POLICY_GATE_HELD_REFUSAL_CATEGORIES or from REFUSAL_CATEGORIES — #1003 forbids it; only completeness may be derived.",
+    "Do not add a test pinning AUTO_APPROVAL_BLOCK_PRECEDENCE against REFUSAL_CATEGORIES order, and do not add a drift test asserting a REFUSAL_CATEGORIES reorder cannot change a resolved category — those are the two tests #1003 rejected. Cited by symbol: the AUTO_APPROVAL_BLOCK_PRECEDENCE docblock in vocabulary.ts, and the 'Two tests that must NOT be written' section of docs/superpowers/plans/feat-1013-refusal-policy-gate-held-plan.md.",
+    "Do not delete or weaken the 'every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list' case in vocabulary.test.ts — that IS #1003's required exhaustiveness test. Cited by symbol and by test title; the third source this entry originally named (docs/reviews/refusal-ledger-audit/spec-verification.md) is NOT tracked at HEAD, and this branch's load-bearing #1003 reinterpretation must rest on tracked evidence, so it is dropped. The two sources above carry it alone.",
+    "Do not change any runtime behaviour: resolvePolicyGateRefusal keeps both of its throws and its three-step order.",
+    "Do not reorder the fifteen precedence members or move a member between tiers."
+  ],
+  "user_visible_behavior": [
+    "Developer: adding a 23rd block reason with a non-null category and forgetting its rank fails pnpm typecheck with an error that names the unranked member, instead of type-checking cleanly.",
+    "Developer: the reverse hole stays closed — mapping a precedence member to null is still a compile error at the lookup site, as today.",
+    "Runtime: no observable change; the same inputs resolve to the same Refusal and the same throws."
+  ],
+  "invariants": [
+    "AUTO_APPROVAL_BLOCK_PRECEDENCE stays an explicit, hand-ordered member constant — the order is declared, never derived (#1003, recorded in the 'AN EXPLICIT MEMBER CONSTANT, NEVER `REFUSAL_CATEGORIES` ORDER' paragraph of the AUTO_APPROVAL_BLOCK_PRECEDENCE docblock in vocabulary.ts).",
+    "The assertion derives COMPLETENESS only. #1003 rejected pinning the precedence list against REFUSAL_CATEGORIES ORDER; it REQUIRED the veto-vs-precedence exhaustiveness test that already exists as vocabulary.test.ts's \"every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list\".",
+    "The derivation is keyed on `extends null`, never on RefusalCategory — keying on the category set would make a future category rename fire here.",
+    "POLICY_GATE_HELD_REFUSAL_CATEGORIES keeps its `as const satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>` typing; widening it erases the literal types the assertion and the existing null-mapping guard both depend on.",
+    "The new assertion must not weaken the existing `satisfies readonly AutoApprovalBlockReason[]`, which closes the reverse direction.",
+    "resolvePolicyGateRefusal stays PURE — no DB handle, no clock, no flag read — so the Restraint tab can import this module.",
+    "The unranked_auto_approval_block_reason throw stays: Array.prototype.find returns T | undefined unconditionally and the compiler cannot narrow it, so the branch is structurally required, not defensive.",
+    "The seven-member veto set and the fifteen-member precedence list stay two separate declarations."
+  ],
+  "edge_cases": [
+    "The seven null-mapped veto members must NOT fire the assertion. Verified by compilation: the baseline resolves to `never` with zero diagnostics.",
+    "A member in precedence but absent from the map is already a compile error via the existing `satisfies`; the new alias stays silent there, so there is no double-reporting.",
+    "A member listed TWICE in precedence is NOT caught — Prec[number] collapses duplicates and Exclude cannot see them. Out of scope: the `new Set(precedence).size` assertion inside vocabulary.test.ts's 'every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list' case already pins the set size, and the `AUTO_APPROVAL_BLOCK_PRECEDENCE.find(...)` call in resolvePolicyGateRefusal makes a later duplicate unreachable.",
+    "A 23rd union member with no map entry now also emits TS2536 at the alias, on top of the existing TS1360. Correct but cryptic; a comment beside the alias points the reader at the missing map entry.",
+    "Six spellings pass VACUOUSLY on both the healthy tree and a seeded hole, including `const _x: Unranked[] = []` and `const _x = [] satisfies Unranked[]`, which match this module's idiom. None may be used.",
+    "One spelling is a FALSE POSITIVE: a naked type parameter distributes over never, so `type Bad<T> = T extends never ? true : {...}` fails on the HEALTHY tree. The tuple wrapper [T] extends [never] suppresses distribution.",
+    "The red step must confirm the failure message contains the hole member's literal name; a non-zero exit alone is satisfied by the false positive above.",
+    "The alias is `_`-prefixed for the `varsIgnorePattern: '^_'` option of eslint.config.mjs's `@typescript-eslint/no-unused-vars` rule, and exported with the module's own `fallow-ignore-next-line unused-export` directive (its convention is the line directly above POLICY_GATE_HELD_REFUSAL_CATEGORIES and the line directly above AUTO_APPROVAL_BLOCK_PRECEDENCE in vocabulary.ts).",
+    "A self-consuming alias fires TS2344 at its DECLARATION SITE in vocabulary.ts whether or not any test file names it — verified by compilation. So a test that merely references it asserts nothing and is not worth an export.",
+    "resolvePolicyGateRefusal returns null on the first null-mapped member BEFORE reaching find, so any generated subset drawn from all 22 union members that happens to contain one of the seven veto members returns before the code path under test and that run is VACUOUS. No detection rate is stated here: the rate this entry used to quote was refuted on measurement, and the branch now also carries a DETERMINISTIC exhaustive singleton sweep over the mapped members, which makes the sampling question moot. The property's pool must be the map's mapped non-null keys — that removes the question rather than estimating it.",
+    "fallow excludes test files as consumers (the 'fallow excludes test files as consumers' note in .fallowrc.jsonc's src/lib/payments/stripe-client.ts unused-export entry), so a type export imported only by a test still reads as unused; the repo has ZERO precedent for the fallow directive above an `export type`, and ci:fallow is excluded from the local gate, so a wrong rule id surfaces only in CI."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/refusals/vocabulary.ts — the seven lane maps all use `as const satisfies Record<Enum, V>`; this is the module's compile-time-guarantee idiom.",
+    "src/lib/refusals/vocabulary.ts — the 'EXPORTED WITH NO EXTERNAL IMPORTER, ON PURPOSE' comment above POLICY_GATE_HELD_REFUSAL_CATEGORIES is the module's documented reason for exporting a symbol with no external importer, and its `fallow-ignore-next-line unused-export` directive sits on the line directly above that constant and on the line directly above AUTO_APPROVAL_BLOCK_PRECEDENCE.",
+    "src/lib/refusals/vocabulary.ts — the 'The map is read through its OWN type' comment inside resolvePolicyGateRefusal, which explains why the map is never widened to Record<string, RefusalCategory | null>; the assertion depends on that literal typing.",
+    "src/lib/refusals/__tests__/write.test.ts — the @ts-expect-error inversion idiom in \"WriteRefusalEventInput requires occurredAt and rejects an omitted value at compile time\": if the code ever compiles, the directive itself becomes the error.",
+    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts — the fast-check house style and the map-keys route to the union members.",
+    "src/lib/refusals/__tests__/vocabulary.test.ts — the partition case \"every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list\" and the tier-contiguity case \"AUTO_APPROVAL_BLOCK_PRECEDENCE groups its members into the six locked category tiers in order\", which stay green unedited."
+  ],
+  "test_seams": [
+    "the typecheck gate row over src/lib/refusals/vocabulary.ts (the `launch typecheck pnpm typecheck` row in scripts/verify-gate.sh — separate from the `launch lint pnpm lint` row)",
+    "the exported UnrankedIn<P> derivation and AssertNever helper (src/lib/refusals/vocabulary.ts)",
+    "resolvePolicyGateRefusal (src/lib/refusals/vocabulary.ts)"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/refusals/vocabulary.ts",
+    "src/lib/refusals/__tests__/vocabulary.test.ts",
+    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts",
+    ".claude/reference/arch-review-log.md"
+  ],
+  "tests_to_add": [
+    "the precedence totality derivation rejects a precedence list missing a mapped rank",
+    "the precedence totality derivation accepts the current precedence list unchanged",
+    "resolvePolicyGateRefusal still throws unmapped_auto_approval_block_reason for a code in neither list",
+    "resolvePolicyGateRefusal resolves the same winner for every locked tier after the change",
+    "invariants: no subset of the mapped non-veto block reasons in any order throws unranked_auto_approval_block_reason"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 45,
+  "estimated_test_lines": 90,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the branch. The change is type-level only and adds no schema, no runtime path and no dependency, so reverting restores today's behaviour exactly — the hole reopens, which is the pre-change state.",
+  "observability": [
+    "The typecheck gate row is the signal: a missing rank fails with the member named, at the declaration site in vocabulary.ts. In CI the lint job runs pnpm typecheck; locally it is its own gate row (the `launch typecheck pnpm typecheck` row in scripts/verify-gate.sh).",
+    "The committed @ts-expect-error case is the durable proof that the derivation fires — it seeds the hole in the test's type argument and routes through the real map and the real precedence tuple, so it cannot go vacuous the way a one-shot red-step record can.",
+    "No runtime signal is added or needed — the change removes a runtime failure rather than reporting one."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request"
+  ],
+  "open_questions": []
+}
