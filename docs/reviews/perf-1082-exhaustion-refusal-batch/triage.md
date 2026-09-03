@@ -93,22 +93,92 @@ attempts to get there:
 | "By symbol for edited files; by line for others" | Passed a full review round, then falsified by #1093 moving an unedited file |
 | **"By symbol, always"** | Current. A line number is a fact about a TREE, not a codebase |
 
-**Scope clause, which the rule needs and did not have.** It governs LIVING
-documents — the plan, the intake, production comments, this file. It does NOT
-govern DATED EVIDENCE: the four review reports and the red-team sidecar in this
-directory record what was true at the SHA they measured, and rewriting their
-line numbers would falsify the record rather than repair it. Their citations
-are correct as history and are deliberately left alone. The same applies to
-every arch-review-log row this branch did not write.
+**Scope clause — stated as a TEST, not as a list.** The first version of this
+clause enumerated the two buckets, and the enumeration leaked: it named the
+plan, the intake, production comments and this file as living, and the review
+reports and red-team sidecar as dated, which left the **deviations file** and
+this branch's own **arch-review-log row** in neither. A stale figure survived in
+exactly that gap (the D1 finding below). Enumerations of a category are how
+things fall out of it.
+
+The test, which needs no list:
+
+> **Is this document asserting what is true NOW, or recording what was measured
+> THEN?** A document that a reader will act on as current is LIVING and cites by
+> symbol. A document that names the SHA it measured is DATED evidence, and its
+> line numbers are correct as history — rewriting them would falsify the record
+> rather than repair it.
+
+Applied: the plan, both intake copies, production comments, the deviations file,
+the arch-review-log row and this file are LIVING. The four review reports and
+both red-team sidecars are DATED. Arch-review-log rows written by other branches
+are theirs, not this branch's to touch either way.
+
+**A living document may still quote a moving figure — but only one of them may
+own it.** The comment-line count moved three times on this branch (40 → 66 →
+68), and the arch-review-log row is its single owner. Every other mention points
+there instead of restating it.
+
+## Fresh red-team run at `a40fe38d` (post-rebase)
+
+The rebase voided the previous sidecar, so a new run measured the rebased tree
+rather than extrapolating. Two findings, both mine, both prose.
+
+| ID | Sev | Finding | Verdict |
+|---|---|---|---|
+| T20 | P1 | Deviations D1 still said "40 comment lines … 1.5x the code" — the twin of the figure T16 fixed in the arch-log, missed in that sweep. False at HEAD (27 / 68 / 2.5x) | **FIXED** — D1 no longer quotes the count; the arch-log row is named as its single owner |
+| T21 | P2 | The LIVING/DATED scope clause enumerated both buckets and classified the deviations file and this branch's arch-log row into neither — the gap T20 survived in | **FIXED** — the clause is now a test, not a list |
+
+**What the run confirmed, independently derived rather than taken:**
+
+- **The bound chain HOLDS at HEAD. 25, not 5,000. No P0.** Re-derived link by
+  link on the rebased tree: `solicitation_asks` has exactly two production write
+  statements, `decisions` has one source, `evaluateBatch` slices at
+  `BATCH_CAP = 25`, and a batch cannot be rebuilt (`built_at` under
+  `FOR UPDATE`). #1093 rewrote only `resolveVertical` and added
+  `SUBCATEGORY_VERTICALS` — it touched neither the cap nor any `status` writer.
+  No semantic coupling either: `settleGenerationExhaustion` never calls
+  `assembleInterpolation`, the lane's only `resolveVertical` reader.
+- **11 mutations, 9 killed.** The two survivors are the `invocationCallOrder`
+  sort and the two-armed `clearRefusalCalls` — and **the branch's current claim
+  that both are inert today is TRUE**, re-measured at 51/51 each. The third
+  attempt at that sentence is the correct one.
+- The `tx`→`sql` hoist is blind to the unit lane and killed in the live-DB lane
+  by the new abort case *and* two pre-existing cases — confirming this branch's
+  own "not the only guard" note.
+- Sibling sweep: nine production ledger call sites, zero enclosing loops.
+- **100 consecutive unit runs at `a40fe38d`: 0 failures.** Running total across
+  five observers and three heads: 2 failures in ~102 at the oldest head, 0 in
+  440 since.
 
 ## The pattern this branch should be remembered for
 
-Three false self-claims, all mine, all the same shape: **an adjective asserted
-where a measurement was available and cheap.** 5,000 was quoted from a sibling
-lane instead of derived. "Load-bearing" was written twice without running the
-mutation that settles it — the second time in the commit fixing the first. The
-code was correct throughout; the prose about the code was not. Rule, now in the
-arch-review-log: RUN THE MUTATION BEFORE WRITING THE ADJECTIVE.
+Six false self-claims across three rounds and a rebase, all mine, all the same
+shape: **a fact asserted where a cheap measurement was available.**
+
+| # | Claim | How it died |
+|---|---|---|
+| 1 | "up to 4,999 round trips" | 5,000 quoted from a sibling lane instead of derived; the real bound is 25 |
+| 2 | The sort is "LOAD-BEARING" | Mutation: plain concatenation stays green |
+| 3 | `clearRefusalCalls` is "load-bearing" | Written in the commit fixing #2, also without running the mutation |
+| 4 | "40 comment lines, measured AT HEAD" | Falsified by the commit that published it |
+| 5 | "Citations are by symbol" → then "by line for unedited files" | Two survivors; then a rebase staled an unedited file's citation |
+| 6 | D1's "40 comment lines … 1.5x" | The twin of #4, missed in the sweep that fixed #4 |
+
+**The code was correct in every round.** Nine of eleven mutations killed, the
+bound chain re-derived twice by two independent parties, 440 clean runs. What
+kept failing was what I wrote *about* the code.
+
+Three rules came out of it, now in the arch-review-log:
+
+1. **RUN THE MUTATION BEFORE WRITING THE ADJECTIVE.** (#2, #3)
+2. **CITE BY SYMBOL, ALWAYS** — a line number is a fact about a tree, not a
+   codebase. (#5)
+3. **A FIGURE THAT MOVES NEEDS ONE OWNER**, and every other mention points at
+   it rather than restating it. (#4, #6)
+
+And the meta-lesson under all six: a self-describing claim is the cheapest thing
+to check and the easiest to skip, because nothing fails when it is wrong.
 
 ## What survived the wave unchanged
 

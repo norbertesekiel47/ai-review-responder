@@ -12,12 +12,21 @@ changed lines against an `estimated_prod_lines` of 35. The test bucket is 149
 against an estimate of 75. Both are over the 2x trigger; the gate only reports
 the production one.
 
-**Why.** I estimated executable lines and forgot this repo's comment mass.
-Measured at HEAD by first non-whitespace token, the production diff adds
-**27 code lines, 40 comment lines and 3 blank** — the reasoning is 1.5x the
-code, which is house style in `src/lib/refusals/` and `src/lib/solicitation/`
-and is exactly what the surrounding modules do. The same holds in the tests:
-the three new cases are mostly the docblocks explaining why each exists.
+**Why.** I estimated executable lines and forgot this repo's comment mass. The
+production diff adds **27 code lines** plus a comment mass several times that —
+house style in `src/lib/refusals/` and `src/lib/solicitation/`, and exactly what
+the surrounding modules do. The same holds in the tests: the three new cases are
+mostly the docblocks explaining why each exists.
+
+**THE COMMENT COUNT IS NOT QUOTED HERE. The `arch-review-log.md` row for #1082
+is its single owner — go and re-derive it there.** This paragraph originally
+said "40 comment lines … the reasoning is 1.5x the code". Red team falsified
+that figure twice: 66 at `aa3fab6e`, then 68 at `a40fe38d`, because every prose
+fix — including the ones fixing this very class of error — moves it. The
+arch-log row was corrected to stop quoting it; **this twin was missed in that
+same sweep**, which is the whole lesson. A figure that moves under prose edits
+needs ONE owner, and every other mention must point at that owner rather than
+restate it.
 
 **Step 0 re-run, with the real numbers.** All three axes are unchanged.
 

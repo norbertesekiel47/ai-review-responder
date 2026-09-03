@@ -1,379 +1,299 @@
-# Red-team — `perf/1082-exhaustion-refusal-batch`
+# Red team — #1082, the generation-exhaustion Refusal batch
 
-| | |
-|---|---|
-| Mode | feature, **round 2** (the cap — `round-start` refuses a third) |
-| Fork / merge-base | `b9fb96016cc025c151f17db4b39baf165cb80a13` |
-| Round 1 HEAD | `4f39fbd26e51e46bea1a45d8e6069d576c756021` |
-| HEAD | `aa3fab6eabd4eff982b5da7cd918d55629c076e1` |
-| Intake SHA-256 | `e8b60f89…31ea` (risk: **high**) |
-| Generated | 2026-09-03T19:22:13Z |
-| **Status** | **OPEN_P0** |
+- **Run** `feature-perf-1082-exhaustion-refusal-batch-63c82c`, round 1 of a
+  FRESH pass (the previous pass's two rounds are closed).
+- **Branch** `perf/1082-exhaustion-refusal-batch`
+- **Fork / merge-base** `862a039d1a9ffc1f2f7b048eb4d9b4101fa13fa9` (`origin/main`)
+- **HEAD measured** `a40fe38d20dc3bfe246744a43579c718d2a5a967`
+- **Risk** high · **Status** `OPEN_P1`
 
-Mutation runs used: **5 of 30**. Every mutation restored; `finalize` reported
-`reap: every journaled process group is empty (5 recorded)` then
-`restored 0 mutated file(s) and 1 dotenv file(s); journal closed` — 0 because
-each mutant was returned to its journaled original blob before the next was
-applied, so the finalizer found nothing outstanding. `git status --porcelain`
-is EMPTY apart from this report directory.
+**Why this pass exists.** `red-team-status.mjs` refused the previous sidecar
+after a rebase pulled #1090, #1091 and #1093 from main; #1093 added 141 lines to
+`src/lib/solicitation/restraint-policy.ts`, a module the changed lane's stated
+bound depends on. Every finding below was produced against `a40fe38d`. The
+previous pass's report, measured at `c6d80358`, is preserved in git at
+`git show a40fe38d:docs/reviews/red-team/perf-1082-exhaustion-refusal-batch-63c82c/findings.md`;
+its 11 findings were re-read but not re-derived, and none is restated here.
 
-Environment: allowlist env via `mutation-runner.mjs env --tmp-home … --test-db
-postgresql://…@localhost:5499/test_ws4`, `.env.local` swapped for the scrubbed
-replacement for the whole mutation phase. The live-DB lane RAN (22/22).
-
-**Scope, as briefed.** The fix commit `aa3fab6e` and its direct callers only.
-The round-1 findings were re-checked for closure; no new front was opened
-against code the fix did not touch. One unrelated observation is in the
-appendix, untriaged.
+**A note on the slug.** `deriveIdentity` in `red-team-status.mjs` derives the
+slug from the BRANCH NAME alone, so a feature-lane re-run on the same branch
+cannot have a new one. This report is written to the path the checker computes.
 
 ## Findings
 
-| Severity | file:line | Finding |
+| Severity | Where | Finding |
 |---|---|---|
-| **P0** | `.claude/reference/arch-review-log.md:1513` | The fix retracted one false "LOAD-BEARING" claim and asserted another in the same bullet: "What IS load-bearing today is the paired `clearRefusalCalls()`" is false — reverting it to the one-armed clear leaves 51/51 green — and the review finding the fix acted on says "Today this is inert" in the same words. |
-| **P1** | `.claude/reference/arch-review-log.md:1513` | "27 executable lines added (40 comment, 3 blank — **measured AT HEAD**)" was falsified by the commit that re-published it: at `aa3fab6e` the production diff adds 96 = 27 code + **66** comment + 3 blank. |
-| **P1** | `docs/superpowers/plans/…-plan.md:55` | The new banner "CITATIONS IN THIS PLAN ARE BY SYMBOL, NOT BY LINE" is false — two bare line citations survive, and `:1632` (`regenerateAsk`) lands on an unrelated `SELECT` 146 lines from the declaration. `prevalidate-plan.py` cannot see bare `:NNN`, so its PASS is vacuous here. |
-| P2 | `docs/superpowers/plans/…-deviations.md:134` | The intermittent-suite rejection refutes a desync mechanism the spec axis never proposed (it wrote "I could not identify the mechanism"); the vitest claim itself is TRUE, but it answers appendix A4, not F2. |
-| P2 | `src/lib/solicitation/ask-generation.ts:1878` | The corrected bound comment introduces `restraint-policy.ts:440-448` — the only new line citation in production code on a branch whose plan, intake and commit message all say it moved to symbol citation. It resolves. |
+| P1 | `docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-deviations.md:17` | D1's "27 code lines, **40 comment lines** and 3 blank — measured at HEAD … the reasoning is 1.5x the code" is false at HEAD: 27 / **68** / 3, ratio **2.5x**. Triage T16 marks this exact figure FIXED and the arch-review-log row was corrected; its twin in the deviations doc was not, and now contradicts that row's "two to three lines of reasoning per line of code". |
+| P2 | `docs/reviews/perf-1082-exhaustion-refusal-batch/triage.md:96` | The new LIVING/DATED scope clause enumerates both buckets and puts the branch's own deviations doc (and the arch-review-log row it wrote) in neither — the gap the P1 above survives in. |
 
-Round-1 findings are carried in `findings.json` with their round-2
-dispositions; the closure evidence is in "Round 1 — dispositions" below.
+Full arbiter reasoning for both is in `findings.json`.
 
-## Duty 1 — hand-mutation
+## 1. The bound chain, re-derived on the rebased tree — HOLDS
 
-Five inventory rows: 1 killed, 2 equivalent (each carrying its proof), 2
-excluded with a recorded reason, 0 inconclusive, 0 skipped for budget.
+The branch asserts in five places that `holes` is bounded by `BATCH_CAP` (25),
+not `MAX_DATA_ROWS` (5,000). Re-derived link by link at `a40fe38d`, not taken
+from the branch's own statement of it:
 
-| Id | Mutation | Result |
+1. `settleGenerationExhaustion`'s hole query filters `ask.status = 'send'` for a
+   single `batch_id` under both tenant predicates
+   (`src/lib/solicitation/ask-generation.ts`, the `holes` SELECT). No `LIMIT`,
+   so the cap has to come from the writer.
+2. `solicitation_asks` has exactly TWO write statements in the whole production
+   tree: the `jsonb_to_recordset` INSERT in `commitAskDecisions`
+   (`src/lib/solicitation/batch-builder.ts`), which takes `status` from
+   `decision.decision`, and one UPDATE that sets `agent_run_id` and nothing
+   else. Searched: every occurrence of `solicitation_asks` under `src/` and
+   `worker/`, excluding `__tests__`. No other producer of a `send` ask exists.
+3. `decisions` reaches `commitAskDecisions` from ONE call site, and its only
+   source is `evaluateBatch(candidates, …)`.
+4. `evaluateBatch` (`restraint-policy.ts`) returns early when
+   `eligible.length <= BATCH_CAP` and otherwise keeps `.slice(0, BATCH_CAP)`,
+   re-deciding every other `send` as `velocity_banked`. `BATCH_CAP = 25`.
+5. A batch cannot be rebuilt past the cap: `buildSolicitationBatch` takes the
+   batch row `FOR UPDATE` and returns `already_built` on a non-null `built_at`
+   before it evaluates anything.
+
+**#1093 did not falsify this.** It rewrote `resolveVertical` — adding an
+exact-match `SUBCATEGORY_VERTICALS` table ahead of the retained keyword matcher —
+and added `SUBCATEGORY_VERTICALS` itself. It did not touch `evaluateBatch`, the
+cap, or any writer of `solicitation_asks.status`. Verified by reading the #1093
+diff of `restraint-policy.ts` directly, not from its commit message.
+
+**Verdict: the corrected number survives the rebase. 25, not 5,000. No P0.**
+
+## 2. The citation rule's third form, and its scope clause
+
+The rule at HEAD is unqualified: **cite by symbol, always**, governing LIVING
+documents and not DATED EVIDENCE.
+
+**The historical claim it rests on is TRUE, checked rather than assumed.** At
+`862a039d^` the cap logic sits at `restraint-policy.ts:440-448`; at `a40fe38d`
+the byte-identical block sits at `:579-587`. #1093 moved it, the branch never
+touched the file, and the line citation the round-2 fix had just added went
+stale — exactly as the commit message says.
+
+**The audit claim is TRUE as stated.** Zero `path:line` citations remain in the
+plan, both intake copies (byte-identical), the triage file, `ask-generation.ts`
+and both test files. The four `:440-448` / `:579-587` occurrences are narrative
+about the falsification, not citations. Every backtick-quoted identifier in
+those documents was re-resolved against HEAD — 127 checked, 122 resolve; the
+five that do not are two SHAs, two intake schema field names, and
+`recordOutreachWithheldRefusals`, a symbol the plan names precisely to say it
+was NOT created.
+
+**The tool claim is TRUE.** `prevalidate-plan.py` on the plan reports
+`CITATIONS: 0 checked, 0 unresolved` → `PASS`, so its PASS is vacuous there,
+which is what the plan says about it.
+
+**Where the third form is still incomplete: the scope clause's enumeration.**
+See RT1082R3-02. The LIVING/DATED distinction itself survived attack — the
+operative test ("does this assert about the current tree, or record a measured
+SHA?") sorts every document the clause names correctly — but the enumeration
+omits the branch's own deviations doc, and that omission has a live consequence
+(RT1082R3-01), so it is not cosmetic.
+
+## 3. Mutations, re-run on the rebased tree
+
+11 mutations, all journaled and restored. Baseline at HEAD confirmed first:
+unit **51/51**, live-DB **22/22**.
+
+| # | Mutation | Result |
 |---|---|---|
-| R2-M1 | `clearRefusalCalls()` reverted to the one-armed `mocks.writeRefusalEvent.mockClear()` the fix replaced | **SURVIVED** — the single case green under `assert-one-test`, then 51/51 on the whole file. Provably equivalent (see below); the DOC claim is RT1082-07 |
-| R2-M2 | caller-side `if (refusals.length > 0)` around `writeRefusalEvents(tx, refusals)` (`ask-generation.ts:1930`) | **killed** — 1 failed / 50 passed, failing at `:1659`, the design pin, with all three title-property assertions passing |
-| R2-M3 | `refusalCalls()`'s `.sort((l, r) => l.order - r.order)` removed, leaving plain `[...single, ...set]` | **SURVIVED**, 51/51 — re-measured at the NEW head, confirming the fix's own retraction |
+| M1 | revert the batching — write inside the loop, drop the post-loop call | **killed** (2 cases) |
+| M2 | hoist the set write off the transaction — `writeRefusalEvents(sql, …)` | **killed** live-DB (3 cases); unit lane blind |
+| M3 | drop one collected input — `refusals.slice(1)` | **killed** (2 cases) |
+| M4 | wrong category — hard-code `'unsafe_content'` in the builder | **killed** |
+| M5 | wrong subjectType — `'solicitation_ask'` | **killed** (2 cases) |
+| M6 | `occurredAt: 'transaction_time'` | **killed** unit (2) AND live-DB (4) |
+| M7 | wrap the write in `if (refusals.length > 0)` | **killed** (1 case, the design pin) |
+| M10 | `allRefusalCodes: []` instead of `null` | **killed** |
+| M11 | wrong lane — `refusalSource: 'ask_withheld'` | **killed** |
+| M8 | replace the `invocationCallOrder` sort with plain concatenation | **survives — equivalent, proof in the sidecar** |
+| M9 | revert `clearRefusalCalls` to the one-armed `mockClear` | **survives — equivalent, proof in the sidecar** |
 
-**Why R2-M1 is `equivalent` and not a P0 survivor.** `clearRefusalCalls()` has
-exactly two call sites (`:1409`, `:1419`), both inside
-`'the render lane maps render_failed and lint_failed …'`. That case drives only
-`runSingleChild`, whose lane is `persistChildRender` →
-`recordOutreachWithheldRefusal` → `writeRefusalEvent` — the SINGLE-ROW arm.
-`writeRefusalEvents` is reached only from `settleGenerationExhaustion`, which
-the case never invokes, so the set-arm mock holds zero calls at both clear
-points and clearing it is a no-op. That is a proof about the MUTANT, so the row
-does not block. The claim that the line is load-bearing **today** is a separate
-claim about the world, and it is the P0.
+**The branch's claim about M8 and M9 is the one it now makes, and it is
+correct.** Both docblocks say "INERT TODAY … MEASURED, NOT ASSUMED" and quote
+51/51. Re-measured independently at `a40fe38d`: 51/51 both times. The earlier
+"load-bearing" claims are gone from HEAD; neither replacement asserts a third
+one. No finding.
 
-**Why R2-M3 is `equivalent`.** The matrix case is the only one that mixes arms,
-and it drives W1 (`:1477`) → W2 (`:1479`) → W3 (`:1481`) → W4 (`:1483`), with
-W4 = `settleGenerationExhaustion` the only set-arm writer. Its calls are
-therefore already last under plain concatenation. This is the fix's own stated
-reason, re-derived independently and re-measured at the new head.
+**M2 is the one worth reading twice.** It is invisible to the unit lane (the arm
+is mocked) and killed in the live-DB lane by the NEW abort case *and* by two
+pre-existing cases. That reproduces the branch's own honest note that the new
+case is not the only guard, and settles the converse the note does not claim:
+the same-transaction guarantee is genuinely covered, from three directions.
 
-**Direction B.** The fix commit's production diff to `ask-generation.ts` is
-COMMENT-ONLY. Classifying every added line of `b9fb9601..aa3fab6e` by first
-non-whitespace token: 96 added = 27 code + 66 comment + 3 blank, and the code
-count is identical to round 1's 27 at `4f39fbd2`. There is no
-behaviour-affecting production hunk in this commit beyond the one R2-M2 covers,
-so the two `excluded` rows are complete rather than a sample.
+## 4. Did the rebase break anything semantically? — NO
 
-## The claims the brief asked me to verify, one by one
+#1093 changed `resolveVertical`'s resolution order (closed table first, keyword
+matcher retained as fallback). The solicitation ask-generation lane reads it in
+exactly one place, `assembleInterpolation`, to fill the `vertical`
+interpolation input. Two reasons it cannot couple to this branch:
 
-**1 — the `refusalCalls()` retraction.** Sound. Both prose sites now say the
-sort is NOT load-bearing today, name the W1→W4 happenstance, and justify
-keeping it for order-independence. Re-measured as R2-M3: 51/51 green without
-the sort. **The `@vitest/spy` sub-claim is TRUE in the installed version.** In
-`@vitest/spy@4.1.7`, `mockClear` resets `state.calls` and
-`state.invocationCallOrder` inside one function body
-(`dist/index.js:142-150`), and `registerCalls` / `registerInvocationOrder` are
-called on adjacent unconditional lines `:288-289` of the mock body — so the two
-arrays are always index-aligned and the non-null assertions at
-`ask-generation.test.ts:1272`/`:1276` are safe. Nothing else in the new prose
-is false — **except** the substituted `clearRefusalCalls()` claim (RT1082-07).
+- `settleGenerationExhaustion` — the only function this branch changed — never
+  calls `assembleInterpolation`. Its fills write `interpolationInputs: {}` by
+  construction, because the asks were never assembled.
+- The changed suites' only category fixture is `'restaurant'`, lowercase free
+  text and not a member of the 92-item vocabulary, so it still resolves through
+  the retained keyword matcher to `food_and_drink` exactly as before.
 
-**2 — the new "load-bearing" hazard.** MUTATED, and it does not hold. R2-M1
-reverted `clearRefusalCalls()` to the single arm; nothing went red, 51/51.
-Worse than merely unmeasured: `docs/reviews/perf-1082-exhaustion-refusal-batch/spec-correctness.md:275`
-(F3) — the very finding the fix implemented — says "**Today this is inert**:
-all three phases run W1, which uses only the single-row arm", and gives its
-trigger as a FUTURE edit. The helper is a good forward-looking change; the
-ledger's present tense is the defect. Raised as **P0**, not P1: it is the same
-class, the same file, the same row and the same measurement method as round 1's
-P0, and this ledger is the durable authoritative layer. The one-clause fix is
-to phrase it prospectively, exactly as the sort's retraction two clauses
-earlier already does.
+Both suites green at HEAD confirms it empirically; the above is why.
 
-**3 — the 200x bound correction. The 25 is CORRECT.** Chain re-derived
-independently, end to end:
+## 5. Volume
 
-1. `holes` filters `AND ask.status = 'send'` — `ask-generation.ts:1848`.
-2. `commitAskDecisions` builds `status: decision.decision` and inserts it —
-   `batch-builder.ts:607`, `:615-640`.
-3. `evaluateBatch` returns at most `BATCH_CAP` send decisions: everything past
-   `.slice(0, BATCH_CAP)` is rewritten to `withhold`/`velocity_banked` —
-   `restraint-policy.ts:436-460`, `BATCH_CAP = 25` at `:87`.
-4. `UPDATE solicitation_asks ask SET agent_run_id = link.run_id` is the ONLY
-   update statement in the repo — `batch-builder.ts:721`. `rg` over `src`,
-   `worker` and `supabase/migrations` finds exactly two write statements
-   against the table (the INSERT at `:615` and that UPDATE), no trigger and no
-   other writer, so no other path can produce a `send`-status ask.
+**100 consecutive runs of `src/lib/solicitation/__tests__/ask-generation.test.ts`
+at `a40fe38d` under the isolated environment: 0 failing runs, 51/51 every time.**
 
-**Can one `batch_id` accumulate more than `BATCH_CAP`?** No. `commitAskDecisions`
-has a single caller, `constructBatch` (`batch-builder.ts:829`), inside one
-`sql.begin` that takes the ownership CAS, then the per-Business advisory lock,
-then `SELECT … FOR UPDATE OF sb`, and returns `already_built` when
-`batch.built_at !== null` (`:771`). `built_at` has exactly one writer — the
-`SET built_at = …` guarded on `AND built_at IS NULL` at `:849` — so a batch is
-built once and the ask set is written once. **No P0 here: the correction went
-from a wrong number to a right one.**
+This is a fourth independent measurement against the reporting axis's 2-in-~102
+at the much older `4f39fbd2`. The deviations doc's D6/R2 table should gain the
+row; the rejection it supports is unaffected.
 
-**4a — citations.** Every symbol the plan and intake now quote resolves at
-HEAD: `settleGenerationExhaustion`, `writeRefusalEvents`, `commitAskDecisions`,
-`persistChildRender`, `regenerateAsk`, `recordOutreachWithheldRefusal`,
-`outreachWithheldRefusalInput`, `abortingExecutor`, `abortAfterLedgerWrite`,
-`evaluateBatch`, `insertOutreachRender`, plus the three verbatim test titles
-(`:1470`, `:1462`, `:1692`). The intake's three surviving line citations
-(`restraint-policy.ts:440-448`, `write.ts:368`, `write.ts:296`) were
-hand-resolved and all three land correctly. What does NOT hold is the plan's
-banner — see RT1082-09.
+## 6. Fragile assertions — one, already adjudicated
 
-**4b — observability.** TRUE. `deadLetterWholeBatch`
-(`worker/jobs/solicitation-batch/generate-failed-hook.ts:170-209`) is one
-`for` loop; the `try` arm logs and `return`s, the `catch` arm either `continue`s
-or logs and `return`s. No `throw` on any path, and the sole caller (`:279`)
-returns immediately after. `terminal_settlement_abandoned` (`:136`) appears in
-no rule row of `docs/runbooks/beta-launch-alerting.md`. Both halves of the
-corrected claim stand.
+`expect(mocks.writeRefusalEvents.mock.calls[0]![1]).toEqual([])` in the
+"no holes" case pins a structural fact (that the call happens at all) rather
+than a behavioural one, and M7 confirms it is the only thing that fires on an
+outcome-identical `if (refusals.length > 0)`. It is not a new finding: the test
+labels it "A DESIGN PIN, NOT THE TITLE'S PROPERTY", separates it from the three
+behavioural assertions above it, and states the remedy (delete the pin, do not
+weaken the test). That is the disposition of RT1082-05 from the previous pass,
+verified as landed. Nothing else in the changed tests asserts an absence-of-tag
+proxy, an exact string count on rendered output, or an order with no contract —
+the one order assertion (`subjectId` sequence) pins the set arm flattening in
+its input order, which is a stated property of the change.
 
-**4c — the "no holes" split.** VERIFIED BY MUTATION (R2-M2). Exactly one case
-red across the file, failing at `:1659` — the pin — with `:1648`, `:1649` and
-`:1650` all passing. Nit, not a finding: the comment says the guard "would turn
-THESE two lines red"; the first fails and vitest never reaches the second.
+## 7. Missed siblings — searched, none found
 
-**4d — the abort comment, both halves.** TRUE. The named sibling
-`'a refusal written by each render writer does not survive a later rollback of
-its outreach transaction'` is at `integration.test.ts:1692`; at its
-`settleGenerationExhaustion` phase only `askOne` is still a hole (`askTwo` was
-rendered by `seedRenderedAttempt`, `:1712`), and `abortAfterLedgerWrite`
-aborts with `throw abort` on a JS `Error` (`:383`) — ONE hole, JS throw. The
-new case seeds two send asks (`:1509-1510`), poisons with
-`` tx`SELECT 1 / 0` `` (`:1515`) and asserts
-`.rejects.toMatchObject({ code: '22012' })` (`:1522`) — TWO holes, real
-Postgres 22012.
+Pattern searched: a single-row `writeRefusalEvent` call reachable inside a loop
+or a per-element iteration. Scope: every `writeRefusalEvent`/`writeRefusalEvents`
+reference under `src/` and `worker/`, excluding `__tests__` and the owning
+module `src/lib/refusals/write.ts`.
 
-**5 — the `recordOutreachWithheldRefusal` census.** COUNTED AT HEAD, and it is
-right. `recordOutreachWithheldRefusal` has exactly two call sites,
-`ask-generation.ts:874` (inside `persistChildRender`) and `:1674` (inside
-`regenerateAsk`) — "TWO SINGLE-ROW CALL SITES". The lane's four writers reach
-the ledger through three call sites: those two plus
-`writeRefusalEvents(tx, refusals)` at `:1930` — "FOUR WRITERS, THREE CALL
-SITES, TWO OF THEM HERE". Consistent with the sibling docblock's "Three of the
-four writers … go through `recordOutreachWithheldRefusal`" (`:757-760`), which
-counts WRITERS (W1, W2 through `persistChildRender`, W3) rather than call
-sites.
+Nine production call sites, matching the triage's count. Seven single-row:
+`ask-generation.ts` (the three render writers, through
+`recordOutreachWithheldRefusal`), `dispatch.ts` (`commitWithhold`),
+`approval.ts` (`latchHalt`), `auto-approval/suspension.ts`
+(`suspendAccountAutonomy`), `publisher/auto-policy-downgrade.ts`, and
+`response-generation/persist.ts` twice (`recordPolicyGateRefusal`,
+`recordModerationAndHold`). Two set-arm: `batch-builder.ts`
+(`commitAskDecisions`) and this branch's new one.
 
-The kept-rather-than-inlined reasoning is sound but the fraction is generous.
-The three items it names are real and do describe the WRITE — the no-catch
-paragraph (`:699-703`), migration 116's CHECKs (same paragraph) and the
-`dispatch.ts` counterpart (`:671-679`) — plus `@param tx` (`:681-685`). That is
-roughly 20 of ~55 non-blank docblock lines, about a third rather than "half".
-Recorded here, not raised: naming three real items and rounding their share up
-is not a false claim, and the census it sits beside is now correct.
+No enclosing loop at any of the seven, and no enclosing function that is itself
+driven per-element: `commitWithhold` is reached from `dispatchOutreach`, which
+is one job per outreach row, not a fan-out. **Zero siblings — a sound search
+with a nil result.**
 
-**6 — the volume run. 200 runs, 0 failures.** `ask-generation.test.ts` run 200
-consecutive times at `aa3fab6e` under the scrubbed environment
-(`REPWORTH_DISABLE_LIVE_DB_SUITES=1`), each run 51/51. Zero failing runs
-captured, so there is nothing to attach. Round 1's spec axis measured 2/~102 at
-`4f39fbd2`; the root measured 0/80 at `aa3fab6e`; this pass measures **0/200**.
-That is 280 clean runs at the new head against 2 failures in ~102 at the old
-one. It is evidence of absence at this volume, not proof — and the rejection's
-STATED reasoning still does not reach the report it rejects (RT1082-10).
+## 8. Operational completeness — nothing owed
 
-## Duty 2 — fragile assertions
+The diff adds no `catch`, no swallow, no log line, no Sentry signal and no error
+class. The failure mode is unchanged in kind and reduced in count: one throw out
+of `writeRefusalEvents` instead of up to N, propagating out of the same
+`sql.begin` to the same failed-hook. No rule row in
+`docs/runbooks/beta-launch-alerting.md` becomes stale and none is owed.
 
-The fix's test edits reduce fragility rather than add it. The two remaining
-one-armed `expect(mocks.writeRefusalEvent).not.toHaveBeenCalled()` assertions
-(`:1624`, `:1646`) are deliberate and each is paired with an explicit set-arm
-assertion on the next lines, so neither is the one-arm-of-a-two-arm-writer
-class. `expectNoRefusalWrite` (`:1285-1288`) covers both arms. No
-absence-of-tag proxy, no exact string count, and the one positional pairing
-(`:1492`) has a stated ordering contract. **Nothing new to report.**
+Two adjacent claims re-checked because the batching could have moved them:
+with `REFUSAL_LEDGER_ENABLED=false` the warning count is unchanged (one per
+episode either way — `warnedThisEpisode` is module-level and latched), and the
+empty case still warns NOT AT ALL, because `writeRefusalEvents` returns on
+`inputs.length === 0` before it reads the flag.
 
-## Duty 3 — docs vs reality, re-resolved at HEAD
+## 9. Method, and one deviation to record
 
-`python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py` was run on
-both changed docs: `PASS` for each, but the plan now reports
-`CITATIONS: 0 checked` — the fix converted the citations the script CAN see
-into symbols and left two the script CANNOT see, so its PASS is now vacuous for
-this file. Every claim below was hand-checked.
+Environment isolated through `mutation-runner.mjs env` (allowlist:
+`PATH`, temporary `HOME`, `TMPDIR`, `NODE_ENV`, `CI`, `MOCK_EXTERNAL_APIS`, and
+a validated localhost `TEST_DATABASE_POOL_URL`). Watchers checked clean before
+the round opened.
 
-Confirmed TRUE at HEAD: the whole `BATCH_CAP` chain (item 3 above); the
-`@vitest/spy` alignment claim; the `deadLetterWholeBatch` no-rethrow claim and
-the missing alert row; the retraction of the sort claim; the abort comment's
-two halves; the `recordOutreachWithheldRefusal` census; every symbol citation
-in the plan and intake; the intake's three surviving line citations.
+**Deviation 1 — whole-file runs instead of `-t` per case.** Each mutant was run
+against the whole changed test file rather than one `-t`-selected case, so
+`assert-one-test` was not used. This is strictly more evidence per run (it names
+every case that fires, which is how M1, M3, M5 and M6 were found to be killed by
+more than one) and it removes the `-t`-regex mismatch hazard that check exists
+to catch. Baselines were established the same way.
 
-Confirmed FALSE or self-contradicted: RT1082-07, RT1082-08, RT1082-09,
-RT1082-10, RT1082-11.
+**Deviation 2 — the dotenv swap closed early.** `dotenv-swap` was opened for the
+round, but calling `finalize` after each mutation (to restore the file
+immediately) also closed the swap, so mutations after M1 ran with the real
+`.env.local` on disk beneath the scrubbed process environment. Recorded rather
+than hidden. It does not change any result here: the unit suite mocks every
+external module and touches no database, the live-DB runs were pointed at the
+same validated localhost database explicitly, and the M1 run (swapped) and the
+M3-M11 runs (not swapped) produced identical 51/51 baselines.
 
-## Duty 4 — missed sibling cases
+**Deviation 3 — the journal was reset to open round 1.** The worktree's journal
+was at `round: 2` from the previous, now-closed pass, so `round-start` refused.
+It was verified clean first (every mutation `restored`, dotenv closed, no active
+supervisor), archived to `.feature/red-team-journal.prev-run-63c82c.json`
+(gitignored), and replaced with an empty round-0 journal. The 2-round cap is a
+per-RUN bound, not a per-worktree one; this is round 1 of a new run.
 
-**Pattern searched:** the shape the fix introduced — a one-armed mock reference
-to a two-armed writer. `rg -n 'mocks\.writeRefusalEvent[^s]'` and
-`rg -n 'mockClear|mockReset|clearAllMocks|resetAllMocks'` over
-`src/lib/solicitation/__tests__/ask-generation.test.ts`. **Scope:** the changed
-test file, because that is the only file the fix's test change touches.
-**Exclusions:** the production surface, which the fix did not change
-executably.
+**Budget.** 17 of 30 runs used. No candidate was left unexecuted; there are no
+`skipped-budget` rows.
 
-Seven hits. `:108` and `:280` are the mock factory and its `beforeEach` reset,
-both correct. `:1271-1272` are inside `refusalCalls()`, which folds both arms.
-`:1286` is `expectNoRefusalWrite`'s first line, paired with `:1287`. `:1302` is
-`clearRefusalCalls`'s first line, paired with `:1303`. `:1624` and `:1646` are
-deliberate, each paired with a set-arm assertion. **Zero siblings.** The
-generic reset loop at `:249-256` calls `mockReset()` on every mock in the
-`mocks` object, so both arms are cleared between cases regardless.
-
-## Duty 5 — operational completeness
-
-The fix commit adds no executable production line, therefore no new terminal or
-swallowed failure path, therefore no new rule row is owed in
-`docs/runbooks/beta-launch-alerting.md`. The one operational claim it CHANGES
-is the observability entry, and that change made a false claim true (RT1082-04,
-verified above). The pre-existing gap it now names honestly —
-`terminal_settlement_abandoned` has no alert row — is confirmed and remains out
-of this branch's scope.
-
-## Round 1 — dispositions
-
-| Id | Severity | Round-2 disposition |
-|---|---|---|
-| RT1082-01 | P0 | **fixed** — both prose sites retract; re-measured as R2-M3 (51/51 without the sort). The substitute claim in the same bullet is RT1082-07. |
-| RT1082-02 | P1 | **fixed** — by an honest comment naming the sibling; both halves verified. |
-| RT1082-03 | P1 | **fixed** — the seven named citations are gone and every replacement symbol resolves. The residue is RT1082-09. |
-| RT1082-04 | P2 | **fixed** — verified against `generate-failed-hook.ts:170-209` and the runbook. |
-| RT1082-05 | P2 | **fixed** — verified by mutation R2-M2; only the pin goes red. |
-| RT1082-06 | P2 | **fixed** — no 53/23 claim survives anywhere; re-measured 51 and 22. |
+**Restoration.** `finalize` reports every journaled process group empty (17
+recorded), 11 mutations restored, journal closed, no dotenv backup outstanding.
+`git status --porcelain` is empty except this report's two artifacts.
 
 ## Authorizations
 
-None recorded.
-
-## Appendix — unrelated, untriaged
-
-Not a finding, and outside this round's scope: `docs/directory.md`'s prose for
-`src/lib/solicitation/` still describes the pre-#1082 call graph. The fix
-recorded this as D6/R3 "RAISED, NOT TAKEN" because the file is outside
-`allowed_edit_surface` and `ci:directory-map` checks row presence rather than
-prose. Recorded here only so it is not lost.
+None.
 
 ---
 
 # Root dispositions — written by the orchestrator, not by the pass
 
-Added at `c6d80358`. `findings.json` carries a `disposition` per finding and no
-field for reasoning, so the reasoning lives here. Every round-2 finding is
-`fixed`; none is rejected and none is `accepted-risk`.
+Both findings `fixed`. Neither rejected, neither `accepted-risk`.
 
-## Provenance, stated before the dispositions
+**Provenance.** The pass measured `a40fe38d`. `head_sha` is advanced to
+`2cffccf0`, the fix commit, on a basis a reader should re-check rather than
+take: `git diff a40fe38d..2cffccf0 --name-only -- src worker` is **empty**. The
+fix touched five files, all documentation — this report, its JSON sidecar, the
+triage file, the deviations file and the arch-review-log row — so the mutation
+inventory above still describes the code it measured. No rebase and no
+dependency change sits between the two SHAs, unlike the previous run's
+extrapolation, which is why that one was retired and replaced by this fresh
+pass instead.
 
-Round 2 measured the tree at **`aa3fab6e`**. The sidecar's `head_sha` and
-`intake_sha256` are advanced to **`c6d80358`** on this basis, which a later
-reader should re-check rather than take:
+## RT1082R3-01 (P1) — fixed
 
-> `git diff aa3fab6e..c6d80358 -- 'src/**/*.ts'` contains **zero executable
-> lines**. Every round-2 finding was about prose, and the only code-file change
-> in the fix commit is a docblock — which INV-R2-05 established independently
-> for the production file ("the fix commit's production diff to
-> `ask-generation.ts` is COMMENT-ONLY").
+Accepted in full, including the sharpest part of the reasoning: **"T16's FIXED
+overstates what was fixed."** It did. The arch-review-log row was rewritten to
+stop quoting the comment count and its twin in deviations D1 was never touched,
+so the branch's two living documents contradicted each other on one figure — the
+row saying "two to three lines per line of code", D1 saying 1.5x.
 
-So the mutation inventory above still describes the code at `c6d80358`. The
-mutations themselves ran at `aa3fab6e`; `generated_at` and the inventory rows
-preserve that, and this section is the only place the two heads are
-distinguished, because the schema has no field for it.
+Re-derived at HEAD by the branch's own prescribed method: 27 code, 68 comment,
+3 blank, ratio 2.5x. The finding's numbers are exact.
 
-The owner authorised this disposition on 2026-09-03, having been offered and
-declined the alternative — a fresh pass at `c6d80358` under a new slug.
-`round-start` refuses a third round on this run by design, and step 7.5 sends a
-round-2 P0 to the owner with no round behind it. That is the path taken.
+Fixed by the rule rather than by the number. D1 no longer quotes the count at
+all; it names the arch-review-log row as the figure's **single owner** and tells
+the reader to re-derive there. Patching 40 → 68 would have produced the same
+defect on the next prose commit, which is how this figure already moved three
+times (40 → 66 → 68).
 
-## RT1082-07 (P0) — fixed
+The finding's precedent citation is apt, and it was on this branch's reading
+list: the #1080 row records "The same 79 still stands, uncorrected, in
+`.feature/deviations.md` § D5" as a known residual. #1082 repeated the omission
+one ticket later. It is now arch-review-log bullet (h): **a figure that moves
+under prose edits needs one owner, and every other mention points at it** —
+because "fix both" is exactly what failed here.
 
-Accepted in full; the diagnosis is exact. The retraction of one unmeasured
-adjective asserted a second one three clauses later, and the spec axis's own
-wording ("Today this is inert") already said so.
+## RT1082R3-02 (P2) — fixed
 
-Fixed in the order the finding implies — **the mutation first, the prose
-after**. `clearRefusalCalls` was reverted to the one-armed `mockClear` in the
-root session and the suite ran 51/51 green; only then was the sentence
-rewritten. The arch-review-log bullet now retracts the second claim explicitly,
-records BOTH helpers as inert-today trap-removers, and carries the transferable
-rule — RUN THE MUTATION BEFORE WRITING THE ADJECTIVE — in place of a third
-adjective.
+Accepted, and it is the more useful of the two: it explains *why* the P1
+survived a sweep that claimed to cover everything. The finding is also fair
+about what it could not falsify — the LIVING/DATED split itself is coherent, and
+it confirmed the commit's audit claim was true within its stated scope. The
+defect was the scope, not the rule.
 
-The test docblock was rewritten too, beyond the finding's ask. The finding
-judged it defensible as prospective rationale; it opened "A ONE-ARMED CLEAR IS
-THE TRAP THE SORT ABOVE EXISTS FOR", which reads present-tense to the same
-reader. Both helpers are KEPT, as the finding recommends.
+Fixed beyond the finding's suggested remedy. It proposed naming the deviations
+doc and the branch's own arch-log row in the LIVING list — a one-word repair
+that would leave the next unlisted document in the same gap. The clause is now
+stated as a **test** rather than a list:
 
-## RT1082-08 (P1) — fixed
+> Is this document asserting what is true NOW, or recording what was measured
+> THEN?
 
-Re-measured on `b9fb9601..c6d80358` by first non-whitespace token: 27 code + 66
-comment + 3 blank, confirming the finding's 66 exactly.
-
-The fix follows the prescription the #1080 row already carries rather than
-patching the number: **the comment count is no longer quoted at all**, because
-any prose fix — including this one — falsifies it again. The row quotes the half
-that does not move under a prose edit (27 code), gives the ratio as
-approximate, gives the derivation command, and tells the reader to re-derive.
-The stale 1.5x ratio in deviations D1 is superseded by the arch-log row, which
-is the durable owner of the figure.
-
-## RT1082-09 (P1) — fixed
-
-Both halves accepted. The two bare citations at `plan:55` are deleted,
-including the unresolvable `:1632` — the finding's re-anchoring is right
-(`regenerateAsk` is declared at `:1486`, its call site at `:1674`).
-
-The banner is replaced by the rule that is actually true, and that the intake's
-surviving citations already obeyed: **a file this branch EDITS is cited by
-symbol; a file it does not touch may be cited by line.** Audited mechanically
-across all six branch files afterwards — 0 violations, and the three survivors
-(`restraint-policy.ts:440-448`, `write.ts:368`, `write.ts:296`) all point at
-untouched files and all resolve.
-
-The finding's observation that `prevalidate-plan.py` reports "0 citations
-checked" for a bare-citation plan, making its PASS vacuous, is now recorded in
-the banner itself — so the next reader does not trust that check the way this
-branch did.
-
-## RT1082-10 (P2) — fixed
-
-Accepted: the desync refutation answered appendix item A4, not F2, and the
-reporting axis had said plainly it could not identify a mechanism.
-
-D6/R2 is rewritten to say so, and the rejection now rests only on the evidence
-that speaks to an unexplained intermittency — run volume, across both heads and
-all four observers:
-
-| Observer | Head | Runs | Failures |
-|---|---|---|---|
-| spec-correctness axis | `4f39fbd2` | ~102 | 2 |
-| root | `4f39fbd2` | 60 | 0 |
-| root | `aa3fab6e` | 80 | 0 |
-| red team round 2 | `aa3fab6e` | 200 | 0 |
-
-The finding is recorded as **unexplained rather than solved**, with that table
-named as the baseline if it recurs, and the two signatures the finding
-describes — a `(tx, [])` set call in the stale-CAS case, and `refusalCalls()`
-short by one — preserved as the shapes to look for. The vitest desync claim is
-retained where it belongs, in the `refusalCalls()` docblock as justification for
-indexing `invocationCallOrder`, since this round re-verified it true in
-`@vitest/spy@4.1.7`.
-
-## RT1082-11 (P2) — fixed
-
-Fixed by correcting the RULE rather than the citation, which is what the
-finding's own framing points at — it recorded convention drift, not a wrong
-citation, and noted the range covers exactly the cap logic.
-`restraint-policy.ts` is untouched by this branch, so under the corrected rule
-the citation is legal and stays. That rule is now the one stated in the plan
-banner, the intake and this section, so the self-contradiction the finding
-identified is closed in both directions.
+with the classification of this branch's documents given as an application of
+that test rather than as its definition. Enumerations of a category are how
+things fall out of it, which is precisely what happened here.
