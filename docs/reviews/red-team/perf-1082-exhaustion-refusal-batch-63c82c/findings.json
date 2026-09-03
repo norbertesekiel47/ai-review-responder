@@ -5,8 +5,8 @@
   "branch": "perf/1082-exhaustion-refusal-batch",
   "fork_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
   "merge_base_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
-  "head_sha": "aa3fab6eabd4eff982b5da7cd918d55629c076e1",
-  "intake_sha256": "e8b60f8917d9063e3ca76f13ea82595ff2b499bbcdf9cdee843bca22d81f31ea",
+  "head_sha": "c6d80358787b9237a84e811cf35e3212a22d5438",
+  "intake_sha256": "0e1c2302810279ded6a3d59299522ce5859824c84ac65f8745bd9adeb2bcc47b",
   "risk": "high",
   "round": 2,
   "generated_at": "2026-09-03T19:22:13Z",
@@ -54,7 +54,7 @@
       "title": "The fix retracted one false LOAD-BEARING claim and asserted another in the same bullet: clearRefusalCalls() is NOT load-bearing today, and the finding it acted on said so",
       "at": ".claude/reference/arch-review-log.md:1513",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "arbiter_reasoning": "The row's bullet (d) now reads, verbatim: \"What IS load-bearing today is the paired `clearRefusalCalls()` — a one-armed mid-test `mockClear` leaves an earlier phase's set call sorting FIRST and shifts every positional assertion by one, undetectably when the phases are the same size.\" Present tense, and false. R2-M1 reverted clearRefusalCalls() to exactly that one-armed form and the suite stayed 51/51 green (INV-R2-01 carries the proof that the mutant is behaviour-preserving: the only consuming case drives W1 alone, so the set-arm mock is empty at both clear points and there is no earlier set call to leave behind). The claim is not merely unmeasured — the review finding the fix was ACTING ON says the opposite in the same words: docs/reviews/perf-1082-exhaustion-refusal-batch/spec-correctness.md:275 (F3) reads \"Today this is inert: all three phases run W1, which uses only the single-row arm\", and gives its trigger as a FUTURE edit. The ledger therefore converts an explicitly-prospective hazard into a present-tense measured fact. That is the same operative meaning of load-bearing the branch itself adopted when it retracted the sort claim on mutation evidence three clauses earlier in the same bullet, and the same class the #1080 row one entry above records three times by name. NOT equivalent-and-harmless: the row is the durable architecture ledger, and a later reader is told this helper is measured-live when it is not. The test-file docblock at ask-generation.test.ts:1290-1300 is written prospectively (\"Clearing only `writeRefusalEvent` leaves an earlier phase's set-arm call in the mock\") and is defensible as a rationale; the arch-review-log sentence is not. The helper itself is a correct forward-looking change and should stay — only the ledger's present tense needs to become prospective, exactly as the sort's own retraction two clauses earlier already does correctly."
     },
     {
@@ -63,7 +63,7 @@
       "title": "The row's \"measured AT HEAD\" line count was falsified by the commit that re-published it: 40 comment lines is now 66",
       "at": ".claude/reference/arch-review-log.md:1513",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "reason": "The row opens \"One production file, 27 executable lines added (40 comment, 3 blank - measured AT HEAD by first non-whitespace token)\". Re-measured on the pinned diff b9fb9601..aa3fab6e for src/lib/solicitation/ask-generation.ts, classifying every added line by first non-whitespace token: 96 added = 27 code + 66 comment + 3 blank (git numstat: 96 added / 24 deleted). The code count is right and unchanged; the comment count is understated by 26, because THIS commit rewrote the file's two docblocks and the settlement comment and did not re-measure. The explicit \"AT HEAD\" qualifier makes it a claim about aa3fab6e, so it is false rather than stale. The #1080 row one entry above records this exact failure by name (\"This row first said 79, a figure measured at the round-1 tree; the very commit that wrote the row added seven more comment lines\") and prescribes re-deriving or quoting the ratio instead; the ratio here is now 2.4x, not the 1.5x deviations D1 states."
     },
     {
@@ -72,7 +72,7 @@
       "title": "The plan's new \"CITATIONS IN THIS PLAN ARE BY SYMBOL, NOT BY LINE\" banner is false, and the one surviving line citation it hides does not resolve",
       "at": "docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-plan.md:55",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "reason": "The fix added a blockquote banner at plan:19-25 asserting the plan cites by symbol only, and the commit message states \"the plan and intake now cite BY SYMBOL\". Two bare line citations survive at plan:55: \"`persistChildRender` (`:832`) and `regenerateAsk` (`:1632`)\". Hand-checked at HEAD, because prevalidate-plan.py now reports \"CITATIONS: 0 checked, 0 unresolved\" for this file - its pattern needs a filename before the colon, so bare `:NNN` citations are invisible to it and the PASS is vacuous. `:832` lands on the first parameter of `persistChildRender`, declared at ask-generation.ts:831 - effectively right. `:1632` does NOT resolve: `regenerateAsk` is declared at :1486 and its recordOutreachWithheldRefusal call site is at :1674; :1632 is an unrelated `SELECT ... WHERE kind = 'solicitation_send_batch'` inside the function body. Separately the intake carries the same banner in existing_patterns_to_follow[0] while user_visible_behavior[0] and [2] still spell restraint-policy.ts:440-448, write.ts:368 and write.ts:296 - and the FIRST of those three was ADDED by this commit. All three resolve correctly at HEAD (verified line by line), so they are a self-contradiction rather than a defect; :1632 is the citation a reader is told not to re-check and would be misled by."
     },
     {
@@ -81,7 +81,7 @@
       "title": "The intermittent-suite rejection refutes a mechanism the reporting axis never proposed",
       "at": "docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-deviations.md:134",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "reason": "D6/R2 rejects the spec axis's intermittent-red report with \"The proposed mechanism is refuted by the vitest source: mockClear empties calls and invocationCallOrder in one function, and the two are pushed on adjacent unconditional lines, so they cannot desync.\" The vitest half is TRUE and was verified independently in the installed @vitest/spy@4.1.7: mockClear resets state.calls and state.invocationCallOrder inside one function body (node_modules/.pnpm/@vitest+spy@4.1.7/node_modules/@vitest/spy/dist/index.js:142-150), and registerCalls / registerInvocationOrder are invoked on adjacent unconditional lines :288-289 of the mock body, so the two arrays are always index-aligned - which also makes the same claim in the refusalCalls() docblock (ask-generation.test.ts:1261-1263) true. But no such mechanism was proposed: spec-correctness.md:261 says \"I could not identify the mechanism\", and neither observed signature is a desync - one is a `(tx, [])` set call recorded during the stale-CAS case, the other is refusalCalls() short by exactly one exhaustion-lane Refusal while writeRefusalEvents was called once, both pointing at sqlReturnQueue / mock-reset leakage rather than at the fold. The desync sentence answers appendix item A4, not F2. The rejection stands on its run-volume evidence alone, which this round reinforces (200/200 green); the stated refutation does not reach the report it rejects."
     },
     {
@@ -90,7 +90,7 @@
       "title": "The corrected production comment cites by line while the same commit's plan and intake banners forbid it",
       "at": "src/lib/solicitation/ask-generation.ts:1878",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "reason": "The new bound comment reads \"`evaluateBatch` (`restraint-policy.ts:440-448`) keeps at most `BATCH_CAP` send decisions\". The citation RESOLVES at HEAD - :440 is `if (eligible.length <= BATCH_CAP)` and :448 is `.slice(0, BATCH_CAP)`, so the range covers exactly the cap logic - so this is recorded as convention drift, not a wrong citation. It is the only new line citation in production code on a branch whose plan banner, intake banner and commit message all say the branch moved to symbol citation because line citations went stale inside its own commits."
     },
     {
@@ -158,12 +158,12 @@
     "skipped_budget": 0,
     "excluded": 2,
     "findings_total": 11,
-    "p0_open": 1,
-    "p1_open": 2,
-    "p2_open": 2,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 6,
+    "fixed": 11,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }

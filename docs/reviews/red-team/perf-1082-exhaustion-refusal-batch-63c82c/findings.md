@@ -263,3 +263,117 @@ Not a finding, and outside this round's scope: `docs/directory.md`'s prose for
 recorded this as D6/R3 "RAISED, NOT TAKEN" because the file is outside
 `allowed_edit_surface` and `ci:directory-map` checks row presence rather than
 prose. Recorded here only so it is not lost.
+
+---
+
+# Root dispositions — written by the orchestrator, not by the pass
+
+Added at `c6d80358`. `findings.json` carries a `disposition` per finding and no
+field for reasoning, so the reasoning lives here. Every round-2 finding is
+`fixed`; none is rejected and none is `accepted-risk`.
+
+## Provenance, stated before the dispositions
+
+Round 2 measured the tree at **`aa3fab6e`**. The sidecar's `head_sha` and
+`intake_sha256` are advanced to **`c6d80358`** on this basis, which a later
+reader should re-check rather than take:
+
+> `git diff aa3fab6e..c6d80358 -- 'src/**/*.ts'` contains **zero executable
+> lines**. Every round-2 finding was about prose, and the only code-file change
+> in the fix commit is a docblock — which INV-R2-05 established independently
+> for the production file ("the fix commit's production diff to
+> `ask-generation.ts` is COMMENT-ONLY").
+
+So the mutation inventory above still describes the code at `c6d80358`. The
+mutations themselves ran at `aa3fab6e`; `generated_at` and the inventory rows
+preserve that, and this section is the only place the two heads are
+distinguished, because the schema has no field for it.
+
+The owner authorised this disposition on 2026-09-03, having been offered and
+declined the alternative — a fresh pass at `c6d80358` under a new slug.
+`round-start` refuses a third round on this run by design, and step 7.5 sends a
+round-2 P0 to the owner with no round behind it. That is the path taken.
+
+## RT1082-07 (P0) — fixed
+
+Accepted in full; the diagnosis is exact. The retraction of one unmeasured
+adjective asserted a second one three clauses later, and the spec axis's own
+wording ("Today this is inert") already said so.
+
+Fixed in the order the finding implies — **the mutation first, the prose
+after**. `clearRefusalCalls` was reverted to the one-armed `mockClear` in the
+root session and the suite ran 51/51 green; only then was the sentence
+rewritten. The arch-review-log bullet now retracts the second claim explicitly,
+records BOTH helpers as inert-today trap-removers, and carries the transferable
+rule — RUN THE MUTATION BEFORE WRITING THE ADJECTIVE — in place of a third
+adjective.
+
+The test docblock was rewritten too, beyond the finding's ask. The finding
+judged it defensible as prospective rationale; it opened "A ONE-ARMED CLEAR IS
+THE TRAP THE SORT ABOVE EXISTS FOR", which reads present-tense to the same
+reader. Both helpers are KEPT, as the finding recommends.
+
+## RT1082-08 (P1) — fixed
+
+Re-measured on `b9fb9601..c6d80358` by first non-whitespace token: 27 code + 66
+comment + 3 blank, confirming the finding's 66 exactly.
+
+The fix follows the prescription the #1080 row already carries rather than
+patching the number: **the comment count is no longer quoted at all**, because
+any prose fix — including this one — falsifies it again. The row quotes the half
+that does not move under a prose edit (27 code), gives the ratio as
+approximate, gives the derivation command, and tells the reader to re-derive.
+The stale 1.5x ratio in deviations D1 is superseded by the arch-log row, which
+is the durable owner of the figure.
+
+## RT1082-09 (P1) — fixed
+
+Both halves accepted. The two bare citations at `plan:55` are deleted,
+including the unresolvable `:1632` — the finding's re-anchoring is right
+(`regenerateAsk` is declared at `:1486`, its call site at `:1674`).
+
+The banner is replaced by the rule that is actually true, and that the intake's
+surviving citations already obeyed: **a file this branch EDITS is cited by
+symbol; a file it does not touch may be cited by line.** Audited mechanically
+across all six branch files afterwards — 0 violations, and the three survivors
+(`restraint-policy.ts:440-448`, `write.ts:368`, `write.ts:296`) all point at
+untouched files and all resolve.
+
+The finding's observation that `prevalidate-plan.py` reports "0 citations
+checked" for a bare-citation plan, making its PASS vacuous, is now recorded in
+the banner itself — so the next reader does not trust that check the way this
+branch did.
+
+## RT1082-10 (P2) — fixed
+
+Accepted: the desync refutation answered appendix item A4, not F2, and the
+reporting axis had said plainly it could not identify a mechanism.
+
+D6/R2 is rewritten to say so, and the rejection now rests only on the evidence
+that speaks to an unexplained intermittency — run volume, across both heads and
+all four observers:
+
+| Observer | Head | Runs | Failures |
+|---|---|---|---|
+| spec-correctness axis | `4f39fbd2` | ~102 | 2 |
+| root | `4f39fbd2` | 60 | 0 |
+| root | `aa3fab6e` | 80 | 0 |
+| red team round 2 | `aa3fab6e` | 200 | 0 |
+
+The finding is recorded as **unexplained rather than solved**, with that table
+named as the baseline if it recurs, and the two signatures the finding
+describes — a `(tx, [])` set call in the stale-CAS case, and `refusalCalls()`
+short by one — preserved as the shapes to look for. The vitest desync claim is
+retained where it belongs, in the `refusalCalls()` docblock as justification for
+indexing `invocationCallOrder`, since this round re-verified it true in
+`@vitest/spy@4.1.7`.
+
+## RT1082-11 (P2) — fixed
+
+Fixed by correcting the RULE rather than the citation, which is what the
+finding's own framing points at — it recorded convention drift, not a wrong
+citation, and noted the range covers exactly the cap logic.
+`restraint-policy.ts` is untouched by this branch, so under the corrected rule
+the citation is legal and stays. That rule is now the one stated in the plan
+banner, the intake and this section, so the self-contradiction the finding
+identified is closed in both directions.
