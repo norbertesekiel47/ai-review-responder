@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "mixed",
+  "db_touching": false,
+  "goal": "Every public page renders its brand suffix exactly once, and the 'Try the demo again' button on a failed onboarding demo produces a new demo instead of a 409.",
+  "non_goals": [
+    "Do not take any item from #1078 section A — D9, D11, D33, S15 and X25 each need a product or schema decision and are separate feature runs.",
+    "Do not touch #1078 section D complexity hotspots; they are inherited from main and are separate refactor work.",
+    "Do not change the root layout's title template or its openGraph/twitter titles — the per-page openGraph gap is a different, pre-existing finding.",
+    "Do not add a retry cap or any new counter for failed demos; the existing cost reservation is the spend guard.",
+    "Do not change the demo status vocabulary or the archive-then-insert transaction shape.",
+    "Do not rename any page or change any visible page copy other than the browser title."
+  ],
+  "user_visible_behavior": [
+    "The browser tab on /login, /signup, /signup/finish, /signup/check-email, /forgot-password, /reset-password, /features, /security, /u/[token] and the five /legal pages reads 'Name · RepWorth', not 'Name · RepWorth · RepWorth'.",
+    "The two legacy redirect stubs /privacy and /terms carry a bare title consistent with the rest, though their metadata never reaches a user.",
+    "An owner whose onboarding demo failed can press 'Try the demo again' and get a new demo, instead of a mapped 'no demo to regenerate' error every time."
+  ],
+  "invariants": [
+    "The root layout stays the single owner of the ' · RepWorth' suffix (src/app/layout.tsx title.template).",
+    "Each edited page keeps its existing robots directive and every other metadata field unchanged.",
+    "The regenerate route stays a thin composition root: it parses, reserves budget, runs one transaction, returns — no business logic moves into it (invariant 12).",
+    "The regenerate route keeps its owner scoping by user_id AND business_id, and keeps its cost reservation and cleanup path.",
+    "The archive-then-insert stays in ONE transaction with its job_outbox row (invariant 2).",
+    "A demo in 'running', 'queued' or 'archived' status stays non-regenerable."
+  ],
+  "edge_cases": [
+    "An owner with both a completed and a failed demo: ORDER BY created_at DESC LIMIT 1 still picks the most recent of the eligible set, so the newest failure wins over an older success.",
+    "An owner with no demo at all: still 409 no_demo_to_regenerate, and the client's existing mapped copy still applies.",
+    "A demo stuck in 'running': stays ineligible, so a retry cannot race the worker that is still generating it.",
+    "Redirect stub pages: their metadata never renders because permanentRedirect throws first; the title fix is for consistency, not for an observable change.",
+    "The /u/[token] page is a dynamic segment — its surface entry is the plain bracketed path, never pre-escaped (#867).",
+    "The title guard must read page files as text rather than importing them; importing a server component pulls next/font and the whole render path into the test."
+  ],
+  "existing_patterns_to_follow": [
+    "src/app/(public)/how-it-works/page.tsx, pricing/page.tsx, book-a-demo/page.tsx and help/contact/page.tsx — already bare, with the comment naming the root template. Copy that comment convention.",
+    "src/app/onboarding/business/page.tsx — the A26 precedent this change extends to the remaining pages.",
+    "src/app/api/dashboard/__tests__/refusals-route.test.ts — the house route-test mocking level: mock @/lib/db/auth and @/lib/db/server, never the domain helpers.",
+    "src/app/(public)/help/contact/__tests__/ContactContent.test.tsx — an existing test that already asserts the bare-title convention."
+  ],
+  "test_seams": [
+    "the exported metadata object of each edited page module",
+    "POST /api/onboarding/demo/regenerate (src/app/api/onboarding/demo/regenerate/route.ts)"
+  ],
+  "allowed_edit_surface": [
+    "src/app/(public)/features/page.tsx",
+    "src/app/(public)/forgot-password/page.tsx",
+    "src/app/(public)/legal/aup/page.tsx",
+    "src/app/(public)/legal/cookies/page.tsx",
+    "src/app/(public)/legal/privacy/page.tsx",
+    "src/app/(public)/legal/sub-processors/page.tsx",
+    "src/app/(public)/legal/terms/page.tsx",
+    "src/app/(public)/login/page.tsx",
+    "src/app/(public)/privacy/page.tsx",
+    "src/app/(public)/reset-password/page.tsx",
+    "src/app/(public)/security/page.tsx",
+    "src/app/(public)/signup/check-email/page.tsx",
+    "src/app/(public)/signup/finish/page.tsx",
+    "src/app/(public)/signup/page.tsx",
+    "src/app/(public)/terms/page.tsx",
+    "src/app/(public)/u/[token]/page.tsx",
+    "src/app/(public)/__tests__/page-titles.test.ts",
+    "src/app/api/onboarding/demo/regenerate/route.ts",
+    "src/app/api/onboarding/demo/regenerate/__tests__/route.test.ts"
+  ],
+  "tests_to_add": [
+    "no page metadata title under src/app spells the RepWorth brand suffix",
+    "the title guard names every offending file and its title when it fails",
+    "the regenerate route selects a demo whose generation_status is completed or failed",
+    "the regenerate route returns no_demo_to_regenerate when the owner has no completed or failed demo",
+    "the regenerate route does not select a demo whose generation_status is running, queued or archived",
+    "the regenerate route archives the selected failed demo and inserts its replacement in one transaction"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 40,
+  "estimated_test_lines": 130,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the branch. No schema, no migration and no dependency changes; the title edits are metadata strings and the route edit is one WHERE predicate, so reverting restores today's behaviour exactly.",
+  "observability": [
+    "The new title guard test is the regression signal — a future page that spells the suffix fails the gate rather than shipping a doubled title.",
+    "The existing onboarding demo analytics and the regenerate route's structured logs distinguish a successful retry from a 409, so the A14 fix is measurable after release."
+  ],
+  "required_approvals": ["commit", "push", "pull_request"],
+  "open_questions": []
+}
