@@ -147,11 +147,11 @@
     "excluded": 3,
     "findings_total": 5,
     "p0_open": 0,
-    "p1_open": 3,
-    "p2_open": 2,
+    "p1_open": 0,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 5,
     "rejected": 0
   },
-  "status": "OPEN_P1"
+  "status": "CLEAR"
 }
