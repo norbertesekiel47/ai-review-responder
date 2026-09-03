@@ -281,11 +281,15 @@ describe('feature test suite integrity', () => {
     for (const relativePath of FEATURE_TEST_FILES) {
       const source = readFileSync(new URL(relativePath, REPO_ROOT), 'utf8');
       for (const [index, line] of source.split('\n').entries()) {
-        // `.todo` and `.skip` on it/describe, plus the conditional forms
-        // `it.skipIf(...)` / `describe.runIf(...)`, which are the same evasion
-        // wearing a predicate.
+        // Comment lines are prose, not tests. Without this the check reports
+        // its own documentation, which is a false positive that teaches the
+        // next reader to ignore it.
+        const trimmed = line.trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+        // The two pending forms on it/describe, plus the conditional variants,
+        // which are the same evasion wearing a predicate.
         if (/\b(it|test|describe)\.(todo|skip|skipIf|runIf)\b/.test(line)) {
-          offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+          offenders.push(`${relativePath}:${index + 1}: ${trimmed}`);
         }
       }
     }
