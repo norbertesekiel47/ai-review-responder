@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isPlaceId, parseGoogleMapsUrl } from '@/lib/reviews/url-parser';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { MAX_PASSWORD_LENGTH, PASSWORD_RULES } from './password-rules';
 
 /**
  * Hidden honeypot field name — single source of truth shared by the lead-intake
@@ -204,9 +205,31 @@ const normalizedEmailSchema = z.preprocess(
   z.email().max(254),
 );
 
-/** Minimum password length — single source of truth for the schema + UI hints. */
-export const MIN_PASSWORD_LENGTH = 8;
-const passwordSchema = z.string().min(MIN_PASSWORD_LENGTH).max(128);
+/**
+ * The password rules live in `./password-rules` (#1090), and this schema is
+ * built FROM that list rather than re-spelling it. The defect that forced the
+ * split: the auth forms displayed a "A number" requirement while this schema
+ * was `min(8).max(128)`, so a digitless password was marked unmet on screen
+ * and accepted by the server.
+ *
+ * No re-export of `MIN_PASSWORD_LENGTH` here: every caller that needs the
+ * number imports it from `./password-rules`, the module that owns it. A
+ * pass-through export would be a second name for the same fact and the first
+ * thing to drift.
+ */
+const passwordSchema = z
+  .string()
+  .max(MAX_PASSWORD_LENGTH)
+  .superRefine((password, ctx) => {
+    // Every failing rule is reported, not just the first: the routes surface
+    // `issues` alongside `invalid_body`, and a caller that is not our own form
+    // deserves the whole list.
+    for (const rule of PASSWORD_RULES) {
+      if (!rule.test(password)) {
+        ctx.addIssue({ code: 'custom', message: rule.failureMessage });
+      }
+    }
+  });
 
 // Identity-only signup. Business details are collected later via
 // BusinessOnboardingSchema (POST /api/onboarding/business) after Stripe payment.

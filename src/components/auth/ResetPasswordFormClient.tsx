@@ -12,7 +12,7 @@ import {
 } from './AuthCardShell';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { fetchWithTimeout } from '@/components/auth/shared/fetchWithTimeout';
-import { MIN_PASSWORD_LENGTH } from '@/lib/shared/schemas';
+import { MIN_PASSWORD_LENGTH, firstUnmetPasswordRule } from '@/lib/shared/password-rules';
 import {
   useRecoveryStepUp,
   type UseRecoveryStepUp,
@@ -206,8 +206,12 @@ export function ResetPasswordFormClient({ portal, brandName }: ResetPasswordForm
       setError('Passwords do not match');
       return;
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    // EVERY enforced rule, in the order the requirements list below the field
+    // shows them (#1090). Checking length alone here is what let a password the
+    // list marked unmet reach a server that then accepted it.
+    const unmetRule = firstUnmetPasswordRule(password);
+    if (unmetRule) {
+      setError(unmetRule.failureMessage);
       return;
     }
     setLoading(true);

@@ -76,14 +76,18 @@ describe('ResetPasswordFormClient portal variants', () => {
       const input = await screen.findByLabelText('New password');
 
       const list = screen.getByRole('list', { name: 'Password requirements' });
+      // #1090: the list is now exactly the rules `passwordSchema` ENFORCES.
+      // 'Upper & lowercase letters' was removed because nothing enforced it —
+      // it is scored by `strengthOf` as guidance, and listing it here claimed a
+      // rule the server does not apply.
       expect(list).toHaveTextContent('At least 8 characters');
-      expect(list).toHaveTextContent('Upper & lowercase letters');
       expect(list).toHaveTextContent('A number');
+      expect(list).not.toHaveTextContent('Upper & lowercase letters');
       expect(input).toHaveAttribute('aria-describedby', expect.stringContaining(list.id));
       expect(list.querySelectorAll('li.met')).toHaveLength(0);
 
       fireEvent.change(input, { target: { value: 'validPass1' } });
-      expect(list.querySelectorAll('li.met')).toHaveLength(3);
+      expect(list.querySelectorAll('li.met')).toHaveLength(2);
     });
 
     it('marks the confirm field invalid on a mismatch without a second alert', async () => {
@@ -242,10 +246,10 @@ describe('ResetPasswordFormClient portal variants', () => {
     });
 
     fireEvent.change(screen.getByLabelText(/new password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/confirm password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/authenticator code/i), {
       target: { value: '123456' },
@@ -277,10 +281,10 @@ describe('ResetPasswordFormClient portal variants', () => {
     });
 
     fireEvent.change(screen.getByLabelText(/new password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/confirm password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/authenticator code/i), {
       target: { value: '000000' },
@@ -344,10 +348,10 @@ describe('ResetPasswordFormClient portal variants', () => {
     });
 
     fireEvent.change(screen.getByLabelText(/new password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/confirm password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/authenticator code/i), {
       target: { value: '123456' },
@@ -383,10 +387,10 @@ describe('ResetPasswordFormClient portal variants', () => {
     });
 
     fireEvent.change(screen.getByLabelText(/new password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/confirm password/i), {
-      target: { value: 'a-new-strong-password' },
+      target: { value: 'a-new-strong-password1' },
     });
     fireEvent.change(screen.getByLabelText(/authenticator code/i), {
       target: { value: '123456' },
@@ -398,5 +402,62 @@ describe('ResetPasswordFormClient portal variants', () => {
       expect(screen.getByLabelText(/authenticator code/i)).toHaveValue('');
     });
     expect(routerPush).not.toHaveBeenCalled();
+  });
+});
+
+// #1090. The form displayed "A number" as a requirement and submitted anyway,
+// and `passwordSchema` then accepted the result. The guard now blocks on every
+// enforced rule, so the request never leaves the browser.
+describe('enforces the displayed password requirements before submit (#1090)', () => {
+  it('the reset form blocks submit when the number requirement is unmet', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+    await screen.findByLabelText('New password');
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'abcdefghij' },
+    });
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'abcdefghij' },
+    });
+    fireEvent.submit(
+      screen.getByRole('button', { name: /update password/i }).closest('form')!,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Password must contain at least one number',
+      );
+    });
+    // The point of the fix: the reset route is never reached.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still submits a long password that does contain a number', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ redirectTo: '/dashboard' }) }),
+    );
+    render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+    await screen.findByLabelText('New password');
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'abcdefghij1' } });
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'abcdefghij1' },
+    });
+    fireEvent.submit(
+      screen.getByRole('button', { name: /update password/i }).closest('form')!,
+    );
+    await waitFor(() => {
+      expect(routerPush).toHaveBeenCalledWith('/dashboard');
+    });
+  });
+
+  it('lists exactly the enforced rules beneath the field', async () => {
+    render(<ResetPasswordFormClient portal="owner" brandName="RepWorth" />);
+    await screen.findByLabelText('New password');
+    const list = screen.getByLabelText('Password requirements');
+    expect(list).toHaveTextContent('At least 8 characters');
+    expect(list).toHaveTextContent('A number');
+    // Mixed case is guidance scored by strengthOf, never a requirement.
+    expect(list).not.toHaveTextContent('Upper & lowercase letters');
   });
 });
