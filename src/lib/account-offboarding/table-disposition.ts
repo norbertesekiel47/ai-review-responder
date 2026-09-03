@@ -426,3 +426,33 @@ function needsPurgeVerification(entry: TableDisposition): boolean {
 export const PURGE_VERIFICATION_TABLES = Object.freeze(
   TABLE_DISPOSITIONS.filter(needsPurgeVerification),
 );
+
+/**
+ * A third-party object the purge acts on but does not own. Same disposition
+ * vocabulary as a table, deliberately NO `purgeVerification`: verification is
+ * an SQL predicate, and a provider object has no SQL — `verificationQuery`
+ * throws `missing_purge_verification_sql` for any inventory entry without a
+ * branch, so a provider object must never reach the table inventory (D2).
+ */
+export interface ProviderDataRetention {
+  provider: 'stripe';
+  object: string;
+  disposition: AccountOffboardingDisposition;
+  reason: string;
+}
+
+/**
+ * What survives at a provider after the purge has done everything its API
+ * allows. The deletion receipt and the privacy policy are written from these
+ * reasons, so each one names the CATEGORIES that outlive redaction — never a
+ * handle, never a count.
+ */
+export const PROVIDER_DATA_RETENTION = [
+  {
+    provider: 'stripe',
+    object: 'customer',
+    disposition: 'retain_compliance_limited_pii',
+    reason:
+      'Redaction clears the identifying fields and metadata on the Customer itself, but cannot reach what Stripe keeps for financial record-keeping: a paid invoice snapshots the billing name and address it was issued with and is immutable, and tax_ids hangs off the Customer as its own resource that customers.update cannot clear. Deleting the Customer is not the alternative — it detaches those invoices irreversibly.',
+  },
+] as const satisfies readonly ProviderDataRetention[];
