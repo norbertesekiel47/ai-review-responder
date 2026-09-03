@@ -25,7 +25,8 @@ import {
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Unsubscribe · RepWorth',
+  // Bare name: the root layout's title template appends " · RepWorth".
+  title: 'Unsubscribe',
   robots: { index: false, follow: false },
 };
 

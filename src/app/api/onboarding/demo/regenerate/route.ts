@@ -20,6 +20,21 @@ interface OwnerRow {
   subscription_status: string;
 }
 
+/**
+ * The demo states "Try the demo again" can start from. A demo is regenerable
+ * once it has SETTLED: `completed` (the owner wants a different draft) and
+ * `failed` (#1078 A14 — the button 409'd forever on the one state that most
+ * needs a retry).
+ *
+ * `running` and `queued` are deliberately absent: a retry there would archive
+ * a demo the worker is still generating and race it. `archived` is absent
+ * because it has already been superseded by a newer demo.
+ *
+ * A const rather than a literal in the template, so the accepted set travels
+ * as a query PARAMETER and stays observable.
+ */
+const REGENERABLE_STATUSES = ['completed', 'failed'] as const;
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!onboardingDemoEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
@@ -109,7 +124,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     FROM onboarding_demos
     WHERE user_id = ${owner.user_id}::uuid
       AND business_id = ${owner.id}::uuid
-      AND generation_status = 'completed'
+      AND generation_status = ANY(${[...REGENERABLE_STATUSES] as string[]}::text[])
     ORDER BY created_at DESC
     LIMIT 1
   `;

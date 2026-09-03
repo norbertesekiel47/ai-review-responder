@@ -4,7 +4,8 @@ import { notFound } from 'next/navigation';
 import { AuthIslandClient } from '@/components/auth/auth-island/AuthIslandClient';
 import { noindexRobots } from '@/lib/seo';
 
-export const metadata: Metadata = { title: 'Sign up · RepWorth', robots: noindexRobots };
+// Bare name: the root layout's title template appends " · RepWorth".
+export const metadata: Metadata = { title: 'Sign up', robots: noindexRobots };
 
 export default function SignupPage() {
   if (!selfServeSignupEnabled()) notFound();

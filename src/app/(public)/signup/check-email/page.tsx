@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { CheckEmailClient } from '@/components/auth/CheckEmailClient';
 import { noindexRobots } from '@/lib/seo';
 
-export const metadata: Metadata = { title: 'Check your email · RepWorth', robots: noindexRobots };
+// Bare name: the root layout's title template appends " · RepWorth".
+export const metadata: Metadata = { title: 'Check your email', robots: noindexRobots };
 
 /**
  * Always-on — see `/login`. `SELF_SERVE_SIGNUP_ENABLED` means only "strangers

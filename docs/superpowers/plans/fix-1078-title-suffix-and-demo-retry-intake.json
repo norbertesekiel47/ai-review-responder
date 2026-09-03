@@ -64,7 +64,8 @@
     "src/app/(public)/u/[token]/page.tsx",
     "src/app/(public)/__tests__/page-titles.test.ts",
     "src/app/api/onboarding/demo/regenerate/route.ts",
-    "src/app/api/onboarding/demo/regenerate/__tests__/route.test.ts"
+    "src/app/api/onboarding/demo/regenerate/__tests__/route.test.ts",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "no page metadata title under src/app spells the RepWorth brand suffix",

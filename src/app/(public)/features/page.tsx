@@ -4,7 +4,8 @@ import { trialEnabled as isTrialEnabled, trialPeriodDays } from '@/lib/payments/
 import { FeaturesContent } from '@/components/sections/features/FeaturesContent';
 
 export const metadata: Metadata = {
-  title: 'Features · RepWorth',
+  // Bare name: the root layout's title template appends " · RepWorth".
+  title: 'Features',
   description:
     'The AI agent team for your reputation: Reply drafts in your voice, Guardian triages negative reviews, Autopilot posts within your policy, and a Judge reviews every auto-post.',
 };

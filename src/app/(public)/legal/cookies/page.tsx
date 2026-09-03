@@ -3,7 +3,8 @@ import { LegalPage } from '@/components/legal/LegalPage';
 import { legalDocs } from '@/lib/legal/content';
 
 export const metadata: Metadata = {
-  title: 'Cookie Policy · RepWorth',
+  // Bare name: the root layout's title template appends " · RepWorth".
+  title: 'Cookie Policy',
   description: 'How RepWorth uses cookies.',
 };
 
