@@ -1882,9 +1882,17 @@ export async function settleGenerationExhaustion(
     // ceiling is real but belongs to the `ask_withheld` lane, where withheld
     // candidates are uncapped — which is why `writeRefusalEvents`' own
     // docblock cites it THERE. Carrying that constant into this lane
-    // overstated the saving 200-fold. The saving here is at most 24 round
-    // trips; the reason to batch is that a per-row write in a loop is the
-    // shape the set arm exists to prevent, not the size of the number.
+    // overstated the ROW COUNT 200-fold.
+    //
+    // BUT 24 ROUND TRIPS IS ~1.6 SECONDS OF LOCK-HELD TIME, MEASURED — small
+    // in count, large in time, and branch review nearly talked itself out of
+    // this ticket on the count alone. On the staging database 25 single-row
+    // inserts take 1754 ms against 141 ms for one set insert of the same rows
+    // (median of three, both rolled back). A round trip costs ~70 ms through
+    // PgBouncer to Supabase and ~0.4 ms to a local Docker Postgres, so the
+    // integration suite's own timings understate the real saving by two orders
+    // of magnitude. Evidence:
+    // docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md
     const refusals: WriteRefusalEventInput[] = [];
 
     for (const hole of holes) {
