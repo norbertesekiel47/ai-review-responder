@@ -75,7 +75,7 @@ The intake holds **45** test titles. Ownership, which must stay in sync with it
 | T3 | classification and disclosure | 6 |
 | T4 | the webhook bound, the event context, the reclaimable status | 15 |
 
-### T0 — eval task: the 28 promised tests, failing
+### T0 — eval task: the 45 promised tests, failing
 
 Author every `tests_to_add` title from the intake as a real test body, committed
 red before implementation. This is the spec in executable form; each later
@@ -304,7 +304,10 @@ Why this kills the alert class: a throw makes the dispatcher write
 `worker/background/pollers/health-alert/checks.ts` counts exactly those rows —
 the `FROM` is line 276, the failed predicate line 277, and the alert key
 `inbound_events_failed:<source>:<event_type>` line 284. Returning instead lets
-the dispatcher write `processed` (line 101), so the alert stops.
+the dispatcher write `stale_ignored` — NOT `processed`, which is the whole
+point of D9: `stale_ignored` is excluded from that failed-only alert query and
+is still reclaimable by `claimInboundEvent`, so the alert stops without costing
+the operator's replay path.
 
 Turns green: T4's fifteen webhook tests, including both per-handler boundary
 cases, both future-timestamp cases, the enriched-warning assertion, and the four

@@ -18,7 +18,7 @@
     "Redacting the Stripe Customer for cancel_only offboarding. Only delete_data reaches the purge worker.",
     "Adding a database migration or any schema change. db_touching is true only because the change edits two live-DB integration suites, so the gate must provision the test database and run them.",
     "Making the event-age argument optional. It is required, so the compiler proves every call site supplies it.",
-    "A deferred-reconciliation outbox topic and worker for an acked stale subscription event. Owner decision 2026-09-03 after plan round 1 finding 7/10: the inbound_events row already persists the signed payload with status processed, so the event stays durably recorded and operator-replayable, and checkout-completed already reads provider-current state and rolls back on canceled. Today's code reaches the same end state after three days of retries plus an alert storm.",
+    "A deferred-reconciliation outbox topic and worker for an acked stale subscription event. Owner decision 2026-09-03 after plan rounds 1 and 2: checkout-completed already reads provider-current state and rolls back on canceled, so the end state is correct, and today's code reaches it after three days of retries plus an alert storm. The row is recorded with the reclaimable stale_ignored status, NOT processed, so an operator resending the event from Stripe still reprocesses it. Round 2 proved that acking with processed would have made recovery strictly worse than today.",
     "Changing the 7-day STALE_EVENT_THRESHOLD_SECONDS anomaly guard in worker/ingress/stripe.ts.",
     "Restructuring the privacy policy into a new retention section.",
     "Counting retained Stripe invoices in the receipt."
@@ -26,7 +26,7 @@
   "user_visible_behavior": [
     "The purge receipt email gains one sentence: RepWorth cleared the identifying details from its payment processor's customer record, and paid invoices with their billing name and address are retained for tax and accounting purposes.",
     "The privacy policy deletion paragraph names what survives at the payment processor after deletion.",
-    "Operational: a customer.subscription.updated or customer.subscription.deleted event whose customer has no account, and whose event.created is older than 15 minutes, is logged and acked with HTTP 200 instead of 500. The inbound_events row records processed, not failed, so HealthAlertPoller stops raising inbound_events_failed for that class.",
+    "Operational: a customer.subscription.updated or customer.subscription.deleted event whose customer has no account, and whose event.created is older than 15 minutes, is logged and acked with HTTP 200 instead of 500. The inbound_events row records stale_ignored, not failed, so HealthAlertPoller stops raising inbound_events_failed for that class. stale_ignored stays reclaimable by claimInboundEvent, so an operator resending the event from Stripe still reprocesses it.",
     "Operational: after a delete_data purge, the Stripe Customer in the dashboard shows no name, email, phone, description, address, or shipping, and carries exactly one metadata key naming the offboarding id."
   ],
   "invariants": [
@@ -77,7 +77,9 @@
     "PROVIDER_DATA_RETENTION and TABLE_DISPOSITIONS from src/lib/account-offboarding/table-disposition.ts.",
     "buildAccountOffboardingEmailHtml from src/lib/notifications/email/templates/account-offboarding.ts.",
     "legalDocs from src/lib/legal/content.ts.",
-    "processSubscriptionUpdated and processSubscriptionDeleted, called with an explicit event-created argument."
+    "processSubscriptionUpdated and processSubscriptionDeleted, called with an explicit event context carrying both id and created.",
+    "claimInboundEvent, markInboundEventStaleIgnored and checkFailedInboundEvents, for the stale_ignored status vocabulary.",
+    "buildCheckoutSessionParams, for the D10 pin that no session ever carries a customer field."
   ],
   "allowed_edit_surface": [
     "src/lib/account-offboarding/stripe-customer-redaction.ts",
