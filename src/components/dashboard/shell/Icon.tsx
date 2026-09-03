@@ -26,7 +26,10 @@ export type IconName =
   | 'help'
   | 'plus'
   | 'location'
-  | 'shield';
+  | 'shield'
+  // Moved here from SettingsSidebar's NavGlyph by #1092: the Review QR row
+  // left Settings, and the sidebar needs the glyph for its standalone entry.
+  | 'qr';
 
 interface Props extends Omit<SVGProps<SVGSVGElement>, 'name'> {
   name: IconName;
@@ -241,6 +244,15 @@ export function Icon({ name, size = 18, ...rest }: Props) {
         <svg {...props}>
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           <path d="M9 12l2 2 4-5" />
+        </svg>
+      );
+    case 'qr':
+      return (
+        <svg {...props} data-icon="qr">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <path d="M14 14h3v3h-3zM20 14h1M14 20h1M20 20h1M17.5 20v1" />
         </svg>
       );
   }

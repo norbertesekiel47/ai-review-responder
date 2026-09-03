@@ -42,3 +42,20 @@ describe('deriveNavSection', () => {
     expect(deriveNavSection('')).toBeNull();
   });
 });
+
+// #1092. The Review QR surface moves from /settings/review-qr to
+// /dashboard/requests/qr, so it must stop highlighting Settings and start
+// highlighting Requests.
+describe('deriveNavSection — the moved Review QR route', () => {
+  it('deriveNavSection folds the moved Review QR route into requests', () => {
+    expect(deriveNavSection('/dashboard/requests/qr')).toBe('requests');
+    expect(deriveNavSection('/dashboard/requests/qr/print/abc-123')).toBe('requests');
+  });
+
+  it('no longer treats a Review QR path as a Settings path', () => {
+    // The old path only ever redirects now, but a stale bookmark still renders
+    // the shell for a moment, and it must not light Settings and Requests both.
+    expect(deriveNavSection('/dashboard/requests/qr')).not.toBe('settings');
+  });
+});
+

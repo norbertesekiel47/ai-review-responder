@@ -141,12 +141,14 @@ grace window); every refusal (bad id, missing row, archived location,
 scanner page, with the reason coded in the log only. Each scan best-effort
 inserts a `qr_scan_redirected` analytics event AFTER resolve (random event key
 per scan — a deterministic key would dedupe and undercount). Owners get the code
-at `/settings/review-qr`, with a per-location printable view.
+at `/dashboard/requests/qr`, with a per-location printable view. Moved out of
+Settings by #1092; `/settings/review-qr` now redirects there.
 
 The new shape:
 - `src/app/q/[businessId]/route.ts` — the public **QR redirect**
 - `src/lib/locations/review-qr.ts` (+ `getQrRedirectRow` in `repo.ts`) — resolve + refusal policy
-- `src/app/(authenticated)/settings/review-qr/` — owner surface + print view + sidebar entry
+- `src/app/(authenticated)/dashboard/requests/qr/` — owner surface + print view
+  (#1092; `src/app/(authenticated)/settings/review-qr/page.tsx` survives as the redirect)
 - `subscriptionAllowsQrRedirect` (`src/lib/shared/subscription-status.ts`) ·
   `qr_scan_redirected` (`src/lib/analytics/events.ts` + `docs/analytics/events.md`) ·
   migration **115** (CHECK widen; staging 2026-08-26, prod 2026-08-27, lockstep) ·

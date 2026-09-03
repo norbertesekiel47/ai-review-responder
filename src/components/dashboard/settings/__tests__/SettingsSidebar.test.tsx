@@ -41,25 +41,21 @@ describe('SettingsSidebar', () => {
     expect(within(select).queryByRole('option', { name: 'Locations' })).not.toBeInTheDocument();
     // The rest of the Account group survives the filter.
     expect(within(select).getByRole('option', { name: 'Profile' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /review qr/i })).toBeInTheDocument();
   });
 
-  it('renders a Review QR entry in the settings navigation', () => {
+  // #1092: the **Review QR** surface moved under Requests. It is asserted here
+  // as an ABSENCE rather than deleted, because a settings row silently
+  // reappearing is exactly how two navigations start claiming the same surface.
+  // Its presence under Requests is covered by Sidebar.test.tsx and
+  // requests-tabs.test.tsx. The S28 glyph test went with it: there is no
+  // settings row left to carry a glyph, and Locations keeps its own pin.
+  it('no longer lists Review QR, which moved under Requests', () => {
     render(<SettingsSidebar showLocations />);
-    expect(screen.getByRole('link', { name: /review qr/i })).toHaveAttribute(
-      'href',
-      '/settings/review-qr',
-    );
-  });
-
-  // S28: Locations and Review QR no longer share the pin glyph.
-  it('gives Review QR its own QR glyph, distinct from the Locations pin', () => {
-    render(<SettingsSidebar showLocations />);
-    const qrLink = screen.getByRole('link', { name: /review qr/i });
-    expect(qrLink.querySelector('svg[data-icon="qr"]')).not.toBeNull();
+    expect(screen.queryByRole('link', { name: /review qr/i })).not.toBeInTheDocument();
+    // Locations survives the removal and keeps its own glyph.
     const locationsLink = screen.getByRole('link', { name: /locations/i });
-    expect(locationsLink.querySelector('svg[data-icon="qr"]')).toBeNull();
     expect(locationsLink.querySelector('svg')).not.toBeNull();
+    expect(locationsLink.querySelector('svg[data-icon="qr"]')).toBeNull();
   });
 
   it('marks Brand Voice active on /settings/voice', () => {

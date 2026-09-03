@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 12** — last reset to 0 by the
+**Merges since last architecture pass: 13** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -166,6 +166,23 @@ Merges since the 2026-08-26 pass:
   a freshness window, so those were wrong send/withhold decisions rather than
   mislabels. Owner decision 2026-09-03: a Google prefill outside the vocabulary
   is DROPPED, not pre-selected as a guess.
+
+- 2026-09-03 — `feat(#1092)` (map #1084, decision #1089): desktop navigation
+  becomes sidebar CHILDREN, the routed pill bars are scoped to mobile, and the
+  **Review QR** surface moves from Settings to `/dashboard/requests/qr`. Touches
+  `src/components/dashboard/shell/Sidebar.tsx` ·
+  `src/components/dashboard/{reviews/ReviewsTabs,analytics/AnalyticsTabs,settings/SettingsSidebar}.tsx` ·
+  `src/app/(authenticated)/dashboard/requests/{RequestsTabs.tsx,qr/**}` ·
+  `src/app/(authenticated)/_styles/console.css` · `CONTEXT.md`. Takes the
+  counter to **13**. **The ticket said DELETE the three pill bars; #1089
+  reversed it** — below 768px `.sidebar` is hidden and `MobileTabBar` has no
+  children mechanism, so deleting them stranded four routes on every phone. They
+  are retained behind a `tabs--routed` marker at the SAME breakpoint that hides
+  the sidebar, so the two navigation models cannot disagree about the boundary.
+  The **QR redirect** `GET /q/<businessId>` did NOT move — printed codes point at
+  it — and `/settings/review-qr` is kept as a redirect rather than deleted. The
+  LOCKED **Review QR** term in `CONTEXT.md` named the old route and was updated
+  in the same change.
 
 ---
 

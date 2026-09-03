@@ -2331,10 +2331,41 @@
 .chart-tip-delta { font-size: 10px; font-weight: 600; color: var(--rw-on-dark-muted); font-family: var(--rw-font-body); text-align: center; }
 .chart-crosshair { stroke: var(--rw-sage-deep); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.5; pointer-events: none; }
 
+/* ---------- Routed tab bars: mobile only (#1092, decision #1089) ----------
+   `ReviewsTabs`, `RequestsTabs` and `AnalyticsTabs` navigate BETWEEN routes.
+   On desktop the sidebar children do that job, so the bars are hidden. Below
+   the breakpoint `.sidebar` is hidden and `MobileTabBar` has no children row,
+   so these bars are the ONLY path to the sub-routes and must come back.
+
+   The marker class, not bare `.tabs`: `CardViewTabs` is a VIEW switch that
+   stays on desktop. It uses `card-view-tabs` today, so hiding `.tabs` would
+   work by luck — this says the intent instead.
+
+   Both rules live at the SAME boundary as `.sidebar` on purpose. Two
+   navigation models are the accepted cost of #1089; they stay bounded only
+   while one number governs both. */
+.tabs--routed { display: none; }
+/* Hiding the nav is not enough: its ROW keeps `padding: 20px 32px 0`, which
+   leaves an unexplained band on desktop. `.rq-subnav` and the tabs-only Reviews
+   row hold nothing else, so they go with it. The HISTORY row also carries the
+   "Showing: <location>" text and must NOT be hidden — with its tabs gone the
+   lone span would jump left under `space-between`, so that row is right-aligned
+   instead. */
+/* `.rq-subnav` is NOT handled here. `requests.css` owns that selector and is
+   PAGE-imported by RequestsTabs, so it loads after this file and wins at equal
+   specificity — a `display: none` here is dead on arrival (round-2 review,
+   verified against the built CSS order). Its rules live beside it instead. */
+.reviews-subnav--tabs-only { display: none; }
+.reviews-subnav { justify-content: flex-end; }
+
 /* ---------- Mobile bottom tab bar ---------- */
 .mobile-tabbar { display: none; }
 @media (max-width: 768px) {
   .sidebar { display: none; }
+  /* The routed bars, and their rows, return exactly where the sidebar leaves. */
+  .tabs--routed { display: flex; }
+  .reviews-subnav--tabs-only { display: flex; }
+  .reviews-subnav { justify-content: space-between; }
   /* The canvas goes edge-to-edge below the shell breakpoint; the deep field
      survives only behind the safe areas. */
   .main { margin: 0; border-radius: 0; min-height: 100vh; box-shadow: none; }

@@ -4,12 +4,14 @@ import { describe, expect, it } from 'vitest';
 // UX audit S27: every settings page titles itself with its section name — the
 // same word the sidebar uses — and never "Settings" with the section demoted to
 // a subtitle. Server components with DB access are asserted at the source level.
+// The **Review QR** page left this list in #1092: it moved under Requests, and
+// what remains at `/settings/review-qr` is a redirect with no TopBar of its
+// own. Its title is asserted at the new path instead.
 const SETTINGS_PAGES: Array<{ path: string; title: string }> = [
   { path: 'src/app/(authenticated)/settings/channels/page.tsx', title: 'Notifications' },
   { path: 'src/app/(authenticated)/settings/locations/page.tsx', title: 'Locations' },
   { path: 'src/app/(authenticated)/settings/billing/page.tsx', title: 'Billing' },
   { path: 'src/app/(authenticated)/settings/security/page.tsx', title: 'Security' },
-  { path: 'src/app/(authenticated)/settings/review-qr/page.tsx', title: 'Review QR' },
   { path: 'src/app/(authenticated)/settings/competitors/page.tsx', title: 'Competitors' },
 ];
 
