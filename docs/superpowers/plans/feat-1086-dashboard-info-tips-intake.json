@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "An owner can find out what any headline dashboard number means without leaving the page, through one shared affordance that works with a mouse, a keyboard and a touch screen.",
+  "non_goals": [
+    "A tip on every element — the rule is that a number needing a tip may instead need a better label",
+    "Fixing chart readability, which is #1088's ticket; a missing unit is a label change there, not a tooltip here",
+    "Any change to what the dashboard computes or how it buckets — the KPI fragments are ADR 0019's, untouched",
+    "A tour, a walkthrough, or dismissible onboarding state",
+    "Tips on admin surfaces"
+  ],
+  "user_visible_behavior": [
+    "A tip affordance sits beside the headline of each covered surface and reveals a short explanation.",
+    "The explanation opens on hover AND on click or tap, so it is reachable without a pointer.",
+    "It is reachable by keyboard and dismissible with Escape.",
+    "The explanation is associated with the element it describes for assistive tech."
+  ],
+  "invariants": [
+    "The affordance works below 768px, where there is no hover.",
+    "No surface that already mounts a LiveRegion has that region's tree position changed.",
+    "Console tokens only — no new colours, no ad-hoc inline styles where a token exists.",
+    "No component is pushed back over the complexity gate by adding a tip."
+  ],
+  "edge_cases": [
+    "Touch device: hover never fires, so tap must open and an outside tap must close.",
+    "Keyboard: focus reaches the trigger and Escape closes without moving focus somewhere surprising.",
+    "Reduced motion: any reveal animation is suppressed.",
+    "Aggregate location scope renders a different card set than per-location; both need covering or a stated reason.",
+    "A tip whose text is longer than its container must not clip at 390px."
+  ],
+  "existing_patterns_to_follow": [
+    "src/components/ui/LiveRegion.tsx — the repo's only a11y primitive in that folder, and the announcement contract to avoid disturbing",
+    "src/components/dashboard/kpi/ChartHeadlineBanner.tsx — the existing way a surface already states what it means, and the cheaper alternative to a tip",
+    "src/app/(authenticated)/_styles/console.css — the Console token set"
+  ],
+  "test_seams": ["the new tip primitive", "DashboardContent", "ReputationHeroBand", "RepPulseCard"],
+  "allowed_edit_surface": [
+    "src/components/ui/InfoTip.tsx",
+    "src/components/ui/__tests__/InfoTip.test.tsx",
+    "src/app/(authenticated)/_styles/console.css",
+    "src/components/dashboard/DashboardContent.tsx",
+    "src/components/dashboard/kpi/ReputationHeroBand.tsx",
+    "src/components/dashboard/kpi/RepPulseCard.tsx",
+    "src/components/dashboard/kpi/WeeklyRecapCard.tsx",
+    "src/components/dashboard/kpi/PendingApprovalsStrip.tsx",
+    "src/components/dashboard/AgentTeamStrip.tsx",
+    "src/components/dashboard/NeedsAttentionList.tsx",
+    "docs/directory.md",
+    ".claude/reference/arch-review-log.md"
+  ],
+  "tests_to_add": [
+    "the tip opens on click as well as hover, so a touch device can reach it",
+    "the tip is reachable by keyboard and closes on Escape",
+    "the tip is associated with the element it describes",
+    "every covered surface names what its number means",
+    "adding a tip does not move an existing LiveRegion in the tree"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 260,
+  "estimated_test_lines": 300,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the squash commit. Presentation only — no schema, no flag, no computation change.",
+  "observability": [],
+  "required_approvals": ["commit", "push", "merge"],
+  "open_questions": []
+}
