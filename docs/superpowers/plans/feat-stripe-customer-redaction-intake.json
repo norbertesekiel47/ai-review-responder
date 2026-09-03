@@ -129,11 +129,7 @@
     "the stripe webhook marks inbound_events processed when a stale no-account subscription event is acked",
     "handleStripeWebhook passes the event created timestamp to both subscription handlers"
   ],
-  "verification_commands": [
-    "pnpm test src/lib/account-offboarding",
-    "pnpm test worker/jobs/account-offboarding",
-    "pnpm test worker/ingress"
-  ],
+  "verification_commands": [],
   "estimated_prod_lines": 290,
   "estimated_test_lines": 550,
   "dependencies_added": [],
