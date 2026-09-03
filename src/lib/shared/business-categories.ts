@@ -19,11 +19,6 @@
  * one.
  */
 
-export interface BusinessCategoryGroup {
-  readonly category: string;
-  readonly subcategories: readonly string[];
-}
-
 /** Rendered in listed order — `optgroup` per entry, `option` per subcategory. */
 export const BUSINESS_CATEGORY_GROUPS = [
   {
