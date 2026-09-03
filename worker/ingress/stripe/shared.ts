@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { captureMessage } from '@sentry/node';
 import type Stripe from 'stripe';
 import { sql } from '../../../src/lib/db/server';
@@ -125,47 +124,24 @@ export function warnStripeSubscriptionEventAckedForAge(input: {
   }
 }
 
-interface VoidHandlerAckReport {
+/**
+ * What a subscription handler reports back to the dispatcher.
+ *
+ * `ackedForAge` is the ONE fact the dispatcher needs and cannot infer: it
+ * decides whether the `inbound_events` row closes as `stale_ignored` rather
+ * than `processed`. It is a RETURN VALUE rather than an ambient channel so the
+ * reporting is visible at the handler's signature and at the call site —
+ * an ingress hot path should not carry an invisible side channel.
+ */
+export interface StripeSubscriptionAck {
   ackedForAge: boolean;
 }
 
-/**
- * The report channel for `processSubscriptionDeleted` ONLY.
- *
- * `processSubscriptionUpdated` reports an age-ack through its typed return
- * value (`kind: 'ignored'`, `reason: 'stale_no_account'`) and needs none of
- * this. `processSubscriptionDeleted` cannot: its `Promise<void>` signature is
- * pinned by the contract suite, which asserts the age-ack case RESOLVES TO
- * UNDEFINED — so a returned `{ ackedForAge }` is not available to it.
- *
- * Async-local rather than module-local because Fastify serves webhook requests
- * concurrently: a module-level flag would let one event's ack close another
- * event's row. The dispatcher wraps exactly ONE handler call (see
- * `worker/ingress/stripe.ts`), never the whole switch, so the only function
- * that can write into a live scope is the one being called.
- */
-const voidHandlerAckScope = new AsyncLocalStorage<VoidHandlerAckReport>();
+/** The handler processed the event normally. */
+export const HANDLED_NORMALLY: StripeSubscriptionAck = Object.freeze({ ackedForAge: false });
 
-/**
- * Dispatcher side: call the void subscription handler and learn whether it
- * acked the event for age.
- */
-export async function callVoidHandlerReportingAckForAge(
-  run: () => Promise<void>,
-): Promise<boolean> {
-  const report: VoidHandlerAckReport = { ackedForAge: false };
-  await voidHandlerAckScope.run(report, run);
-  return report.ackedForAge;
-}
-
-/**
- * Handler side: report that this event was acked for age. A no-op outside a
- * dispatcher-opened scope (unit tests call the handler directly).
- */
-export function recordStripeEventAckedForAge(): void {
-  const report = voidHandlerAckScope.getStore();
-  if (report) report.ackedForAge = true;
-}
+/** The handler acked the event because its retry window had closed. */
+export const ACKED_FOR_AGE: StripeSubscriptionAck = Object.freeze({ ackedForAge: true });
 
 export function extractCustomerId(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null): string | null {
   if (!customer) return null;

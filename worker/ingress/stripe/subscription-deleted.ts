@@ -4,8 +4,10 @@ import {
   LOG_PREFIX,
   extractCustomerId,
   AccountNotProvisionedYetError,
-  recordStripeEventAckedForAge,
   warnStripeSubscriptionEventAckedForAge,
+  ACKED_FOR_AGE,
+  HANDLED_NORMALLY,
+  type StripeSubscriptionAck,
   outOfOrderRetryWindowOpen,
   OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
   type StripeEventContext,
@@ -16,17 +18,17 @@ import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-lo
 export async function processSubscriptionDeleted(
   sub: Stripe.Subscription,
   eventContext: StripeEventContext,
-): Promise<void> {
+): Promise<StripeSubscriptionAck> {
   const subscriptionId = sub.id;
   if (!subscriptionId) {
     console.warn(`${LOG_PREFIX} customer.subscription.deleted missing subscription id — skipping`);
-    return;
+    return HANDLED_NORMALLY;
   }
 
   const customerId = extractCustomerId(sub.customer);
   if (!customerId) {
     console.warn(`${LOG_PREFIX} customer.subscription.deleted missing customer — skipping`);
-    return;
+    return HANDLED_NORMALLY;
   }
 
   // VAL-BILLING-015: Set subscription_status = 'cancelled'
@@ -77,11 +79,7 @@ export async function processSubscriptionDeleted(
       customerId,
       subscriptionId,
     });
-    // This handler's Promise<void> signature is pinned by its contract suite
-    // (the age-ack case must RESOLVE TO UNDEFINED), so the ack is reported to
-    // the dispatcher through the scope it opened around this call.
-    recordStripeEventAckedForAge();
-    return;
+    return ACKED_FOR_AGE;
   }
 
   // Subscription-lineage scope: a Stripe customer can map to MULTIPLE accounts.
@@ -99,12 +97,12 @@ export async function processSubscriptionDeleted(
       console.log(
         `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} matches active offboarding snapshot for account ${offboardingMatch.id} but not its current subscription — skipping live status update`,
       );
-      return;
+      return HANDLED_NORMALLY;
     }
     console.warn(
       `${LOG_PREFIX} customer.subscription.deleted subscription=${subscriptionId} does not match any account's current/active-offboarding subscription for customer=${customerId} — skipping`,
     );
-    return;
+    return HANDLED_NORMALLY;
   }
 
   await sql.begin(async (tx) => {
@@ -116,4 +114,6 @@ export async function processSubscriptionDeleted(
       sub,
     );
   });
+
+  return HANDLED_NORMALLY;
 }

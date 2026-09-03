@@ -2,10 +2,13 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import Stripe from 'stripe';
 import { getWorkerConfig } from '../../src/lib/config/worker';
 import { sql } from '../../src/lib/db/server';
-import { claimInboundEvent } from './shared';
+import {
+  claimInboundEvent,
+  markInboundEventProcessed,
+  markInboundEventStaleIgnored,
+} from './shared';
 import {
   LOG_PREFIX,
-  callVoidHandlerReportingAckForAge,
   getStripe,
   type StripeEventContext,
 } from './stripe/shared';
@@ -81,10 +84,8 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
     // D9: a subscription handler may ACK an event for age instead of processing
     // it — the account never got provisioned and three more days of Stripe
     // retries buy nothing. Each case computes that answer EXPLICITLY.
-    // processSubscriptionUpdated reports through its typed outcome;
-    // processSubscriptionDeleted is pinned to Promise<void> by its contract
-    // suite, so the dispatcher wraps that ONE call in the scope it reports
-    // through (see callVoidHandlerReportingAckForAge).
+    // Both handlers report it through their RETURN VALUE, so the reporting is
+    // visible here at the call site rather than through an ambient channel.
     let ackedForAge = false;
 
     switch (event.type) {
@@ -104,11 +105,14 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
         await processInvoicePaid(event.data.object as Stripe.Invoice);
         break;
 
-      case 'customer.subscription.deleted':
-        ackedForAge = await callVoidHandlerReportingAckForAge(() =>
-          processSubscriptionDeleted(event.data.object as Stripe.Subscription, eventContext),
+      case 'customer.subscription.deleted': {
+        const ack = await processSubscriptionDeleted(
+          event.data.object as Stripe.Subscription,
+          eventContext,
         );
+        ackedForAge = ack.ackedForAge;
         break;
+      }
 
       case 'customer.subscription.updated': {
         const outcome = await processSubscriptionUpdated(
@@ -130,24 +134,12 @@ export async function handleStripeWebhook(request: FastifyRequest, reply: Fastif
       // the Stripe dashboard return 'duplicate' — strictly worse than the three
       // days of retries this branch replaces. 'stale_ignored' keeps that replay
       // path open, and ArchivalPoller sweeps it on the same 30-day clock.
-      //
-      // Spelled inline, like this dispatcher's other two inbound_events writes.
-      // worker/ingress/shared.ts owns the same statement as
-      // markInboundEventStaleIgnored for lanes that go through the helpers.
       console.warn(
         `${LOG_PREFIX} Acking event ${event.id} (${event.type}) for age — recording inbound_events as stale_ignored`,
       );
-      await sql`
-        UPDATE inbound_events
-        SET status = 'stale_ignored', processed_at = NOW()
-        WHERE external_event_key = ${event.id}
-      `;
+      await markInboundEventStaleIgnored(event.id);
     } else {
-      await sql`
-        UPDATE inbound_events
-        SET status = 'processed', processed_at = NOW()
-        WHERE external_event_key = ${event.id}
-      `;
+      await markInboundEventProcessed(event.id);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -23,9 +23,16 @@ const {
   const { createStripeWebhookHarness } = await import('./helpers/stripe-webhook-harness');
   return createStripeWebhookHarness();
 });
-const { mockRetrieveSubscription, mockApplyStripeSubscriptionState } = vi.hoisted(() => ({
+const {
+  mockRetrieveSubscription,
+  mockApplyStripeSubscriptionState,
+  mockMarkInboundEventProcessed,
+  mockMarkInboundEventStaleIgnored,
+} = vi.hoisted(() => ({
   mockRetrieveSubscription: vi.fn(),
   mockApplyStripeSubscriptionState: vi.fn(),
+  mockMarkInboundEventProcessed: vi.fn(),
+  mockMarkInboundEventStaleIgnored: vi.fn(),
 }));
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
@@ -40,7 +47,14 @@ vi.mock('../stripe/apply-subscription-state', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../stripe/apply-subscription-state')>()),
   applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
 }));
-vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
+// The dispatcher closes every inbound_events row through the two marker
+// helpers, so a factory naming only claimInboundEvent throws
+// "No export defined on the mock" at the closing write.
+vi.mock('../shared', () => ({
+  claimInboundEvent: mockClaimInboundEvent,
+  markInboundEventProcessed: mockMarkInboundEventProcessed,
+  markInboundEventStaleIgnored: mockMarkInboundEventStaleIgnored,
+}));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
@@ -207,7 +221,6 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
       [{ subscription_tier: 'copilot' }],
       [],
     );
-    sqlReturnQueue.push([]); // mark inbound event processed
     reply = mkReply();
     await handleStripeWebhook(mkRequest(), reply as any);
     expect(reply.status).toHaveBeenCalledWith(200);
@@ -215,7 +228,10 @@ describe('out-of-order delivery — subscription.* before checkout.session.compl
     expect(applied).toHaveLength(1);
     expect(applied[0]!.values).toContain('copilot');
     expect(applied[0]!.values).toContain(3);
-    expect(findInboundUpdate('processed')).toBeDefined();
+    // The row is closed as processed through the marker seam in ../shared,
+    // which this suite mocks, so the statement never reaches the mock client.
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalled();
+    expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
     expect(sqlReturnQueue).toHaveLength(0);
 
     // ── Delivery 3 (duplicate after success): claim='duplicate' → 200 no-op, NO second apply ──

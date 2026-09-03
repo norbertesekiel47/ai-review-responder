@@ -208,7 +208,11 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     const status = opts.status ?? 'active';
     // 1. Handler's unlocked lineage lookup.
     sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
-    // 2. Advisory lock
+    // 2. Advisory lock (account-keyed tier entitlement).
+    sqlReturnQueue.push([]);
+    // 2b. Advisory lock (customer-keyed stripe_customer_binding, D8). Taken
+    //     inside applyStripeSubscriptionStateInternal, so EVERY applier path
+    //     issues it — never inverted with the entitlement lock above.
     sqlReturnQueue.push([]);
     // 3. Applier's canonical account row lock + lineage recheck.
     sqlReturnQueue.push([{
@@ -229,8 +233,6 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       //    non-null) → no recent trial conversion, so no trial_payment_failed emit.
       sqlReturnQueue.push([{ ok: false }]);
     }
-    // Ingress wrapper marks the claimed event processed.
-    sqlReturnQueue.push([]);
   }
 
   // Queue helper: invoice.paid tx flow (past_due → active)
@@ -247,6 +249,9 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     sqlReturnQueue.push([{ id: TEST_ACCOUNT_ID }]);
     // 2. pg_advisory_xact_lock result. Provider state is fetched after this
     // queue item and before the applier's canonical row lock below.
+    sqlReturnQueue.push([]);
+    // 2b. Advisory lock (customer-keyed stripe_customer_binding, D8), taken
+    //     inside applyStripeSubscriptionStateInternal.
     sqlReturnQueue.push([]);
     // 3. Applier's canonical account row lock + lineage recheck.
     sqlReturnQueue.push([{
@@ -267,8 +272,6 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       const mirrorOutbox: any = []; mirrorOutbox.count = 1;
       sqlReturnQueue.push(mirrorOutbox);
     }
-    // Ingress wrapper marks the claimed event processed.
-    sqlReturnQueue.push([]);
   }
 
   // Queue helper: customer.subscription.deleted tx flow
@@ -290,7 +293,10 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
     // return before taking entitlement. Default TEST_SUBSCRIPTION_ID fixtures
     // exercise the matching path.
     if (subId === TEST_SUBSCRIPTION_ID) {
-      // 2. Advisory lock pg_advisory_xact_lock
+      // 2. Advisory lock pg_advisory_xact_lock (account-keyed tier entitlement)
+      sqlReturnQueue.push([]);
+      // 2b. Advisory lock (customer-keyed stripe_customer_binding, D8), taken
+      //     inside applyStripeSubscriptionStateInternal.
       sqlReturnQueue.push([]);
       // 3. Applier's canonical account row lock + lineage recheck.
       sqlReturnQueue.push([{
@@ -307,8 +313,6 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
         sqlReturnQueue.push(mirrorOutbox); // durable business-status mirror sync
       }
     }
-    // Ingress wrapper marks the claimed event processed.
-    sqlReturnQueue.push([]);
   }
 
   // Queue helper for the checkout paid-activation SQL sequence.
@@ -373,6 +377,9 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       sqlReturnQueue.push([{ id: acctId }]);
       // 7. Canonical lease + active-offboarding projection after the row lock.
       sqlReturnQueue.push([checkoutAccount]);
+      // 7b. Applier's customer-keyed binding lock (D8), taken inside
+      //     applyStripeSubscriptionStateInternal before it locks the row.
+      sqlReturnQueue.push([]);
       // 8. Applier resolveAccount (checkout mode, FOR UPDATE)
       sqlReturnQueue.push([{ id: acctId, subscription_status: status, primary_business_id: null }]);
       // 9. Applier status write. Business mirror is explicitly deferred.
@@ -397,8 +404,6 @@ export function createStripeWebhookHarness(): StripeWebhookHarness {
       [{ subscription_tier: 'copilot' }],
       [],
     );
-    // Ingress wrapper marks the claimed event processed after the handler.
-    sqlReturnQueue.push([]);
   }
 
   return {

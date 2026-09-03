@@ -32,7 +32,14 @@ const {
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
-vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
+// The dispatcher closes every inbound_events row through the two marker
+// helpers, so a factory naming only claimInboundEvent throws
+// "No export defined on the mock" at the closing write.
+vi.mock('../shared', () => ({
+  claimInboundEvent: mockClaimInboundEvent,
+  markInboundEventProcessed: vi.fn(),
+  markInboundEventStaleIgnored: vi.fn(),
+}));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
@@ -211,7 +218,9 @@ describe('invoice.paid — active recovery from past_due', () => {
     const warnedText = consoleSpy.mock.calls.flat().join(' ');
     expect(warnedText).toMatch(/missing customer/);
     expect(mockRetrieveSubscription).not.toHaveBeenCalled();
-    expect(sqlCalls).toHaveLength(1);
+    // Zero, not one: the handler returns before any query, and the dispatcher's
+    // closing write now goes through the mocked marker helper in ../shared.
+    expect(sqlCalls).toHaveLength(0);
 
     consoleSpy.mockRestore();
   });

@@ -44,7 +44,14 @@ vi.mock('../../../src/lib/payments/stripe-client', () => ({
     },
   }),
 }));
-vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
+// The dispatcher closes every inbound_events row through the two marker
+// helpers, so a factory naming only claimInboundEvent throws
+// "No export defined on the mock" at the closing write.
+vi.mock('../shared', () => ({
+  claimInboundEvent: mockClaimInboundEvent,
+  markInboundEventProcessed: vi.fn(),
+  markInboundEventStaleIgnored: vi.fn(),
+}));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {
@@ -188,7 +195,10 @@ describe('checkout.session.completed — account activation (VAL-BILLING-007, VA
       (call) => isAccountStatusUpdate(call, SubscriptionStatus.ACTIVE),
     );
     expect(updateAcct).toBeUndefined();
-    expect(sqlCalls).toHaveLength(10);
+    // Nine, not ten: this replay path never reaches the applier (so it takes no
+    // customer-binding lock), and the dispatcher's closing write now goes
+    // through the mocked marker helper in ../shared.
+    expect(sqlCalls).toHaveLength(9);
     expect(sqlReturnQueue).toHaveLength(0);
   });
 

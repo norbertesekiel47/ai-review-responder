@@ -91,3 +91,61 @@ plan locked, not a new one, so it does not consume amendment budget either.
 writable.
 
 **Verdict:** ACCEPT
+
+## D4 — the D8 lock's blast radius was seven suites wider than the plan said
+
+**What happened.** The plan's T2 section named one test file for the lock,
+`worker/ingress/stripe/__tests__/apply-subscription-state.test.ts`. Placing
+`acquireStripeCustomerBindingLock` inside
+`applyStripeSubscriptionStateInternal` puts one extra statement on the path of
+EVERY Stripe subscription webhook, and seven sibling ingress suites pin exact
+mock-SQL statement counts. They went red the moment T2 landed: 36 failures
+across `stripe-activation-enqueue`, `stripe-audit`, `stripe-invoice-paid`,
+`stripe-invoice-payment-failed`, `stripe-subscription-deleted`,
+`stripe-checkout-completed` and `stripe-idempotency`. A representative failure
+reads `expected length 7 but got 5` — the queue drains out of alignment, so
+later statements read the wrong fixture.
+
+None of those files was in `allowed_edit_surface`.
+
+**How it surfaced, and a caution.** The T4 subagent reported "27 pre-existing
+failures at HEAD" and had verified that honestly by stashing its own diff. The
+framing still misled: HEAD already contained T2, so "pre-existing" meant
+"caused by the previous tracer", not "unrelated to this branch". Measuring both
+sides settled it — 36 failures without T4, 27 with it, so T4 had REDUCED them
+by nine. **Never accept a subagent's baseline claim without re-deriving which
+commit the baseline sits on.**
+
+**What I did.** Surface amendment 4, owner-approved 2026-09-03, adding the
+seven suites plus two files:
+
+- `worker/ingress/__tests__/helpers/stripe-webhook-harness.ts` — the shared
+  owner of the queue helpers. Fixing it there fixed most of the seven at once,
+  which is why it is in the amendment rather than seven separate edits.
+- `scripts/ci/static-policy-audit.ts` — one line-number re-pin. That allowlist
+  is line-keyed and its own comment says it shifts whenever anything is
+  inserted above an entry; T4's constants moved
+  `worker/ingress/stripe/shared.ts:147` to `:280`.
+
+Every edit queues one extra advisory-lock result at the applier boundary, or
+adjusts a statement count by one. No assertion's INTENT changed.
+
+**A second, smaller change rides along.** Owner-approved in the same exchange:
+the dispatcher now closes `inbound_events` through
+`markInboundEventProcessed` / `markInboundEventStaleIgnored` instead of two
+inline UPDATEs. Test title 41 requires the stale-ignored helper to exist, and
+without this it had zero production callers — dead code the adversarial pass
+would rightly flag. The cost is that suites mocking `../shared` must name both
+helpers, and assertions that pinned the closing write as SQL text now pin it at
+the seam. Each such assertion carries a comment saying why it moved.
+
+**Also owner-approved:** `processSubscriptionDeleted` now returns
+`StripeSubscriptionAck` instead of `void`, and the `AsyncLocalStorage` ack
+channel is deleted. My own T0 test had pinned `resolves.toBeUndefined()`, which
+pinned an accident of the signature written before the reporting mechanism
+existed. The test titles are unchanged.
+
+**Impact on the feature.** None on behaviour. It corrects a plan estimate that
+was wrong about scope, exactly as the earlier D8 estimate was.
+
+**Verdict:** ACCEPT

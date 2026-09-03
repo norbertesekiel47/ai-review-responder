@@ -30,7 +30,14 @@ const {
 
 vi.mock('../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../src/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
-vi.mock('../shared', () => ({ claimInboundEvent: mockClaimInboundEvent }));
+// The dispatcher closes every inbound_events row through the two marker
+// helpers, so a factory naming only claimInboundEvent throws
+// "No export defined on the mock" at the closing write.
+vi.mock('../shared', () => ({
+  claimInboundEvent: mockClaimInboundEvent,
+  markInboundEventProcessed: vi.fn(),
+  markInboundEventStaleIgnored: vi.fn(),
+}));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
 vi.mock('stripe', () => ({
   default: class FakeStripe {

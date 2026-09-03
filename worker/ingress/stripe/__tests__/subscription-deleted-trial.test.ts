@@ -196,12 +196,17 @@ describe('processSubscriptionDeleted out-of-order retry bound', () => {
   it('processSubscriptionDeleted logs and returns without throwing when the event is older than 15 minutes and no account exists', async () => {
     sqlReturnQueue.push([]);
 
+    // The handler reports the ack through its RETURN VALUE, which is how the
+    // dispatcher decides to close the inbound_events row as stale_ignored
+    // rather than processed. An earlier draft of this test pinned
+    // `resolves.toBeUndefined()`, which pinned an accident of the signature
+    // before the reporting mechanism existed.
     await expect(
       processSubscriptionDeleted(
         deletedSub(),
         eventContext(OUT_OF_ORDER_RETRY_WINDOW_SECONDS + 60),
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ ackedForAge: true });
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
@@ -220,7 +225,7 @@ describe('processSubscriptionDeleted out-of-order retry bound', () => {
     sqlReturnQueue.push([]);
     await expect(
       processSubscriptionDeleted(deletedSub(), eventContext(901)),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ ackedForAge: true });
   });
 
   it('processSubscriptionDeleted throws rather than acking for a future event timestamp', async () => {

@@ -10,6 +10,8 @@ const {
   mockCaptureMessage,
   mockProcessSubscriptionUpdated,
   mockProcessSubscriptionDeleted,
+  mockMarkInboundEventProcessed,
+  mockMarkInboundEventStaleIgnored,
 } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
@@ -24,6 +26,8 @@ const {
     mockCaptureMessage: vi.fn(),
     mockProcessSubscriptionUpdated: vi.fn(),
     mockProcessSubscriptionDeleted: vi.fn(),
+    mockMarkInboundEventProcessed: vi.fn(),
+    mockMarkInboundEventStaleIgnored: vi.fn(),
   };
 });
 
@@ -39,6 +43,8 @@ vi.mock('../../../src/lib/db/server', () => ({
 
 vi.mock('../shared', () => ({
   claimInboundEvent: mockClaimInboundEvent,
+  markInboundEventProcessed: mockMarkInboundEventProcessed,
+  markInboundEventStaleIgnored: mockMarkInboundEventStaleIgnored,
 }));
 
 // Mock Stripe SDK so we don't pull in the real one. The handler grabs a
@@ -153,6 +159,8 @@ beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
   mockCaptureMessage.mockReset();
+  mockMarkInboundEventProcessed.mockReset();
+  mockMarkInboundEventStaleIgnored.mockReset();
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 
   mockClaimInboundEvent.mockReset();
@@ -188,13 +196,13 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     );
     expect(businessTouches).toEqual([]);
 
-    // The inbound_events row is closed out as 'processed'.
-    expect(
-      sqlTexts().some((t) =>
-        /UPDATE\s+inbound_events[\s\S]*processed/i.test(t),
-      ),
-    ).toBe(true);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    // The inbound_events row is closed out as 'processed'. Asserted at the
+    // marker seam, not in SQL text: the dispatcher now closes every row through
+    // worker/ingress/shared.ts, which this suite mocks, so the statement never
+    // reaches mockSql.
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(0);
 
     consoleSpy.mockRestore();
   });
@@ -214,7 +222,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+businesses|DELETE\s+FROM\s+businesses|INSERT\s+INTO\s+businesses/i.test(t),
     );
     expect(businessTouches).toEqual([]);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
   });
 
   it('payment_intent.created — same no-op behavior', async () => {
@@ -232,7 +241,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+businesses|DELETE\s+FROM\s+businesses|INSERT\s+INTO\s+businesses/i.test(t),
     );
     expect(businessTouches).toEqual([]);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
   });
 
   // B23 — malformed client_reference_id used to trigger the
@@ -283,13 +293,11 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     expect(warnedText).toMatch(/"not-a-uuid"/);
 
     // inbound_events still gets marked processed at the tail of the
-    // handler (so future replays of the same event id are deduped).
-    expect(
-      sqlTexts().some((t) =>
-        /UPDATE\s+inbound_events[\s\S]*processed/i.test(t),
-      ),
-    ).toBe(true);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    // handler (so future replays of the same event id are deduped). Asserted
+    // at the marker seam — see the charge.updated case for why.
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(0);
 
     consoleSpy.mockRestore();
   });
@@ -319,7 +327,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+(accounts|businesses)|SELECT\s+subscription_status[\s\S]*FROM\s+(accounts|businesses)/i.test(t),
     );
     expect(dataTouches).toEqual([]);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
     consoleSpy.mockRestore();
   });
 
@@ -484,7 +493,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
     expect(status).toHaveBeenCalledWith(200);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
   });
 
   it('processes a legitimately-retried event within the retry window (~2 days old)', async () => {
@@ -493,7 +503,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     const { reply } = mkReply();
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -578,11 +589,15 @@ describe('handleStripeWebhook — subscription event context and stale ack', () 
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ received: true }));
     // D9: the row is closed as stale_ignored, NEVER processed — 'processed'
     // is the one status claimInboundEvent refuses to reclaim.
-    const closing = sqlTexts().filter((t) => /UPDATE\s+inbound_events/i.test(t));
-    expect(closing).toHaveLength(1);
-    expect(closing[0]).toContain('stale_ignored');
-    expect(closing[0]).not.toMatch(/status\s*=\s*'processed'/);
-    expect(closing[0]).not.toMatch(/status\s*=\s*'failed'/);
+    //
+    // Asserted through the marker seam rather than the SQL text: the
+    // dispatcher now closes every row via worker/ingress/shared.ts, which this
+    // suite mocks, so no statement reaches mockSql. The claim is the same one
+    // and is now pinned at the seam that owns it.
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledWith('evt_stale_no_account');
+    expect(mockMarkInboundEventProcessed).not.toHaveBeenCalled();
+    expect(sqlTexts().filter((t) => /UPDATE\s+inbound_events/i.test(t))).toEqual([]);
   });
 
   it('the acked-for-age Sentry warning is raised from an event context carrying both id and created', async () => {
