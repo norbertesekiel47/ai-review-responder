@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { PlaceAutocomplete } from '@/components/places/PlaceAutocomplete';
 import type { WizardFormData } from './BusinessWizardClient';
+import { computePrefillPatch } from './prefill-patch';
+import type { BusinessSubcategory } from '@/lib/shared/business-categories';
 import { StepHeading } from './StepHeading';
 import { LazyMotion, m, domAnimation } from 'motion/react';
 import {
@@ -45,7 +47,9 @@ export function StepLocation({
   // overwritten by a later prefill of a different place — but a value the
   // user typed/edited stays put because dirtyRef.current.X locks it.
   const lastPrefillRef = useRef<{
-    category: string | null;
+    // NORMALIZED (#1093): the comparisons in `computePrefillPatch` are against
+    // vocabulary members, so the snapshot must be one too.
+    category: BusinessSubcategory | null;
     website: string | null;
   }>({ category: null, website: null });
 
@@ -96,54 +100,18 @@ export function StepLocation({
       // though Place B has no category info — stale prefill data masquerading
       // as "what Place B says". The dirty flag still wins in all three modes:
       // a value the user typed/edited is never overwritten or cleared.
-      const patch: Partial<WizardFormData> = {};
-
-      // category
-      if (!dirtyRef.current?.category) {
-        if (
-          prefill.category &&
-          (!data.category || prefill.category !== lastPrefillRef.current.category)
-        ) {
-          patch.category = prefill.category;
-        } else if (
-          prefill.category === null &&
-          lastPrefillRef.current.category !== null &&
-          data.category
-        ) {
-          // Previous prefill set the value, this prefill returned null, user
-          // hasn't edited → the value belongs to the OLD place. Clear it.
-          // Use empty string (not null/undefined) to match the WizardFormData
-          // shape and avoid React warning about controlled-input value.
-          patch.category = '';
-        }
-      }
-
-      // website
-      if (!dirtyRef.current?.website) {
-        if (
-          prefill.website &&
-          (!data.website || prefill.website !== lastPrefillRef.current.website)
-        ) {
-          patch.website = prefill.website;
-        } else if (
-          prefill.website === null &&
-          lastPrefillRef.current.website !== null &&
-          data.website
-        ) {
-          patch.website = '';
-        }
-      }
+      // The three prefill modes live in `prefill-patch.ts` as a pure function
+      // (#1093): it is the most breakable rule in this step, and as a closure
+      // inside this async handler it could only be tested through the component.
+      const { patch, nextLastPrefill } = computePrefillPatch({
+        prefill,
+        data: { category: data.category, website: data.website },
+        dirty: dirtyRef.current,
+        lastPrefill: lastPrefillRef.current,
+      });
 
       if (Object.keys(patch).length > 0) update(patch);
-      // Always update the snapshot (even when patch is empty) so the next
-      // re-pick compares against the latest known prefill values. Use the
-      // PREFILL response, not patch — `data.X` may have been kept by the
-      // dirty flag, but the prefill value still represents what THIS place
-      // would have set.
-      lastPrefillRef.current = {
-        category: prefill.category,
-        website: prefill.website,
-      };
+      lastPrefillRef.current = nextLastPrefill;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
     } finally {
