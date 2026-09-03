@@ -133,3 +133,28 @@ describe('AgentTeamStrip', () => {
     expect(screen.queryByText(/replies posted/)).not.toBeInTheDocument();
   });
 });
+
+// #1086 assumption 4. Every card already names the agent, states its role, its
+// windowed activity and the window itself — it is the best-labelled surface on
+// the dashboard. The one fact still unstated is whether an agent posts without
+// the owner, and THAT depends on tier and flags this component never receives.
+// A static tip could only be true for one tier, so there is none.
+describe('AgentTeamStrip — deliberately carries no info tip (#1086)', () => {
+  it('adds no tip, because every card already states its own role', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      window: '30d',
+      reply: 12,
+      guardian: 3,
+      insights: 2,
+    })));
+    const { wrapper } = createWrapper();
+
+    render(<AgentTeamStrip scope="all" />, { wrapper });
+
+    expect(await screen.findByText('12 replies posted')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^What .* means$/ })).toBeNull();
+    expect(screen.getByText('Publishes approved replies')).toBeInTheDocument();
+    expect(screen.getByText('Flags reviews that need you')).toBeInTheDocument();
+    expect(screen.getByText('Delivers your weekly reports')).toBeInTheDocument();
+  });
+});

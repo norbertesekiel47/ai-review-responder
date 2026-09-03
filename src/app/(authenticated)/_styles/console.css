@@ -3055,6 +3055,19 @@
    the Beta chip at the far edge. */
 .pulse-head .info-tip { margin-inline-end: auto; }
 
+/* `.card-h2` is a block heading, so a tip after it would drop to its own line.
+   This row puts the two side by side without disturbing the `<p>` below. */
+.needs-attention-title { display: flex; align-items: center; gap: var(--rw-sp-1); }
+
+/* Needs attention is the one inverted deep panel. App ink is unreadable on it,
+   so the trigger takes the on-dark tokens. */
+.needs-attention .info-tip-trigger { color: var(--rw-on-dark-muted); }
+
+.needs-attention .info-tip-trigger:hover {
+  background: var(--rw-deep-panel-soft);
+  color: var(--rw-on-accent);
+}
+
 /* The hero is the one placement that is not a white card. Muted app ink is too
    pale on the gradient, so the trigger borrows the hero's own ink tokens. */
 .rep-hero .info-tip-trigger { color: var(--rw-hero-ink-soft); }

@@ -96,3 +96,25 @@ describe('WeeklyRecapCard', () => {
     expect(container.querySelectorAll('.recap-bar--current')).toHaveLength(1);
   });
 });
+
+describe('WeeklyRecapCard info tip (#1086)', () => {
+  // The series groups on DATE_TRUNC('week', LEAST(review_date, detected_at))
+  // — the review-time anchor of ADR 0019. An owner comparing this card against
+  // Google cannot see that from a label.
+  it('says a review counts in the week it was written', () => {
+    render(<WeeklyRecapCard trend={LIVE} />);
+
+    const trigger = screen.getByRole('button', { name: 'What Your week means' });
+    const panel = document.getElementById(trigger.getAttribute('aria-controls') as string);
+
+    expect(panel).toHaveTextContent('the week it was written');
+    expect(panel).toHaveTextContent('not the week RepWorth found it');
+  });
+
+  it('keeps the tip out of the heading, so the card is still named "Your week"', () => {
+    const { container } = render(<WeeklyRecapCard trend={LIVE} />);
+
+    expect(screen.getByRole('region', { name: 'Your week' })).toBeInTheDocument();
+    expect(container.querySelector('#recap-heading .info-tip')).toBeNull();
+  });
+});

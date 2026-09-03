@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { InfoTip } from '@/components/ui/InfoTip';
 import { ESCALATION_STATUS, type OpenEscalationStatus } from '@/lib/escalations/types';
 import {
   TRIAGE_SEVERITIES,
@@ -116,7 +117,17 @@ export function NeedsAttentionList() {
           <Icon name="shield" size={19} />
         </div>
         <div>
-          <h2 id="needs-attention-heading" className="card-h2">Needs attention</h2>
+          {/* The tip sits BESIDE the heading, never inside it: the section is
+              `aria-labelledby="needs-attention-heading"`, so a trigger within
+              the `<h2>` would join the queue's accessible name. */}
+          <div className="needs-attention-title">
+            <h2 id="needs-attention-heading" className="card-h2">Needs attention</h2>
+            <InfoTip subject="Needs attention">
+              Guardian reads every review and puts one here when it finds
+              something you should see yourself. Guardian never replies and
+              never posts anything.
+            </InfoTip>
+          </div>
           <p>{countCopy}</p>
         </div>
       </div>
