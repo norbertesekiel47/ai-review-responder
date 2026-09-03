@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 import {
   acquireLiveDbLock,
   assertLocalTestDatabaseUrl,
@@ -1487,6 +1488,46 @@ describeWithDb(
         expect(new Set(refusals.map((refusal) => refusal.subject_id))).toEqual(
           new Set(fills.map((fill) => fill.id)),
         );
+      });
+
+      it('a generation exhaustion that aborts after its fills records neither the outreach rows nor their refusal_events rows', async () => {
+        // #1082 moved this lane's ledger write OUT of the loop. The hazard the
+        // move creates is that the one statement drifts OUT of `sql.begin`
+        // too, where it would commit on its own connection and record
+        // Refusals for fills that never landed — a ledger claiming a decision
+        // the batch never made. Column equality cannot see that; only an
+        // abort can.
+        //
+        // THIS IS NOT THE ONLY GUARD, AND SAYING SO MATTERS. The red-team pass
+        // measured it: `'a refusal written by each render writer does not
+        // survive a later rollback of its outreach transaction'` already
+        // settles W4 under `abortAfterLedgerWrite` and kills the same
+        // mutation. Two things are different here and both are the batching
+        // change's own: that case aborts ONE hole with a JS throw, this one
+        // aborts TWO with a real Postgres error (22012) that leaves the
+        // transaction in aborted state — the multi-row set write, poisoned
+        // the way production would poison it.
+        await seedSendAsk(1);
+        await seedSendAsk(2);
+        await mintSendParentRun();
+        // The poison must be a REAL Postgres error raised on the same tx AFTER
+        // the writer's work (see abort-injection.ts): division by zero, 22012.
+        const aborting = abortingExecutor(sql(), (tx) => tx`SELECT 1 / 0`);
+
+        await expect(
+          settleGenerationExhaustion(aborting, {
+            batchId,
+            businessId,
+            outboxHandle: await seedDispatchedOutboxRow(),
+            errorClass: 'LLMStructuredOutputError',
+          }),
+        ).rejects.toMatchObject({ code: '22012' });
+
+        // BOTH surfaces empty, not just the ledger: a Refusal count of zero
+        // beside two committed fills would be the same failure read from the
+        // other side.
+        expect(await readOutreachRows()).toHaveLength(0);
+        expect(await readRefusalRows()).toHaveLength(0);
       });
 
       it('a regenerated ask writes its refusal_events row against the replacement outreach id', async () => {

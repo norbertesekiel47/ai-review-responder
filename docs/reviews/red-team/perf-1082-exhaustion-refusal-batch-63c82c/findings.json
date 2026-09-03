@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-perf-1082-exhaustion-refusal-batch-63c82c",
+  "branch": "perf/1082-exhaustion-refusal-batch",
+  "fork_sha": "862a039d1a9ffc1f2f7b048eb4d9b4101fa13fa9",
+  "merge_base_sha": "862a039d1a9ffc1f2f7b048eb4d9b4101fa13fa9",
+  "head_sha": "69d429a2f91c43a9ba7f953d9d06a4ed8a0614d4",
+  "intake_sha256": "de86f840d1e5d7ed82873c1571bdcb246629f8c3d6b85cc80ff77d82c2a08386",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-03T20:10:31Z",
+  "inventory": [
+    {
+      "id": "INV-R3-01",
+      "test": "a generation exhaustion records every hole's Refusal in ONE writeRefusalEvents call, never one call per hole",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1616",
+      "outcome": "killed",
+      "reason": "M1 REVERTED THE TICKET. Replaced the `refusals.push(outreachWithheldRefusalInput(...))` in the hole loop with `await writeRefusalEvent(tx, outreachWithheldRefusalInput(...))` and deleted the post-loop `await writeRefusalEvents(tx, refusals)` (ask-generation.ts:1913-1932) - i.e. the pre-#1082 shape exactly. Baseline 51/51 green at HEAD; mutant 49/51. Killed by this case and by 'a generation exhaustion that finds no holes issues no Refusal write through either arm'."
+    },
+    {
+      "id": "INV-R3-02",
+      "test": "a generation exhaustion records every hole's Refusal in ONE writeRefusalEvents call, never one call per hole",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1616",
+      "outcome": "killed",
+      "reason": "M3 DROPPED ONE COLLECTED INPUT: `writeRefusalEvents(tx, refusals.slice(1))` at ask-generation.ts:1932. Mutant 49/51. Killed here (three subjectIds asserted, two written) and by \"all four render writers carry the paired outreach's tenant category subject and occurred_at shape\". Confirms the branch's claim that the ROW count, not the CALL count, is the property preserved: a writer that batches but drops rows fails."
+    },
+    {
+      "id": "INV-R3-03",
+      "test": "a generation exhaustion that finds no holes issues no Refusal write through either arm",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1648",
+      "outcome": "killed",
+      "reason": "M7 WRAPPED THE WRITE IN A CALLER-SIDE LENGTH CHECK: `if (refusals.length > 0) { await writeRefusalEvents(tx, refusals); }` at ask-generation.ts:1932. Mutant 50/51, killed by exactly the two lines the case labels 'A DESIGN PIN, NOT THE TITLE'S PROPERTY' and by nothing else. The branch predicted this outcome verbatim in the test's own comment; re-measured here rather than taken on trust."
+    },
+    {
+      "id": "INV-R3-04",
+      "test": "the render lane maps render_failed and lint_failed to below_our_bar and moderation_high to unsafe_content",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1403",
+      "outcome": "killed",
+      "reason": "M4 BROKE THE CATEGORY MAP INSIDE THE NEW SHARED BUILDER: `refusalCategory: 'unsafe_content'` hard-coded in `outreachWithheldRefusalInput` (ask-generation.ts:1750), replacing the OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES[reason] lookup. Mutant 50/51. The builder is now the single reader of the mapping for BOTH ledger arms, so this is the mutation that proves the extraction did not silently orphan the map."
+    },
+    {
+      "id": "INV-R3-05",
+      "test": "every render-lane refusal_events row carries subject_type solicitation_outreach and the account and location of the generation context",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1445",
+      "outcome": "killed",
+      "reason": "M5 CHANGED THE SUBJECT AXIS: `subjectType: 'solicitation_ask'` in `outreachWithheldRefusalInput` (ask-generation.ts:1751). Mutant 49/51, killed by this case and by the four-writer matrix case."
+    },
+    {
+      "id": "INV-R3-06",
+      "test": "a generation exhaustion never stamps occurred_at from the settlement transaction, so a slow lock does not move the decision time",
+      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1360",
+      "outcome": "killed",
+      "reason": "M6 SUBSTITUTED THE FORBIDDEN CLOCK: `occurredAt: 'transaction_time'` in `outreachWithheldRefusalInput` (ask-generation.ts:1753), the sentinel the builder's own docblock forbids. Killed in BOTH lanes: unit 49/51, live-DB 18/22 (four cases, including this settlement-specific one). The 'never the sentinel' rule survived being moved from a call-site comment into a shared builder."
+    },
+    {
+      "id": "INV-R3-07",
+      "test": "a generation exhaustion that aborts after its fills records neither the outreach rows nor their refusal_events rows",
+      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1493",
+      "outcome": "killed",
+      "reason": "M2 HOISTED THE SET WRITE OFF THE DECIDING TRANSACTION: `await writeRefusalEvents(sql, refusals)` instead of `tx` at ask-generation.ts:1932 - the exact drift hazard the new live-DB case was written for. Unit lane BLIND (51/51 green, because the arm is mocked); live-DB 19/22. Killed by this new case AND by two pre-existing ones ('a refusal written by each render writer does not survive a later rollback of its outreach transaction', and the settlement occurred_at case). That reproduces the branch's own honest note that the new case is not the only guard, and it also settles the converse: the same-tx guarantee is genuinely covered."
+    },
+    {
+      "id": "INV-R3-08",
+      "test": "every render-lane refusal_events row carries refusal_source outreach_withheld and refusal_code equal to its solicitation_outreach disposition_reason",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1461",
+      "outcome": "killed",
+      "reason": "M10 REPLACED THE NULL CODE AXIS WITH AN EMPTY ARRAY: `allRefusalCodes: []` in `outreachWithheldRefusalInput` (ask-generation.ts:1748). #1001 makes NULL ('this lane has no code axis') a different fact from '{}'. Mutant 50/51. Probes a distinction the batching change could have flattened, because the set arm serialises this field through jsonb rather than through a postgres.js bind; it did not."
+    },
+    {
+      "id": "INV-R3-09",
+      "test": "every render-lane refusal_events row carries refusal_source outreach_withheld and refusal_code equal to its solicitation_outreach disposition_reason",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1461",
+      "outcome": "killed",
+      "reason": "M11 CHANGED THE LANE IDENTITY: `refusalSource: 'ask_withheld'` in `outreachWithheldRefusalInput` (ask-generation.ts:1746). Mutant 49/51. `refusal_source` is half the ON CONFLICT key, so a wrong value here would silently collide this lane's dedupe with the batch-builder lane's."
+    },
+    {
+      "id": "INV-R3-10",
+      "test": "the render lane maps render_failed and lint_failed to below_our_bar and moderation_high to unsafe_content",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1403",
+      "outcome": "equivalent",
+      "reason": "M9 REVERTED clearRefusalCalls() TO THE ONE-ARMED FORM (deleted `mocks.writeRefusalEvents.mockClear()` at ask-generation.test.ts:1312). Whole file 51/51 green. PROOF OF EQUIVALENCE, re-derived on the REBASED tree: clearRefusalCalls() has exactly two call sites (:1418, :1428), both inside this one case; the case drives only runSingleChild, whose lane is persistChildRender -> recordOutreachWithheldRefusal -> writeRefusalEvent, the SINGLE-ROW arm. writeRefusalEvents is reachable only from settleGenerationExhaustion, which this case never invokes, so the set-arm mock holds zero calls at both clear points and clearing it cannot change any observable. THE BRANCH'S CURRENT CLAIM IS THEREFORE TRUE: its docblock now says 'INERT TODAY ... MEASURED, NOT ASSUMED' and gives 51/51 as the number. Measured independently here: 51/51. No finding."
+    },
+    {
+      "id": "INV-R3-11",
+      "test": "all four render writers carry the paired outreach's tenant category subject and occurred_at shape",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1479",
+      "outcome": "equivalent",
+      "reason": "M8 REPLACED THE invocationCallOrder SORT WITH PLAIN CONCATENATION in refusalCalls() (ask-generation.test.ts:1280-1282 -> `[...single, ...set].flatMap(...)`). Whole file 51/51 green. PROOF OF EQUIVALENCE: the only case that drives both arms is this matrix case, and it runs the writers W1 -> W2 -> W3 -> W4 with W4 (settleGenerationExhaustion) the sole set-arm writer, so the set arm's calls are already last and the sort is the identity permutation on every input the suite produces. THE BRANCH'S CURRENT CLAIM IS THEREFORE TRUE: its docblock says 'IS NOT LOAD-BEARING TODAY, AND SAYING SO IS THE POINT' and keeps the sort for order-independence. Both retracted 'load-bearing' claims are gone from HEAD and both replacements re-measure correctly."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT1082R3-01",
+      "severity": "P1",
+      "title": "The branch's deviations record still carries the retracted \"40 comment lines - measured AT HEAD\" figure; at HEAD it is 68, and the stated 1.5x ratio is 2.5x",
+      "at": "docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-deviations.md:17",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "D1 reads, verbatim: \"Measured at HEAD by first non-whitespace token, the production diff adds **27 code lines, 40 comment lines and 3 blank** - the reasoning is 1.5x the code\". Re-derived at a40fe38d by the method the branch itself prescribes (`git diff 862a039d..HEAD -- src/lib/solicitation/ask-generation.ts`, classify each added line by its first non-whitespace token): 27 code, 68 comment, 3 blank. The code half is correct; the comment half is off by 28 lines and the ratio is 2.5x, not 1.5x. THE CLAIM IS EXPLICITLY SCOPED TO HEAD, so it is a false measurement rather than a dated one. It is also the branch's OWN already-adjudicated failure class, left half-fixed: triage T16 (triage.md:60) records this exact figure as P1 and marks it **FIXED**, and the arch-review-log row was duly rewritten to quote only the stable half plus the method ('THE COMMENT COUNT IS DELIBERATELY NOT QUOTED HERE - RE-DERIVE IT', arch-review-log.md:1555). The twin figure in D1 was never touched, so T16's FIXED overstates what was fixed, and the deviations doc now CONTRADICTS the arch-review-log row on the same branch: the row's durable claim is 'roughly two to three lines of recorded reasoning per line of code', D1 says 1.5x. The precedent is on the branch's own reading list: the #1080 arch row one entry above records 'The same 79 still stands, uncorrected, in `.feature/deviations.md` \u00a7 D5' as a known residual. #1082 repeated the omission one ticket later and did not disclose it. SEVERITY: P1, not P0, matching how the identical claim was graded on this branch (RT1082-08). It misleads a later reader about a measurement, not about behaviour; no code, test or invariant is affected."
+    },
+    {
+      "id": "RT1082R3-02",
+      "severity": "P2",
+      "title": "The citation rule's new LIVING/DATED scope clause enumerates both buckets exhaustively and classifies the deviations doc into neither - which is where the stale figure of RT1082R3-01 survives",
+      "at": "docs/reviews/perf-1082-exhaustion-refusal-batch/triage.md:96",
+      "duty": 3,
+      "disposition": "fixed",
+      "arbiter_reasoning": "The clause reads: LIVING = 'the plan, the intake, production comments, this file'; DATED = 'the four review reports and the red-team sidecar in this directory' plus 'every arch-review-log row this branch did not write'. Two documents this branch authored fall outside both lists: `docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-deviations.md`, and the arch-review-log row this branch DID write (the clause exempts only rows it did not). THE SPLIT ITSELF IS COHERENT and I could not falsify it: the distinguishing test is whether a document asserts something about the CURRENT tree or records what was true at a measured SHA, and that test sorts the plan, the intake, the production comments and the triage file into LIVING and the four review reports into DATED correctly. Applying it to the deviations doc is what is missing, not the rule. MEASURED CONSEQUENCE, which is why this is reported rather than a style note: the audit the commit message claims ('Audited across every living document on this branch: zero line citations remain') is TRUE as far as it goes - I re-ran it and found zero `path:line` citations in the plan, both intake copies, the triage file, the production file and both test files, and confirmed the `:440-448` / `:579-587` occurrences in all four are narrative about the falsification, not citations. But the unclassified deviations doc was outside that sweep's stated scope and is exactly where RT1082R3-01 sits. An enumerated scope clause with a document missing from both buckets is how a half-fix passes an audit. P2: recorded, does not block. The remedy is one word - name the deviations doc (and the branch's own arch-review-log row) in the LIVING list."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 11,
+    "killed": 9,
+    "survived_confirmed_p0": 0,
+    "equivalent": 2,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 0,
+    "findings_total": 2,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 2,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}
