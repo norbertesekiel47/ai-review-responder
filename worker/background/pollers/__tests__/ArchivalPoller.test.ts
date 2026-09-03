@@ -206,11 +206,28 @@ describe('ArchivalPoller', () => {
     expect(eventsCall).toBeDefined();
     const fullSql = (eventsCall![0] as TemplateStringsArray).join(' ');
     expect(fullSql).toContain('inbound_events');
-    expect(fullSql).toContain("'processed'");
-    expect(fullSql).toContain("'stale_ignored'");
-    // One clock, one predicate — not a second query with its own interval.
-    expect(fullSql).toContain("processed_at < NOW() - INTERVAL '30 days'");
-    expect(fullSql).toContain('LIMIT 5000');
+
+    // TWO EQUALITY ARMS, NEVER AN `IN` LIST. This is the assertion that would
+    // have caught the original defect. Each status has a different partial
+    // index — idx_ie_archival is `WHERE status = 'processed'`, idx_ie_status is
+    // `WHERE status != 'processed'` — and Postgres does not decompose a
+    // ScalarArrayOp to match either. The IN spelling seq-scans the
+    // fastest-growing table in the schema; measured on the test DB with
+    // enable_seqscan=off it has no index path at all (cost 1e10), while each
+    // equality arm plans an Index Scan.
+    expect(fullSql).toContain("status = 'processed'");
+    expect(fullSql).toContain("status = 'stale_ignored'");
+    expect(fullSql).not.toMatch(/status\s+IN\s*\(/);
+    expect(fullSql).toContain('UNION ALL');
+
+    // ONE retention clock, written once per arm. Two arms is not two policies:
+    // both carry the same interval, and the assertion below pins that they
+    // agree rather than merely that the string appears.
+    const intervals = fullSql.match(/processed_at < NOW\(\) - INTERVAL '30 days'/g);
+    expect(intervals).toHaveLength(2);
+    // Per-arm cap, so the low-volume stale_ignored arm cannot starve behind
+    // the high-volume processed one.
+    expect(fullSql.match(/LIMIT 5000/g)).toHaveLength(2);
   });
 
   it('agent_outcomes query enforces the 180-day spine retention window (query shape assertion)', async () => {

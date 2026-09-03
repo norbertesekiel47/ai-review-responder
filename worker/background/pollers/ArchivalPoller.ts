@@ -85,18 +85,46 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
-    // 2. Terminally-closed inbound events older than 30 days. BOTH terminal
-    // statuses sweep on ONE clock in ONE predicate: 'processed' (handled) and
-    // 'stale_ignored' (acked for age — D9, retained so an operator resend can
-    // still be reclaimed by claimInboundEvent). Keeping that replay path open
-    // must not cost an unbounded table, and a second query with its own
-    // interval would be a second retention policy to drift.
+    // 2. Terminally-closed inbound events older than 30 days. TWO statuses,
+    // ONE clock, but deliberately TWO equality arms rather than one IN list.
+    //
+    // The IN list is the obvious spelling and it is WRONG here. Each status has
+    // a DIFFERENT partial index and an `IN` list implies neither:
+    // `idx_ie_archival` (migration 065) is `WHERE status = 'processed'`, and
+    // `idx_ie_status` (001) is `WHERE status != 'processed'`. Postgres does not
+    // decompose a ScalarArrayOp to match a partial index predicate, so the IN
+    // spelling seq-scans the fastest-growing table in the schema — verbatim the
+    // regression migration 065 exists to fix, proven on the test DB with
+    // `enable_seqscan=off` (no index path, cost 1e10). An earlier version of
+    // this comment argued for "one predicate" on the grounds that a second
+    // query would be a second retention policy; that reasoning caused the
+    // defect. The retention policy is the 30-day interval, and it is still
+    // written exactly once per arm with no second constant to drift.
+    //
+    // 'processed' is the high-volume arm and uses idx_ie_archival.
+    // 'stale_ignored' is the low-volume arm (only no-account subscription
+    // events acked for age, D9) and uses idx_ie_status, which covers it because
+    // the value satisfies that index's `!= 'processed'` predicate.
+    //
+    // The cap is now per-arm, so a saturated cycle can delete up to 10000 rows
+    // rather than 5000. That is the intended reading: each arm saturates and
+    // reports independently, and the low-volume arm cannot starve behind the
+    // high-volume one, which a shared cap would have allowed.
     const [eventsResult] = await sql<{ count: string }[]>`
       WITH candidates AS (
-        SELECT id FROM inbound_events
-        WHERE status IN ('processed', 'stale_ignored')
-          AND processed_at < NOW() - INTERVAL '30 days'
-        LIMIT 5000
+        (
+          SELECT id FROM inbound_events
+          WHERE status = 'processed'
+            AND processed_at < NOW() - INTERVAL '30 days'
+          LIMIT 5000
+        )
+        UNION ALL
+        (
+          SELECT id FROM inbound_events
+          WHERE status = 'stale_ignored'
+            AND processed_at < NOW() - INTERVAL '30 days'
+          LIMIT 5000
+        )
       ),
       deleted AS (
         DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates)

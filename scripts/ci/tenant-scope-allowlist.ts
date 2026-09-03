@@ -2798,7 +2798,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/ArchivalPoller.ts",
     table: "inbound_events",
-    sqlSnippet: "WITH candidates AS ( SELECT id FROM inbound_events WHERE status IN ('processed', 'stale_ignored') AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    sqlSnippet: "WITH candidates AS ( ( SELECT id FROM inbound_events WHERE status = 'processed' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ) UNION ALL ( SELECT id FROM inbound_events WHERE status = 'stale_ignored' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ) ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
     category: 'background-global-scan',
     reason: "Global retention poller deletes processed webhook rows independent of tenant request scope; inbound_events has no account/business column (deny-all RLS, migration 066).",
   },

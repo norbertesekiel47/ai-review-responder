@@ -530,7 +530,15 @@ describe('handleStripeWebhook — subscription event context and stale ack', () 
     mockProcessSubscriptionUpdated.mockReset();
     mockProcessSubscriptionUpdated.mockResolvedValue({ kind: 'ignored' });
     mockProcessSubscriptionDeleted.mockReset();
-    mockProcessSubscriptionDeleted.mockResolvedValue(undefined);
+    // MUST be an ack object, never undefined. This stub said `undefined` from
+    // T0, when the handler still returned void; the signature later became
+    // Promise<StripeSubscriptionAck> and the stub was never updated. The
+    // dispatcher then read `.ackedForAge` off undefined, threw a TypeError into
+    // its own catch arm, and every assertion below still passed because it had
+    // already fired — so this arm was silently exercising the 500 path.
+    // Red team found it by mutation (F02/F03): forcing `ackedForAge = false` in
+    // the delete arm passed all 426 ingress tests.
+    mockProcessSubscriptionDeleted.mockResolvedValue({ ackedForAge: false });
   });
 
   it('handleStripeWebhook passes the event context to both subscription handlers', async () => {
@@ -598,6 +606,53 @@ describe('handleStripeWebhook — subscription event context and stale ack', () 
     expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledWith('evt_stale_no_account');
     expect(mockMarkInboundEventProcessed).not.toHaveBeenCalled();
     expect(sqlTexts().filter((t) => /UPDATE\s+inbound_events/i.test(t))).toEqual([]);
+  });
+
+  // The DELETE arm's half of D9, which had no test at all until red team's F02
+  // proved it: forcing `ackedForAge = false` in that arm of the dispatcher
+  // passed all 426 ingress tests. The updated arm was pinned; this one was not,
+  // so half of "the ack writes stale_ignored, never processed" was unproven.
+  //
+  // The two arms reach `ackedForAge` differently — the updated handler reports
+  // through its ignored-outcome reason, the deleted handler through a typed
+  // ack — so ONE test cannot cover both. That asymmetry is exactly why the
+  // gap existed.
+  it('the delete handler acking for age closes the row stale_ignored, not processed', async () => {
+    mockProcessSubscriptionDeleted.mockResolvedValue({ ackedForAge: true });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_deleted_stale_no_account',
+      type: 'customer.subscription.deleted',
+      created: CREATED,
+      data: { object: { id: 'sub_stale', customer: 'cus_stale' } },
+    });
+
+    const { reply, status } = mkReply();
+    await handleStripeWebhook(mkRequest('customer.subscription.deleted'), reply);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledWith('evt_deleted_stale_no_account');
+    expect(mockMarkInboundEventProcessed).not.toHaveBeenCalled();
+  });
+
+  it('the delete handler NOT acking closes the row processed', async () => {
+    // The other half of the same mutation. Without this, `ackedForAge = true`
+    // hard-coded in the delete arm would also survive.
+    mockProcessSubscriptionDeleted.mockResolvedValue({ ackedForAge: false });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_deleted_normal',
+      type: 'customer.subscription.deleted',
+      created: CREATED,
+      data: { object: { id: 'sub_normal', customer: 'cus_normal' } },
+    });
+
+    const { reply, status } = mkReply();
+    await handleStripeWebhook(mkRequest('customer.subscription.deleted'), reply);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledWith('evt_deleted_normal');
+    expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
   });
 
   it('the acked-for-age Sentry warning is raised from an event context carrying both id and created', async () => {
