@@ -29,6 +29,8 @@ a disclosure. `InfoTip.test.tsx` carries a regression guard —
 "does not swallow arrow keys while it is open" — so the reason cannot rot.
 
 **Approved by:** the owner, on a three-option choice, 2026-09-03.
+**Verdict:** ACCEPT — and re-affirmed under review: the maintainability axis
+raised the same duplication as M3 and it was rejected on this record.
 
 ## D2 — `allowed_edit_surface` amended to admit six test files
 
@@ -51,6 +53,8 @@ byte-identical; `state.json` carries the new `intakeSha256` and
 `surfaceAmendments: 1`.
 
 **Approved by:** the owner, 2026-09-03.
+**Verdict:** ACCEPT — one amendment used of the one allowed without a stated
+reason; `state.json` records `surfaceAmendments: 1`.
 
 ## D3 — Response rate gets no tip
 
@@ -65,6 +69,8 @@ the stats (`src/components/dashboard/kpi/response-rate-copy.ts`). A tip would
 repeat it.
 
 **Approved by:** the owner, at the T3 checkpoint, 2026-09-03.
+**Verdict:** ACCEPT — the spec axis independently confirmed the sentence below
+the stats already carries this explanation.
 
 ## D4 — two of the six planned surfaces carry no tip
 
@@ -90,6 +96,9 @@ trade a gap for a falsehood.
 
 Both omissions are pinned by a test, so a later session cannot quietly add a
 tip without meeting assumption 4 first.
+
+**Verdict:** ACCEPT — the pins were strengthened under review (M9): they now
+assert structurally, so rewording InfoTip's label cannot silently unpin them.
 
 **Approved by:** the owner approved the same reasoning for Response rate at the
 T3 checkpoint; these follow it. Reversible — say the word and either gets one.
@@ -118,6 +127,9 @@ The bullet is written to match the form its four map-#1084 siblings use, and
 owes. A deviation that reasons *from* a doc's prose about when a rule applies
 must be checked against the audit that enforces it.
 
+**Verdict:** ACCEPT — the withdrawal stands; `ci:merge-ledger` passes and the
+counter reads 15 after the #1082 rebase.
+
 ## Defects found during T3, fixed in the same tracer
 
 - **`replace_all` matched one branch of two.** The two `pulse-head` blocks in
@@ -127,7 +139,11 @@ must be checked against the audit that enforces it.
 - **Panels overflowed at 390px.** `left: 0` plus an 18rem clamp pushed the panel
   past the right edge and widened the page to 488px. Fixed by a
   `max-width: 768px` rule that spans the page gutters. Verified: the rendered
-  page is exactly 390px. **That fix was incomplete — see D6.**
+  page is exactly 390px. **That fix was incomplete — the panel also overflowed
+  ABOVE the breakpoint, which the review caught (F6) and `align="end"` fixed.**
+
+**Verdict:** ACCEPT — both defects are fixed and each is covered by a check
+that would catch a regression.
 
 ## D6 — the aggregate location scope carries no tip, and that is a decision
 
@@ -147,10 +163,17 @@ second surface amendment.
 **Decision: aggregate is out of scope for #1086, deliberately.** It is the first
 thing a follow-up ticket should take.
 
+**Verdict:** ACCEPT — the intake asked for coverage OR a stated reason; this is
+the stated reason.
+
 ## D7 — findings accepted from the review wave, and three rejected
 
 The wave raised 25 findings across two axes. 22 were accepted and fixed on this
 branch. The three rejections, with reasons, so they are not re-litigated:
+
+**Verdict:** ACCEPT — every accepted finding is fixed and the gate is green on
+the fixed tree; the three rejections carry reasons and are logged as owed
+follow-up, not as silent dismissals.
 
 - **M3 — the dismissal machinery duplicates `useMenuPopover`.** Correct, and
   already the subject of D1. The owner was shown this exact tradeoff as a
