@@ -52,7 +52,13 @@ function purgeRow(overrides: Record<string, unknown> = {}) {
 
 /** The narrow client interface the stage forwards; never a real Stripe. */
 function fakeStripe() {
-  return { customers: { retrieve: vi.fn(), update: vi.fn(), del: vi.fn() } };
+  return {
+    customers: { retrieve: vi.fn(), update: vi.fn(), del: vi.fn() },
+    paymentMethods: {
+      list: vi.fn(async () => ({ data: [], has_more: false })),
+      detach: vi.fn(),
+    },
+  };
 }
 
 /** Query text of the provider_dispositions append, if one was issued. */

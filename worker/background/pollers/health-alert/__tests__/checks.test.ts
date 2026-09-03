@@ -29,6 +29,7 @@ import {
   checkOwnerUnreachable,
   checkBacklogDepth,
   checkFailedInboundEvents,
+  checkStaleIgnoredInboundEvents,
   checkStalledSendBatches,
   checkWedgedClientRead,
   runHealthChecks,
@@ -51,6 +52,8 @@ const CFG: HealthAlertConfig = {
   backlogDepthThreshold: 1500,
   ownerUnreachableAgeS: 14400,
   ownerUnreachableThreshold: 0,
+  staleIgnoredWindowS: 3600,
+  staleIgnoredThreshold: 5,
 };
 
 const HEALTH_ENV = [
@@ -234,6 +237,43 @@ describe('health-alert checks', () => {
       expect(queryText).not.toContain('stale_ignored');
       expect(queryText).not.toContain('IN (');
       expect(queryText).not.toContain('!=');
+    });
+  });
+
+  describe('checkStaleIgnoredInboundEvents', () => {
+    it('pages when a stream of events is acked for age', async () => {
+      // The detector the 15-minute ack would otherwise have REMOVED. Today one
+      // orphaned customer pages continuously via checkFailedInboundEvents for
+      // Stripe's ~3-day retry schedule; after the ack that signal decays to
+      // zero about 15 minutes in. Without this probe a systemic
+      // checkout.session.completed break pages briefly, goes green, and keeps
+      // dropping every new paying customer in silence.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 40 },
+      ]);
+
+      const findings = await checkStaleIgnoredInboundEvents(mockSql, CFG);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        key: 'inbound_events_stale_ignored:stripe:customer.subscription.updated',
+        level: 'error',
+      });
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain("status = 'stale_ignored'");
+      expect(queryText).toContain('GROUP BY source, event_type');
+    });
+
+    it('stays quiet for an ordinary out-of-order delivery', async () => {
+      // Threshold 5, not 0: a handful of acks in an hour is the normal case the
+      // bound exists to produce, and paging on it would retire the alert by
+      // fatigue instead of by design.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.deleted', count: 3 },
+      ]);
+
+      expect(await checkStaleIgnoredInboundEvents(mockSql, CFG)).toEqual([]);
     });
   });
 
@@ -462,6 +502,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);                             // zero-delivery → null
       sqlReturnQueue.push([{ count: 0 }]);                             // owner-unreachable → null
       sqlReturnQueue.push([{ source: 'stripe', event_type: 'invoice.paid', count: 2 }]); // inbound → finding
+      sqlReturnQueue.push([]);                                         // stale_ignored → null (no acked-for-age stream)
       sqlReturnQueue.push([{ count: 1, oldest_run_id: '00000000-0000-7000-8000-0000000000bb', oldest_age_s: 1_000_000 }]); // stalled send batch → finding
       // solicitationSendBreaker issues TWO queries: the open-trip probe, then the
       // window aggregate (level-triggered — the probe short-circuits when a trip
@@ -552,6 +593,7 @@ describe('health-alert checks', () => {
       [{ count: 0 }],                           // zeroDelivery → null
       [{ count: 0 }],                           // ownerUnreachable → null
       [],                                       // failedInboundEvents → []
+      [],                                       // staleIgnoredInboundEvents → []
       [{ count: 0 }],                           // stalledSendBatches → null
     ];
 

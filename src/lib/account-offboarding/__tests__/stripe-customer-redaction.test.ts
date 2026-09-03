@@ -34,7 +34,14 @@ interface FakeCustomerState {
  * A fake that replaced metadata wholesale would pass an implementation that
  * silently retains customer metadata in production.
  */
-function makeStripe(initial: Partial<FakeCustomerState> = {}) {
+function makeStripe(
+  initial: Partial<FakeCustomerState> = {},
+  paymentMethodIds: string[] = ['pm_card_1'],
+) {
+  // Attached PaymentMethods hold their own billing_details, which
+  // customers.update cannot reach. The fake models detach as REMOVAL from the
+  // customer's list, which is what Stripe does.
+  const attachedPaymentMethods = paymentMethodIds.map((id) => ({ id }));
   const state: FakeCustomerState = {
     id: CUSTOMER_ID,
     name: 'Jordan Rivera',
@@ -95,9 +102,17 @@ function makeStripe(initial: Partial<FakeCustomerState> = {}) {
       }),
       del: vi.fn(),
     },
+    paymentMethods: {
+      list: vi.fn(async () => ({ data: [...attachedPaymentMethods], has_more: false })),
+      detach: vi.fn(async (id: string) => {
+        const i = attachedPaymentMethods.findIndex((m) => m.id === id);
+        if (i >= 0) attachedPaymentMethods.splice(i, 1);
+        return { id };
+      }),
+    },
   };
 
-  return { stripe, state };
+  return { stripe, state, attachedPaymentMethods };
 }
 
 function stripeError(type: string, code?: string): Error {
@@ -150,6 +165,78 @@ describe('redactStripeCustomer', () => {
 
     expect(Object.keys(state.metadata)).toHaveLength(1);
     expect(state.metadata).toEqual({ [STRIPE_CUSTOMER_REDACTION_METADATA_KEY]: OFFBOARDING_ID });
+  });
+
+  it('redactStripeCustomer detaches every attached PaymentMethod', async () => {
+    // customers.update clears the Customer's own fields and reaches NOTHING on
+    // an attached PaymentMethod, which carries its own billing_details — name,
+    // email, phone, full address — plus card last4 and fingerprint. That data
+    // is deletable, unlike a paid invoice, so leaving it is an erasure gap in a
+    // feature whose entire purpose is erasure.
+    const { stripe, attachedPaymentMethods } = makeStripe({}, ['pm_1', 'pm_2', 'pm_3']);
+
+    const result = await redactStripeCustomer({
+      stripe,
+      customerId: CUSTOMER_ID,
+      offboardingId: OFFBOARDING_ID,
+    });
+
+    expect(result.outcome).toBe('redacted');
+    expect(stripe.paymentMethods.detach).toHaveBeenCalledTimes(3);
+    expect(attachedPaymentMethods).toEqual([]);
+  });
+
+  it('redactStripeCustomer detaches before it clears the customer fields', async () => {
+    // Ordering matters on RETRY. Detaching first means a failure leaves the
+    // Customer's own fields intact, so the next attempt re-runs the whole
+    // sequence from a consistent state rather than from a half-cleared one.
+    const order: string[] = [];
+    const { stripe } = makeStripe({}, ['pm_1']);
+    stripe.paymentMethods.detach.mockImplementation(async (id: string) => {
+      order.push('detach');
+      return { id };
+    });
+    stripe.customers.update.mockImplementation(async () => {
+      order.push('update');
+      return { id: CUSTOMER_ID, metadata: {} };
+    });
+
+    await redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID });
+
+    expect(order).toEqual(['detach', 'update']);
+  });
+
+  it('redactStripeCustomer treats a resource_missing detach as success and continues', async () => {
+    // Another attempt in the same retry sequence already removed it. Aborting
+    // here would strand the remaining methods attached.
+    const { stripe } = makeStripe({}, ['pm_gone', 'pm_live']);
+    stripe.paymentMethods.detach.mockRejectedValueOnce(
+      stripeError('StripeInvalidRequestError', 'resource_missing'),
+    );
+
+    const result = await redactStripeCustomer({
+      stripe,
+      customerId: CUSTOMER_ID,
+      offboardingId: OFFBOARDING_ID,
+    });
+
+    expect(result.outcome).toBe('redacted');
+    expect(stripe.paymentMethods.detach).toHaveBeenCalledTimes(2);
+  });
+
+  it('redactStripeCustomer rethrows a non-missing detach failure without clearing the customer', async () => {
+    // The Customer must stay intact so a retry starts from a known state.
+    const { stripe, state } = makeStripe({}, ['pm_1']);
+    stripe.paymentMethods.detach.mockRejectedValueOnce(
+      stripeError('StripeConnectionError'),
+    );
+
+    await expect(
+      redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID }),
+    ).rejects.toThrow();
+
+    expect(stripe.customers.update).not.toHaveBeenCalled();
+    expect(state.email).toBe('jordan@example.com');
   });
 
   it('redactStripeCustomer never calls customers.del', async () => {

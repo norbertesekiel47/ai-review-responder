@@ -77,6 +77,8 @@ const PROBE_CFG: HealthAlertConfig = {
   backlogDepthThreshold: 1500,
   ownerUnreachableAgeS: 14400,
   ownerUnreachableThreshold: -1,
+  staleIgnoredWindowS: 3600,
+  staleIgnoredThreshold: 5,
 };
 
 async function ownerUnreachableCount(): Promise<number> {

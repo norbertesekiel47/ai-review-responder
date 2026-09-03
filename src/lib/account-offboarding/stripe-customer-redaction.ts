@@ -22,11 +22,20 @@
 //      `individual_name` are `Emptyable<T> = null | '' | T`. `''` clears all
 //      eight, and `''` on a metadata VALUE deletes that key.
 //
-// What survives at Stripe, deliberately: paid invoices with the billing name
-// and address snapshotted onto them, and `tax_ids`, which is not a field
+// Attached PaymentMethods are DETACHED as well as the Customer being cleared.
+// `customers.update` cannot reach a PaymentMethod's own `billing_details` —
+// name, email, phone, full address — nor its card `last4`/`fingerprint`. That
+// data IS deletable, unlike an invoice, so leaving it would be an erasure gap
+// rather than an unavoidable retention. Detaching is only possible here because
+// teardown already cancelled the subscription; Stripe refuses to detach a
+// method a live subscription depends on.
+//
+// What survives at Stripe, unavoidably: paid invoices with the billing name and
+// address snapshotted onto them, and `tax_ids`, which is not a field
 // `customers.update` can reach. `PROVIDER_DATA_RETENTION` in
-// `table-disposition.ts` is the inventory that records this, and the purge
-// receipt and privacy policy are written from it.
+// `table-disposition.ts` is the inventory that records this. The purge receipt
+// and the privacy policy state the same categories; neither imports the
+// inventory, so the three are kept in step by review, not by the compiler.
 
 import {
   RETRYABLE_STRIPE_ERROR_TYPES,
@@ -58,7 +67,11 @@ export type StripeCustomerRedactionOutcome =
   | 'already_redacted'
   | 'customer_absent';
 
-type StripeCustomerRedactionOperation = 'retrieve' | 'update';
+type StripeCustomerRedactionOperation =
+  | 'retrieve'
+  | 'update'
+  | 'list_payment_methods'
+  | 'detach_payment_method';
 
 export interface StripeCustomerLike {
   id: string;
@@ -82,11 +95,28 @@ export interface StripeCustomerLike {
   metadata?: Record<string, string> | null;
 }
 
+/** One attached PaymentMethod, narrowed to the id detaching needs. */
+export interface StripePaymentMethodLike {
+  id: string;
+}
+
+export interface StripePaymentMethodListResult {
+  data: StripePaymentMethodLike[];
+  has_more: boolean;
+}
+
 /**
- * The narrow client this module declares for itself — `retrieve` + `update`
- * only. Domain modules receive their clients as parameters (invariant #15);
- * the worker resolves `getStripe()` at its own boundary and passes it in, the
- * way `teardown-stripe.ts` already does.
+ * The narrow client this module declares for itself — customer `retrieve` +
+ * `update`, and PaymentMethod `list` + `detach`. Domain modules receive their
+ * clients as parameters (invariant #15); the worker resolves `getStripe()` at
+ * its own boundary and passes it in, the way `teardown-stripe.ts` already does.
+ *
+ * The PaymentMethod half was added after review: `customers.update` clears the
+ * Customer's own fields but CANNOT reach an attached PaymentMethod, which holds
+ * its own `billing_details` — name, email, phone and full address — plus card
+ * `last4` and `fingerprint`. Unlike a paid invoice that data is deletable, so
+ * leaving it would have been an erasure gap in a feature whose entire purpose
+ * is erasure, not merely an under-disclosure.
  */
 export interface StripeCustomerRedactionClient {
   customers: {
@@ -100,6 +130,17 @@ export interface StripeCustomerRedactionClient {
       params: Record<string, unknown>,
       requestOptions?: { idempotencyKey: string; maxNetworkRetries?: number },
     ) => Promise<StripeCustomerLike>;
+  };
+  paymentMethods: {
+    list: (
+      params: { customer: string; limit: number },
+      requestOptions?: { maxNetworkRetries?: number },
+    ) => Promise<StripePaymentMethodListResult>;
+    detach: (
+      paymentMethodId: string,
+      params?: Record<string, never>,
+      requestOptions?: { idempotencyKey: string; maxNetworkRetries?: number },
+    ) => Promise<StripePaymentMethodLike>;
   };
 }
 
@@ -182,6 +223,13 @@ export async function redactStripeCustomer(
     return { outcome: 'already_redacted' };
   }
 
+  // Detach BEFORE the update. A PaymentMethod carries its own billing_details —
+  // name, email, phone, full address — plus card last4 and fingerprint, none of
+  // which customers.update can reach. Detaching first means a failure here
+  // leaves the Customer's own fields intact, so a retry re-runs the whole
+  // sequence from a consistent state rather than from a half-cleared one.
+  await detachPaymentMethods(stripe, customerId, offboardingId);
+
   try {
     await stripe.customers.update(
       customerId,
@@ -194,6 +242,53 @@ export async function redactStripeCustomer(
   }
 
   return { outcome: 'redacted' };
+}
+
+/** One page is 100; a customer with more attached methods than this is not real. */
+const PAYMENT_METHOD_PAGE_SIZE = 100;
+
+/**
+ * Detach every PaymentMethod attached to the Customer.
+ *
+ * Detaching is possible precisely because teardown has already cancelled the
+ * subscription — Stripe refuses to detach a method a live subscription depends
+ * on, and by this point none does. That is why this belongs to the purge and
+ * not to teardown.
+ *
+ * A detached PaymentMethod keeps no link to the Customer, so its billing_details
+ * stop being reachable from the account's Stripe record. This is the one part
+ * of the surviving data that is genuinely deletable; invoices and tax_ids are
+ * not, and `PROVIDER_DATA_RETENTION` records those instead.
+ *
+ * `resource_missing` on an individual detach is success: another attempt in the
+ * same retry sequence already removed it.
+ */
+async function detachPaymentMethods(
+  stripe: StripeCustomerRedactionClient,
+  customerId: string,
+  offboardingId: string,
+): Promise<void> {
+  let page: StripePaymentMethodListResult;
+  try {
+    page = await stripe.paymentMethods.list({
+      customer: customerId,
+      limit: PAYMENT_METHOD_PAGE_SIZE,
+    });
+  } catch (err) {
+    if (isResourceMissing(err)) return;
+    throw redactionError(err, 'list_payment_methods');
+  }
+
+  for (const method of page.data) {
+    try {
+      await stripe.paymentMethods.detach(method.id, undefined, {
+        idempotencyKey: `${stripeCustomerRedactionIdempotencyKey(offboardingId)}:pm:${method.id}`,
+      });
+    } catch (err) {
+      if (isResourceMissing(err)) continue;
+      throw redactionError(err, 'detach_payment_method');
+    }
+  }
 }
 
 /**
