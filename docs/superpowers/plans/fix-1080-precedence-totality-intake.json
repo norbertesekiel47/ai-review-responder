@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The module is the auto-approval Refusal vocabulary; the failure it prevents breaks draft generation for every account with a configured policy.",
+    "The identical shape shipped wrong once before on the parked feat/refusal-log branch (RENDER_WITHHOLD_REASONS) and was caught only in review \u2014 a vacuous type assertion that compiles but proves nothing is the specific hazard here.",
+    "#1003 locked constraints this fix must satisfy without re-coupling two arrays, so a wrong construction quietly re-introduces a rejected coupling."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "A block reason mapped to a non-null Refusal category but missing from AUTO_APPROVAL_BLOCK_PRECEDENCE is a compile error naming that member, not a runtime throw inside the response-persist transaction.",
+  "non_goals": [
+    "Do not edit worker/jobs/response-generation/persist.ts or src/lib/refusals/write.ts \u2014 the containment fix is #1079 and runs in a sibling worktree in this same wave.",
+    "Do not edit src/lib/shared/worker-types.ts \u2014 its 22 = 7 + 15 partition claim stays true because vocabulary.test.ts:513-540 is not modified.",
+    "Do not edit vocabulary.ts:615-621 \u2014 that paragraph is about the unmapped throw and already appeals to the compiler, not to a test.",
+    "Do not derive the precedence ORDER from POLICY_GATE_HELD_REFUSAL_CATEGORIES or from REFUSAL_CATEGORIES \u2014 #1003 forbids it; only completeness may be derived.",
+    "Do not add a test pinning AUTO_APPROVAL_BLOCK_PRECEDENCE against REFUSAL_CATEGORIES order, and do not add a drift test asserting a REFUSAL_CATEGORIES reorder cannot change a resolved category \u2014 those are the two tests #1003 rejected (vocabulary.ts:498-504; feat-1013-refusal-policy-gate-held-plan.md:169-176).",
+    "Do not delete or weaken vocabulary.test.ts:513 \u2014 that IS #1003's required exhaustiveness test over the veto set and the precedence list, and the audit verifies it (docs/reviews/refusal-ledger-audit/spec-verification.md:78).",
+    "Do not change any runtime behaviour: resolvePolicyGateRefusal keeps both of its throws and its three-step order.",
+    "Do not reorder the fifteen precedence members or move a member between tiers."
+  ],
+  "user_visible_behavior": [
+    "Developer: adding a 23rd block reason with a non-null category and forgetting its rank fails pnpm typecheck with an error that names the unranked member, instead of type-checking cleanly.",
+    "Developer: the reverse hole stays closed \u2014 mapping a precedence member to null is still a compile error at the lookup site, as today.",
+    "Runtime: no observable change; the same inputs resolve to the same Refusal and the same throws."
+  ],
+  "invariants": [
+    "AUTO_APPROVAL_BLOCK_PRECEDENCE stays an explicit, hand-ordered member constant \u2014 the order is declared, never derived (#1003 at vocabulary.ts:490-505).",
+    "The assertion derives COMPLETENESS only. #1003 rejected pinning the precedence list against REFUSAL_CATEGORIES ORDER; it REQUIRED the veto-vs-precedence exhaustiveness test that already exists at vocabulary.test.ts:513.",
+    "The derivation is keyed on `extends null`, never on RefusalCategory \u2014 keying on the category set would make a future category rename fire here.",
+    "POLICY_GATE_HELD_REFUSAL_CATEGORIES keeps its `as const satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>` typing; widening it erases the literal types the assertion and the existing null-mapping guard both depend on.",
+    "The new assertion must not weaken the existing `satisfies readonly AutoApprovalBlockReason[]`, which closes the reverse direction.",
+    "resolvePolicyGateRefusal stays PURE \u2014 no DB handle, no clock, no flag read \u2014 so the Restraint tab can import this module.",
+    "The unranked_auto_approval_block_reason throw stays: Array.prototype.find returns T | undefined unconditionally and the compiler cannot narrow it, so the branch is structurally required, not defensive.",
+    "The seven-member veto set and the fifteen-member precedence list stay two separate declarations."
+  ],
+  "edge_cases": [
+    "The seven null-mapped veto members must NOT fire the assertion. Verified by compilation: the baseline resolves to `never` with zero diagnostics.",
+    "A member in precedence but absent from the map is already a compile error via the existing `satisfies`; the new alias stays silent there, so there is no double-reporting.",
+    "A member listed TWICE in precedence is NOT caught \u2014 Prec[number] collapses duplicates and Exclude cannot see them. Out of scope: vocabulary.test.ts:527 already asserts the set size, and Array.find at vocabulary.ts:650 makes a later duplicate unreachable.",
+    "A 23rd union member with no map entry now also emits TS2536 at the alias, on top of the existing TS1360. Correct but cryptic; a comment beside the alias points the reader at the missing map entry.",
+    "Six spellings pass VACUOUSLY on both the healthy tree and a seeded hole, including `const _x: Unranked[] = []` and `const _x = [] satisfies Unranked[]`, which match this module's idiom. None may be used.",
+    "One spelling is a FALSE POSITIVE: a naked type parameter distributes over never, so `type Bad<T> = T extends never ? true : {...}` fails on the HEALTHY tree. The tuple wrapper [T] extends [never] suppresses distribution.",
+    "The red step must confirm the failure message contains the hole member's literal name; a non-zero exit alone is satisfied by the false positive above.",
+    "The alias is `_`-prefixed for eslint.config.mjs:122-126 varsIgnorePattern, and exported with the module's own fallow-ignore-next-line unused-export directive (its convention at vocabulary.ts:463 and :554).",
+    "A self-consuming alias fires TS2344 at its DECLARATION SITE in vocabulary.ts whether or not any test file names it \u2014 verified by compilation. So a test that merely references it asserts nothing and is not worth an export.",
+    "resolvePolicyGateRefusal returns null on the first null-mapped member BEFORE reaching find, so a property drawn from all 22 union members detects a hole only ~86% of the time over 500 runs. The pool must be the mapped non-null keys.",
+    "fallow excludes test files as consumers (.fallowrc.jsonc:71), so a type export imported only by a test still reads as unused; the repo has ZERO precedent for the fallow directive above an `export type`, and ci:fallow is excluded from the local gate, so a wrong rule id surfaces only in CI."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/refusals/vocabulary.ts \u2014 the seven lane maps all use `as const satisfies Record<Enum, V>`; this is the module's compile-time-guarantee idiom.",
+    "src/lib/refusals/vocabulary.ts:455-462 \u2014 the module's documented reason for exporting a symbol with no external importer, and its fallow-ignore directive at :463 and :554.",
+    "src/lib/refusals/vocabulary.ts:631-638 \u2014 the docblock explaining why the map is read through its OWN type; the assertion depends on that literal typing.",
+    "src/lib/refusals/__tests__/write.test.ts:227-230 \u2014 the @ts-expect-error inversion idiom: if the code ever compiles, the directive itself becomes the error.",
+    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts \u2014 the fast-check house style and the map-keys route to the union members.",
+    "src/lib/refusals/__tests__/vocabulary.test.ts:513-553 \u2014 the partition and tier-contiguity assertions, which stay green unedited."
+  ],
+  "test_seams": [
+    "the typecheck gate row over src/lib/refusals/vocabulary.ts (scripts/verify-gate.sh:321 \u2014 separate from the lint row)",
+    "the exported UnrankedIn<P> derivation and AssertNever helper (src/lib/refusals/vocabulary.ts)",
+    "resolvePolicyGateRefusal (src/lib/refusals/vocabulary.ts)"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/refusals/vocabulary.ts",
+    "src/lib/refusals/__tests__/vocabulary.test.ts",
+    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts"
+  ],
+  "tests_to_add": [
+    "the precedence totality derivation rejects a precedence list missing a mapped rank",
+    "the precedence totality derivation accepts the current precedence list unchanged",
+    "resolvePolicyGateRefusal still throws unmapped_auto_approval_block_reason for a code in neither list",
+    "resolvePolicyGateRefusal resolves the same winner for every locked tier after the change",
+    "invariants: no subset of the mapped non-veto block reasons in any order throws unranked_auto_approval_block_reason"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 45,
+  "estimated_test_lines": 90,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the branch. The change is type-level only and adds no schema, no runtime path and no dependency, so reverting restores today's behaviour exactly \u2014 the hole reopens, which is the pre-change state.",
+  "observability": [
+    "The typecheck gate row is the signal: a missing rank fails with the member named, at the declaration site in vocabulary.ts. In CI the lint job runs pnpm typecheck; locally it is its own gate row (scripts/verify-gate.sh:321).",
+    "The committed @ts-expect-error case is the durable proof that the derivation fires \u2014 it seeds the hole in the test's type argument and routes through the real map and the real precedence tuple, so it cannot go vacuous the way a one-shot red-step record can.",
+    "No runtime signal is added or needed \u2014 the change removes a runtime failure rather than reporting one."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request"
+  ],
+  "open_questions": []
+}
