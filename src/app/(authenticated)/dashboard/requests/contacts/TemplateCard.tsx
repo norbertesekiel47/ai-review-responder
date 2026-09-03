@@ -19,20 +19,26 @@ import {
  * a report once an upload completes, and an owner who has just seen a rejected
  * row is exactly the one who wants the template.
  */
-export function TemplateCard() {
-  function downloadTemplate(): void {
-    // The visit dates are measured back from today, because `parseContactsCsv`
-    // rejects a `future_date`. Read at click time, not render time.
-    const todayUtc = new Date().toISOString().slice(0, 10);
-    const blob = new Blob([buildContactsCsvTemplate(todayUtc)], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = CONTACTS_CSV_TEMPLATE_FILENAME;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
+/**
+ * Module scope, not a closure inside the component: it reads no props and no
+ * state, so rebuilding it on every render is wasted work and defeats memoized
+ * children (`react-doctor/prefer-module-scope-pure-function`).
+ */
+function downloadTemplate(): void {
+  // The visit dates are measured back from today, because `parseContactsCsv`
+  // rejects a `future_date`. Read at CLICK time, not render time — a tab left
+  // open across midnight would otherwise hand out yesterday's arithmetic.
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([buildContactsCsvTemplate(todayUtc)], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = CONTACTS_CSV_TEMPLATE_FILENAME;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
+export function TemplateCard() {
   return (
     <div className="card section-enter section-enter-1">
       <h2 className="card-h2">Start from a template</h2>
