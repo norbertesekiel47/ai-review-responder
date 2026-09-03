@@ -87,9 +87,12 @@ function activeSub(overrides: Record<string, unknown> = {}): any {
 }
 
 // Queue the account-row SELECT (FOR UPDATE) + primary business lookup the applier does.
+// Lock order, and therefore queue order: entitlement (account-keyed) then
+// stripe-customer binding (customer-keyed). Never inverted — see D8.
 function queueAccountRow(currentStatus: string) {
   sqlReturnQueue.push([{ id: ACCOUNT_ID }]);
-  sqlReturnQueue.push([]);
+  sqlReturnQueue.push([]); // acquireTierEntitlementLock
+  sqlReturnQueue.push([]); // acquireStripeCustomerBindingLock
   sqlReturnQueue.push([{
     id: ACCOUNT_ID,
     subscription_status: currentStatus,
@@ -100,6 +103,7 @@ function queueAccountRow(currentStatus: string) {
 }
 
 function queueLockedAccountRow(currentStatus: string) {
+  sqlReturnQueue.push([]); // acquireStripeCustomerBindingLock, inside the internal fn
   sqlReturnQueue.push([{
     id: ACCOUNT_ID,
     subscription_status: currentStatus,
@@ -241,7 +245,10 @@ describe('transition: → active (convert)', () => {
     expect(result).toMatchObject({ changed: true, toStatus: 'active' });
     expect(sqlCalls.filter((call) => /UPDATE\s+accounts/.test(call.text))).toHaveLength(1);
     expect(sqlCalls.some((call) => /UPDATE\s+businesses/.test(call.text))).toBe(false);
-    expect(sqlCalls).toHaveLength(2);
+    // Binding lock, locked-row SELECT, status UPDATE. The lock is D8's writer
+    // half and is always first inside the internal applier.
+    expect(sqlCalls).toHaveLength(3);
+    expect(sqlCalls[0]!.text).toMatch(/pg_advisory_xact_lock/);
     expect(sqlReturnQueue).toHaveLength(0);
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
     expect(mockEnqueueStripeOverageRecompute).toHaveBeenCalledTimes(1);
@@ -404,10 +411,13 @@ describe('ref resolution + missing account', () => {
     );
 
     expect(result).toMatchObject({ accountResolved: false, changed: false });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.text).toMatch(/FROM accounts a[\s\S]*WHERE a\.id = [\s\S]*FOR UPDATE/i);
-    expect(calls[0]!.values).toContain(ACCOUNT_ID);
-    expect(calls[0]!.text).not.toMatch(/WHERE stripe_customer_id/i);
+    // The binding lock precedes the locked-row SELECT; nothing follows, because
+    // the lineage check fails closed before any write.
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.text).toMatch(/pg_advisory_xact_lock/);
+    expect(calls[1]!.text).toMatch(/FROM accounts a[\s\S]*WHERE a\.id = [\s\S]*FOR UPDATE/i);
+    expect(calls[1]!.values).toContain(ACCOUNT_ID);
+    expect(calls[1]!.text).not.toMatch(/WHERE stripe_customer_id/i);
     expect(calls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(false);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueStripeSubscriptionMirrorSync).not.toHaveBeenCalled();
@@ -424,8 +434,9 @@ describe('ref resolution + missing account', () => {
     );
 
     expect(result).toMatchObject({ accountResolved: false, changed: false });
-    expect(sqlCalls).toHaveLength(1);
-    expect(sqlCalls[0]!.values).toContain(ACCOUNT_ID);
+    expect(sqlCalls).toHaveLength(2);
+    expect(sqlCalls[0]!.text).toMatch(/pg_advisory_xact_lock/);
+    expect(sqlCalls[1]!.values).toContain(ACCOUNT_ID);
     expect(sqlCalls.some((call) => /UPDATE\s+accounts/i.test(call.text))).toBe(false);
     expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
     expect(mockEnqueueStripeSubscriptionMirrorSync).not.toHaveBeenCalled();
@@ -460,7 +471,6 @@ describe('stripe customer binding lock (D8)', () => {
   }
 
   it('applyStripeSubscriptionStateUnderEntitlementLock takes the customer binding lock before writing stripe_customer_id', async () => {
-    sqlReturnQueue.push([]); // binding lock
     queueLockedAccountRow('pending_payment');
 
     await applyStripeSubscriptionStateUnderEntitlementLock(
@@ -483,10 +493,7 @@ describe('stripe customer binding lock (D8)', () => {
   });
 
   it('applyStripeSubscriptionState takes the customer binding lock on its own exported entry point', async () => {
-    sqlReturnQueue.push([{ id: ACCOUNT_ID }]); // resolveAccountId
-    sqlReturnQueue.push([]); // entitlement lock
-    sqlReturnQueue.push([]); // binding lock
-    queueLockedAccountRow('pending_payment');
+    queueAccountRow('pending_payment');
 
     await applyStripeSubscriptionState(mockSql, subRef, activeSub());
 

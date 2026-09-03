@@ -4,6 +4,7 @@ const TIER_ENTITLEMENT_LOCK_SUFFIX = ':tier_entitlement';
 const OVERAGE_SYNC_LOCK_SUFFIX = ':overage_sync';
 const ACTIVATION_LOCK_SUFFIX = ':activation';
 const LOCATION_LIFECYCLE_LOCK_SUFFIX = ':location_lifecycle';
+const STRIPE_CUSTOMER_BINDING_LOCK_SUFFIX = ':stripe_customer_binding';
 
 /**
  * Serializes Autopilot grant/publish with every existing-account tier writer.
@@ -79,6 +80,34 @@ export async function acquireTierBillingActivationLocks(
   await tx`
     SELECT pg_advisory_xact_lock(
       hashtext(${activationLockId + ACTIVATION_LOCK_SUFFIX})
+    )
+  `;
+}
+
+/**
+ * Serializes a Stripe Customer's account BINDING against the offboarding
+ * purge's redaction guard.
+ *
+ * Keyed on the STRIPE CUSTOMER, not an account, because one customer id may map
+ * to several accounts: `accounts.stripe_customer_id` has no unique constraint,
+ * and `worker/ingress/stripe/subscription-deleted.ts` states the rule outright.
+ * The redaction guard counts the accounts sharing a customer and skips when
+ * another live one exists; without this lock that count does not serialize
+ * against a writer binding the same customer to another account a moment later,
+ * and the purge would erase a LIVE co-tenant's billing contact.
+ *
+ * Lock ORDER is fixed and must not be inverted: an account-scoped tier
+ * entitlement lock first, this customer-keyed lock second. The redaction guard
+ * takes ONLY this lock and requests no other, so it cannot join the account ->
+ * business -> entitlement -> account cycle the comment above describes.
+ */
+export async function acquireStripeCustomerBindingLock(
+  tx: TransactionSql,
+  stripeCustomerId: string,
+): Promise<void> {
+  await tx`
+    SELECT pg_advisory_xact_lock(
+      hashtext(${stripeCustomerId + STRIPE_CUSTOMER_BINDING_LOCK_SUFFIX})
     )
   `;
 }

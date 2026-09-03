@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { verifyAccountOffboardingPurge } from '../../../src/lib/account-offboarding/purge-verification';
@@ -9,6 +10,12 @@ import {
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
 import { PURGE_TOMBSTONE_SENTINELS as SENTINELS } from '../../../src/lib/account-offboarding/purge-sentinels';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
+import {
+  redactStripeCustomer,
+  type StripeCustomerRedactionClient,
+  type StripeCustomerRedactionOutcome,
+} from '../../../src/lib/account-offboarding/stripe-customer-redaction';
+import { acquireStripeCustomerBindingLock } from '../../../src/lib/accounts/billing-locks';
 import { acquireSolicitationBatchLock } from '../../../src/lib/solicitation/batch-builder';
 import { acquireCsvIngestLock } from '../../../src/lib/solicitation/ingest';
 import {
@@ -680,6 +687,134 @@ export async function runAuditAndCostPayloadPurgeStage(sql: postgres.Sql, row: A
       `;
     }
   });
+}
+
+/**
+ * What the redaction stage appends to `account_offboardings.provider_dispositions`.
+ *
+ * The `type` discriminator is deliberately NOT `admin_provider_disposition`.
+ * That value is a purge-ELIGIBILITY marker an admin records by hand, and
+ * `extractConcreteAdminProviderDispositions` filters on it; a record the purge
+ * writes for itself must never satisfy the teardown resolution gate. The
+ * mismatch makes that safe by construction rather than by convention.
+ *
+ * The customer id appears ONLY as a hash. The stage exists to erase that
+ * identifier, and `scrubOffboardingErrorForStorage` does not redact a `cus_…`
+ * handle, so writing the raw value here would keep the exact thing the
+ * tombstone is about to destroy.
+ */
+interface StripeCustomerRedactionRecord {
+  type: 'stripe_customer_redaction';
+  provider: 'stripe';
+  outcome: StripeCustomerRedactionOutcome | 'skipped_shared_customer';
+  stripe_customer_id_hash: string;
+  recorded_at: string;
+}
+
+function stripeCustomerRedactionRecord(
+  customerId: string,
+  outcome: StripeCustomerRedactionRecord['outcome'],
+): StripeCustomerRedactionRecord {
+  return {
+    type: 'stripe_customer_redaction',
+    provider: 'stripe',
+    outcome,
+    stripe_customer_id_hash: `sha256:${createHash('sha256').update(customerId).digest('hex')}`,
+    recorded_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Clears the identifying fields on the account's Stripe Customer, immediately
+ * before the tombstone destroys the last local copy of the customer id.
+ *
+ * ORDERING (D5). This runs LATE — after `runAuditAndCostPayloadPurgeStage` and
+ * before `runParentTombstonePurgeStage` — and that is a deliberate tradeoff,
+ * not an oversight. Running FIRST would fail fast with nothing destroyed, but a
+ * later local failure would then leave a LIVE account whose Stripe billing
+ * contact is already wiped. Running late means every local destruction has
+ * committed, the point of no return has passed, and redaction is the last
+ * irreversible act.
+ *
+ * RETRY SAFETY. `account_offboardings.stripe_customer_id` survives until
+ * finalize and `loadPurgeOffboarding` re-reads it, so a retry after a failed
+ * redaction still has the id to work with.
+ *
+ * THE SHARED-CUSTOMER GUARD (D1). One Stripe customer can map to MULTIPLE
+ * accounts — `accounts.stripe_customer_id` carries no unique constraint. Blind
+ * redaction would erase a live co-tenant's billing contact, so a sharing count
+ * skips the Stripe call entirely.
+ *
+ * THE LOCK (D8). The count alone does not serialize against a writer binding
+ * the same customer to another account a moment later. The customer-keyed
+ * advisory lock is taken BEFORE the count and held for the whole transaction,
+ * including the Stripe call; `applyStripeSubscriptionStateInternal` takes the
+ * same lock on the writer side. This stage requests no other lock, so it
+ * cannot participate in a deadlock cycle.
+ */
+export async function runStripeCustomerRedactionPurgeStage(
+  sql: postgres.Sql,
+  stripe: StripeCustomerRedactionClient,
+  row: AccountOffboardingPurgeRow,
+): Promise<void> {
+  const customerId = row.stripe_customer_id?.trim();
+  if (!customerId) return;
+
+  await sql.begin(async (tx) => {
+    // Sequential awaits share one Postgres.js transaction connection; the lock
+    // must precede the count and outlive the Stripe call.
+    // react-doctor-disable-next-line react-doctor/async-parallel
+    await acquireStripeCustomerBindingLock(tx, customerId);
+
+    const [sharing] = await tx<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM accounts a
+      WHERE a.stripe_customer_id = ${customerId}
+        AND a.id <> ${row.account_id}::uuid
+        AND NOT EXISTS (
+          SELECT 1
+          FROM account_offboardings ao
+          WHERE ao.account_id = a.id
+            AND ao.status = 'purged'
+        )
+    `;
+
+    if ((sharing?.count ?? 0) > 0) {
+      await appendStripeCustomerRedactionRecord(
+        tx,
+        row,
+        stripeCustomerRedactionRecord(customerId, 'skipped_shared_customer'),
+      );
+      return;
+    }
+
+    const { outcome } = await redactStripeCustomer({
+      stripe,
+      customerId,
+      offboardingId: row.id,
+    });
+
+    await appendStripeCustomerRedactionRecord(
+      tx,
+      row,
+      stripeCustomerRedactionRecord(customerId, outcome),
+    );
+  });
+}
+
+async function appendStripeCustomerRedactionRecord(
+  tx: postgres.TransactionSql,
+  row: AccountOffboardingPurgeRow,
+  record: StripeCustomerRedactionRecord,
+): Promise<void> {
+  await tx`
+    UPDATE account_offboardings
+    SET provider_dispositions = provider_dispositions || ${tx.json([record] as never)},
+        updated_at = NOW()
+    WHERE id = ${row.id}::uuid
+      AND account_id = ${row.account_id}::uuid
+      AND terminal_at IS NULL
+  `;
 }
 
 export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {

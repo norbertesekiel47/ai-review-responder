@@ -25,9 +25,11 @@ import {
   runParentTombstonePurgeStage,
   runProviderIdentifierPurgeStage,
   runRawPayloadPurgeStage,
+  runStripeCustomerRedactionPurgeStage,
   validatePurgeableOffboarding,
 } from './purge-stages';
 import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 
 export async function handleAccountOffboardingPurge(
   sql: postgres.Sql,
@@ -81,6 +83,11 @@ export async function handleAccountOffboardingPurge(
     await runAnalyticsPurgeStage(sql, offboarding);
     await runProviderIdentifierPurgeStage(sql, offboarding);
     await runAuditAndCostPayloadPurgeStage(sql, offboarding);
+    // Immediately before the tombstone, which destroys the last local copy of
+    // the Stripe customer id (D5). The worker resolves the client at its own
+    // boundary and passes it down — the domain module never imports the
+    // singleton (invariant #15).
+    await runStripeCustomerRedactionPurgeStage(sql, getStripe(), offboarding);
     await runParentTombstonePurgeStage(sql, offboarding);
 
     // finalizePurgeInTransaction enqueues the purge-receipt email durably inside
