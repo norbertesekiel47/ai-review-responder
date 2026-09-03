@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The edit sits inside settleGenerationExhaustion's transaction, which holds the per-Business advisory lock and the solicitation_batches row lock; a fault there stalls every other writer on that Business.",
+    "A wrong batch conversion drops Refusal rows silently. The ledger going dark for a settled batch produces no error and no log line, and the Restraint tab shows an honest-looking empty window.",
+    "It is the third ticket in the 2026-09-02 refusal-ledger audit wave; #1079 and #1080 both classified small/high on the same ledger surface, and #1079 deferred 'batch, reorder, or otherwise restructure the ledger writes' to this ticket."
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "settleGenerationExhaustion records every hole's Refusal in ONE writeRefusalEvents statement, so the batch advisory lock and the batch row lock are held across one ledger round trip instead of one per hole.",
+  "non_goals": [
+    "Do not batch insertOutreachRender. The per-hole outreach insert stays as it is; a set arm for solicitation_outreach would make a second writer of that table against the src/lib/solicitation/outreach.ts docblock, and is a wider surface. It is filed as a follow-up.",
+    "Do not edit src/lib/refusals/write.ts. Both arms already exist and #1001 keeps that module the only place INSERT INTO refusal_events is spelled.",
+    "Do not change persistChildRender (W1/W2) or regenerateAsk (W3). Neither is a loop; each settles one render per transaction, so neither carries this defect.",
+    "Do not change the idempotency contract. writeRefusalEvents carries the same ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL DO NOTHING. This ticket is throughput, not correctness.",
+    "Do not change occurred_at. Every input keeps the caller's decidedAt instance; the 'transaction_time' sentinel stays forbidden on this lane.",
+    "Do not widen ci:pool-fanout to src/lib/solicitation/. That audit-scope question is a separate ticket.",
+    "Do not add a private set-arm wrapper in ask-generation.ts. It would have one caller, which the repo working rules ban."
+  ],
+  "user_visible_behavior": [
+    "Operational: a terminal generation exhaustion that settles N holes issues 1 INSERT INTO refusal_events instead of N, inside the same transaction. At the lane's documented ceiling of 5,000 asks that removes up to 4,999 sequential round trips from the advisory-lock window.",
+    "Operational: no owner-facing change. The Restraint tab renders the same rows, with the same stored Refusal category, refusal code, subject and occurred_at.",
+    "Operational: with REFUSAL_LEDGER_ENABLED=false the warning count does not change. warnLedgerDisabled is latched per episode by a module-level flag (src/lib/refusals/write.ts:291), so N single-row calls already produced exactly one warning."
+  ],
+  "invariants": [
+    "src/lib/refusals/write.ts stays the ONLY place INSERT INTO refusal_events is spelled. This branch adds no statement.",
+    "One Refusal per hole, never one per invocation. The row count is the writer's fan-out and is never the number of calls.",
+    "The Refusal write stays INSIDE settleGenerationExhaustion's sql.begin callback, after the last insertOutreachRender and before recordGenerationSteps. A rollback still takes the fills and their Refusals together.",
+    "Every Refusal carries the caller's decidedAt instance, read before the transaction opens and before it waits on the advisory lock. Never the 'transaction_time' sentinel.",
+    "OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES has ONE reader in this module after the change. The single-row arm and the exhaustion loop both reach it through the same function, so the mapping cannot drift between them.",
+    "settleGenerationExhaustion's return shape { status, filled } is unchanged.",
+    "Subject ids stay the ids insertOutreachRender minted, in loop order.",
+    "recordOutreachWithheldRefusal keeps its docblock as the lane's mapping contract; the extracted input builder does not become a second place that explains the mapping."
+  ],
+  "edge_cases": [
+    "Zero holes: writeRefusalEvents returns on the empty-input check before the kill-switch read and issues no statement. Today zero holes make zero calls. No behaviour delta.",
+    "One hole: one input, one set statement. jsonb_to_recordset over a single row is correct; there is no single-row fast path and none is wanted.",
+    "REFUSAL_LEDGER_ENABLED=false with holes present: the set arm warns once through the same latched warnLedgerDisabled and returns. Same signal as today.",
+    "A duplicate subject from an earlier settlement: absorbed by ON CONFLICT DO NOTHING. The set arm asserts no affected-row count, deliberately (plan review R1-7), so a legitimate lower count never throws inside the decision.",
+    "A CHECK violation from a mis-mapped category still aborts the settlement, at the set arm exactly as at the single-row arm. Not caught.",
+    "No send parent run: fills take agentRunId null and still get their Refusals. The Refusal write does not depend on parent.",
+    "Ordering: all fills now land before any Refusal, inside one transaction, so no reader observes an intermediate state. refusal_events.id is UUIDv7 minted in loop order, so the ledger's own ordering is preserved.",
+    "insertOutreachRender throws mid-loop (a 23505 from a racing live insert): the collected inputs die with the transaction. Today a partial set of Refusals also rolls back. Same outcome.",
+    "markOutboxFailed loses the CAS (stale attempt): the function returns before the loop, so neither arm is called.",
+    "Batch row missing: the function returns batch_missing before the loop, so neither arm is called.",
+    "A settlement that aborts after the loop: neither the fills nor their Refusals commit, because both writes are on the one transaction."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/solicitation/batch-builder.ts:655-698 — the repo's only other writeRefusalEvents call site. It builds the array at the call site, calls once, and carries a comment naming the lock window it protects.",
+    "src/lib/refusals/write.ts:504-560 — the set arm's contract: an empty input issues no statement, no affected-row assertion, and the flag is read live per call inside the body.",
+    "src/lib/refusals/write.ts — the two-arm shape itself: a single-row arm and a set arm side by side, sharing one documented contract.",
+    "src/lib/solicitation/ask-generation.ts:691-714 — recordOutreachWithheldRefusal, whose docblock is the lane's mapping contract and must keep owning it.",
+    "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1461 — the existing behavioural guard: one refusal_events row per hole, read back from the real database.",
+    "src/lib/shared/__tests__/helpers/abort-injection.ts — abortingExecutor, the sanctioned way to force a transaction abort in a live-DB suite."
+  ],
+  "test_seams": [
+    "settleGenerationExhaustion, exported from src/lib/solicitation/ask-generation.ts.",
+    "The @/lib/refusals/write module mock in src/lib/solicitation/__tests__/ask-generation.test.ts, which must mock BOTH arms after this change.",
+    "readRefusalRows() and readOutreachRows() in src/lib/solicitation/__tests__/ask-generation.integration.test.ts — the real-database reads."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/ask-generation.ts",
+    "src/lib/solicitation/__tests__/ask-generation.test.ts",
+    "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
+    ".claude/reference/arch-review-log.md"
+  ],
+  "tests_to_add": [
+    "a generation exhaustion records every hole's Refusal in ONE writeRefusalEvents call, never one call per hole",
+    "a generation exhaustion that finds no holes issues no Refusal write through either arm",
+    "a stale generation-exhaustion attempt writes no Refusal through either the single-row or the set arm",
+    "a generation exhaustion that aborts after its fills records neither the outreach rows nor their refusal_events rows"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 35,
+  "estimated_test_lines": 75,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the branch. The change adds no schema, no dependency and no new statement — writeRefusalEvents already ships and commitAskDecisions already calls it — so reverting restores the per-hole loop, which is slower but correct. REFUSAL_LEDGER_ENABLED=false remains the operational lever if the ledger itself must go dark.",
+  "observability": [
+    "Success signal: N holes still yield N refusal_events rows. The integration suite compares the two id SETS, not two counts, because equal counts with wrong subjects is the failure this change could produce.",
+    "Silent-failure shape: fewer Refusal rows than withheld fills, with no error and no log line. Nothing in production emits this, which is why the set comparison lives in the test rather than in a runtime check.",
+    "A CHECK violation still surfaces as a terminal generate_solicitation_asks settlement failure raised to Sentry by worker/job-failure-sink.ts."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}
