@@ -245,14 +245,22 @@ None.
 Both findings `fixed`. Neither rejected, neither `accepted-risk`.
 
 **Provenance.** The pass measured `a40fe38d`. `head_sha` is advanced to
-`2cffccf0`, the fix commit, on a basis a reader should re-check rather than
-take: `git diff a40fe38d..2cffccf0 --name-only -- src worker` is **empty**. The
+`b5e94ca6`, the fix commit, on a basis a reader should re-check rather than
+take: `git diff a40fe38d..b5e94ca6 --name-only -- src worker` is **empty**. The
 fix touched five files, all documentation — this report, its JSON sidecar, the
 triage file, the deviations file and the arch-review-log row — so the mutation
 inventory above still describes the code it measured. No rebase and no
 dependency change sits between the two SHAs, unlike the previous run's
 extrapolation, which is why that one was retired and replaced by this fresh
 pass instead.
+
+**A note on why this SHA is recorded in a FOLLOWING commit, not this one.**
+Writing HEAD into a file that is part of HEAD changes HEAD — the first attempt
+amended the fix commit to carry its own SHA and produced a dangling reference
+to a commit that no longer existed. The sidecar therefore names the fix commit
+`b5e94ca6`, and the single commit after it touches nothing but this report and
+its JSON sidecar, which `red-team-status.mjs` tolerates by design. A
+self-referential hash needs one level of indirection; an amend cannot supply it.
 
 ## RT1082R3-01 (P1) — fixed
 
