@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "Every dashboard chart states what it plots, in what unit, over what window — on screen and to a screen reader — without changing a single number it draws.",
+  "non_goals": [
+    "Changing what any chart computes or how it buckets. The Review-time anchor and the KPI fragments are ADR 0019 / #688 / #757 and are OUT of this ticket entirely.",
+    "Adding tooltips as a substitute for a label — that is #1086's affordance and the wrong tool for a missing unit",
+    "A charting library. Every chart here is hand-built SVG and stays that way.",
+    "Redesigning the aggregate dashboard's card layout"
+  ],
+  "user_visible_behavior": [
+    "Each chart carries an accessible name and a short text description of what it plots.",
+    "Axes and units are labelled where a number is otherwise unitless.",
+    "The window a chart covers is stated on the chart, not only in surrounding copy.",
+    "Per-location and aggregate versions of the same chart describe themselves consistently."
+  ],
+  "invariants": [
+    "No chart's data, bucketing or window arithmetic changes. src/lib/kpi/fragments.ts is untouched.",
+    "A per-location chart and its aggregate peer never disagree about what they claim to show.",
+    "Shared chart machinery stays shared — a change to chart-tokens or ChartTooltip is deliberate and named, never incidental.",
+    "CardViewTabs remains a view switch and keeps rendering on desktop."
+  ],
+  "edge_cases": [
+    "Empty series: the chart must still say what it would have plotted.",
+    "A single data point, where a trend line has nothing to draw.",
+    "390px, where an axis label competes with the plot for width.",
+    "Reduced motion, where the entry animation is suppressed.",
+    "prefers-contrast / colour-blind readers, for charts that separate series by colour alone."
+  ],
+  "existing_patterns_to_follow": [
+    "src/components/dashboard/kpi/ReputationTrendChart.tsx — the ONE chart that already carries an accessible name; the precedent to copy",
+    "src/components/dashboard/kpi/ChartHeadlineBanner.tsx + chart-headlines.ts — the existing way a chart states its own headline, and often the cheaper fix",
+    "src/components/dashboard/charts/chart-tokens.ts — the shared colour and scale tokens"
+  ],
+  "test_seams": [
+    "VelocityChart",
+    "ReputationTrendChart",
+    "RankingChart",
+    "RecentRatingBreakdown",
+    "RecentSentimentMix"
+  ],
+  "allowed_edit_surface": [
+    "src/components/dashboard/charts/VelocityChart.tsx",
+    "src/components/dashboard/charts/chart-tokens.ts",
+    "src/components/dashboard/kpi/ReputationTrendChart.tsx",
+    "src/components/dashboard/kpi/RankingChart.tsx",
+    "src/components/dashboard/kpi/RecentRatingBreakdown.tsx",
+    "src/components/dashboard/kpi/RecentSentimentMix.tsx",
+    "src/components/dashboard/kpi/chart-headlines.ts",
+    "src/components/dashboard/aggregate/AggregateVelocityCard.tsx",
+    "src/components/dashboard/aggregate/AggregateRankingCard.tsx",
+    "src/components/dashboard/charts/__tests__",
+    "src/components/dashboard/kpi/__tests__",
+    "src/app/(authenticated)/_styles/console.css",
+    ".claude/reference/arch-review-log.md"
+  ],
+  "tests_to_add": [
+    "every dashboard chart exposes an accessible name",
+    "every dashboard chart states the window it covers",
+    "a chart with an empty series still says what it would plot",
+    "a per-location chart and its aggregate peer describe the same measure identically",
+    "no chart changes the values it plots"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 320,
+  "estimated_test_lines": 360,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the squash commit. Presentation only; no data path, no migration, no flag.",
+  "observability": [],
+  "required_approvals": ["commit", "push", "merge"],
+  "open_questions": []
+}
