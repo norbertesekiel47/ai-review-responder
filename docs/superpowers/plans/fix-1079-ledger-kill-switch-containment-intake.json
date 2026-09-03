@@ -3,7 +3,7 @@
   "size": "small",
   "risk": "high",
   "risk_reasons": [
-    "The edit is inside the response-persist transaction on the worker \u2014 the path that must never break; a fault there stops draft generation for an account.",
+    "The edit is inside the response-persist transaction on the worker — the path that must never break; a fault there stops draft generation for an account.",
     "It changes the auto-approval Refusal lane (policy_gate_held), which is autonomy-adjacent surface.",
     "The change makes a documented containment lever actually contain; a wrong fix leaves operators trusting a lever that still does nothing."
   ],
@@ -11,48 +11,50 @@
   "db_touching": true,
   "goal": "With REFUSAL_LEDGER_ENABLED off, no Refusal ledger code path can throw into the response-persist transaction, and any ledger throw on the policy_gate_held lane is attributed to subsystem 'refusal_ledger'.",
   "non_goals": [
-    "Do not edit src/lib/refusals/vocabulary.ts \u2014 the precedence totality hole is #1080 and runs in a sibling worktree in this same wave.",
-    "Do not extend attribution to the other six write sites \u2014 that is #1083 and lands in a later wave.",
+    "Do not edit src/lib/refusals/vocabulary.ts — the precedence totality hole is #1080 and runs in a sibling worktree in this same wave.",
+    "Do not extend attribution to the other six write sites — that is #1083 and lands in a later wave.",
     "Do not change the resolver's throw semantics; an unmapped or unranked code stays a fault with the flag on.",
-    "Do not swallow a ledger error on the policy_gate_held or held_draft lane with the flag on \u2014 a draft must never commit without its Refusal row.",
+    "Do not swallow a ledger error on the policy_gate_held or held_draft lane with the flag on — a draft must never commit without its Refusal row.",
     "Do not batch, reorder, or otherwise restructure the ledger writes."
   ],
   "user_visible_behavior": [
     "Operational: with REFUSAL_LEDGER_ENABLED=false, a ResponseGeneratorWorker job whose gate decision would resolve an unmapped or unranked block reason persists its draft and completes, instead of aborting and burning its attempts.",
     "Operational: with the flag on, a resolver throw raises a Sentry issue tagged subsystem=refusal_ledger and refusal_lane=policy_gate_held, naming the flag, instead of a generic worker_job failure.",
-    "Operational: the once-per-episode 'ledger is dark' warning still fires on every lane EXCEPT policy_gate_held, which now returns before the write and contributes no warning. That lane's change is the accepted cost recorded in observability."
+    "Operational: the once-per-episode 'ledger is dark' warning still fires on every lane, policy_gate_held included. That lane no longer reaches a write arm with the flag off, so it raises the same line explicitly via noteRefusalLedgerDark, and only when every block reason maps to a real category — the condition under which a row would genuinely have been recorded."
   ],
   "invariants": [
     "src/lib/refusals/write.ts stays the single WRITE-PATH owner of the REFUSAL_LEDGER_ENABLED read; persist.ts never re-spells readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG).",
     "src/app/api/dashboard/refusals/route.ts:76 is a deliberate READ-path second reader that must keep its own literal flag spelling for ci:env-registry; it is out of surface and must not be 'fixed'.",
-    "The exported predicate is PURE: it reads the flag and returns; it never warns, never clears the disabled episode, and never logs.",
+    "isRefusalLedgerEnabled is SIDE-EFFECT-FREE: it reads the flag and returns; it never warns, never clears the disabled episode, and never logs. The word is not 'pure' — vocabulary.ts defines that for this area as excluding a flag read.",
+    "noteRefusalLedgerDark is the side-effecting sibling and calls the SAME private warnLedgerDisabled, so it shares the once-per-episode latch and cooldown rather than adding a second signal.",
+    "wouldRecordRefusal uses every, never some: one null-mapped member vetoes the whole row (#1003), so some would warn about a decision that was never going to be recorded.",
     "warnLedgerDisabled and endDisabledEpisode stay private to write.ts and stay inside writeRefusalEvent and writeRefusalEvents, unmoved.",
-    "The flag read stays live and per call \u2014 never a module-scope const, so a mid-process toggle is observed (the rule circuit-breaker.ts states).",
+    "The flag read stays live and per call — never a module-scope const, so a mid-process toggle is observed (the rule circuit-breaker.ts states).",
     "writeRefusalEvents keeps its empty-input return BEFORE the flag read; an empty set has no ledger gap to warn about.",
     "With the flag on, both persist write sites stay uncaught: a migration-116 CHECK violation is a writer bug and must abort the transaction.",
-    "withLedgerAttribution still changes no control flow \u2014 it captures, then rethrows the SAME error instance, and a failing reporter never replaces the real error.",
+    "withLedgerAttribution still changes no control flow — it captures, then rethrows the SAME error instance, and a failing reporter never replaces the real error.",
     "src/lib/refusals/write.ts remains the only production module that spells INSERT INTO refusal_events.",
     "With the flag off, the persist transaction invokes the refusals vocabulary resolver ZERO times on both lanes."
   ],
   "edge_cases": [
-    "Flag off and the block-reason set is empty or fully null-mapped: the new flag guard returns before the resolver, so nothing is written, the transaction commits, and no disabled warning fires. The OUTCOME matches today's silence; the CAUSE differs \u2014 today guard 4 returns first, after the change the flag guard returns before guard 4 is reached.",
-    "Flag off and the set WOULD have resolved: the lane returns before the resolver and therefore no longer emits the once-per-episode disabled warning that it emits today. This is the accepted cost of containment by non-execution. The signal survives on the six other production write sites \u2014 four solicitation (dispatch.ts:1474, ask-generation.ts:698, batch-builder.ts:670, approval.ts:637) plus suspension.ts:331 and auto-policy-downgrade.ts:208 \u2014 and the latch is module-level.",
-    "Flag on and the resolver returns null: no write, no Sentry capture, transaction commits \u2014 byte-identical to today.",
-    "Flag on and the resolver throws: captured exactly once with the lane tag, the SAME instance rethrown, transaction aborts \u2014 the designed behaviour.",
+    "Flag off and the block-reason set is empty or fully null-mapped: the new flag guard returns before the resolver, so nothing is written, the transaction commits, and no disabled warning fires. The OUTCOME matches today's silence; the CAUSE differs — today guard 4 returns first, after the change the flag guard returns before guard 4 is reached.",
+    "Flag off and the set WOULD have resolved: the lane returns before the resolver, and wouldRecordRefusal is true, so noteRefusalLedgerDark raises the same once-per-episode line the write arms raise. The warning is preserved, not lost.",
+    "Flag off and one member is UNMAPPED: wouldRecordRefusal returns false, so no warning fires. Correct on the no-gap rule — an unmapped member would have thrown rather than written, so no row was lost — but it is a real blind spot for the #1080 fault class, recorded in docs/runbooks/beta-launch-alerting.md.",
+    "Flag on and the resolver returns null: no write, no Sentry capture, transaction commits — byte-identical to today.",
+    "Flag on and the resolver throws: captured exactly once with the lane tag, the SAME instance rethrown, transaction aborts — the designed behaviour.",
     "The held_draft lane at persist.ts:877 has no pre-write resolve (every argument is a literal or the module constant HELD_DRAFT_REFUSAL_CATEGORY), so it gains no guard and no behaviour change.",
-    "Two live flag reads now exist per write \u2014 the persist guard, then write.ts. A mid-process flip to false between them lets the resolver run with the flag off. The window is synchronous and microseconds wide; it is the price of a pure predicate and is accepted, not defended against.",
-    "The guard docblock at persist.ts:697-722 enumerates FOUR guards and records a mutation-testing result about them. Adding a guard renumbers it; the recorded result stays attached to the original four.",
-    "Under the two-read TOCTOU window, the ordering 'on at the persist guard, off at write.ts:369' DOES reach warnLedgerDisabled, so the lane can still warn with the flag off. Negligible in production; it matters to any mid-persist flag-flip test written in the style of refusal-write.integration.test.ts:714.",
+    "Two live flag reads exist per write — the persist guard, then write.ts — but the window between them is ZERO, not microseconds: no await separates them, because withLedgerAttribution and writeRefusalEvent each run synchronously to their first await and the second read is writeRefusalEvent's first statement. A mid-process flip cannot land between them, so there is nothing to defend against and nothing for a test to exercise.",
+    "The guard docblock's recorded mutation result was re-measured per guard at #1079 and the old summary was wrong for two of three: deleting guard 1 kills this branch's own held_draft pin, guard 2 survives 82/82, and deleting guard 3 kills a pre-existing test AND writes a spurious policy_gate_held row. The docblock carries the per-guard numbers, not the summary sentence.",
     "A zero-resolver-invocation assertion is an assertion of ABSENCE, so a wrong tier, a non-live-ingest origin lane, a null threshold, held=true or approved=true each make it pass on HEAD too. The same fixture with the flag ON must record exactly one invocation, or the test is a permanent false green."
   ],
   "existing_patterns_to_follow": [
-    "src/lib/refusals/write.ts:353-359 \u2014 writeRefusalEvent's contract docblock; :364-368 \u2014 the live-per-call flag-read rule and its reason.",
-    "src/lib/refusals/write.ts:488-492 \u2014 the documented reason an empty input must not warn; the persist guard's no-warn arm cites it.",
-    "worker/jobs/response-generation/persist.ts:788-807 \u2014 withLedgerAttribution's capture-and-rethrow contract; keep it unchanged.",
-    "src/lib/llm/circuit-breaker.ts \u2014 the same read-the-kill-switch-live rule and its stated reason.",
-    "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:105-127 \u2014 the existing vocabulary module mock; the call-count oracle attaches here.",
-    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts \u2014 the house fast-check style and its 'invariants' describe block.",
-    "src/lib/refusals/__tests__/write.test.ts \u2014 resetRefusalLedgerWarningForTests (write.ts:237) is how a warning-episode test isolates itself."
+    "src/lib/refusals/write.ts:353-359 — writeRefusalEvent's contract docblock; :364-368 — the live-per-call flag-read rule and its reason.",
+    "src/lib/refusals/write.ts — writeRefusalEvents' contract, bullet 1: the documented reason an empty input must not warn. Cited BY SYMBOL; the line range this entry first carried went stale inside its own commit, because the same insert that created the predicate moved the rule.",
+    "worker/jobs/response-generation/persist.ts:788-807 — withLedgerAttribution's capture-and-rethrow contract; keep it unchanged.",
+    "src/lib/llm/circuit-breaker.ts — the same read-the-kill-switch-live rule and its stated reason.",
+    "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:105-127 — the existing vocabulary module mock; the call-count oracle attaches here.",
+    "worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts — the house fast-check style and its 'invariants' describe block.",
+    "src/lib/refusals/__tests__/write.test.ts — resetRefusalLedgerWarningForTests (write.ts:237) is how a warning-episode test isolates itself."
   ],
   "test_seams": [
     "persistResponseAndNotify (worker/jobs/response-generation/persist.ts)",
@@ -66,7 +68,8 @@
     "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
     "worker/jobs/response-generation/__tests__/persist.test.ts",
     "src/lib/refusals/__tests__/write.test.ts",
-    ".claude/reference/arch-review-log.md"
+    ".claude/reference/arch-review-log.md",
+    "src/lib/refusals/read.ts"
   ],
   "tests_to_add": [
     "with REFUSAL_LEDGER_ENABLED off, persistResponseAndNotify invokes no refusals vocabulary resolver on the policy lane and the draft row commits",
@@ -76,7 +79,11 @@
     "writeRefusalEvent and writeRefusalEvents together emit exactly one disabled warning across one disabled episode",
     "writeRefusalEvents issues no statement and emits no disabled warning for an empty input while the flag is off",
     "the held_draft lane still writes its refusal row and still aborts on a writer fault with the flag on",
-    "invariants: the flag decides the resolver call count \u2014 off yields zero calls, on yields exactly one receiving the generated block reasons verbatim and in order"
+    "invariants: the flag decides the resolver call count — off yields zero calls, on yields exactly one receiving the generated block reasons verbatim and in order",
+    "noteRefusalLedgerDark shares the write arms' once-per-episode latch",
+    "invariants: with the ledger off, the warning fires exactly when every block reason maps to a real category",
+    "with REFUSAL_LEDGER_ENABLED off, a throwing vocabulary resolver never runs and the draft row still commits",
+    "with REFUSAL_LEDGER_ENABLED off, a would-have-recorded decision warns once and a veto-only decision does not"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 45,
@@ -85,8 +92,9 @@
   "rollback_plan": "Revert the branch. The change adds no schema, no migration and no new column; REFUSAL_LEDGER_ENABLED keeps its current default, so reverting restores exactly today's behaviour (the flag is ineffective again on this lane, which is the pre-change state).",
   "observability": [
     "A Sentry issue tagged subsystem=refusal_ledger, refusal_lane=policy_gate_held distinguishes a ledger fault from a generic worker_job failure.",
-    "ACCEPTED GAP, and its bound is narrower than it first looks: that issue is the record of the fault ONLY for a flag flipped in response to it. A fault arriving into an ALREADY-off flag never runs the resolver, so no issue is ever raised; and an operator who resolves the issue after the aborts stop removes the record while the flag stays off. #1080, which can open that hole, runs in a sibling worktree this same wave.",
-    "ACCEPTED GAP: with the flag off, the policy_gate_held lane emits no per-occurrence signal and no longer contributes the once-per-episode ledger-dark warning. The six other production write sites still emit it; a period in which only this lane is active goes silent."
+    "The once-per-episode ledger-dark warning is PRESERVED on this lane: guard 4's off-arm raises it through noteRefusalLedgerDark whenever wouldRecordRefusal is true. Review proved the earlier concession avoidable, and the branch closed it rather than shipping the gap.",
+    "REMAINING BLIND SPOT, narrowed but real: an UNMAPPED block reason (the #1080 fault class) raises nothing on this lane while the flag is off — it would have thrown rather than written, so wouldRecordRefusal is false and no row was lost, but no operator signal names it either. The Restraint tab's ledgerRecording disclaimer is what shows the ledger is off at all. Recorded in docs/runbooks/beta-launch-alerting.md so an operator meets it before an incident does.",
+    "That Sentry issue is the record of a vocabulary fault ONLY for a flag flipped in response to it. A fault arriving into an ALREADY-off flag never runs the resolver, so no issue is raised; and an operator who resolves the issue after the aborts stop removes the record while the flag stays off."
   ],
   "required_approvals": [
     "commit",

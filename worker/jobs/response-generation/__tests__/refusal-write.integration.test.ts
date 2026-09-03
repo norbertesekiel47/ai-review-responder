@@ -61,7 +61,10 @@ import { TRIAGE_SOURCE } from '@/lib/reviews/triage-schema';
 // carried their own `'REFUSAL_LEDGER_ENABLED'` literal before the #1010
 // follow-up centralised it; a rename would have left them green while testing a
 // flag that no longer exists.
-import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
+import {
+  REFUSAL_LEDGER_FLAG,
+  resetRefusalLedgerWarningForTests,
+} from '@/lib/refusals/write';
 import { persistResponseAndNotify, type PersistResponseInput } from '../persist';
 
 // ---------------------------------------------------------------------------
@@ -376,6 +379,22 @@ async function laneCount(source: string): Promise<number> {
     WHERE account_id = ${accountId()}::uuid AND refusal_source = ${source}
   `;
   return row!.n;
+}
+
+/**
+ * The LEDGER-DARK captures only, so another subsystem's `captureMessage` cannot
+ * inflate a count.
+ *
+ * Filtered by TAG rather than by message text: the tags are what an operator
+ * actually alerts on, and a reworded message must not silently empty this.
+ * `write.test.ts` filters the console line for the same reason.
+ */
+function ledgerDarkCaptures(): unknown[] {
+  return sentryStub.captureMessage.mock.calls.filter((call) => {
+    const options = call[1] as { tags?: Record<string, unknown> } | undefined;
+    return options?.tags?.subsystem === 'refusal_ledger'
+      && options.tags.flag === REFUSAL_LEDGER_FLAG;
+  });
 }
 
 /**
@@ -1143,6 +1162,99 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     expect(rows[0]!.refusal_code).toBe('triage_high_severity');
   });
 
+  it('with REFUSAL_LEDGER_ENABLED off, a throwing vocabulary resolver never runs and the draft row still commits', async () => {
+    // THE ARMED FORM OF THE FLAG-OFF CASE ABOVE, and it closes that case's gap.
+    // There the only evidence was a spy count, which proves the resolver the SPY
+    // models was not called. Here the resolver is LOADED — the same
+    // `vocabulary_resolver_exploded` the flag-on cases below use to abort a
+    // persist — so any reachable path into it, spied or not, converts the
+    // containment claim from an absence into a rejection this case would show.
+    const reviewId = randomUUID();
+    await seedReview(reviewId, { triageSeverity: 'high' });
+    resolverPoison.throwWith = new Error('vocabulary_resolver_exploded');
+    setFlags({ [REFUSAL_LEDGER_FLAG]: 'false' });
+
+    // NO REJECTION, and that IS the containment guarantee (#1079). An armed
+    // resolver that is never reached cannot throw; the two flag-on cases below
+    // are the control that shows the same arming really does abort a persist
+    // when the switch is on, so this resolve is not the poison failing to work.
+    await persistResponseAndNotify(sql(), makeInput(reviewId));
+
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+    // The attribution wrapper never fired either — no ledger fault was reported,
+    // because none happened.
+    expect(sentryStub.captureException).not.toHaveBeenCalled();
+
+    // …and the decision still LANDS. A switch that dropped the draft would be a
+    // revert deploy, not a lever.
+    const responseId = await responseIdFor(reviewId);
+    expect(responseId, 'the draft committed with the resolver armed').toBeDefined();
+    expect(await refusals(responseId!, 'policy_gate_held')).toHaveLength(0);
+  });
+
+  it('with REFUSAL_LEDGER_ENABLED off, a would-have-recorded decision warns once and a veto-only decision does not', async () => {
+    // THE ORACLE FOR THE WHOLE FINDING, in both directions. Guard 4 keeps the
+    // lane's ledger-dark warning without running the resolver, and the rule it
+    // must respect is `writeRefusalEvents`' contract (bullet 1): a decision that
+    // records NOTHING either way has no ledger GAP, so warning about it puts
+    // noise on the one signal that says the ledger is dark.
+    //
+    // THE LATCH IS MODULE-LEVEL, so each half resets it. Without that, half B's
+    // zero would be satisfied by half A having already latched — the false green
+    // this case exists to avoid.
+
+    // HALF A — every block reason maps to a real category, so a row WOULD have
+    // been written. `triage_high_severity` is the same fixture the two cases
+    // above use, and the flag-on control there proves it really does record.
+    resetRefusalLedgerWarningForTests();
+    sentryStub.captureMessage.mockClear();
+    const recordedReviewId = randomUUID();
+    await seedReview(recordedReviewId, { triageSeverity: 'high' });
+    setFlags({ [REFUSAL_LEDGER_FLAG]: 'false' });
+
+    await persistResponseAndNotify(sql(), makeInput(recordedReviewId));
+
+    expect(resolvePolicyGateRefusalSpy, 'still contained').not.toHaveBeenCalled();
+    expect(
+      ledgerDarkCaptures(),
+      'a withheld row reports the gap',
+    ).toHaveLength(1);
+
+    // HALF B — a `null`-mapped VETO member is present, so the decision records
+    // nothing on ANY flag setting and there is no gap to report. The copilot
+    // downgrade is the `autopilot_tier_required` fixture from the ordering case
+    // above, where the flag-on run is already proven to write zero rows.
+    //
+    // THIS HALF IS THE `every`-VS-`some` DISCRIMINATOR. The set also carries the
+    // earlier mapped threshold reason, so `some(mapped && non-null)` is TRUE
+    // here and a `some` implementation warns — exactly the noise #1003's veto
+    // rule forbids.
+    resetRefusalLedgerWarningForTests();
+    sentryStub.captureMessage.mockClear();
+    const vetoedReviewId = randomUUID();
+    await seedReview(vetoedReviewId, { starRating: 2 });
+    await withTemporary(
+      () => sql()`UPDATE accounts SET subscription_tier = 'copilot' WHERE id = ${accountId()}::uuid`,
+      () => sql()`UPDATE accounts SET subscription_tier = 'autopilot' WHERE id = ${accountId()}::uuid`,
+      async () => {
+        await persistResponseAndNotify(
+          sql(),
+          makeInput(vetoedReviewId, { preLlmSubscriptionTier: 'copilot' }),
+        );
+      },
+    );
+
+    expect(resolvePolicyGateRefusalSpy, 'still contained').not.toHaveBeenCalled();
+    expect(
+      ledgerDarkCaptures(),
+      'a decision that records nothing either way reports no gap',
+    ).toHaveLength(0);
+
+    // And the draft landed on this half too — the silence is "no gap", never
+    // "no decision".
+    expect(await responseIdFor(vetoedReviewId)).toBeDefined();
+  });
+
   it('a policy-gate resolver throw with the flag on captures exactly once with subsystem refusal_ledger and refusal_lane policy_gate_held and rethrows the same error instance', async () => {
     const reviewId = randomUUID();
     await seedReview(reviewId, { triageSeverity: 'high' });
@@ -1206,9 +1318,19 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
 
     const writtenResponseId = await responseIdFor(writeReviewId);
     expect(await refusals(writtenResponseId!, 'held_draft')).toHaveLength(1);
-    // …and the policy lane's new guard did not leak onto it: this lane calls no
-    // resolver on ANY implementation, which is why the count above is a pin and
-    // never an oracle.
+    // …and the policy lane's new guard did not leak onto it.
+    //
+    // ON THIS FIXTURE THE COUNT IS A GUARD-1 ORACLE, NOT A PIN, and an earlier
+    // version of this comment had it backwards ("this lane calls no resolver on
+    // ANY implementation"). #1079's red-team pass measured it: delete
+    // `if (held) return;` from `persist.ts` and THIS assertion fails. With
+    // `held` true the gate emits `moderation_held`, so `approved` is false and
+    // guards 2, 3 and 4 all pass — the resolver runs, and the recorded call is
+    // `["moderation_flagged","moderation_held"]`.
+    //
+    // That is the same measurement `recordPolicyGateRefusal`'s docblock now
+    // states from the implementation side; leaving the old wording here would
+    // have contradicted the docblock this assertion exists to corroborate.
     expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
 
     const abortReviewId = randomUUID();

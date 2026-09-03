@@ -95,6 +95,25 @@ vi.mock('../../../../src/lib/refusals/vocabulary', async (importOriginal) => {
   return { ...actual, resolvePolicyGateRefusal: resolvePolicyGateRefusalSpy };
 });
 
+/**
+ * The ledger-dark note as a SPY, so guard 4's WARNING is observable (#1079).
+ *
+ * IT IS A SEPARATE ORACLE FROM THE RESOLVER SPY ABOVE, and has to be. With the
+ * flag off the resolver count is zero for EVERY input, so it cannot say which
+ * of those inputs would have produced a row — that is the whole question the
+ * warning answers. Only this count separates "the ledger has a gap here" from
+ * "this decision recorded nothing either way".
+ *
+ * The rest of the module stays REAL — `isRefusalLedgerEnabled` above all, since
+ * the property drives it through the actual env flag.
+ */
+const noteRefusalLedgerDarkSpy = vi.hoisted(() => vi.fn<() => void>());
+
+vi.mock('../../../../src/lib/refusals/write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/refusals/write')>();
+  return { ...actual, noteRefusalLedgerDark: noteRefusalLedgerDarkSpy };
+});
+
 import { hasStaleReviewContent, persistResponseAndNotify } from '../persist';
 import type { AutoApprovalDecision } from '../auto-approval';
 import { POLICY_GATE_HELD_REFUSAL_CATEGORIES } from '../../../../src/lib/refusals/vocabulary';
@@ -1034,6 +1053,13 @@ describe('invariants', () => {
     txQueue.length = 0;
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.OPENAI_MODERATION_ENABLED = 'true';
+    // RESET ON BOTH SIDES, deliberately. `gateOverride` is MODULE scope and this
+    // block is declared LAST in the file, so an `afterEach`-only reset made the
+    // ~51 cases ABOVE depend on this describe having already run — order
+    // coupling that vitest's file order happens to satisfy and `--shard`,
+    // `.only` or a re-order would not. The `afterEach` copy stays: it is what
+    // protects a case in ANOTHER file's run from this block's last property.
+    gateOverride.blockReasons = null;
   });
 
   afterEach(() => {
@@ -1090,6 +1116,66 @@ describe('invariants', () => {
         },
       ),
       { numRuns: 60 },
+    );
+  });
+
+  it('invariants: with the ledger off, the warning fires exactly when every block reason maps to a real category', async () => {
+    // THE ORACLE FOR THE WHOLE FINDING. Containment (#1079) moved the switch in
+    // front of the resolve; the review that accepted it proved the lane could
+    // KEEP its ledger-dark warning anyway, because map membership is decidable
+    // with `Object.hasOwn` and `Object.hasOwn` cannot throw.
+    //
+    // A BICONDITIONAL, AND BOTH DIRECTIONS BITE — unlike the property above,
+    // whose OFF arm is a tautology. Here the flag is off for every run and the
+    // generated set is the only thing that moves the expectation, so the
+    // generator does real work in both arms.
+    //
+    // IT IS THE `every`-VS-`some` DISCRIMINATOR. `wouldRecordRefusal` must be
+    // `every`: one `null`-mapped member vetoes the entire row (#1003), so a
+    // `some` implementation warns about a decision that was never going to be
+    // recorded — noise on the one signal that says the ledger is dark. Any
+    // generated set MIXING a mapped member with a `null`-mapped one is a
+    // counterexample to `some`, and `uniqueArray` over the full 22-member
+    // vocabulary reaches those sets easily.
+    //
+    // AND THE RESOLVER MUST STILL NEVER RUN. The warning is not allowed to buy
+    // itself back by resolving; that is the fault the switch exists to contain.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uniqueArray(fc.constantFrom(...ALL_BLOCK_REASONS), { minLength: 1 }),
+        async (blockReasons) => {
+          mockTx.mockClear();
+          mockSql.begin.mockClear();
+          resolvePolicyGateRefusalSpy.mockClear();
+          noteRefusalLedgerDarkSpy.mockClear();
+          txQueue.length = 0;
+          queuePersistRows();
+
+          gateOverride.blockReasons = blockReasons;
+          process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+          await persistResponseAndNotify(mockSql, baseInput());
+
+          // The EXPECTATION, computed from the map rather than from the
+          // implementation: a row would have been written iff every member is
+          // mapped to a NON-null category. `minLength: 1` keeps the empty set
+          // out of the generator; the "empty warns nothing" half is guard 4's
+          // length check and is covered by the approved-draft cases above.
+          const everyMemberRecords = blockReasons.every(
+            (code) =>
+              Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code)
+              && POLICY_GATE_HELD_REFUSAL_CATEGORIES[
+                code as keyof typeof POLICY_GATE_HELD_REFUSAL_CATEGORIES
+              ] !== null,
+          );
+
+          expect(noteRefusalLedgerDarkSpy).toHaveBeenCalledTimes(everyMemberRecords ? 1 : 0);
+          // Containment is unchanged by the warning: the throwing resolver is
+          // still never reached with the switch off.
+          expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 120 },
     );
   });
 });

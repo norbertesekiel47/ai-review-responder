@@ -42,7 +42,11 @@ export interface RefusalLogEntry {
    * The REVIEW this row's subject belongs to, or null.
    *
    * IT IS NOT `subjectId`, AND THAT DISTINCTION IS THE WHOLE POINT. A
-   * response-subject row stores a `responses.id` (`persist.ts:758,885`), and the
+   * response-subject row stores a `responses.id` — written by
+   * `recordPolicyGateRefusal` and `recordModerationAndHold` in
+   * `worker/jobs/response-generation/persist.ts`, cited BY SYMBOL because the
+   * line numbers this comment used to carry went stale the moment #1079 edited
+   * that file — and the
    * only review route is `/dashboard/reviews/[reviewId]/timeline` — so linking
    * `subjectId` on a `reviews/` path is wrong twice over: wrong segment and
    * wrong identifier. The first cut did exactly that, and three promised tests

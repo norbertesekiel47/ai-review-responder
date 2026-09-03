@@ -90,17 +90,19 @@ export const REFUSAL_LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
  * off (#1079). A kill switch that cannot stop the code in front of it is not a
  * lever. So the read gets one name, and a caller with work to skip asks first.
  *
- * IT IS PURE, AND THAT IS A CONTRACT, not an implementation detail. It reads the
- * flag and returns: NO logging, NO Sentry, NO latch mutation. `warnLedgerDisabled`
- * and `endDisabledEpisode` stay private to this module and stay inside the two
- * write arms, because only a call that WOULD HAVE WRITTEN A ROW may claim the
- * ledger has a gap. A guard cannot know that without doing the work it exists to
- * avoid — and a decision whose reasons all map to `null` records nothing either
- * way, so warning there puts noise on the one signal that says the ledger is
- * dark (see `writeRefusalEvents`' contract below).
+ * IT IS SIDE-EFFECT-FREE, AND THAT IS A CONTRACT, not an implementation detail.
+ * It reads the flag and returns: NO logging, NO Sentry, NO latch mutation.
+ * `warnLedgerDisabled` and `endDisabledEpisode` stay private to this module, so
+ * a caller cannot claim the ledger has a gap as a side effect of merely asking
+ * whether it is on. A caller that HAS established a gap says so explicitly, via
+ * `noteRefusalLedgerDark` below.
  *
- * A CALLER WITH A POSSIBLY-EMPTY BATCH MUST RETURN BEFORE CALLING THIS, for the
- * same reason: an empty build withheld nothing and has no gap to report.
+ * THE WORD IS "SIDE-EFFECT-FREE" AND NOT "PURE", deliberately. `vocabulary.ts`
+ * defines PURE for this same feature area as "no DB handle, no clock, no flag
+ * read" — and this function's whole body is a flag read that MUST differ between
+ * calls. Branch review round 1 (standards axis) caught the two meanings
+ * colliding inside one area; the property relied on here is the absence of
+ * transports and latch writes, which is what the contract now names.
  *
  * READ LIVE, PER CALL — never hoisted to a module-scope `const`. The rule and
  * its reason are spelled out at `writeRefusalEvent` below and in
@@ -113,6 +115,38 @@ export const REFUSAL_LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
  */
 export function isRefusalLedgerEnabled(): boolean {
   return readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG);
+}
+
+/**
+ * Record that a decision WOULD have been recorded and was not, because the
+ * ledger is off. The side-effecting sibling of `isRefusalLedgerEnabled`.
+ *
+ * WHY IT EXISTS, and why it is not a second flag read. #1079 moved the kill
+ * switch in front of `recordPolicyGateRefusal`'s vocabulary resolve, which
+ * contained the fault it had to contain — and took the lane's ledger-dark
+ * warning with it, because the two write arms below are now unreachable on that
+ * lane when the switch is off. Branch review round 1 (async axis) showed the
+ * loss was avoidable: the premise that a guard cannot know whether a row would
+ * have been written WITHOUT running the throwing resolver is false. Membership
+ * in the category map is decidable with `Object.hasOwn`, which cannot throw, so
+ * the caller establishes the gap itself and then says so here.
+ *
+ * IT IS THE SAME WARNING, NOT A SECOND ONE. It calls the same private
+ * `warnLedgerDisabled` the write arms call, so it shares their once-per-episode
+ * latch and their cooldown: a lane that warns here does not make the next arm
+ * warn again, and the operator still sees one line per disabled episode.
+ *
+ * THE CALLER OWNS THE PRECONDITION, and it is narrow: call this ONLY when a row
+ * would genuinely have been written. `writeRefusalEvents`' contract below states
+ * the rule this protects — an empty build, and equally a decision every one of
+ * whose reasons maps to `null`, withheld nothing and has no ledger GAP to warn
+ * about. Warning there would put noise on the one signal that says the ledger is
+ * dark. The predicate that satisfies this is EVERY-mapped-and-non-null, never
+ * SOME: one `null`-mapped member vetoes the whole row (#1003), so a `some` test
+ * would warn about a decision that was never going to be recorded.
+ */
+export function noteRefusalLedgerDark(): void {
+  warnLedgerDisabled();
 }
 
 /**
@@ -402,7 +436,9 @@ export async function writeRefusalEvent(
   // toggle — it would satisfy "off means off" on a fresh process and then hold
   // the ledger dark for the life of the worker after someone flips it back on.
   // Same rule `circuit-breaker.ts` states for its own kill switch. The predicate
-  // is PURE, so the warning stays HERE, in the arm that would have written.
+  // is SIDE-EFFECT-FREE, so the warning stays HERE, in the arm that would have
+  // written — or is raised explicitly by a caller that established the gap
+  // itself, through `noteRefusalLedgerDark`.
   if (!isRefusalLedgerEnabled()) {
     // Return BEFORE touching the deciding transaction. This is the lever the
     // ticket names — "not a revert deploy": a decision still lands, unrecorded.

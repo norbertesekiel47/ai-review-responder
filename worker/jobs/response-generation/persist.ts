@@ -16,6 +16,7 @@ import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { resolveDailyCap } from '../../../src/lib/auto-approval/policy';
 import {
   GENERATE_RESPONSE_ORIGIN_LANE,
+  type AutoApprovalBlockReason,
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
 import { OUTBOX_COMPLETION_REASON } from '../../../src/lib/shared/outbox-completion-reason';
@@ -35,11 +36,13 @@ import {
 } from '../../../src/lib/agents/run-spine';
 import {
   HELD_DRAFT_REFUSAL_CATEGORY,
+  POLICY_GATE_HELD_REFUSAL_CATEGORIES,
   resolvePolicyGateRefusal,
 } from '../../../src/lib/refusals/vocabulary';
 import {
   REFUSAL_LEDGER_FLAG,
   isRefusalLedgerEnabled,
+  noteRefusalLedgerDark,
   writeRefusalEvent,
 } from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
@@ -694,20 +697,73 @@ function isGenuineAutoCandidate(
 }
 
 /**
+ * Would this block-reason set have produced a Refusal row?
+ *
+ * GUARD 4'S WARNING PREDICATE, AND NOTHING ELSE. It exists so the kill switch can
+ * still report a real ledger gap without running `resolvePolicyGateRefusal` —
+ * the throwing code the switch is there to contain (#1079). It answers the same
+ * question the resolver answers, for the subset of inputs where the answer is
+ * decidable without throwing, which is every input that matters here.
+ *
+ * IT CANNOT THROW, and that is the property that keeps it inside the containment
+ * guarantee. `Object.hasOwn` is the resolver's own membership test
+ * (`vocabulary.ts`), and an unmapped member returns `false` here where the
+ * resolver would throw — correct, because an unmapped member records no row
+ * either way, so there is no gap to warn about.
+ *
+ * `every`, NEVER `some`. A single `null`-mapped member vetoes the whole row
+ * whatever its position (#1003), so `some(mapped && non-null)` returns true for
+ * a set that resolves to nothing — and warning there is exactly the noise
+ * `writeRefusalEvents`' contract forbids. The review that found the missing
+ * warning proposed `some`; this is the corrected form.
+ *
+ * An EMPTY set returns false: `every` is vacuously true on `[]`, so the length
+ * check carries it. An approved draft refused nothing.
+ */
+function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): boolean {
+  return blockReasons.length > 0
+    && blockReasons.every(
+      (code) => Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code)
+        && POLICY_GATE_HELD_REFUSAL_CATEGORIES[code] !== null,
+    );
+}
+
+/**
  * Records the `policy_gate_held` **Refusal** for a draft the auto-approval gate
  * held for the owner. Runs on the OPEN transaction `tx`, so the row is atomic
  * with the decision it records (#1013).
  *
+ * (`wouldRecordRefusal` sits above this docblock — it is guard 4's warning
+ * predicate, and its contract is stated there.)
+ *
  * FIVE GUARDS, AND TWO OF THEM DECIDE SOMETHING — guard 4, which decides
  * whether the ledger RUNS AT ALL, and guard 5, which decides whether this
- * decision is recordable. Branch review round 1 mutation-tested the original
- * three: deleting guard 1, 2 or 3 individually changes no outcome and kills no
- * test, because the resolver guard already covers each case. THAT RESULT IS
- * ABOUT THOSE THREE AND THE RESOLVER GUARD (now numbered 5) AND NOTHING ELSE —
- * guard 4 post-dates it (#1079) and is covered by its own cases. Guards 1-3 are
- * EARLY RETURNS and defence in depth, not independent conditions — an earlier
- * version of this docblock claimed "each answers a different question", which
- * was false and is corrected here rather than left to mislead the next reader.
+ * decision is recordable.
+ *
+ * WHICH GUARDS ARE SAFE TO DELETE — RE-MEASURED AT #1079, ONE AT A TIME, AND THE
+ * ANSWER CHANGED. Branch review round 1 recorded "deleting guard 1, 2 or 3
+ * individually changes no outcome and kills no test". #1079's red-team pass
+ * re-ran that experiment against the CURRENT tests and found it true for exactly
+ * one of the three. Do not re-derive this; the numbers are the measurement:
+ *
+ *   - GUARD 1 — deletion KILLS a test. `refusal-write.integration.test.ts`'s
+ *     held_draft pin asserts the resolver spy stays at zero, and guard 1 is what
+ *     keeps it there: with `held` true the gate emits `moderation_held`, so
+ *     `approved` is false and guards 2-4 all pass. The recorded call is
+ *     `["moderation_flagged","moderation_held"]`. THE COMMIT THAT RE-ASSERTED THE
+ *     OLD CLAIM IS THE COMMIT THAT FALSIFIED IT — that pin did not exist when
+ *     round 1 measured.
+ *   - GUARD 2 — deletion SURVIVES, 82/82. The old claim holds here, and only here.
+ *   - GUARD 3 — deletion KILLS a pre-existing test AND CHANGES THE OUTCOME: a
+ *     `policy_gate_held` row is written for a structural non-candidate
+ *     ("expected length +0 but got 1"). This was already false at the fork point;
+ *     round 1 simply never measured it. Deleting guard 3 is a ledger
+ *     data-correctness defect, not a tidy-up.
+ *
+ * Guards 1-3 are EARLY RETURNS and defence in depth, not independent conditions —
+ * an earlier version of this docblock claimed "each answers a different
+ * question", which was false and is corrected here rather than left to mislead
+ * the next reader. "Defence in depth" is not "free to remove".
  *
  *   1. `held` — a high-severity flag belongs to the `held_draft` lane. #998's
  *      suppression rule, and the ONLY condition inherited from the `policy_gate`
@@ -735,20 +791,32 @@ function isGenuineAutoCandidate(
  *      already pulled (#1079). Containment here is by NON-EXECUTION: nothing
  *      below this line runs.
  *
- *      NO WARNING ON THIS ARM, deliberately. `warnLedgerDisabled` belongs to a
- *      call that WOULD have written a row, and this guard cannot know that
- *      without running the resolver it exists to avoid — a decision whose
- *      reasons all map to `null` records nothing either way, and warning about
- *      it would put noise on the one signal that says the ledger is dark
- *      (`src/lib/refusals/write.ts:488-492`). THE COST IS REAL AND ACCEPTED:
- *      with the switch off this lane no longer contributes the once-per-episode
- *      ledger-dark line it contributes today. The `held_draft` lane and the six
- *      other production write sites still do, and the latch is module-level.
+ *      IT STILL WARNS, BUT ONLY WHEN A ROW WOULD GENUINELY HAVE BEEN WRITTEN.
+ *      The rule is `writeRefusalEvents`' contract in `src/lib/refusals/write.ts`
+ *      (bullet 1, cited BY SYMBOL — a line range here went stale inside its own
+ *      commit): a decision that records nothing either way has no ledger GAP,
+ *      and warning about it would put noise on the one signal that says the
+ *      ledger is dark. An earlier draft of this branch concluded the guard could
+ *      not know that without running the resolver it exists to avoid, and gave
+ *      the warning up. Branch review round 1 (async axis) showed that premise is
+ *      FALSE: map membership is decidable with `Object.hasOwn`, which cannot
+ *      throw, so `wouldRecordRefusal` below settles it inside the containment
+ *      guarantee and `noteRefusalLedgerDark` raises the same once-per-episode
+ *      line the write arms raise.
  *
- *      A SECOND, LIVE READ still happens inside `writeRefusalEvent`. A flip to
- *      `false` between the two lets the resolver run with the switch off; the
- *      window is synchronous and microseconds wide, and it is the price of a
- *      PURE predicate rather than a defect to defend against.
+ *      THE PREDICATE IS `every`, NEVER `some`, and the difference is the whole
+ *      correctness of this arm. One `null`-mapped member vetoes the entire row
+ *      (#1003), so `some(mapped && non-null)` would warn about a decision that
+ *      was never going to be recorded — re-breaking the exact rule this arm
+ *      exists to respect. The review that found the gap proposed `some`; it is
+ *      wrong for that reason.
+ *
+ *      A SECOND, LIVE READ still happens inside `writeRefusalEvent`. THE WINDOW
+ *      BETWEEN THEM IS ZERO, not "microseconds": no `await` separates them —
+ *      `withLedgerAttribution` and `writeRefusalEvent` each run synchronously to
+ *      their first `await`, and the second read is `writeRefusalEvent`'s first
+ *      statement. A mid-process flip cannot land between them, so there is
+ *      nothing here to defend against and nothing for a test to exercise.
  *   5. the resolver returned nothing — the set was empty, or a `null`-mapped
  *      member vetoed it. THIS is the guard that decides whether a Refusal is
  *      recordable, and it now lives INSIDE `withLedgerAttribution` so the
@@ -776,9 +844,13 @@ async function recordPolicyGateRefusal(
   if (held) return;
   if (autoDecision.approved) return;
   if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
-  // Guard 4 — the kill switch, BEFORE the resolve. See the docblock: no warning
-  // on this arm, and nothing below this line runs.
-  if (!isRefusalLedgerEnabled()) return;
+  // Guard 4 — the kill switch, BEFORE the resolve. Nothing below this line runs.
+  // The warning is raised only when a row would genuinely have been written; see
+  // the docblock and `wouldRecordRefusal`.
+  if (!isRefusalLedgerEnabled()) {
+    if (wouldRecordRefusal(autoDecision.blockReasons)) noteRefusalLedgerDark();
+    return;
+  }
 
   // The RESOLVE is inside the wrapper, not before it. A vocabulary fault is a
   // ledger fault and must report as one; outside, it escaped attribution and

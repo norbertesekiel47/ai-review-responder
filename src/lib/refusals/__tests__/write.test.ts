@@ -642,18 +642,29 @@ describe('writeRefusalEvents', () => {
 // the extraction changed nothing: the warning stays bounded per EPISODE across
 // BOTH arms, and an empty batch still warns about nothing.
 //
-// They are also the purity oracle. A predicate that warned or cleared the latch
-// would make an off-lane guard emit the very noise `write.ts:488-492` refuses to
-// emit, so each case calls the predicate directly and asserts the counts do not
-// move.
+// They are also the side-effect-freedom oracle. A predicate that warned or
+// cleared the latch would make an off-lane guard emit the very noise
+// `writeRefusalEvents`' contract forbids — bullet 1, "AN EMPTY INPUT ISSUES NO
+// STATEMENT … a build that withheld nothing has no ledger GAP to warn about" —
+// so each case calls the predicate directly and asserts the counts do not move.
+// CITED BY SYMBOL, NEVER BY A LINE RANGE: the range this comment used to carry
+// went stale inside the very commit that inserted `noteRefusalLedgerDark`.
 // ---------------------------------------------------------------------------
 describe('isRefusalLedgerEnabled', () => {
   it('writeRefusalEvent and writeRefusalEvents together emit exactly one disabled warning across one disabled episode', async () => {
     process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
-    // ONE episode, BOTH arms. The latch is module-level, so a second arm that
-    // read the flag through its own copy of the guard — or a predicate that
-    // warned on its own — would show up here as a second line.
+    // ONE episode, BOTH arms. The latch is module-level, so this count is what
+    // says the two arms SHARE one episode rather than each opening its own.
+    //
+    // IT IS NOT A DETECTOR FOR AN EXTRA WARNING SOURCE, and an earlier version
+    // of this comment claimed it was. Once the first arm latches, a second line
+    // is impossible within this episode no matter who else warns — a predicate
+    // that warned on its own would be ABSORBED here, not revealed. The case that
+    // does detect one is the next case in this describe — "…emits no disabled
+    // warning for an empty input while the flag is off", named rather than
+    // numbered for the reason item 1 of this pass exists: the latch is still
+    // clear there, so a stray transport moves that zero off zero.
     await writeRefusalEvent(tx(), autonomySuspended());
     await refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(1))]);
     await writeRefusalEvent(tx(), autonomySuspended());
@@ -662,7 +673,10 @@ describe('isRefusalLedgerEnabled', () => {
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
     expect(harness.sqlCalls, 'nothing reached the deciding transaction').toHaveLength(0);
 
-    // THE PREDICATE IS PURE — no transport. Ten reads mid-episode add no line.
+    // THE PREDICATE IS SIDE-EFFECT-FREE — no transport. Ten reads mid-episode
+    // add no line. (The contract word is no longer "PURE": `vocabulary.ts`
+    // reserves PURE for "no DB handle, no clock, no flag read", and this
+    // function's whole body IS a flag read.)
     for (let call = 0; call < 10; call++) {
       expect(refusalWrite.isRefusalLedgerEnabled()).toBe(false);
     }
@@ -695,7 +709,10 @@ describe('isRefusalLedgerEnabled', () => {
   it('writeRefusalEvents issues no statement and emits no disabled warning for an empty input while the flag is off', async () => {
     process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
-    // ORDER IS LOAD-BEARING (`write.ts:488-492`). The `inputs.length === 0`
+    // ORDER IS LOAD-BEARING — `writeRefusalEvents`' own contract, bullet 1 ("AN
+    // EMPTY INPUT ISSUES NO STATEMENT … The check runs BEFORE the kill-switch
+    // read on purpose"), cited by symbol because the line range that stood here
+    // rotted inside a single commit. The `inputs.length === 0`
     // return comes BEFORE the flag read, so a build that withheld nothing has no
     // ledger GAP — and warning about it would put noise on the one signal that
     // says the ledger is dark. Moving the flag read above the empty check, or
@@ -716,5 +733,46 @@ describe('isRefusalLedgerEnabled', () => {
     await refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(1))]);
     expect(harness.sqlCalls, 'still nothing written — the flag is off').toHaveLength(0);
     expect(ledgerWarnings(), 'a withheld SET does warn').toHaveLength(1);
+  });
+
+  // The SIDE-EFFECTING sibling (#1079). `isRefusalLedgerEnabled` above may not
+  // warn; `noteRefusalLedgerDark` is how a caller that has ALREADY established a
+  // real ledger gap — `recordPolicyGateRefusal`'s guard 4, via
+  // `wouldRecordRefusal` — says so without running the resolver the switch
+  // exists to contain.
+  //
+  // THE CLAIM UNDER TEST IS "SAME WARNING", NOT "A WARNING". A second, private
+  // latch inside the new export would satisfy any single-call assertion, so the
+  // oracle has to be a MIXED episode: the note and a write arm together must
+  // still produce exactly one line.
+  it('noteRefusalLedgerDark shares the write arms\' once-per-episode latch', async () => {
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    // The NOTE goes first, so it is the call that opens the episode. If it kept
+    // its own latch, the write arm below would find the shared one still clear
+    // and add a SECOND line.
+    refusalWrite.noteRefusalLedgerDark();
+    expect(ledgerWarnings(), 'the note raises the line itself').toHaveLength(1);
+
+    await writeRefusalEvent(tx(), autonomySuspended());
+
+    expect(ledgerWarnings(), 'ONE line across the note and the write arm').toHaveLength(1);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+    expect(harness.sqlCalls, 'nothing reached the deciding transaction').toHaveLength(0);
+
+    // …and the sharing runs the other way too: an arm that has already latched
+    // absorbs a later note, which is what makes guard 4 safe to call on a lane
+    // whose write arm may warn moments later.
+    refusalWrite.noteRefusalLedgerDark();
+    expect(ledgerWarnings(), 'a note after an arm adds nothing').toHaveLength(1);
+
+    // THE CONTROL, and this case needs one badly: every assertion above is "the
+    // count did not move", which a note that silently did NOTHING would also
+    // pass. A fresh episode must warn again, and the note alone must be enough
+    // to raise it.
+    resetRefusalLedgerWarningForTests();
+    refusalWrite.noteRefusalLedgerDark();
+    expect(ledgerWarnings(), 'a new episode warns again').toHaveLength(2);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
   });
 });

@@ -23,7 +23,9 @@ The resolver moves inside the attribution wrapper.
 ### The predicate is PURE — this is the round-1 correction
 
 Round 1 showed that folding `warnLedgerDisabled()` and `endDisabledEpisode()`
-into the extracted predicate breaks the module's own rule (`write.ts:488-492`):
+into the extracted predicate breaks the module's own rule (`writeRefusalEvents`'
+contract, bullet 1 — cited by symbol; the line range this plan first carried
+went stale inside its own commit):
 a decision whose block reasons include a `null`-mapped veto member records
 nothing either way, so warning on it puts noise on the one signal that says the
 ledger is dark. The persist guard cannot know whether a row would have been
@@ -101,7 +103,16 @@ this same wave.
 - Insert the flag guard AFTER `isGenuineAutoCandidate` (`persist.ts:745`) and
   BEFORE `resolvePolicyGateRefusal` (`persist.ts:747`): return when
   `isRefusalLedgerEnabled()` is false. Do NOT warn on that arm; carry a comment
-  saying why, citing `write.ts:488-492`.
+  saying why, citing `writeRefusalEvents`' contract by symbol.
+
+  **SUPERSEDED IN REVIEW.** The async axis proved the premise behind "do NOT
+  warn on that arm" false: map membership is decidable with `Object.hasOwn`,
+  which cannot throw, so the guard CAN know whether a row would have been
+  written. The shipped arm calls `wouldRecordRefusal` (`every`, never `some` —
+  one `null`-mapped member vetoes the whole row) and raises the same
+  once-per-episode line through `noteRefusalLedgerDark`. The warning is
+  preserved; only an UNMAPPED reason stays silent, which is correct because it
+  would have thrown rather than written.
 - Move `resolvePolicyGateRefusal(autoDecision.blockReasons)` INSIDE the
   `withLedgerAttribution('policy_gate_held', responseId, …)` callback. A `null`
   resolve returns from the callback and writes nothing — byte-identical to
