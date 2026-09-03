@@ -33,8 +33,9 @@ The Stripe Customer is **never deleted**. Deletion detaches its invoices and can
 | D5 | The redaction stage runs **late**, immediately before the tombstone — not first. | This is a real tradeoff, decided deliberately. Running first would fail fast with nothing destroyed, but a subsequent local failure would leave a **live** account whose Stripe billing contact is wiped — the same hazard D1 exists to prevent. Running late means every local destruction has already committed, so the point of no return has passed and redaction is the last irreversible act. |
 | D6 | The event-age argument is **required**, not optional with a default. | A silent default that disables the bound is the exact failure mode this change exists to fix. The compiler proves every call site supplies it. Cost: two integration test files join the edit surface. |
 | D7 | The 15-minute rule has **one owner**, `worker/ingress/stripe/shared.ts`. | Two throw sites must not carry two copies of the constant. `shared.ts` already owns `AccountNotProvisionedYetError` (line 28), so it is the natural home. |
-| D8 | The D1 guard is serialized by a **customer-keyed advisory lock**, not left to chance. | Plan round 1 findings 4 and 9. A count in its own `sql.begin` does not serialize against a later write binding the same customer to another account. `accounts.stripe_customer_id` has exactly two writers, `apply-subscription-state.ts:365` and `:378`, both `COALESCE(stripe_customer_id, $1)` — write-once, so a binding only lands on an account whose column is NULL. A lock keyed on the customer id, held by both the guard and those writes, closes it. Owner-approved 2026-09-03. |
-| D9 | An acked stale webhook gets **no reconciliation worker**. | Plan round 1 findings 7 and 10 proposed a deferred-reconciliation outbox topic. Rejected as scope expansion: the `inbound_events` row already persists the signed payload with `status='processed'`, so the event stays durably recorded and operator-replayable, and `checkout-completed.ts:628` already reads provider-current state and rolls back on `canceled`. Today's code reaches the same end state after three days of retries plus an alert storm. The mitigation kept is an enriched Sentry warning carrying the customer id and event id. Owner-approved 2026-09-03. |
+| D8 | The D1 guard is serialized by a **customer-keyed advisory lock**, not left to chance. | Plan round 1 findings 4 and 9. A count in its own `sql.begin` does not serialize against a later write binding the same customer to another account. `accounts.stripe_customer_id` has exactly two **non-null binding assignments**, `apply-subscription-state.ts:365` and `:378`, both `COALESCE(stripe_customer_id, $1)` — write-once, so a binding only lands on an account whose column is NULL. (`purge-stages.ts:741` also writes the column, to NULL; clearing is not a binding and is out of scope.) A lock keyed on the customer id, held by both the guard and those writes, closes the simultaneity window. Owner-approved 2026-09-03; the residual ordering window is D10. |
+| D9 | An acked stale webhook gets **no reconciliation worker**, but it stays **reclaimable**. | Plan round 1 findings 7 and 10 proposed a deferred-reconciliation outbox topic. Rejected as scope expansion: `checkout-completed.ts:628` already reads provider-current state and rolls back on `canceled`, so the end state is `pending_payment`, which is correct for a deleted subscription, and today's code reaches it after three days of retries plus an alert storm. **Round 2 corrected the reasoning**: acking with `status='processed'` would have made recovery strictly WORSE, because `claimInboundEvent` reclaims only `failed` or stale `received` (`worker/ingress/shared.ts:42`) and returns `duplicate` for `processed` (line 50) — so an operator resending the event from Stripe would be silently deduplicated. The ack therefore writes a distinct `stale_ignored` status that `claimInboundEvent` reclaims, keeping today's replay path intact. Owner-approved 2026-09-03, corrected after round 2. |
+| D10 | The D8 residual is **accepted and pinned**, not closed with a marker table. | Round 2 finding 1: the lock excludes simultaneity but not the order "redaction wins, counts zero, redacts; a writer then binds the redacted Customer to a live account". Closing that needs a durable retired-customer marker and a migration. It is not warranted, because `create-checkout-session.ts:206` passes `customer_email` and never `customer`, so Stripe mints a new Customer per session and no code path can bind an existing Customer to a second account. The premise is pinned by a test asserting the session params carry no `customer` field, so a future change that starts reusing Customers fails loudly rather than silently enabling the race. Owner-approved 2026-09-03. |
 
 ## Ordering — the load-bearing constraint
 
@@ -63,6 +64,17 @@ new stage mutates Stripe, never the local row's id.
 Each tracer is a thin vertical slice. `T0` is the eval task and is committed
 before any implementation.
 
+The intake holds **45** test titles. Ownership, which must stay in sync with it
+(round 2 finding 6):
+
+| Tracer | Titles | Count |
+|---|---|---|
+| T0 | the no-todo meta-check | 1 |
+| T1 | `redactStripeCustomer` | 10 |
+| T2 | purge stage, worker ordering, the D8 lock, the D10 pin | 13 |
+| T3 | classification and disclosure | 6 |
+| T4 | the webhook bound, the event context, the reclaimable status | 15 |
+
 ### T0 — eval task: the 28 promised tests, failing
 
 Author every `tests_to_add` title from the intake as a real test body, committed
@@ -71,7 +83,7 @@ tracer names the tests it turns green.
 
 **No `.todo`, no `.skip`, no conditional skip.** Plan round 1 finding 1: `pnpm
 test` is ordinary `vitest run` (`package.json:18`), and a pending test does not
-make it fail. A suite of 35 `.todo` titles would exit 0 with zero feature
+make it fail. A suite of 45 `.todo` titles would exit 0 with zero feature
 behaviour, so a pending test is not a promise. The last title in
 `tests_to_add` is the meta-check that enforces this on the feature's own files.
 
@@ -145,8 +157,7 @@ following the file's existing shape: `pg_advisory_xact_lock(hashtext(<key> +
 <suffix>))` with its own dedicated suffix.
 
 **Lock order is fixed and must not be inverted.** The writer side takes it
-INSIDE `applyStripeSubscriptionStateUnderEntitlementLock`
-(`apply-subscription-state.ts:228`), so the order at every writer is
+inside `applyStripeSubscriptionStateInternal`, so the order at every writer is
 account-scoped tier entitlement lock first, customer-keyed binding lock second.
 Taking it at the six call sites that open the transaction instead would touch
 `checkout-completed.ts`, `invoice-paid.ts`, `invoice-payment-failed.ts`,
@@ -156,6 +167,15 @@ The redaction stage takes ONLY the binding lock and requests no other lock, so
 it cannot participate in a cycle. The comment in `billing-locks.ts` about the
 account → business → entitlement → account deadlock is why this ordering is
 stated rather than assumed.
+
+**The internal function, not the `UnderEntitlementLock` wrapper** — round 2
+finding 2. `apply-subscription-state.ts` exports two entry points, and both
+funnel into `applyStripeSubscriptionStateInternal`: the wrapper at line 228,
+and `applyStripeSubscriptionState` at line 205, which takes the entitlement
+lock itself. All six current production consumers use the wrapper, but placing
+the lock there would leave the other exported API outside it and make the
+declared invariant false. Placing it in the shared internal path covers both,
+and both entry points are tested.
 
 New exported stage `runStripeCustomerRedactionPurgeStage(sql, stripe, row)`.
 The three-argument shape has precedent in `runAuthBindingPurgeStage`
@@ -191,10 +211,10 @@ reference.
 first would still satisfy a "before tombstone" assertion while violating D5, so
 the test pins audit → redaction → tombstone by call order.
 
-Turns green: the eleven stage, worker and lock tests, including the subsequence
-assertion, the "does not finalize on a retryable error" assertion, and the
-live-DB concurrency test proving a competing binding cannot interleave with the
-guard.
+Turns green: T2's thirteen tests — the stage, the worker ordering subsequence,
+the "does not finalize on a retryable error" assertion, both lock entry points,
+both lock-winner orders, the live-DB concurrency test, and the D10 pin that
+`buildCheckoutSessionParams` never sets a `customer` field.
 
 Blocking edges: T1.
 
@@ -219,7 +239,7 @@ Three files, text and inventory only. No control flow.
 3. `src/lib/legal/content.ts` — sharpen the existing deletion paragraph at
    line 150 to name what survives at the payment processor. No new section.
 
-Turns green: the five classification and disclosure tests.
+Turns green: T3's six classification and disclosure tests.
 
 Blocking edges: T0 only. Disjoint from T1, T2 and T4 in both production and
 test files, so it may run concurrently with T2 and T4.
@@ -244,15 +264,36 @@ Four production files plus five test call sites.
    replaying it, so a bare "an event was acked" line would not do the job the
    rejected reconciliation worker was proposed for.
 
+   That means the handlers receive an **event context of `{ id, created }`**,
+   not a bare timestamp — round 2 finding 4. A `Stripe.Subscription` does not
+   carry its enclosing event's id, so passing only `event.created` would have
+   made the promised warning unbuildable.
+
    **Both branches are tested independently, under a frozen clock** — plan
    round 1 finding 6. One generic boundary test could exercise a single handler
    while the other used `>= 900`, and an unfrozen clock can cross a second
    mid-test and stop testing the stated boundary. So: 900 throws and 901 acks,
    proven separately for each handler, and the future-timestamp case likewise.
-3. `worker/ingress/stripe.ts` — pass `event.created` into both handlers at
+3. `worker/ingress/stripe.ts` — pass the event context into both handlers at
    lines 89 and 93. The existing `eventAgeSeconds` computation at line 50 and
    the 7-day `STALE_EVENT_THRESHOLD_SECONDS` guard are untouched.
-4. Call-site updates for the required argument (D6):
+
+4. **The reclaimable status (D9).** `worker/ingress/shared.ts` gains a
+   `stale_ignored` status: `claimInboundEvent`'s reclaim predicate accepts it
+   alongside `failed`, so a resent Stripe event still reprocesses, and a marker
+   function records it with `processed_at` set. The dispatcher writes that
+   status for this branch instead of `processed`.
+
+   `worker/background/pollers/ArchivalPoller.ts:91-93` sweeps
+   `status = 'processed' AND processed_at < NOW() - 30 days`; the predicate
+   widens to include `stale_ignored` so the rows do not accumulate forever.
+   `checkFailedInboundEvents` counts `status='failed'` only, so it excludes the
+   new status with no change — a test pins that rather than assuming it.
+
+   There is no CHECK constraint on `inbound_events.status`, so this is a code
+   change and needs no migration. `idx_ie_status` is partial on
+   `status != 'processed'`, so the new value is indexed.
+5. Call-site updates for the required argument (D6):
    `worker/ingress/stripe/__tests__/subscription-deleted-trial.test.ts`,
    `worker/ingress/__tests__/stripe-subscription-updated.test.ts`,
    `worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts`,
@@ -265,8 +306,10 @@ the `FROM` is line 276, the failed predicate line 277, and the alert key
 `inbound_events_failed:<source>:<event_type>` line 284. Returning instead lets
 the dispatcher write `processed` (line 101), so the alert stops.
 
-Turns green: the ten webhook tests, including both per-handler boundary cases,
-both future-timestamp cases, and the enriched-warning assertion.
+Turns green: T4's fifteen webhook tests, including both per-handler boundary
+cases, both future-timestamp cases, the enriched-warning assertion, and the four
+covering the reclaimable status across `claimInboundEvent`,
+`checkFailedInboundEvents` and `ArchivalPoller`.
 
 Blocking edges: T0 only. Disjoint from T1, T2 and T3.
 
