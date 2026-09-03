@@ -264,6 +264,14 @@ no goal, non-goal, invariant, edge case or surface entry moved, which is what
 makes advancing the hash a bookkeeping act rather than a claim about untested
 code.
 
+**Advanced a third time, for a pre-merge rebase onto #1092.** `head_sha` names
+`69d429a2`. The strongest available check, rather than a diff argument: the
+three files the pass measured are **byte-identical** to the ones it measured —
+`git show 5c48e57b:<path> | shasum` matches the working copy for
+`ask-generation.ts` and both test files. The rebase replayed this branch's
+commits unchanged onto a commit that touches UI only. The mutation inventory
+therefore describes exactly these bytes.
+
 **A note on why this SHA is recorded in a FOLLOWING commit, not this one.**
 Writing HEAD into a file that is part of HEAD changes HEAD — the first attempt
 amended the fix commit to carry its own SHA and produced a dangling reference

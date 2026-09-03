@@ -5,7 +5,7 @@
   "branch": "perf/1082-exhaustion-refusal-batch",
   "fork_sha": "862a039d1a9ffc1f2f7b048eb4d9b4101fa13fa9",
   "merge_base_sha": "862a039d1a9ffc1f2f7b048eb4d9b4101fa13fa9",
-  "head_sha": "5c48e57bb5079faf1b376c9b37f3818dc10cb012",
+  "head_sha": "69d429a2f91c43a9ba7f953d9d06a4ed8a0614d4",
   "intake_sha256": "de86f840d1e5d7ed82873c1571bdcb246629f8c3d6b85cc80ff77d82c2a08386",
   "risk": "high",
   "round": 1,
