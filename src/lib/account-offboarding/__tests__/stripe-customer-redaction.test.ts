@@ -49,18 +49,25 @@ function makeStripe(initial: Partial<FakeCustomerState> = {}) {
     ...initial,
   };
 
+  // `as unknown as` because FakeCustomerState has no index signature; the two
+  // types do not overlap enough for a direct assertion.
+  const mutable = state as unknown as Record<string, unknown>;
   const applyScalar = (field: keyof FakeCustomerState, value: unknown) => {
     if (value === '' || value === null) {
-      (state as Record<string, unknown>)[field as string] = null;
+      mutable[field as string] = null;
       return;
     }
-    if (value !== undefined) (state as Record<string, unknown>)[field as string] = value;
+    if (value !== undefined) mutable[field as string] = value;
   };
 
   const stripe = {
     customers: {
       retrieve: vi.fn(async () => (state.deleted ? { id: state.id, deleted: true } : { ...state })),
-      update: vi.fn(async (_id: string, params: Record<string, unknown>) => {
+      update: vi.fn(async (
+        _id: string,
+        params: Record<string, unknown>,
+        _options?: { idempotencyKey: string },
+      ) => {
         for (const field of [
           'name',
           'email',
@@ -101,7 +108,7 @@ function stripeError(type: string, code?: string): Error {
 }
 
 describe('redactStripeCustomer', () => {
-  it('clears name, email, phone, description, address, shipping, business_name and individual_name in one update call', async () => {
+  it('redactStripeCustomer clears name, email, phone, description, address, shipping, business_name and individual_name in one update call', async () => {
     const { stripe, state } = makeStripe();
 
     const result = await redactStripeCustomer({
@@ -122,7 +129,7 @@ describe('redactStripeCustomer', () => {
     expect(state.individual_name).toBeNull();
   });
 
-  it('unsets every pre-existing metadata key and writes only the offboarding id key', async () => {
+  it('redactStripeCustomer unsets every pre-existing metadata key and writes only the offboarding id key', async () => {
     const { stripe, state } = makeStripe();
 
     await redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID });
@@ -131,7 +138,7 @@ describe('redactStripeCustomer', () => {
     expect(state.metadata[STRIPE_CUSTOMER_REDACTION_METADATA_KEY]).toBe(OFFBOARDING_ID);
   });
 
-  it('leaves exactly the offboarding metadata key when the fake applies Stripe merge semantics', async () => {
+  it('redactStripeCustomer leaves exactly the offboarding metadata key when the fake applies Stripe merge semantics', async () => {
     // The guard against the finding-2 defect: seed MANY keys, and prove the
     // post-merge remote object holds exactly one. An implementation that sends
     // only the offboarding key passes a replacement fake and fails this.
@@ -145,7 +152,7 @@ describe('redactStripeCustomer', () => {
     expect(state.metadata).toEqual({ [STRIPE_CUSTOMER_REDACTION_METADATA_KEY]: OFFBOARDING_ID });
   });
 
-  it('never calls customers.del', async () => {
+  it('redactStripeCustomer never calls customers.del', async () => {
     const { stripe } = makeStripe();
 
     await redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID });
@@ -153,7 +160,7 @@ describe('redactStripeCustomer', () => {
     expect(stripe.customers.del).not.toHaveBeenCalled();
   });
 
-  it('returns already_redacted and issues no update when the customer is already cleared', async () => {
+  it('redactStripeCustomer returns already_redacted and issues no update when the customer is already cleared', async () => {
     const { stripe } = makeStripe({
       name: null,
       email: null,
@@ -176,7 +183,7 @@ describe('redactStripeCustomer', () => {
     expect(stripe.customers.update).not.toHaveBeenCalled();
   });
 
-  it('treats a resource_missing error as success', async () => {
+  it('redactStripeCustomer treats a resource_missing error as success', async () => {
     const { stripe } = makeStripe();
     stripe.customers.retrieve.mockRejectedValueOnce(
       stripeError('StripeInvalidRequestError', 'resource_missing'),
@@ -192,7 +199,7 @@ describe('redactStripeCustomer', () => {
     expect(stripe.customers.update).not.toHaveBeenCalled();
   });
 
-  it('treats a deleted customer returned by retrieve as success', async () => {
+  it('redactStripeCustomer treats a deleted customer returned by retrieve as success', async () => {
     const { stripe } = makeStripe({ deleted: true });
 
     const result = await redactStripeCustomer({
@@ -205,7 +212,7 @@ describe('redactStripeCustomer', () => {
     expect(stripe.customers.update).not.toHaveBeenCalled();
   });
 
-  it('rethrows a retryable Stripe error type', async () => {
+  it('redactStripeCustomer rethrows a retryable Stripe error type', async () => {
     const { stripe } = makeStripe();
     stripe.customers.update.mockRejectedValueOnce(stripeError('StripeConnectionError'));
 
@@ -214,7 +221,7 @@ describe('redactStripeCustomer', () => {
     ).rejects.toThrow();
   });
 
-  it('rethrows a permanent Stripe error that is not resource_missing', async () => {
+  it('redactStripeCustomer rethrows a permanent Stripe error that is not resource_missing', async () => {
     // Finding 3: mapping every StripeInvalidRequestError to customer_absent
     // would finalize a purge whose redaction failed on bad parameters or
     // credentials. Only resource_missing means "already gone".
@@ -228,13 +235,13 @@ describe('redactStripeCustomer', () => {
     ).rejects.toThrow();
   });
 
-  it('sends a deterministic idempotency key derived from the offboarding id', async () => {
+  it('redactStripeCustomer sends a deterministic idempotency key derived from the offboarding id', async () => {
     const { stripe } = makeStripe();
 
     await redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID });
 
     const [, , options] = stripe.customers.update.mock.calls[0]!;
-    expect((options as { idempotencyKey: string }).idempotencyKey).toBe(
+    expect(options!.idempotencyKey).toBe(
       stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID),
     );
     expect(stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID)).toBe(

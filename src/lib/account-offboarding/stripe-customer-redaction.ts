@@ -62,7 +62,15 @@ type StripeCustomerRedactionOperation = 'retrieve' | 'update';
 
 export interface StripeCustomerLike {
   id: string;
-  deleted?: boolean;
+  /**
+   * `boolean | void` is not a mistake — it is the SDK's own shape. Stripe types
+   * a live `Customer` as `deleted?: void` and a `DeletedCustomer` as
+   * `deleted: true`, which is how it discriminates the union. Narrowing this to
+   * `boolean` makes the real client structurally incompatible with this
+   * interface, so the worker cannot pass `getStripe()` in at all. The
+   * `=== true` test below reads correctly against both arms.
+   */
+  deleted?: boolean | void;
   name?: string | null;
   email?: string | null;
   phone?: string | null;
