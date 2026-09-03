@@ -89,7 +89,7 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
     // spend a network round trip on every cancel-only-turned-delete purge.
     await runStripeCustomerRedactionPurgeStage(
       sql,
-      fakeStripe(),
+      () => fakeStripe(),
       purgeRow({ stripe_customer_id: null }),
     );
 
@@ -106,7 +106,7 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
     harness.sqlReturnQueue.push(mkTaggedResult([{ count: 1 }])); // a sibling account
     harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }])); // append
 
-    await runStripeCustomerRedactionPurgeStage(sql, fakeStripe(), purgeRow());
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
 
     expect(mockRedactStripeCustomer).not.toHaveBeenCalled();
     const append = dispositionAppend();
@@ -123,7 +123,7 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
     harness.sqlReturnQueue.push(mkTaggedResult([{ count: 0 }]));
     harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
 
-    await runStripeCustomerRedactionPurgeStage(sql, fakeStripe(), purgeRow());
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
 
     expect(lockIndex()).toBe(0);
     expect(lockIndex()).toBeLessThan(sharingCountIndex());
@@ -143,7 +143,7 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
     harness.sqlReturnQueue.push(mkTaggedResult([{ count: 1 }]));
     harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
 
-    await runStripeCustomerRedactionPurgeStage(sql, fakeStripe(), purgeRow());
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
 
     expect(mockRedactStripeCustomer).not.toHaveBeenCalled();
     expect(JSON.stringify(dispositionAppend()!.values)).toContain(
@@ -161,7 +161,7 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
     harness.sqlReturnQueue.push(mkTaggedResult([{ count: 0 }]));
     harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
 
-    await runStripeCustomerRedactionPurgeStage(sql, fakeStripe(), purgeRow());
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
 
     const append = dispositionAppend();
     expect(append).toBeDefined();
@@ -182,7 +182,7 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
     harness.sqlReturnQueue.push(mkTaggedResult([{ count: 0 }]));
     harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
 
-    await runStripeCustomerRedactionPurgeStage(sql, fakeStripe(), purgeRow());
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
 
     const append = dispositionAppend();
     const serialized = JSON.stringify(append!.values);

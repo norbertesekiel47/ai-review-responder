@@ -142,7 +142,7 @@
     "runStripeCustomerRedactionPurgeStage skips the Stripe call and records skipped_shared_customer when another non-purged account holds the same customer id",
     "runStripeCustomerRedactionPurgeStage appends a system provider-redaction record that extractConcreteAdminProviderDispositions ignores",
     "runStripeCustomerRedactionPurgeStage never writes the raw stripe customer id into provider_dispositions",
-    "handleAccountOffboardingPurge runs the redaction stage between runAuditAndCostPayloadPurgeStage and runParentTombstonePurgeStage",
+    "handleAccountOffboardingPurge runs the redaction stage before any local destruction and before runParentTombstonePurgeStage",
     "handleAccountOffboardingPurge does not finalize the purge when the redaction stage throws a retryable error",
     "PROVIDER_DATA_RETENTION classifies the Stripe Customer object as retain_compliance_limited_pii",
     "PROVIDER_DATA_RETENTION entries never appear in ACCOUNT_OFFBOARDING_TABLES or PURGE_VERIFICATION_TABLES",

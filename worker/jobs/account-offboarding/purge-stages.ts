@@ -18,6 +18,7 @@ import {
 import { acquireStripeCustomerBindingLock } from '../../../src/lib/accounts/billing-locks';
 import { acquireSolicitationBatchLock } from '../../../src/lib/solicitation/batch-builder';
 import { acquireCsvIngestLock } from '../../../src/lib/solicitation/ingest';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import {
   deleteByBusiness,
   impersonationSessionScrubScopeRecord,
@@ -749,16 +750,32 @@ function stripeCustomerRedactionRecord(
  * the same customer to another account a moment later. The customer-keyed
  * advisory lock is taken BEFORE the count and held for the whole transaction,
  * including the Stripe call; `applyStripeSubscriptionStateInternal` takes the
- * same lock on the writer side. This stage requests no other lock, so it
- * cannot participate in a deadlock cycle.
+ * same lock on the writer side.
+ *
+ * LOCK ORDER, stated precisely because an earlier version of this comment was
+ * wrong. It said the stage "requests no other lock, so it cannot participate in
+ * a deadlock cycle". It does take a second lock: the disposition append below
+ * takes an exclusive `account_offboardings` row lock while the binding lock is
+ * still held. The ordering is binding-then-row and it is never inverted, which
+ * is the property that matters; "requests no other lock" was simply false.
+ *
+ * The client arrives as a FACTORY, not an instance, so `getStripe()` is only
+ * resolved once a customer id is present. It throws when STRIPE_SECRET_KEY is
+ * unset, and resolving it eagerly made every delete_data purge depend on the
+ * key — including accounts that never had a Stripe Customer at all.
  */
 export async function runStripeCustomerRedactionPurgeStage(
   sql: postgres.Sql,
-  stripe: StripeCustomerRedactionClient,
+  resolveStripe: () => StripeCustomerRedactionClient,
   row: AccountOffboardingPurgeRow,
 ): Promise<void> {
   const customerId = row.stripe_customer_id?.trim();
-  if (!customerId) return;
+  if (!customerId) {
+    logStripeCustomerRedactionOutcome(row, 'not_applicable');
+    return;
+  }
+
+  const stripe = resolveStripe();
 
   await sql.begin(async (tx) => {
     // Sequential awaits share one Postgres.js transaction connection; the lock
@@ -766,6 +783,28 @@ export async function runStripeCustomerRedactionPurgeStage(
     // react-doctor-disable-next-line react-doctor/async-parallel
     await acquireStripeCustomerBindingLock(tx, customerId);
 
+    // The guard counts LIVE co-tenants — accounts sharing this Stripe Customer
+    // whose billing contact redaction would destroy while they still need it.
+    //
+    // The NOT EXISTS arm excludes siblings that are themselves past the point
+    // of no return. It names TWO statuses, and the second one is the fix:
+    //
+    //   'purged'          — kept for completeness, but effectively unreachable.
+    //                       The tombstone NULLs accounts.stripe_customer_id
+    //                       before this status is ever written (purge-verification
+    //                       asserts exactly that), so such a row cannot satisfy
+    //                       the outer stripe_customer_id predicate anyway.
+    //   'purge_scheduled' — the arm that actually does work, and the one the
+    //                       first version missed. Two siblings sharing a Customer
+    //                       and purging concurrently each saw the other as live,
+    //                       so BOTH skipped and the Stripe PII became permanent
+    //                       with no local id left to retry from. Both are being
+    //                       deleted, so redacting the shared Customer harms
+    //                       neither — skipping was the wrong answer in both.
+    //
+    // `mode = 'delete_data'` is required: a cancel_only offboarding retains the
+    // account's data by design and can still reactivate, so it IS a live
+    // co-tenant no matter how far its own lifecycle has run.
     const [sharing] = await tx<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM accounts a
@@ -775,11 +814,13 @@ export async function runStripeCustomerRedactionPurgeStage(
           SELECT 1
           FROM account_offboardings ao
           WHERE ao.account_id = a.id
-            AND ao.status = 'purged'
+            AND ao.mode = 'delete_data'
+            AND ao.status IN ('purge_scheduled', 'purged')
         )
     `;
 
     if ((sharing?.count ?? 0) > 0) {
+      logStripeCustomerRedactionOutcome(row, 'skipped_shared_customer');
       await appendStripeCustomerRedactionRecord(
         tx,
         row,
@@ -794,12 +835,33 @@ export async function runStripeCustomerRedactionPurgeStage(
       offboardingId: row.id,
     });
 
+    logStripeCustomerRedactionOutcome(row, outcome);
     await appendStripeCustomerRedactionRecord(
       tx,
       row,
       stripeCustomerRedactionRecord(customerId, outcome),
     );
   });
+}
+
+/**
+ * The intake's first observability promise: one structured line per redaction
+ * outcome. The stage is the only purge stage that makes a live provider call,
+ * so it is the one whose silence costs an operator the most — a skipped
+ * shared-customer purge previously left nothing but a JSONB element, and the
+ * no-customer case left nothing anywhere.
+ *
+ * Identifiers only. The customer id is the value this stage exists to erase and
+ * never appears; `scrubOffboardingErrorForStorage` does not redact a `cus_`
+ * handle, so logging one would defeat the stage inside its own audit trail.
+ */
+function logStripeCustomerRedactionOutcome(
+  row: AccountOffboardingPurgeRow,
+  outcome: StripeCustomerRedactionRecord['outcome'] | 'not_applicable',
+): void {
+  createWorkerLogger('[AccountOffboardingPurgeWorker]').log(
+    `Stripe customer redaction ${outcome} for offboarding ${row.id} account ${row.account_id}`,
+  );
 }
 
 async function appendStripeCustomerRedactionRecord(

@@ -715,31 +715,36 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 
-  // ── D5: the redaction stage runs LATE, not first ───────────────────────
+  // ── D5 INVERTED: the redaction stage runs FIRST ────────────────────────
+  //
+  // The original D5 put redaction immediately before the tombstone, arguing
+  // that by then every local destruction had committed. That rationale was
+  // FALSE — the tombstone is what scrubs local PII, and it runs after — so a
+  // Stripe outage left a terminal half-purge holding live names, emails and
+  // addresses. Owner-approved inversion, recorded as deviation D6.
   describe('Stripe Customer redaction ordering', () => {
-    it('handleAccountOffboardingPurge runs the redaction stage between runAuditAndCostPayloadPurgeStage and runParentTombstonePurgeStage', async () => {
-      // The assertion is the full three-call SUBSEQUENCE, not merely "before the
-      // tombstone" (plan round 1 finding 5). A redaction stage inserted FIRST
-      // would satisfy a before-tombstone assertion while violating D5 outright:
-      // running first leaves a LIVE account with a wiped Stripe billing contact
-      // whenever a later local stage fails.
+    it('handleAccountOffboardingPurge runs the redaction stage before any local destruction and before runParentTombstonePurgeStage', async () => {
+      // Still a SUBSEQUENCE assertion, not merely "before the tombstone" — the
+      // dangerous direction is now redaction drifting LATER, back behind a
+      // destructive stage, which a bare before-tombstone check would allow.
       await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob());
 
-      expect(stageOrder).toEqual(['audit', 'redaction', 'tombstone']);
-      // The worker resolves getStripe() at its own boundary and passes the client
-      // down — a domain module never imports the singleton (invariant #15).
+      expect(stageOrder).toEqual(['redaction', 'audit', 'tombstone']);
+      // The worker passes a FACTORY, not a client. getStripe() throws when
+      // STRIPE_SECRET_KEY is unset, so resolving it eagerly made every
+      // delete_data purge depend on the key — including accounts that never
+      // had a Stripe Customer at all. The stage calls it after its null check.
       expect(mockRedactionStage).toHaveBeenCalledWith(
         mockSql,
-        expect.objectContaining({ customers: expect.anything() }),
+        expect.any(Function),
         expect.objectContaining({ id: OFFBOARDING_ID, stripe_customer_id: 'cus_123' }),
       );
     });
 
     it('handleAccountOffboardingPurge does not finalize the purge when the redaction stage throws a retryable error', async () => {
-      // Retry safety: account_offboardings.stripe_customer_id survives until
-      // finalize, and loadPurgeOffboarding re-reads it, so a retry after a failed
-      // redaction still has the id. Finalizing anyway would destroy the last copy
-      // of the identifier while the Stripe Customer is still un-redacted.
+      // With redaction FIRST, a Stripe failure aborts having destroyed nothing.
+      // That is the reordering's whole purpose: the old ordering left auth
+      // deleted and content destroyed while local PII survived, terminally.
       mockRedactionStage.mockImplementation(async () => {
         stageOrder.push('redaction');
         throw new Error('stripe connection error');
@@ -749,7 +754,8 @@ describe('AccountOffboarding PurgeWorker', () => {
         handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob()),
       ).rejects.toThrow();
 
-      expect(stageOrder).toEqual(['audit', 'redaction']);
+      // 'audit' absent is the observable proof that nothing local ran.
+      expect(stageOrder).toEqual(['redaction']);
       expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
       expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
     });
