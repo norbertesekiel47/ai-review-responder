@@ -16,15 +16,24 @@ full review wave and the red-team pass still run.
 
 ## The defect
 
-> **CITATIONS INTO FILES THIS BRANCH EDITS ARE BY SYMBOL; A LINE CITATION IS
-> ONLY EVER USED FOR A FILE THIS BRANCH DOES NOT TOUCH.** That is the rule,
-> and the flat "no line numbers anywhere" version of this banner was itself
-> false when written — two bare line citations survived it (red-team round 2).
-> The first version of this plan cited `path:line` throughout; eight of those
-> went stale inside this branch's own commits, and `prevalidate-plan.py` passed
-> them because it resolves FILES, not lines. Note the corollary: a plan with
-> zero line citations makes that check report "0 citations checked", so its
-> PASS proves nothing either. The #1080 arch-review row records the identical
+> **CITE BY SYMBOL, ALWAYS.** This banner took three attempts, and the two
+> failed forms are worth more than the rule.
+>
+> 1. *"Citations are by symbol"* — **false when written.** Two bare line
+>    citations survived it and one, `:1632`, did not resolve (red-team round 2).
+> 2. *"By symbol for files this branch edits; by line for files it does not"* —
+>    survived a full review round and was **still wrong**. Taking main before
+>    shipping moved `restraint-policy.ts`'s cap logic from `:440-448` to
+>    `:579-587` under #1093, so a line citation into a file this branch never
+>    touched went stale anyway.
+>
+> The generalisation the second form missed: **a line number is a fact about a
+> tree, not about a codebase.** It does not matter who edits the file — it
+> matters that trees move. The first version of this plan cited `path:line`
+> throughout and eight went stale inside this branch's own commits.
+> `prevalidate-plan.py` passed them because it resolves FILES, not lines, and it
+> reports "0 citations checked" for a symbol-only doc — so its PASS proves
+> nothing in either direction. The #1080 arch-review row records the identical
 > failure class. Symbols move with the code; line numbers do not.
 
 `settleGenerationExhaustion` (`src/lib/solicitation/ask-generation.ts`) fills

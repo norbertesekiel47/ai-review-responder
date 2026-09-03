@@ -1875,8 +1875,10 @@ export async function settleGenerationExhaustion(
     // worth stating because #1082 was written with it wrong. `holes` filters
     // `ask.status = 'send'`; `commitAskDecisions` writes
     // `status = decision.decision` and `evaluateBatch`
-    // (`restraint-policy.ts:440-448`) keeps at most `BATCH_CAP` send
-    // decisions, so at most 25 asks in a batch can ever BE a hole. The 5,000
+    // (`restraint-policy.ts`, BY SYMBOL — the `:440-448` range this comment
+    // first carried was already `:579-587` on main, moved by #1093 before this
+    // branch landed) keeps at most `BATCH_CAP` send decisions, so at most 25
+    // asks in a batch can ever BE a hole. The 5,000
     // ceiling is real but belongs to the `ask_withheld` lane, where withheld
     // candidates are uncapped — which is why `writeRefusalEvents`' own
     // docblock cites it THERE. Carrying that constant into this lane

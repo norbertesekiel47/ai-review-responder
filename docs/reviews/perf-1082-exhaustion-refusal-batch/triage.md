@@ -60,7 +60,7 @@ the FIXES rather than the code.
 | T16 | P1 | "27 executable lines added (40 comment, 3 blank — measured AT HEAD)" was falsified by the commit that re-published it: 66 comment lines at `aa3fab6e` | **FIXED** — the row now quotes the stable half (27 code) and the METHOD, and says re-derive. Same failure the #1080 row records by name, one entry later |
 | T17 | P1 | The "CITATIONS ARE BY SYMBOL" banner was itself false — two bare citations survived, one (`:1632`) unresolvable | **FIXED** — the rule is now stated correctly: symbol for files this branch edits, line permitted for files it does not. The two survivors are gone |
 | T18 | P2 | The intermittent-suite rejection refuted a desync mechanism nobody proposed; the axis said it could not identify one | **FIXED** — rejection now rests on volume (340 runs, 0 failures across two heads), and the finding is recorded as unexplained rather than solved |
-| T19 | P2 | The bound comment added `restraint-policy.ts:440-448` — a line citation in production code | **ACCEPTED under the corrected rule** — `restraint-policy.ts` is untouched by this branch and the citation resolves |
+| T19 | P2 | The bound comment added a line citation into `restraint-policy.ts` from production code | **FIXED, and the rule that first excused it was wrong** — see below |
 
 **Red team independently re-derived and CONFIRMED `BATCH_CAP` = 25**, including
 the question I had not closed myself: a batch cannot be rebuilt past the cap,
@@ -71,6 +71,35 @@ statements repo-wide, no trigger.
 Also verified: the `@vitest/spy` cannot-desync claim, `deadLetterWholeBatch`
 never throwing on any path, the abort comment's both halves, and the
 `recordOutreachWithheldRefusal` census.
+
+## Round 3 would have been the citation rule — caught by taking main instead
+
+There was no round 3; `round-start` refuses one. Taking main before shipping
+found the defect anyway, which is the argument for taking main before shipping.
+
+`origin/main` moved three commits while this branch was in review, and #1093
+touched `restraint-policy.ts` — moving `evaluateBatch`'s cap logic from
+`:440-448` to `:579-587`. T19 had been accepted on the rule "a file this branch
+does not touch may be cited by line". **That rule is wrong**, and this is the
+counter-example: the branch never touched the file, and the citation went stale
+regardless, because main moved underneath it.
+
+The rule is now unqualified — **cite by symbol, always** — and it took three
+attempts to get there:
+
+| Form | Fate |
+|---|---|
+| "Citations are by symbol" | False when written; two bare citations survived, one unresolvable (red team round 2) |
+| "By symbol for edited files; by line for others" | Passed a full review round, then falsified by #1093 moving an unedited file |
+| **"By symbol, always"** | Current. A line number is a fact about a TREE, not a codebase |
+
+**Scope clause, which the rule needs and did not have.** It governs LIVING
+documents — the plan, the intake, production comments, this file. It does NOT
+govern DATED EVIDENCE: the four review reports and the red-team sidecar in this
+directory record what was true at the SHA they measured, and rewriting their
+line numbers would falsify the record rather than repair it. Their citations
+are correct as history and are deliberately left alone. The same applies to
+every arch-review-log row this branch did not write.
 
 ## The pattern this branch should be remembered for
 
