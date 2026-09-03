@@ -121,6 +121,7 @@
     "worker/ingress/__tests__/stripe-idempotency.test.ts",
     "worker/ingress/__tests__/helpers/stripe-webhook-harness.ts",
     "scripts/ci/static-policy-audit.ts",
+    "scripts/ci/__tests__/static-policy-audit.test.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
     ".claude/reference/arch-review-log.md",
     "worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts",
