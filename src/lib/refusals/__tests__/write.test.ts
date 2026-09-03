@@ -631,3 +631,90 @@ describe('writeRefusalEvents', () => {
     expect(harness.sqlCalls).toHaveLength(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The kill switch behind ONE name (#1079 T1).
+//
+// `isRefusalLedgerEnabled` exists so a CALLER can decline to run ledger work at
+// all — `recordPolicyGateRefusal` resolves a Refusal category before either
+// write arm is reached, and that resolve is code the flag must be able to stop.
+// Extracting the read is a refactor, so these two cases are the PINS that say
+// the extraction changed nothing: the warning stays bounded per EPISODE across
+// BOTH arms, and an empty batch still warns about nothing.
+//
+// They are also the purity oracle. A predicate that warned or cleared the latch
+// would make an off-lane guard emit the very noise `write.ts:488-492` refuses to
+// emit, so each case calls the predicate directly and asserts the counts do not
+// move.
+// ---------------------------------------------------------------------------
+describe('isRefusalLedgerEnabled', () => {
+  it('writeRefusalEvent and writeRefusalEvents together emit exactly one disabled warning across one disabled episode', async () => {
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    // ONE episode, BOTH arms. The latch is module-level, so a second arm that
+    // read the flag through its own copy of the guard — or a predicate that
+    // warned on its own — would show up here as a second line.
+    await writeRefusalEvent(tx(), autonomySuspended());
+    await refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(1))]);
+    await writeRefusalEvent(tx(), autonomySuspended());
+
+    expect(ledgerWarnings()).toHaveLength(1);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+    expect(harness.sqlCalls, 'nothing reached the deciding transaction').toHaveLength(0);
+
+    // THE PREDICATE IS PURE — no transport. Ten reads mid-episode add no line.
+    for (let call = 0; call < 10; call++) {
+      expect(refusalWrite.isRefusalLedgerEnabled()).toBe(false);
+    }
+    expect(ledgerWarnings()).toHaveLength(1);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+
+    // …and no LATCH MUTATION either, which is the half a no-op stub would also
+    // satisfy above. Reading the predicate while the flag is ON must not end the
+    // disabled episode: only a WRITE that observed the enabled flag does that
+    // (`endDisabledEpisode`). If the predicate cleared it, the next disabled
+    // write below would warn a SECOND time.
+    process.env[REFUSAL_LEDGER_FLAG] = 'true';
+    expect(refusalWrite.isRefusalLedgerEnabled()).toBe(true);
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+    await writeRefusalEvent(tx(), autonomySuspended());
+    expect(ledgerWarnings(), 'the predicate did not end the episode').toHaveLength(1);
+
+    // THE CONTROL for the whole count, and it has to be here: every assertion
+    // above is an assertion of ABSENCE, so a broken warn oracle passes them all.
+    // A real enabled write between two disabled ones DOES end the episode, and
+    // the next outage warns again.
+    resetRefusalLedgerWarningForTests();
+    process.env[REFUSAL_LEDGER_FLAG] = 'true';
+    await writeRefusalEvent(tx(), autonomySuspended());
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+    await writeRefusalEvent(tx(), autonomySuspended());
+    expect(ledgerWarnings(), 'a new episode warns again').toHaveLength(2);
+  });
+
+  it('writeRefusalEvents issues no statement and emits no disabled warning for an empty input while the flag is off', async () => {
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    // ORDER IS LOAD-BEARING (`write.ts:488-492`). The `inputs.length === 0`
+    // return comes BEFORE the flag read, so a build that withheld nothing has no
+    // ledger GAP — and warning about it would put noise on the one signal that
+    // says the ledger is dark. Moving the flag read above the empty check, or
+    // folding the warning into the predicate, breaks exactly this.
+    await expect(refusalWrite.writeRefusalEvents(tx(), [])).resolves.toBeUndefined();
+    expect(harness.sqlCalls).toHaveLength(0);
+    expect(ledgerWarnings()).toHaveLength(0);
+    expect(sentryStub.captureMessage).not.toHaveBeenCalled();
+
+    // The predicate is not a warning transport, so probing it here stays silent
+    // too — even though this caller never reached it.
+    expect(refusalWrite.isRefusalLedgerEnabled()).toBe(false);
+    expect(ledgerWarnings()).toHaveLength(0);
+
+    // THE CONTROL. A zero-warning assertion passes on a broken oracle, so one
+    // NON-empty disabled batch must produce exactly the line the empty one did
+    // not.
+    await refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(1))]);
+    expect(harness.sqlCalls, 'still nothing written — the flag is off').toHaveLength(0);
+    expect(ledgerWarnings(), 'a withheld SET does warn').toHaveLength(1);
+  });
+});

@@ -31,7 +31,74 @@ vi.mock('../../../../src/lib/agents/run-spine', () => ({
   recordOutcome: vi.fn(),
 }));
 
+// ---------------------------------------------------------------------------
+// #1079 — two PARTIAL mocks, both pass-through by default.
+//
+// They exist for the flag property at the bottom of this file and change
+// nothing for the cases above: the gate override is `null` unless a case sets
+// it, and the resolver spy delegates to the real vocabulary. The integration
+// suite's `poison` switches are the precedent for the shape.
+// ---------------------------------------------------------------------------
+
+/**
+ * The gate's `blockReasons`, DICTATED for one case rather than derived.
+ *
+ * `blockReasons` is COMPUTED from the stub's rows on the real path, and many
+ * members are mutually exclusive — so a generated array cannot reach
+ * `recordPolicyGateRefusal` without this. `null` means "use the real gate".
+ *
+ * ONLY the two fields the property is about are replaced. Every other field of
+ * the decision stays the REAL one, because `buildAutoApprovalDecisionSummary`
+ * reads five of them and a hand-built decision would be a second, drifting
+ * definition of the gate's own DTO.
+ */
+const gateOverride = { blockReasons: null as readonly string[] | null };
+
+vi.mock('../auto-approval', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auto-approval')>();
+  return {
+    ...actual,
+    evaluateAutoApprovalCandidate: (
+      ...args: Parameters<typeof actual.evaluateAutoApprovalCandidate>
+    ): AutoApprovalDecision => {
+      const decision = actual.evaluateAutoApprovalCandidate(...args);
+      if (gateOverride.blockReasons === null) return decision;
+      return {
+        ...decision,
+        approved: false,
+        blockReasons: [...gateOverride.blockReasons] as AutoApprovalDecision['blockReasons'],
+      };
+    },
+  };
+});
+
+/**
+ * The vocabulary resolver as a SPY, so its CALL COUNT is observable.
+ *
+ * The count is the property's only oracle. "No refusal row with the flag off"
+ * is satisfied by a `try/catch` around the resolve — the shape #1079 rejects,
+ * because it leaves a vocabulary fault running inside the deciding transaction.
+ * Only "never CALLED" separates them.
+ */
+const resolvePolicyGateRefusalSpy = vi.hoisted(() =>
+  vi.fn<(codes: readonly string[]) => unknown>(),
+);
+
+vi.mock('../../../../src/lib/refusals/vocabulary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/lib/refusals/vocabulary')>();
+  // Installed ONCE, here. `vi.clearAllMocks()` (which this file uses) clears
+  // call history and keeps implementations; `mockReset` would strip this and
+  // make every later case resolve `undefined`.
+  resolvePolicyGateRefusalSpy.mockImplementation((codes: readonly string[]) =>
+    (actual.resolvePolicyGateRefusal as (c: readonly string[]) => unknown)(codes),
+  );
+  return { ...actual, resolvePolicyGateRefusal: resolvePolicyGateRefusalSpy };
+});
+
 import { hasStaleReviewContent, persistResponseAndNotify } from '../persist';
+import type { AutoApprovalDecision } from '../auto-approval';
+import { POLICY_GATE_HELD_REFUSAL_CATEGORIES } from '../../../../src/lib/refusals/vocabulary';
+import { REFUSAL_LEDGER_FLAG } from '../../../../src/lib/refusals/write';
 import { findActiveReviewRun, recordStep, recordOutcome } from '../../../../src/lib/agents/run-spine';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
 import {
@@ -942,5 +1009,87 @@ describe('content-freshness gate (ADR 0017)', () => {
           .toBe(loaded !== null && current !== null && loaded !== current);
       },
     ));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1079 — the kill switch decides whether the VOCABULARY runs at all.
+//
+// House style: `policy-gate-precedence.property.test.ts`'s `invariants` describe
+// block, with the `invariants: ` prefix INSIDE the `it()` string so the gate's
+// `promised-tests` exact match still works.
+//
+// It lives here, and not in a new property file, because this file already owns
+// the stub-transaction harness (`mockSql`/`mockTx`/`txQueue`) and already
+// imports fast-check. A second file would be a second owner of the persist
+// fixture.
+// ---------------------------------------------------------------------------
+
+/** Every member of the gate's block vocabulary — 22 today, `null`-mapped included. */
+const ALL_BLOCK_REASONS = Object.keys(POLICY_GATE_HELD_REFUSAL_CATEGORIES);
+
+describe('invariants', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    txQueue.length = 0;
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.AUTO_APPROVAL_ENABLED;
+    delete process.env.OPENAI_MODERATION_ENABLED;
+    delete process.env[REFUSAL_LEDGER_FLAG];
+    gateOverride.blockReasons = null;
+  });
+
+  it('invariants: the flag decides the resolver call count — off yields zero calls, on yields exactly one receiving the generated block reasons verbatim and in order', async () => {
+    // A BICONDITIONAL, and that is what makes it depend on the generated input.
+    // The one-sided form ("off ⇒ zero calls") is a tautology here: with the flag
+    // off the guard returns WITHOUT inspecting `blockReasons`, so no generator
+    // over the 2^22 subsets can make the implementation branch. The ON arm is
+    // what carries the mutation-killing power — it kills the `try/catch` swallow
+    // AND the shape that inlines the precedence tuple into `persist.ts` and
+    // never calls the vocabulary at all.
+    //
+    // NOT a transaction-query count. The persist issues the lock preamble, the
+    // responses INSERT, the api_costs updates, the runtime-state reads and the
+    // spine checkpoints long before the ledger, so "zero queries" is false by
+    // construction and would fail on a correct implementation.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uniqueArray(fc.constantFrom(...ALL_BLOCK_REASONS), { minLength: 1 }),
+        fc.boolean(),
+        async (blockReasons, ledgerEnabled) => {
+          mockTx.mockClear();
+          mockSql.begin.mockClear();
+          resolvePolicyGateRefusalSpy.mockClear();
+          txQueue.length = 0;
+          queuePersistRows();
+
+          // The gate's verdict is DICTATED so the generated array survives to
+          // the lane; every other field of the decision stays the real one.
+          gateOverride.blockReasons = blockReasons;
+          if (ledgerEnabled) delete process.env[REFUSAL_LEDGER_FLAG];
+          else process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+          await persistResponseAndNotify(mockSql, baseInput());
+
+          if (!ledgerEnabled) {
+            expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+            return;
+          }
+
+          // EXACTLY ONE — never zero (the inline reimplementation) and never
+          // two (a guard that resolved to decide whether to resolve).
+          expect(resolvePolicyGateRefusalSpy).toHaveBeenCalledTimes(1);
+          // VERBATIM AND IN ORDER. `toEqual` on an array is order-sensitive, so
+          // this also pins `vocabulary.ts`'s "the input VERBATIM, in its own
+          // order" against a caller that sorted or de-duplicated on the way in.
+          expect(resolvePolicyGateRefusalSpy.mock.calls[0]![0]).toEqual(blockReasons);
+        },
+      ),
+      { numRuns: 60 },
+    );
   });
 });

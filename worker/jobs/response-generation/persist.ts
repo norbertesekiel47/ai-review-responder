@@ -37,7 +37,11 @@ import {
   HELD_DRAFT_REFUSAL_CATEGORY,
   resolvePolicyGateRefusal,
 } from '../../../src/lib/refusals/vocabulary';
-import { REFUSAL_LEDGER_FLAG, writeRefusalEvent } from '../../../src/lib/refusals/write';
+import {
+  REFUSAL_LEDGER_FLAG,
+  isRefusalLedgerEnabled,
+  writeRefusalEvent,
+} from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
@@ -694,9 +698,13 @@ function isGenuineAutoCandidate(
  * held for the owner. Runs on the OPEN transaction `tx`, so the row is atomic
  * with the decision it records (#1013).
  *
- * FOUR GUARDS, AND ONLY THE LAST ONE DECIDES ANYTHING. Branch review round 1
- * mutation-tested each: deleting guards 1, 2 or 3 individually changes no
- * outcome and kills no test, because guard 4 already covers each case. They are
+ * FIVE GUARDS, AND TWO OF THEM DECIDE SOMETHING — guard 4, which decides
+ * whether the ledger RUNS AT ALL, and guard 5, which decides whether this
+ * decision is recordable. Branch review round 1 mutation-tested the original
+ * three: deleting guard 1, 2 or 3 individually changes no outcome and kills no
+ * test, because the resolver guard already covers each case. THAT RESULT IS
+ * ABOUT THOSE THREE AND THE RESOLVER GUARD (now numbered 5) AND NOTHING ELSE —
+ * guard 4 post-dates it (#1079) and is covered by its own cases. Guards 1-3 are
  * EARLY RETURNS and defence in depth, not independent conditions — an earlier
  * version of this docblock claimed "each answers a different question", which
  * was false and is corrected here rather than left to mislead the next reader.
@@ -705,7 +713,7 @@ function isGenuineAutoCandidate(
  *      suppression rule, and the ONLY condition inherited from the `policy_gate`
  *      step's guard. REDUNDANT WITH THE VETO: `evaluateAutoApprovalCandidate`
  *      always emits `moderation_held` when `held` is true, and that member maps
- *      to `null`, so guard 4 suppresses the row anyway. Kept because it names
+ *      to `null`, so guard 5 suppresses the row anyway. Kept because it names
  *      the rule at the site a reader looks for it, and because it skips work.
  *   2. `approved` — nothing was refused. Redundant: `approved` means
  *      `blockReasons` is empty, and the resolver returns `null` for an empty
@@ -718,8 +726,33 @@ function isGenuineAutoCandidate(
  *      The narrowing earns its keep on the LOG side, which has no veto concept —
  *      which is why one predicate owns both, and why the threshold arm's only
  *      oracle is the fallback-log assertion in the integration suite.
- *   4. the resolver returned nothing — the set was empty, or a `null`-mapped
- *      member vetoed it. THIS is the load-bearing guard.
+ *   4. `isRefusalLedgerEnabled()` — THE KILL SWITCH, AND IT IS NOT REDUNDANT
+ *      WITH ANY OTHER GUARD. It covers what guard 5 cannot: `write.ts` read the
+ *      switch AFTER this function had already resolved a category, so a
+ *      `resolvePolicyGateRefusal` throw — an unmapped or unranked block reason —
+ *      aborted the whole response persist with the switch already OFF, and
+ *      `generate_response` burned its attempts against a lever an operator had
+ *      already pulled (#1079). Containment here is by NON-EXECUTION: nothing
+ *      below this line runs.
+ *
+ *      NO WARNING ON THIS ARM, deliberately. `warnLedgerDisabled` belongs to a
+ *      call that WOULD have written a row, and this guard cannot know that
+ *      without running the resolver it exists to avoid — a decision whose
+ *      reasons all map to `null` records nothing either way, and warning about
+ *      it would put noise on the one signal that says the ledger is dark
+ *      (`src/lib/refusals/write.ts:488-492`). THE COST IS REAL AND ACCEPTED:
+ *      with the switch off this lane no longer contributes the once-per-episode
+ *      ledger-dark line it contributes today. The `held_draft` lane and the six
+ *      other production write sites still do, and the latch is module-level.
+ *
+ *      A SECOND, LIVE READ still happens inside `writeRefusalEvent`. A flip to
+ *      `false` between the two lets the resolver run with the switch off; the
+ *      window is synchronous and microseconds wide, and it is the price of a
+ *      PURE predicate rather than a defect to defend against.
+ *   5. the resolver returned nothing — the set was empty, or a `null`-mapped
+ *      member vetoed it. THIS is the guard that decides whether a Refusal is
+ *      recordable, and it now lives INSIDE `withLedgerAttribution` so the
+ *      resolve it depends on is attributed too.
  *
  * NOT CAUGHT AT THE CALL SITE, on the same terms as the `held_draft` write and
  * `write.ts`'s own contract: a CHECK violation is a writer bug and must abort
@@ -743,24 +776,32 @@ async function recordPolicyGateRefusal(
   if (held) return;
   if (autoDecision.approved) return;
   if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
+  // Guard 4 — the kill switch, BEFORE the resolve. See the docblock: no warning
+  // on this arm, and nothing below this line runs.
+  if (!isRefusalLedgerEnabled()) return;
 
-  const refusal = resolvePolicyGateRefusal(autoDecision.blockReasons);
-  if (!refusal) return;
+  // The RESOLVE is inside the wrapper, not before it. A vocabulary fault is a
+  // ledger fault and must report as one; outside, it escaped attribution and
+  // surfaced as a generic persist failure (#1079).
+  await withLedgerAttribution('policy_gate_held', responseId, async () => {
+    const refusal = resolvePolicyGateRefusal(autoDecision.blockReasons);
+    if (!refusal) return;
 
-  await withLedgerAttribution('policy_gate_held', responseId, () => writeRefusalEvent(tx, {
-    accountId,
-    businessId,
-    refusalSource: 'policy_gate_held',
-    refusalCode: refusal.refusalCode,
-    allRefusalCodes: refusal.allRefusalCodes,
-    refusalCategory: refusal.refusalCategory,
-    subjectType: 'response',
-    subjectId: responseId,
-    // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
-    // why `occurred_at` is writer-supplied. The gate decided inside this
-    // transaction, so its transaction timestamp IS the decision time.
-    occurredAt: 'transaction_time',
-  }));
+    await writeRefusalEvent(tx, {
+      accountId,
+      businessId,
+      refusalSource: 'policy_gate_held',
+      refusalCode: refusal.refusalCode,
+      allRefusalCodes: refusal.allRefusalCodes,
+      refusalCategory: refusal.refusalCategory,
+      subjectType: 'response',
+      subjectId: responseId,
+      // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
+      // why `occurred_at` is writer-supplied. The gate decided inside this
+      // transaction, so its transaction timestamp IS the decision time.
+      occurredAt: 'transaction_time',
+    });
+  });
 }
 
 /**
@@ -775,6 +816,18 @@ async function recordPolicyGateRefusal(
  * `generate_response` burns its attempts in about 75 seconds, and the only
  * signal is `attachJobFailureSink`'s generic `subsystem=worker_job` issue on the
  * terminal attempt. Nothing said "the ledger did this" or "flip its flag".
+ *
+ * IT COVERS TWO FAULT CLASSES, NOT ONE. The `policy_gate_held` invocation also
+ * wraps the VOCABULARY RESOLVE (#1079) — an unmapped or unranked block reason
+ * throwing out of `resolvePolicyGateRefusal`. That is neither a CHECK violation
+ * nor a writer bug, and unlike one it is genuinely SUPPRESSED by the flag now
+ * that guard 4 returns before the resolve. So the Sentry issue this wrapper
+ * raises for a vocabulary fault is the record of that fault only for a flag
+ * flipped IN RESPONSE to it: a fault arriving into an already-off flag never
+ * runs the resolver and raises nothing, and an operator who resolves the issue
+ * once the aborts stop removes the record while the hole stays open. Recorded
+ * rather than argued away — the `held_draft` invocation still wraps a write and
+ * nothing else.
  *
  * IT CHANGES NO CONTROL FLOW. The error is re-thrown, so the transaction still
  * aborts and no response commits without its required row. This is NOT the

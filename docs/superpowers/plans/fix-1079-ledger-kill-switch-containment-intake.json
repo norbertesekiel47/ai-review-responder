@@ -65,7 +65,8 @@
     "src/lib/refusals/write.ts",
     "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
     "worker/jobs/response-generation/__tests__/persist.test.ts",
-    "src/lib/refusals/__tests__/write.test.ts"
+    "src/lib/refusals/__tests__/write.test.ts",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "with REFUSAL_LEDGER_ENABLED off, persistResponseAndNotify invokes no refusals vocabulary resolver on the policy lane and the draft row commits",

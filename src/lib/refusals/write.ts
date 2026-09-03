@@ -80,6 +80,42 @@ const logger = createWorkerLogger('[refusals:write]');
 export const REFUSAL_LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /**
+ * Is the Refusal ledger recording? THE WRITE PATH'S ONE READER OF THE FLAG.
+ *
+ * WHY IT IS EXPORTED. Both write arms below read the switch, but by then a
+ * caller has already done ledger work: `recordPolicyGateRefusal`
+ * (`worker/jobs/response-generation/persist.ts`) RESOLVES a Refusal category
+ * from the gate's block reasons before either arm is reached, and a resolver
+ * fault there aborted the response-persist transaction with the switch already
+ * off (#1079). A kill switch that cannot stop the code in front of it is not a
+ * lever. So the read gets one name, and a caller with work to skip asks first.
+ *
+ * IT IS PURE, AND THAT IS A CONTRACT, not an implementation detail. It reads the
+ * flag and returns: NO logging, NO Sentry, NO latch mutation. `warnLedgerDisabled`
+ * and `endDisabledEpisode` stay private to this module and stay inside the two
+ * write arms, because only a call that WOULD HAVE WRITTEN A ROW may claim the
+ * ledger has a gap. A guard cannot know that without doing the work it exists to
+ * avoid — and a decision whose reasons all map to `null` records nothing either
+ * way, so warning there puts noise on the one signal that says the ledger is
+ * dark (see `writeRefusalEvents`' contract below).
+ *
+ * A CALLER WITH A POSSIBLY-EMPTY BATCH MUST RETURN BEFORE CALLING THIS, for the
+ * same reason: an empty build withheld nothing and has no gap to report.
+ *
+ * READ LIVE, PER CALL — never hoisted to a module-scope `const`. The rule and
+ * its reason are spelled out at `writeRefusalEvent` below and in
+ * `src/lib/llm/circuit-breaker.ts`.
+ *
+ * THE ONE SANCTIONED SECOND READER is `src/app/api/dashboard/refusals/route.ts`,
+ * on the READ path, which keeps its own literal spelling of the flag name so
+ * `ci:env-registry` can see it. That is deliberate and is not a duplicate of
+ * this predicate.
+ */
+export function isRefusalLedgerEnabled(): boolean {
+  return readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG);
+}
+
+/**
  * How long a SYNCHRONOUSLY-THROWN capture suppresses the next warning attempt.
  *
  * Exported because the eval pins the recovery case on it: a cooldown counted in
@@ -362,11 +398,12 @@ export async function writeRefusalEvent(
   input: WriteRefusalEventInput,
 ): Promise<void> {
   // READ LIVE, PER CALL, INSIDE THE BODY. A `const enabled =
-  // readFlagEnabledByDefault(…)` at module scope can never observe a mid-process
+  // isRefusalLedgerEnabled()` at module scope can never observe a mid-process
   // toggle — it would satisfy "off means off" on a fresh process and then hold
   // the ledger dark for the life of the worker after someone flips it back on.
-  // Same rule `circuit-breaker.ts` states for its own kill switch.
-  if (!readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG)) {
+  // Same rule `circuit-breaker.ts` states for its own kill switch. The predicate
+  // is PURE, so the warning stays HERE, in the arm that would have written.
+  if (!isRefusalLedgerEnabled()) {
     // Return BEFORE touching the deciding transaction. This is the lever the
     // ticket names — "not a revert deploy": a decision still lands, unrecorded.
     warnLedgerDisabled();
@@ -508,8 +545,8 @@ export async function writeRefusalEvents(
   if (inputs.length === 0) return;
 
   // READ LIVE, PER CALL, INSIDE THE BODY — the same rule, and the same reason,
-  // as the single-row arm.
-  if (!readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG)) {
+  // as the single-row arm. AFTER the empty check above, never before it.
+  if (!isRefusalLedgerEnabled()) {
     warnLedgerDisabled();
     return;
   }
