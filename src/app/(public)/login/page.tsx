@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { AuthIslandClient } from '@/components/auth/auth-island/AuthIslandClient';
 import { noindexRobots } from '@/lib/seo';
 
-export const metadata: Metadata = { title: 'Log in · RepWorth', robots: noindexRobots };
+// Bare name: the root layout's title template appends " · RepWorth".
+export const metadata: Metadata = { title: 'Log in', robots: noindexRobots };
 
 /**
  * Always-on. `SELF_SERVE_SIGNUP_ENABLED` now means only "strangers may mint

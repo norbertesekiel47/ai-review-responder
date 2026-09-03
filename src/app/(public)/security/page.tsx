@@ -7,7 +7,8 @@ import { SiteNav } from '@/components/ui/SiteNav';
 import { SiteFooter } from '@/components/ui/SiteFooter';
 
 export const metadata: Metadata = {
-  title: 'Security · RepWorth',
+  // Bare name: the root layout's title template appends " · RepWorth".
+  title: 'Security',
   description:
     'How RepWorth protects review, billing, and approval data: scoped access, hashed approval tokens, and explicit owner approval before posting.',
 };

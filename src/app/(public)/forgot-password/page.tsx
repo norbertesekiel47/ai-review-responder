@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { ForgotPasswordFormClient } from '@/components/auth/ForgotPasswordFormClient';
 import { noindexRobots } from '@/lib/seo';
 
-export const metadata: Metadata = { title: 'Reset your password · RepWorth', robots: noindexRobots };
+// Bare name: the root layout's title template appends " · RepWorth".
+export const metadata: Metadata = { title: 'Reset your password', robots: noindexRobots };
 
 /**
  * Always-on — see `/login`. Password recovery cannot be gated on

@@ -6,7 +6,8 @@ import { redirect } from 'next/navigation';
 import { FinishSignupClient } from '@/components/auth/FinishSignupClient';
 import { noindexRobots } from '@/lib/seo';
 
-export const metadata: Metadata = { title: 'Finish signup · RepWorth', robots: noindexRobots };
+// Bare name: the root layout's title template appends " · RepWorth".
+export const metadata: Metadata = { title: 'Finish signup', robots: noindexRobots };
 
 export default async function FinishSignupPage() {
   if (!selfServeSignupEnabled()) redirect('/signup');

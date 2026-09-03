@@ -3,7 +3,8 @@ import { LegalPage } from '@/components/legal/LegalPage';
 import { legalDocs } from '@/lib/legal/content';
 
 export const metadata: Metadata = {
-  title: 'Terms of Service · RepWorth',
+  // Bare name: the root layout's title template appends " · RepWorth".
+  title: 'Terms of Service',
   description: 'The RepWorth Terms of Service.',
 };
 

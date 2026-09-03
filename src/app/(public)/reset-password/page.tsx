@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { ResetPasswordFormClient } from '@/components/auth/ResetPasswordFormClient';
 import { noindexRobots } from '@/lib/seo';
 
-export const metadata: Metadata = { title: 'Set a new password · RepWorth', robots: noindexRobots };
+// Bare name: the root layout's title template appends " · RepWorth".
+export const metadata: Metadata = { title: 'Set a new password', robots: noindexRobots };
 
 /**
  * Always-on — see `/login`. This is the landing page of the invite email's
