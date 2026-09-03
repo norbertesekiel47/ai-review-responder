@@ -1,12 +1,19 @@
 // src/app/(authenticated)/dashboard/requests/qr/page.tsx
 //
-// Review QR settings section (CONTEXT.md "Review QR"): one card per
-// non-archived location. Deliberately NOT behind shouldShowLocationsSettings
-// — single-location owners are the launch majority and get their QR here.
-// requireOwnerAccess redirects pending_payment owners to /onboarding/pay —
-// the STANDARD settings posture (intake edge case corrected in codex R1);
-// the customer-facing redirect is gated independently by
-// subscriptionAllowsQrRedirect.
+// The **Review QR** surface (CONTEXT.md "Review QR"): one card per non-archived
+// location. Moved here from /settings/review-qr by #1092; the old path
+// redirects.
+//
+// Visible to EVERY owner and deliberately NOT flag-gated, even though it sits
+// under Requests, which is. That is why the routed pill bar below is gated and
+// this page is not: with watch-mode off the sibling Requests routes notFound(),
+// while this one must still answer. The sidebar and mobile bar promote Review
+// QR to a top-level row in that state, so it keeps an entry point.
+//
+// requireOwnerAccess redirects pending_payment owners to /onboarding/pay — the
+// standard authenticated-surface posture; the customer-facing **QR redirect**
+// GET /q/<businessId> is gated independently by subscriptionAllowsQrRedirect
+// and never moved.
 
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';

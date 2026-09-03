@@ -68,6 +68,15 @@ function NavItem({
  * reader two identical links to one href. Reviews and Analytics keep theirs
  * because their first screen has its own name.
  */
+/**
+ * The **Review QR** entry, defined ONCE. It appears in two mutually exclusive
+ * places — a Requests child when watch-mode is on, a top-level row when it is
+ * off — and the two are never rendered together, so no test can catch them
+ * drifting apart. That is precisely why the href is not typed twice (round-2
+ * review).
+ */
+const REVIEW_QR_NAV = { href: '/dashboard/requests/qr', label: 'Review QR' } as const;
+
 const NAV_CHILDREN: Partial<
   Record<NavSection, ReadonlyArray<{ href: string; label: string }>>
 > = {
@@ -81,7 +90,7 @@ const NAV_CHILDREN: Partial<
     { href: '/dashboard/requests/contacts', label: 'Contacts' },
     // Moved out of Settings by #1092. The QR redirect `GET /q/<businessId>`
     // does NOT move — printed codes point at it.
-    { href: '/dashboard/requests/qr', label: 'Review QR' },
+    REVIEW_QR_NAV,
   ],
   analytics: [
     { href: '/dashboard/analytics', label: 'Metrics' },
@@ -193,8 +202,8 @@ export function Sidebar({ businessName, solicitationEnabled }: Props) {
             change removed was its only one. So when the section that would
             host it is absent, it stands on its own. Owner decision 2026-09-03. */}
         {!solicitationEnabled && (
-          <NavItem href="/dashboard/requests/qr" section="requests" activeNav={activeNav}>
-            <Icon name="qr" /> Review QR
+          <NavItem href={REVIEW_QR_NAV.href} section="requests" activeNav={activeNav}>
+            <Icon name="qr" /> {REVIEW_QR_NAV.label}
           </NavItem>
         )}
         <NavItem

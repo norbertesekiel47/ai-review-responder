@@ -21,6 +21,17 @@ const consoleCss = readFileSync(
   'utf-8',
 );
 
+// `.rq-subnav` is owned by the ROUTE stylesheet, not the layout one. That is
+// not a detail: `requests.css` is page-imported by `RequestsTabs`, so it loads
+// AFTER console.css, and an equal-specificity rule over there is silently
+// overridden. The first version of this fix put `display: none` in console.css
+// and had no effect in a browser while this test — which read only console.css
+// — passed (round-2 review, 2026-09-03). Reading both files is the point.
+const requestsCss = readFileSync(
+  resolve(process.cwd(), 'src/app/(authenticated)/dashboard/requests/requests.css'),
+  'utf-8',
+);
+
 /** The body of the `@media (max-width: 768px)` block that hides `.sidebar`. */
 function sidebarBreakpointBlock(): string {
   const start = consoleCss.indexOf('@media (max-width: 768px)', consoleCss.indexOf('.mobile-tabbar'));
@@ -80,14 +91,28 @@ describe('routed tab bars are scoped to the sidebar breakpoint', () => {
   it('hides the ROWS that hold nothing but a routed bar', () => {
     // Hiding the nav alone leaves its row's `padding: 20px 32px 0` as an
     // unexplained band on desktop (standards + spec review, 2026-09-03).
-    for (const selector of ['.rq-subnav', '.reviews-subnav--tabs-only']) {
-      const rule = new RegExp(`^\\${selector}\\s*\\{([^}]*)\\}`, 'm').exec(consoleCss);
-      expect(rule, `no base rule for ${selector}`).not.toBeNull();
-      expect(rule![1]).toMatch(/display:\s*none/);
-    }
-    const block = sidebarBreakpointBlock();
-    expect(block).toMatch(/\.rq-subnav\s*\{[^}]*display:\s*flex/);
-    expect(block).toMatch(/\.reviews-subnav--tabs-only\s*\{[^}]*display:\s*flex/);
+    const reviewsRow = /^\.reviews-subnav--tabs-only\s*\{([^}]*)\}/m.exec(consoleCss);
+    expect(reviewsRow, 'no base rule for .reviews-subnav--tabs-only').not.toBeNull();
+    expect(reviewsRow![1]).toMatch(/display:\s*none/);
+    expect(sidebarBreakpointBlock()).toMatch(
+      /\.reviews-subnav--tabs-only\s*\{[^}]*display:\s*flex/,
+    );
+
+    // `.rq-subnav` is asserted in ITS OWN stylesheet. Asserting it in
+    // console.css is what let the broken version pass.
+    const rqRow = /^\.rq-subnav\s*\{([^}]*)\}/m.exec(requestsCss);
+    expect(rqRow, 'no base .rq-subnav rule in requests.css').not.toBeNull();
+    expect(rqRow![1]).toMatch(/display:\s*none/);
+    expect(requestsCss).toMatch(
+      /@media\s*\(max-width:\s*768px\)\s*\{[^}]*\.rq-subnav\s*\{[^}]*display:\s*flex/,
+    );
+  });
+
+  it('does not try to govern .rq-subnav from the layout stylesheet', () => {
+    // The regression this test exists for: console.css loads BEFORE
+    // requests.css, so any display rule for `.rq-subnav` there is dead.
+    const stray = /^\.rq-subnav\s*\{([^}]*)\}/m.exec(consoleCss);
+    expect(stray, '.rq-subnav display rule is back in console.css, where it loses').toBeNull();
   });
 
   it('never hides the Reviews history row, which carries more than tabs', () => {

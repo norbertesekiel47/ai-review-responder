@@ -142,7 +142,7 @@ the code before triage; none was accepted on the agent's word.
 | standards | Three near-identical child blocks | One `NAV_CHILDREN` table, which `hasCurrentChild` also reads — a second copy of those hrefs is how parent and child disagree |
 | spec | Dead `'qr'` widening + inline svg in `SettingsSidebar` | The glyph MOVED to the shell `Icon`, where the new standalone row uses it |
 | spec | `Needs action` → `Needs Action` was undeclared drift | Declared in `user_visible_behavior` |
-| standards | Header comment on the moved page still said "settings section" | Rewritten |
+| standards | Header comment on the moved page still said "settings section" | **NOT rewritten — this row was false.** Round 2 caught it: the lines were byte-identical to `cacfa521`. Actually rewritten in the round-2 commit. See D9 R2. |
 
 **The two HIGH findings are the ones worth remembering.** Neither was reachable
 by the 27-row gate: jsdom loads no CSS, so an unstyled page passes every test,
@@ -188,3 +188,43 @@ the trigger fires on every branch that moves a folder. Recorded here rather
 than silently bumping the number.
 
 The intake now carries the measured figures.
+
+
+## D9 — round-2 verification: 11 of 12 confirmed, 1 not fixed, 3 new
+
+The round-2 agent verified each round-1 claim rather than taking the triage
+record's word, and that was the right call twice over.
+
+**R1 (HIGH) — the `.rq-subnav` fix did not work in a browser.** I put
+`.rq-subnav { display: none }` in `console.css`. But `requests.css` OWNS that
+selector, declares `display: flex` at equal specificity, and is PAGE-imported by
+`RequestsTabs` — so it loads later and wins. The agent verified this against the
+built CSS order in this exact HEAD's client-reference manifest, not by
+inference. The empty 20px band was still on screen at 1440px on all three
+Requests routes.
+
+**And my test could not have caught it**, because it read only `console.css`.
+A source-scanning test is only as good as the set of files it scans; scanning
+one file of a cascade asserts nothing about the cascade. The rules now live in
+`requests.css` beside the selector they govern, the test reads both files, and a
+new case fails if a `.rq-subnav` display rule ever reappears in `console.css`.
+
+**R2 — D6 recorded a fix that was never made.** It listed the moved page's
+header comment as "Rewritten"; the lines were byte-identical to the pre-review
+commit, still calling the surface a "settings section". A false entry in the
+triage record is worse than the defect it hides, because the record is what a
+reviewer trusts instead of re-reading. D6's row is corrected in place rather
+than quietly amended, and the comment is now actually rewritten.
+
+**R3** — the deleted glyph's docblock outlived the code and contradicted the
+comment four lines below it, telling a future reader to re-add the pattern the
+fix removed. Rewritten.
+
+**R4** — `/dashboard/requests/qr` was hand-typed twice in `Sidebar.tsx`, while
+the table's own comment claimed a second copy is what it exists to prevent. The
+two rows are mutually exclusive by flag, so no test renders both, and the
+un-tabled one is the row that ships in production. Now one `REVIEW_QR_NAV`
+constant feeds both.
+
+**Verdict:** ACCEPT — all four fixed. No round 3: R1 is the only behavioural
+change and it is covered by a test that now reads the file it was blind to.

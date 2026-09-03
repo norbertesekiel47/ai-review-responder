@@ -2351,7 +2351,10 @@
    "Showing: <location>" text and must NOT be hidden — with its tabs gone the
    lone span would jump left under `space-between`, so that row is right-aligned
    instead. */
-.rq-subnav { display: none; }
+/* `.rq-subnav` is NOT handled here. `requests.css` owns that selector and is
+   PAGE-imported by RequestsTabs, so it loads after this file and wins at equal
+   specificity — a `display: none` here is dead on arrival (round-2 review,
+   verified against the built CSS order). Its rules live beside it instead. */
 .reviews-subnav--tabs-only { display: none; }
 .reviews-subnav { justify-content: flex-end; }
 
@@ -2361,7 +2364,6 @@
   .sidebar { display: none; }
   /* The routed bars, and their rows, return exactly where the sidebar leaves. */
   .tabs--routed { display: flex; }
-  .rq-subnav { display: flex; }
   .reviews-subnav--tabs-only { display: flex; }
   .reviews-subnav { justify-content: space-between; }
   /* The canvas goes edge-to-edge below the shell breakpoint; the deep field
