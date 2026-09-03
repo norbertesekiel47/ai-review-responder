@@ -5,7 +5,18 @@ is on disk; never ask for the prior transcript.
 
 ## Where this run is
 
-Step 4 (execute tracers). Phase `plan_approved`. Ladder: `.feature/progress.json`.
+**Step 8 — COMPLETE and awaiting a merge decision.** Phase `reviewed`, ladder
+100%. PR: https://github.com/RepWorth/ai-review-responder/pull/1110 (CLEAN, all
+checks green). Gate GREEN at the pushed HEAD; `red-team-status` WAIVED (risk
+normal, recorded from the signed-off intake).
+
+Two review rounds, sixteen findings, ten deviations all verdicted. **Read
+`-deviations.md` D3, D4, D7 and D9 before trusting anything mechanical about
+this run:** the edit-surface guard never bound (this session writes through
+Bash), there were four surface amendments against a budget of one, and D6
+contained a false entry that round 2 caught.
+
+Nothing remains except the owner's merge call and post-merge cleanup.
 
 ## Read these, by path
 
