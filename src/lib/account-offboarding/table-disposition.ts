@@ -443,9 +443,16 @@ export interface ProviderDataRetention {
 
 /**
  * What survives at a provider after the purge has done everything its API
- * allows. The deletion receipt and the privacy policy are written from these
- * reasons, so each one names the CATEGORIES that outlive redaction — never a
+ * allows. Each reason names the CATEGORIES that outlive redaction — never a
  * handle, never a count.
+ *
+ * The deletion receipt and the privacy policy state the SAME categories, but
+ * neither imports this array: both hardcode their own prose, because one is
+ * HTML for an email and the other is a legal document, and neither can render
+ * from a reason string. So the three are kept in step by REVIEW, not by the
+ * compiler. An earlier version of this comment said they "are written from
+ * these reasons", which implied a coupling that does not exist and would have
+ * let a reader assume editing here propagates.
  */
 export const PROVIDER_DATA_RETENTION = [
   {

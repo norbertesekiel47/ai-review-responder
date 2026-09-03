@@ -270,6 +270,57 @@ describe('redactStripeCustomer', () => {
     expect(stripe.customers.update).not.toHaveBeenCalled();
   });
 
+  it('redactStripeCustomer treats a resource_missing on the UPDATE as success', async () => {
+    // F06: the retrieve-side short circuit was covered, the UPDATE-side one was
+    // not — deleting it survived every test. The window is real: a concurrent
+    // Stripe-side deletion between the retrieve and the update lands here.
+    const { stripe } = makeStripe({}, []);
+    stripe.customers.update.mockRejectedValueOnce(
+      stripeError('StripeInvalidRequestError', 'resource_missing'),
+    );
+
+    const result = await redactStripeCustomer({
+      stripe,
+      customerId: CUSTOMER_ID,
+      offboardingId: OFFBOARDING_ID,
+    });
+
+    expect(result.outcome).toBe('customer_absent');
+  });
+
+  it('redactStripeCustomer re-clears a customer carrying the marker but dirty fields', async () => {
+    // F08: isAlreadyRedacted uses `.every`, and `.some` survived every test
+    // because no fixture had the marker present WITH a field still populated.
+    // That state is reachable: a previous attempt wrote metadata and then
+    // failed, or a later write repopulated one field. Under `.some` this
+    // returns already_redacted and the dirty field stays live at Stripe
+    // forever — a silent erasure failure reported as success.
+    const { stripe, state } = makeStripe(
+      {
+        name: null,
+        email: 'still-here@example.com', // the one dirty field
+        phone: null,
+        description: null,
+        address: null,
+        shipping: null,
+        business_name: null,
+        individual_name: null,
+        metadata: { [STRIPE_CUSTOMER_REDACTION_METADATA_KEY]: OFFBOARDING_ID },
+      },
+      [],
+    );
+
+    const result = await redactStripeCustomer({
+      stripe,
+      customerId: CUSTOMER_ID,
+      offboardingId: OFFBOARDING_ID,
+    });
+
+    expect(result.outcome).toBe('redacted');
+    expect(stripe.customers.update).toHaveBeenCalledTimes(1);
+    expect(state.email).toBeNull();
+  });
+
   it('redactStripeCustomer treats a resource_missing error as success', async () => {
     const { stripe } = makeStripe();
     stripe.customers.retrieve.mockRejectedValueOnce(
@@ -331,9 +382,18 @@ describe('redactStripeCustomer', () => {
     expect(options!.idempotencyKey).toBe(
       stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID),
     );
-    expect(stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID)).toBe(
+    // NOT `f(x) === f(x)` — that is true of every pure function and proves
+    // nothing about THIS one (F11). What the retry story needs is that the key
+    // is derived from the offboarding id and from nothing else: stable across
+    // calls, and DIFFERENT for a different offboarding, so two purges cannot
+    // collide on one Stripe idempotency record.
+    const other = '99999999-8888-4777-8666-555555555555';
+    expect(stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID)).toContain(OFFBOARDING_ID);
+    expect(stripeCustomerRedactionIdempotencyKey(other)).not.toBe(
       stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID),
     );
+    // Stripe caps idempotency keys at 255 characters.
+    expect(stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID).length).toBeLessThanOrEqual(255);
   });
 });
 

@@ -114,6 +114,7 @@ process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
 process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list_test';
 
 import { handleStripeWebhook } from '../stripe';
+import { warnStripeSubscriptionEventAckedForAge } from '../stripe/shared';
 
 afterAll(() => {
   if (_origStripeSecretKey === undefined) delete process.env.STRIPE_SECRET_KEY;
@@ -655,35 +656,32 @@ describe('handleStripeWebhook — subscription event context and stale ack', () 
     expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
   });
 
-  it('the acked-for-age Sentry warning is raised from an event context carrying both id and created', async () => {
-    // The warning is the operator's handle for the retained inbound_events
-    // row. Without the event id there is nothing to look up, and without the
-    // customer id there is nothing to correlate — so both must be present,
-    // and both can only come from the event context.
-    mockProcessSubscriptionUpdated.mockImplementation(
-      async (_sub: unknown, ctx: { id: string; created: number }) => {
-        const Sentry = await import('@sentry/node');
-        Sentry.captureMessage('stripe_subscription_event_acked_for_age', {
-          level: 'warning',
-          extra: { event_id: ctx.id, event_created: ctx.created, stripe_customer_id: 'cus_stale' },
-        });
-        return { kind: 'ignored', reason: 'stale_no_account' };
-      },
-    );
-    mockConstructEvent.mockReturnValue({
-      id: 'evt_warning_context',
-      type: 'customer.subscription.updated',
-      created: CREATED,
-      data: { object: { id: 'sub_stale', customer: 'cus_stale' } },
+  it('the acked-for-age Sentry warning is raised from an event context carrying both id and created', () => {
+    // This test used to mock processSubscriptionUpdated with an implementation
+    // that CALLED captureMessage itself, then asserted that payload — it
+    // asserted its own stub. The production warning's `extra` block was pinned
+    // nowhere, so deleting event_id and stripe_customer_id from it left the
+    // suite green, and those two fields are the entire operator handle that D9
+    // used to justify rejecting a reconciliation worker.
+    //
+    // It now calls the REAL exported function. No stub stands between the
+    // assertion and the code it claims to protect.
+    warnStripeSubscriptionEventAckedForAge({
+      eventContext: { id: 'evt_warning_context', created: CREATED },
+      eventType: 'customer.subscription.updated',
+      customerId: 'cus_stale',
+      subscriptionId: 'sub_stale',
     });
 
-    await handleStripeWebhook(mkRequest('customer.subscription.updated'), mkReply().reply);
-
     expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
-    const [, options] = mockCaptureMessage.mock.calls[0]!;
+    const [message, options] = mockCaptureMessage.mock.calls[0]!;
+    expect(message).toBe('stripe_subscription_event_acked_for_age');
     expect(options).toMatchObject({
       level: 'warning',
       extra: {
+        // The id finds the retained inbound_events row; the customer id
+        // correlates it to the account that never got provisioned. Neither is
+        // reconstructable from the other.
         event_id: 'evt_warning_context',
         event_created: CREATED,
         stripe_customer_id: 'cus_stale',

@@ -169,6 +169,12 @@ interface StripeCustomerRedactionErrorDetails {
  * one route by which the id this stage exists to erase reaches `last_error`
  * and Sentry. A bounded message plus structured details tells an operator what
  * failed without re-persisting the handle.
+ *
+ * NO CODE READS `retryable`, `operation` or `stripeError` today — `PurgeWorker`
+ * takes only `err.message`. They exist for the human reading a stored error,
+ * not for a branch. An earlier version of this docblock named the worker's
+ * failure sink as their consumer, which was simply untrue; if a future caller
+ * does branch on `retryable`, that is the moment to give it a test.
  */
 export class StripeCustomerRedactionError extends Error {
   readonly retryable: boolean;
@@ -353,10 +359,17 @@ function redactionError(
 }
 
 /**
- * The retry POLICY is this module's own; only the type vocabulary is shared
- * (`payments/stripe-error-inspect.ts`). Both arms throw — the classification
- * exists so the purge worker's failure sink can tell a Stripe outage from a
- * misconfiguration without parsing a message.
+ * BYTE-IDENTICAL to `stripe-invoices.ts`'s function of the same name, and that
+ * duplication is deliberate rather than overlooked. `stripe-error-inspect.ts`
+ * owns the type VOCABULARY and says in its own header that each consumer keeps
+ * its own retry POLICY; two offboarding modules currently agree on that policy,
+ * and collapsing them would make a future divergence in one a silent change to
+ * the other. An earlier version of this comment claimed the policy was "this
+ * module's own", which read as though it differed. It does not, today.
+ *
+ * Both arms throw. The classification rides on the thrown error so an operator
+ * reading `last_error` can tell a Stripe outage from a misconfiguration without
+ * parsing a provider message — nothing in the worker branches on it.
  */
 function isRetryableStripeError(err: unknown): boolean {
   const type = stringProperty(err, 'type');

@@ -235,8 +235,23 @@ describe('health-alert checks', () => {
       const queryText = template.join(' ');
       expect(queryText).toContain("status = 'failed'");
       expect(queryText).not.toContain('stale_ignored');
-      expect(queryText).not.toContain('IN (');
-      expect(queryText).not.toContain('!=');
+
+      // BEHAVIOURAL, not a token-absence proxy. The earlier version asserted
+      // not.toContain('IN (') and not.toContain('!='), which are satisfied by
+      // any rewrite that happens to avoid those characters and broken by
+      // innocuous ones — a predicate could widen via OR and still pass. What
+      // actually matters is that acked-for-age rows never reach this finding
+      // set, so feed the probe a stale_ignored-shaped row and prove the
+      // production predicate is the thing that excludes it.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 40 },
+      ]);
+      const findings = await checkFailedInboundEvents(mockSql, CFG);
+      expect(findings.map((f) => f.key)).toEqual([
+        'inbound_events_failed:stripe:customer.subscription.updated',
+      ]);
+      const [secondTemplate] = mockSql.mock.calls[1] as [TemplateStringsArray, ...unknown[]];
+      expect(secondTemplate.join(' ')).not.toContain('stale_ignored');
     });
   });
 

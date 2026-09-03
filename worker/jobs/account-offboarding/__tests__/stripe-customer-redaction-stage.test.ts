@@ -142,15 +142,24 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
   });
 
   it('the redaction guard still skips when the writer wins the binding lock first', async () => {
-    // The other lock-winner order. If the writer commits its binding first, the
-    // guard's count sees the new sibling and must skip — the lock only makes
-    // the two orders deterministic, it does not decide the outcome.
+    // F10: this was a byte-duplicate of the shared-customer test above and
+    // exercised no ordering at all. The claim its title makes is that the LOCK
+    // is what makes the two interleavings deterministic — so assert the thing
+    // that is actually order-dependent: the lock must be acquired BEFORE the
+    // count reads, or the writer could land its binding between them and the
+    // guard would read a stale zero.
     harness.sqlReturnQueue.push(mkTaggedResult([{}]));
     harness.sqlReturnQueue.push(mkTaggedResult([{ count: 1 }]));
     harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
 
     await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
 
+    // Order, not merely presence: lock first, count second, both in ONE tx so
+    // the lock is still held while the count is read.
+    expect(lockIndex()).toBe(0);
+    expect(lockIndex()).toBeLessThan(sharingCountIndex());
+    expect(harness.sqlCalls[lockIndex()]!.inTransaction).toBe(true);
+    expect(harness.sqlCalls[sharingCountIndex()]!.inTransaction).toBe(true);
     expect(mockRedactStripeCustomer).not.toHaveBeenCalled();
     expect(JSON.stringify(dispositionAppend()!.values)).toContain(
       'skipped_shared_customer',

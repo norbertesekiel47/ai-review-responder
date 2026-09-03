@@ -53,6 +53,7 @@ import { processSubscriptionUpdated } from '../stripe/subscription-updated';
 import {
   AccountNotProvisionedYetError,
   OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+  outOfOrderRetryWindowOpen,
 } from '../stripe/shared';
 import { resetServerConfigForTests } from '../../../src/lib/config/server';
 
@@ -937,6 +938,17 @@ describe('processSubscriptionUpdated out-of-order retry bound', () => {
       eventContext(901),
     );
     expect(outcome).toMatchObject({ kind: 'ignored', reason: 'stale_no_account' });
+  });
+
+  it('outOfOrderRetryWindowOpen leaves the window OPEN for a non-finite created', () => {
+    // F07: the guard had no covering test — deleting it survived. It is not
+    // defensive padding. stripe-out-of-order.test.ts builds events with NO
+    // `created`, so the arithmetic yields NaN, and `NaN <= 900` is FALSE: the
+    // window read as CLOSED and the handler acked with 200 where it should
+    // have signalled 500. Non-finite fails toward RETRY, like a negative age.
+    expect(outOfOrderRetryWindowOpen(Number.NaN)).toBe(true);
+    expect(outOfOrderRetryWindowOpen(Number.POSITIVE_INFINITY)).toBe(true);
+    expect(outOfOrderRetryWindowOpen(undefined as unknown as number)).toBe(true);
   });
 
   it('processSubscriptionUpdated throws rather than acking for a future event timestamp', async () => {
