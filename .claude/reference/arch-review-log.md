@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 14** — last reset to 0 by the
+**Merges since last architecture pass: 15** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -209,7 +209,7 @@ Merges since the 2026-08-26 pass:
   four surfaces. Touches `src/components/ui/InfoTip.tsx` ·
   `src/components/dashboard/kpi/{ReputationHeroBand,RepPulseCard,WeeklyRecapCard}.tsx` ·
   `src/components/dashboard/NeedsAttentionList.tsx` ·
-  `src/app/(authenticated)/_styles/console.css`. Takes the counter to **14**.
+  `src/app/(authenticated)/_styles/console.css`. Takes the counter to **15**.
   **It does NOT reuse `useMenuPopover`**, which `docs/design/console/DESIGN.md`
   names the single owner of popover behavior — that hook `preventDefault`s
   Arrow/Home/End *before* checking whether a `menuitem` exists, so a tip, which
