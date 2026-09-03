@@ -745,7 +745,12 @@ describe('isRefusalLedgerEnabled', () => {
   // latch inside the new export would satisfy any single-call assertion, so the
   // oracle has to be a MIXED episode: the note and a write arm together must
   // still produce exactly one line.
-  it('noteRefusalLedgerDark shares the write arms\' once-per-episode latch', async () => {
+  // DOUBLE QUOTES, deliberately, and this is not a style choice. The gate's
+  // `promised-tests` row greps each intake title as a VERBATIM substring. A
+  // single-quoted string spells the apostrophe as `arms\'`, the backslash breaks
+  // the match, and the row reports a written test as missing — which is how this
+  // very title first went red. `avoidEscape` makes double quotes lint-clean here.
+  it("noteRefusalLedgerDark shares the write arms' once-per-episode latch", async () => {
     process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
     // The NOTE goes first, so it is the call that opens the episode. If it kept
