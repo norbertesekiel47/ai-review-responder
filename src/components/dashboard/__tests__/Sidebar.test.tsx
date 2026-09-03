@@ -259,3 +259,78 @@ describe('Sidebar', () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 });
+
+// #1092 / #1089. Desktop navigation is sidebar CHILDREN; the in-page pill bars
+// survive only below the sidebar breakpoint. Children follow the ACTIVE section,
+// matching the existing Reviews behaviour — there is no stored disclosure state.
+describe('Sidebar — section children', () => {
+  it('the sidebar lists Needs Action and All Reviews under Reviews', () => {
+    pathnameMock.mockReturnValue('/dashboard/reviews');
+    render(
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} />),
+    );
+    expect(screen.getByRole('link', { name: 'Needs Action' })).toHaveAttribute(
+      'href',
+      '/dashboard/reviews',
+    );
+    expect(screen.getByRole('link', { name: 'All Reviews' })).toHaveAttribute(
+      'href',
+      '/dashboard/reviews/history',
+    );
+  });
+
+  it('the sidebar lists Requests, Contacts and Review QR under Requests', () => {
+    pathnameMock.mockReturnValue('/dashboard/requests');
+    render(
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+    );
+    expect(screen.getByRole('link', { name: 'Contacts' })).toHaveAttribute(
+      'href',
+      '/dashboard/requests/contacts',
+    );
+    // The Review QR surface moves out of Settings (#1092, item 3).
+    expect(screen.getByRole('link', { name: 'Review QR' })).toHaveAttribute(
+      'href',
+      '/dashboard/requests/qr',
+    );
+  });
+
+  it('the sidebar lists Metrics and Restraint under Analytics', () => {
+    pathnameMock.mockReturnValue('/dashboard/analytics');
+    render(
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} />),
+    );
+    expect(screen.getByRole('link', { name: 'Metrics' })).toHaveAttribute(
+      'href',
+      '/dashboard/analytics',
+    );
+    expect(screen.getByRole('link', { name: 'Restraint' })).toHaveAttribute(
+      'href',
+      '/dashboard/analytics/restraint',
+    );
+  });
+
+  it('the Requests section and its children are hidden when solicitation is disabled', () => {
+    // Invariant #13: the flag arrives as a prop. A child must never outlive the
+    // parent it hangs from — a Review QR link under a hidden Requests row is a
+    // route with no visible way back.
+    pathnameMock.mockReturnValue('/dashboard/requests');
+    render(
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} />),
+    );
+    expect(screen.queryByRole('link', { name: 'Requests' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Contacts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Review QR' })).not.toBeInTheDocument();
+  });
+
+  it('opens only the ACTIVE section, so two child groups never show at once', () => {
+    pathnameMock.mockReturnValue('/dashboard/analytics');
+    render(
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+    );
+    expect(screen.getByRole('link', { name: 'Restraint' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'All Reviews' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Contacts' })).not.toBeInTheDocument();
+  });
+});
+
