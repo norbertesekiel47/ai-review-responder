@@ -286,7 +286,7 @@ describe('NeedsAttentionList info tip (#1086)', () => {
 
   // Guardian triages and escalates; it never acts publicly. Nothing on the
   // card said so, and no label can carry it.
-  it('says what puts a review here, and that Guardian never posts', async () => {
+  it('every covered surface names what its number means', async () => {
     stubOneEscalation();
     renderList();
 

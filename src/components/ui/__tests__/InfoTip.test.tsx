@@ -60,16 +60,23 @@ describe('InfoTip', () => {
   });
 
   // The touch contract: hover never fires on a phone, so the tip must be
-  // reachable by tap alone. A click IS the tap in jsdom.
-  it('opens on click, so a device without a pointer can reach it', async () => {
+  // reachable by tap alone. A click IS the tap in jsdom. Both paths are
+  // asserted here because the promise names both.
+  it('the tip opens on click as well as hover, so a touch device can reach it', async () => {
     const user = userEvent.setup();
-    renderTip();
+    const { unmount } = renderTip();
 
+    // Default stub reports no hover: the click path stands on its own.
     await user.click(trigger());
-
     expect(panel()).not.toHaveAttribute('hidden');
     expect(trigger()).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(EXPLANATION)).toBeVisible();
+    unmount();
+
+    stubMediaQuery('(hover: hover)');
+    renderTip();
+    await user.hover(trigger());
+    expect(panel()).not.toHaveAttribute('hidden');
   });
 
   it('closes on a second click and hands focus back to the trigger', async () => {
@@ -83,7 +90,7 @@ describe('InfoTip', () => {
     await waitFor(() => expect(trigger()).toHaveFocus());
   });
 
-  it('opens from the keyboard and closes on Escape, restoring focus', async () => {
+  it('the tip is reachable by keyboard and closes on Escape', async () => {
     const user = userEvent.setup();
     renderTip();
 
@@ -101,7 +108,7 @@ describe('InfoTip', () => {
     await waitFor(() => expect(trigger()).toHaveFocus());
   });
 
-  it('associates the open explanation with the element it describes', async () => {
+  it('the tip is associated with the element it describes', async () => {
     const user = userEvent.setup();
     renderTip();
 

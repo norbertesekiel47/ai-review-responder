@@ -101,7 +101,7 @@ describe('WeeklyRecapCard info tip (#1086)', () => {
   // The series groups on DATE_TRUNC('week', LEAST(review_date, detected_at))
   // — the review-time anchor of ADR 0019. An owner comparing this card against
   // Google cannot see that from a label.
-  it('says a review counts in the week it was written', () => {
+  it('every covered surface names what its number means', () => {
     render(<WeeklyRecapCard trend={LIVE} />);
 
     const trigger = screen.getByRole('button', { name: 'What Your week means' });

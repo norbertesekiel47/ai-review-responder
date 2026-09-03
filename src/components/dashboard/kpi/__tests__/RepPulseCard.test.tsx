@@ -106,7 +106,7 @@ describe('RepPulseCard — info tip (#1086)', () => {
 
   // "What moved it" and "What will set it" both explain the COMPOSITION. A
   // coined name and a Beta chip never say what the number IS.
-  it('names what the coined score is, in the scored state', () => {
+  it('every covered surface names what its number means', () => {
     render(<RepPulseCard summary={summary()} />);
 
     const tip = screen.getByRole('button', { name: TIP_NAME });
@@ -135,7 +135,7 @@ describe('RepPulseCard — info tip (#1086)', () => {
 
   // Intake invariant: a screen reader only announces changes to a region that
   // already existed, so the tip must not displace one.
-  it('does not move the ramping card live region in the tree', () => {
+  it('adding a tip does not move an existing LiveRegion in the tree', () => {
     const { container } = render(<RepPulseCard summary={summary({ isRamping: true })} />);
 
     const head = container.querySelector('.pulse-head');

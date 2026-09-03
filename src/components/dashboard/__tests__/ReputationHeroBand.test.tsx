@@ -127,22 +127,19 @@ describe('ReputationHeroBand info tips (#1086)', () => {
     return document.getElementById(trigger.getAttribute('aria-controls') as string);
   }
 
-  it('says an average rating is the window, not the all-time Google score', () => {
+  // Average rating: the window, not the all-time Google score.
+  // Time saved: an estimate, and the tip names the constant behind it, so the
+  // figure is not mistaken for a measurement.
+  it('every covered surface names what its number means', () => {
     renderHero();
 
-    const panel = panelFor('What Average rating means');
-    expect(panel).toHaveTextContent('last 30 days');
-    expect(panel).toHaveTextContent('not your all-time rating on Google');
-  });
+    const rating = panelFor('What Average rating means');
+    expect(rating).toHaveTextContent('last 30 days');
+    expect(rating).toHaveTextContent('not your all-time rating on Google');
 
-  // The number is an estimate built from a constant. The tip names the
-  // constant, so the figure is not mistaken for a measurement.
-  it('says time saved is an estimate and names the minutes per reply', () => {
-    renderHero();
-
-    const panel = panelFor('What Time saved means');
-    expect(panel).toHaveTextContent('An estimate');
-    expect(panel).toHaveTextContent(String(MINUTES_SAVED_PER_RESPONSE));
+    const saved = panelFor('What Time saved means');
+    expect(saved).toHaveTextContent('An estimate');
+    expect(saved).toHaveTextContent(String(MINUTES_SAVED_PER_RESPONSE));
   });
 
   // Assumption 4: a tip is warranted only where a better label or an existing
