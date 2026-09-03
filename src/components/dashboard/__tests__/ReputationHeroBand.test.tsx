@@ -134,8 +134,13 @@ describe('ReputationHeroBand info tips (#1086)', () => {
     renderHero();
 
     const rating = panelFor('What Average rating means');
-    expect(rating).toHaveTextContent('last 30 days');
-    expect(rating).toHaveTextContent('not your all-time rating on Google');
+    // WRITTEN, not received: the star query buckets on the Review-time anchor.
+    expect(rating).toHaveTextContent('written in this period');
+    expect(rating).toHaveTextContent('not the day RepWorth found it');
+    expect(rating).toHaveTextContent('not your all-time Google rating');
+    // No fixed window may be named — this band also renders on
+    // /dashboard/analytics under a 7d/30d/90d/12w selector.
+    expect(rating).not.toHaveTextContent('30 days');
 
     const saved = panelFor('What Time saved means');
     expect(saved).toHaveTextContent('An estimate');

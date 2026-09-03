@@ -152,6 +152,10 @@ describe('AgentTeamStrip — deliberately carries no info tip (#1086)', () => {
     render(<AgentTeamStrip scope="all" />, { wrapper });
 
     expect(await screen.findByText('12 replies posted')).toBeInTheDocument();
+    // Structural, not name-based. The name regex alone could not fail: reword
+    // InfoTip's sr-only label and this test would stay green while a tip was
+    // added undetected. The class is what InfoTip always renders.
+    expect(document.querySelectorAll('.info-tip')).toHaveLength(0);
     expect(screen.queryByRole('button', { name: /^What .* means$/ })).toBeNull();
     expect(screen.getByText('Publishes approved replies')).toBeInTheDocument();
     expect(screen.getByText('Flags reviews that need you')).toBeInTheDocument();

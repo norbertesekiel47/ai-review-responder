@@ -2297,6 +2297,11 @@
 }
 .needs-attention-link:hover { text-decoration: underline; }
 .needs-attention-link:focus-visible { outline: 2px solid var(--rw-nav-ink); outline-offset: 3px; }
+/* (#1086) `.card-h2` is a block heading, so a tip placed after it would drop to
+   its own line. This row sets the two side by side without disturbing the count
+   `<p>` below. Note `.needs-attention-title-icon` above is NOT a child of this
+   — it is a sibling of the div this row lives in, despite the name. */
+.needs-attention-title { display: flex; align-items: center; gap: var(--rw-sp-1); }
 
 /* Zone 4 — reputation trend (clean line, star-equivalent) */
 .rep-trend-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
@@ -2962,12 +2967,16 @@
    Info tip (#1086)
    ==========================================================================
    The shared affordance that says what a headline number means. Both elements
-   are inline spans, so a tip is legal inside a heading; the panel is taken out
-   of flow, so adding one never re-flows the row it sits in.
+   are inline spans, so a tip is legal inside a heading or a label; the panel is
+   taken out of flow, so adding one never re-flows the row it sits in.
 
-   `left: 0` rather than a centred transform: every placement sits at the START
-   of a card header, so the panel grows inward and the clamp below is what
-   keeps it off the right edge. A centred panel would overhang at 390px. */
+   THE PANEL IS ANCHORED TO ITS TRIGGER, AND THAT IS WHY `align` EXISTS. An
+   18rem panel growing rightward from a trigger in a right-hand column runs past
+   the canvas, and `.main { overflow: clip }` cuts it with no scrollbar and no
+   cue. Measured in a browser on the hero's third stat: the panel ran to 897px
+   inside a 769px viewport and was STILL overflowing at 1000px. A `start` and a
+   `1440px` screenshot straddle that band and see nothing, which is exactly how
+   it shipped to review. A right-hand tip passes `align="end"`. */
 .info-tip {
   position: relative;
   display: inline-flex;
@@ -3025,16 +3034,29 @@
   line-height: 1.5;
   text-align: start;
   white-space: normal;
-  transition: opacity var(--rw-dur-fast) var(--rw-ease);
 }
 
 .info-tip-panel[hidden] { display: none; }
 
-/* Below the shell breakpoint the panel spans the page gutters instead of
-   hanging off its trigger. `left: 0` on a trigger that sits part-way along a
-   row pushes 18rem of panel past the right edge at 390px — it clipped, and it
-   widened the page. Dropping `.info-tip` out of the positioning context hands
-   the panel the initial containing block, so the two gutters bound it. */
+/* The right-hand variant: the panel grows LEFT from the trigger instead, so a
+   tip in a right-hand column stays inside the canvas. */
+.info-tip--end .info-tip-panel {
+  left: auto;
+  right: 0;
+}
+
+/* Below the shell breakpoint the panel spans its gutters instead of hanging off
+   its trigger. Anchored, an 18rem panel on a trigger part-way along a row ran
+   past the right edge at 390px — it clipped, and it widened the page to 488px.
+
+   Taking `.info-tip` out of the positioning context hands the panel the nearest
+   ancestor that still establishes one. That is USUALLY the `.section-enter`
+   card wrapper, NOT the viewport: its `animation: … both` retains the final
+   `transform: translateY(0)` (console.css § section-enter), and a non-`none`
+   transform establishes a containing block. Under `prefers-reduced-motion` that
+   animation is cancelled and the containing block becomes the initial one, so
+   the panel is viewport-bounded instead. Both cases fit — the card is the
+   tighter of the two — but do not reason from "the viewport" here. */
 @media (max-width: 768px) {
   .info-tip { position: static; }
 
@@ -3044,9 +3066,11 @@
     right: var(--rw-sp-4);
     width: auto;
     max-width: none;
-    /* `top: auto` resolves to the static position, which is the trigger's own
-       baseline. Clear the line it sits on. */
-    margin-top: var(--rw-sp-6);
+    /* `top: auto` resolves to the static position. For an absolutely-positioned
+       child of a flex container that is the CONTENT-BOX TOP of `.info-tip`, not
+       a text baseline (CSS Flexbox § 4.1) — so this clears the trigger BOX, and
+       is written as its height plus the same 8px the anchored rule uses. */
+    margin-top: calc(20px + var(--rw-sp-2));
   }
 }
 
@@ -3055,17 +3079,22 @@
    the Beta chip at the far edge. */
 .pulse-head .info-tip { margin-inline-end: auto; }
 
-/* `.card-h2` is a block heading, so a tip after it would drop to its own line.
-   This row puts the two side by side without disturbing the `<p>` below. */
-.needs-attention-title { display: flex; align-items: center; gap: var(--rw-sp-1); }
-
 /* Needs attention is the one inverted deep panel. App ink is unreadable on it,
-   so the trigger takes the on-dark tokens. */
+   so the trigger takes the on-dark tokens — and so must the focus ring.
+   `--rw-focus` is #3E6B65, which is 1.44:1 on `--rw-deep-panel` #33505A and so
+   invisible; its own token comment says "on app surface". `.needs-attention-link`
+   already sets the same precedent for this surface. WCAG 2.2 SC 1.4.11 wants
+   3:1 for a focus indicator. */
 .needs-attention .info-tip-trigger { color: var(--rw-on-dark-muted); }
 
 .needs-attention .info-tip-trigger:hover {
   background: var(--rw-deep-panel-soft);
   color: var(--rw-on-accent);
+}
+
+.needs-attention .info-tip-trigger:focus-visible {
+  outline-color: var(--rw-nav-ink);
+  box-shadow: 0 0 0 3px var(--rw-deep-panel-soft);
 }
 
 /* The hero is the one placement that is not a white card. Muted app ink is too
@@ -3118,7 +3147,6 @@
   .rating-row,
   .empty-link,
   .info-tip-trigger,
-  .info-tip-panel,
   .loc-kpi-card { transition: none; }
 
   .loc-kpi-card:hover { transform: none; }

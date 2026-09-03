@@ -122,10 +122,14 @@ export function NeedsAttentionList() {
               the `<h2>` would join the queue's accessible name. */}
           <div className="needs-attention-title">
             <h2 id="needs-attention-heading" className="card-h2">Needs attention</h2>
+            {/* NOT "reads every review": `runTriage` returns early for any
+                positive-sentiment review, and 4★/5★ are positive. The second
+                sentence IS unconditional — Guardian has no publishing path at
+                all, on any tier. */}
             <InfoTip subject="Needs attention">
-              Guardian reads every review and puts one here when it finds
-              something you should see yourself. Guardian never replies and
-              never posts anything.
+              Guardian reads every review that is not a clear positive, and puts
+              one here when it finds something you should see yourself. Guardian
+              never replies and never posts anything.
             </InfoTip>
           </div>
           <p>{countCopy}</p>

@@ -16,7 +16,9 @@ wrong here:
 
 1. The hook calls `event.preventDefault()` on Arrow/Home/End **before** it
    checks whether any `menuitem` exists
-   (`src/components/dashboard/shell/useMenuPopover.ts:127-131`). A tip has none,
+   (`useMenuPopover.ts` — `preventDefault()` at :131, the `items.length === 0`
+   check at :133; cited by that ordering rather than a range, because a range is
+   the artefact that goes stale first). A tip has none,
    so reuse would swallow arrow-key page scrolling for no gain.
 2. It focuses a `[role^="menuitem"]` on open. A tip has none.
 3. `src/components/ui/` has never imported from `src/components/dashboard/`.
@@ -125,4 +127,74 @@ must be checked against the audit that enforces it.
 - **Panels overflowed at 390px.** `left: 0` plus an 18rem clamp pushed the panel
   past the right edge and widened the page to 488px. Fixed by a
   `max-width: 768px` rule that spans the page gutters. Verified: the rendered
-  page is exactly 390px.
+  page is exactly 390px. **That fix was incomplete — see D6.**
+
+## D6 — the aggregate location scope carries no tip, and that is a decision
+
+Intake `edge_cases[3]` required the aggregate card set to be covered **or given
+a stated reason**. The spec review found neither, which is the half that was a
+real defect: a later session could not tell whether the gap was chosen or
+missed. The reason, recorded now:
+
+Aggregate renders a **different metric under the same word**. Its "Time saved"
+is lifetime and summed across locations; the per-location hero's is 30-day and
+single-location. A tip written for one is false for the other, and this branch's
+own rule — a tip must be true against the query, not the label — makes copying
+it the wrong move. Covering aggregate honestly means writing new copy against
+`AggregateKpiCards`, which is **not** in `allowed_edit_surface` and would need a
+second surface amendment.
+
+**Decision: aggregate is out of scope for #1086, deliberately.** It is the first
+thing a follow-up ticket should take.
+
+## D7 — findings accepted from the review wave, and three rejected
+
+The wave raised 25 findings across two axes. 22 were accepted and fixed on this
+branch. The three rejections, with reasons, so they are not re-litigated:
+
+- **M3 — the dismissal machinery duplicates `useMenuPopover`.** Correct, and
+  already the subject of D1. The owner was shown this exact tradeoff as a
+  three-option choice *before* implementation and chose "InfoTip owns a small
+  disclosure" over "extract a shared `useDisclosurePopover` and have the menu
+  hook compose it". The extraction also needs a second surface amendment —
+  which `feature-state.sh` now refuses without a stated reason — and puts
+  `AccountMenu` and `LocationPicker` in the blast radius of a presentation-only
+  ticket. **Owed follow-up, not a defect to fix here.**
+- **M14 — a Console-only primitive lives in `components/ui/`.** The reviewer
+  filed it as a next-time placement call, not a change request: the intake fixed
+  that path, so the branch could not have chosen otherwise. Moving it now buys
+  zero behaviour change for one more amendment.
+- **M15 — `docs/design/console/DESIGN.md` gains no entry for the new primitive.**
+  Correct and owed. That file is **not** in `allowed_edit_surface`; editing it
+  is a scope breach. Recorded here so it survives the merge.
+
+### The three copy defects the wave caught
+
+Worth naming, because they are the class this branch is most likely to
+reintroduce. All three were tips that read plausibly and described the wrong
+computation:
+
+1. **Average rating** said reviews "received" in "the last 30 days". The query
+   buckets on the Review-time anchor `LEAST(review_date, detected_at)` — when
+   the review was *written* — and the component also renders on
+   `/dashboard/analytics` under a 7d/30d/90d/12w selector, so the window was
+   doubly wrong.
+2. **Rep Pulse** stated 70/30 unconditionally. `repPulseScore` renormalises the
+   rating to carry all 100 points when the response rate is null, and the "What
+   moved it" list right below already renders `… / 100` — the tip contradicted
+   the card by inches.
+3. **Needs attention** said Guardian "reads every review". `runTriage` returns
+   early on positive sentiment, and 4★/5★ are positive.
+
+The second sentence of (3) — Guardian never replies and never posts — was
+independently verified TRUE and unconditional, on any tier, and stands.
+
+### One accessibility limit, recorded rather than hidden
+
+`aria-describedby` is announced on focus. A screen-reader user in focus mode who
+opens the tip with the trigger *already focused* hears the panel on the next
+focus move, not on the keypress. Browse-mode users arrow into the now-unhidden
+panel and it works. The trigger's accessible name ("What &lt;subject&gt; means")
+carries the association either way. Fixing the focus-mode case properly wants a
+live region, which would collide with the intake's own invariant about not
+disturbing existing ones.

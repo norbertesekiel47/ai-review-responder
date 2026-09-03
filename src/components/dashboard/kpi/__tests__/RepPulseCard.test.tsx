@@ -1,8 +1,19 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { RepPulseCard } from '@/components/dashboard/kpi/RepPulseCard';
+import { REP_PULSE_WEIGHTS } from '@/lib/dashboard/rep-pulse';
 import type { ReputationSummary } from '@/lib/dashboard/types';
+
+/** The four surfaces #1086 places a tip on, relative to `src/`. */
+const TIP_BEARING_SOURCES = [
+  'components/dashboard/kpi/ReputationHeroBand.tsx',
+  'components/dashboard/kpi/RepPulseCard.tsx',
+  'components/dashboard/kpi/WeeklyRecapCard.tsx',
+  'components/dashboard/NeedsAttentionList.tsx',
+] as const;
 
 function summary(overrides: Partial<{
   star: number | null;
@@ -113,8 +124,14 @@ describe('RepPulseCard — info tip (#1086)', () => {
     const panel = document.getElementById(tip.getAttribute('aria-controls') as string);
 
     expect(panel).toHaveTextContent('A score out of 100');
-    expect(panel).toHaveTextContent('70');
-    expect(panel).toHaveTextContent('30');
+    // The weights are IMPORTED, not typed as literals: the docblock's whole
+    // promise is that the copy tracks `REP_PULSE_WEIGHTS`, and a test that
+    // hardcodes 70/30 goes red on exactly the change it exists to survive.
+    expect(panel).toHaveTextContent(`up to ${REP_PULSE_WEIGHTS.rating} of the points`);
+    expect(panel).toHaveTextContent(`the other ${REP_PULSE_WEIGHTS.response}`);
+    // The renormalised case is named, so the tip cannot contradict the
+    // "What moved it" breakdown when the response rate is unknown.
+    expect(panel).toHaveTextContent('your rating carries the whole score');
   });
 
   it('names it in the ramping state too, where there is no score to read', () => {
@@ -134,14 +151,27 @@ describe('RepPulseCard — info tip (#1086)', () => {
   });
 
   // Intake invariant: a screen reader only announces changes to a region that
-  // already existed, so the tip must not displace one.
+  // already existed, so a tip must not displace one.
+  //
+  // The invariant holds here by PREMISE, not by placement: none of the four
+  // surfaces this branch touches mounts `LiveRegion` at all. So the honest
+  // oracle is the premise itself. The earlier version of this test asserted
+  // `head.nextElementSibling` on `RepPulseCard`'s own local `role="status"`
+  // div, which is not a `LiveRegion` — it could not have detected a violation,
+  // and it would have failed on a harmless subtitle.
   it('adding a tip does not move an existing LiveRegion in the tree', () => {
-    const { container } = render(<RepPulseCard summary={summary({ isRamping: true })} />);
+    const sources = TIP_BEARING_SOURCES.map((rel) =>
+      // __tests__ -> kpi -> dashboard -> components -> src
+      readFileSync(join(import.meta.dirname, '../../../..', rel), 'utf8'),
+    );
 
-    const head = container.querySelector('.pulse-head');
-    const status = container.querySelector('[role="status"]');
-
-    expect(status).toHaveClass('pulse-empty');
-    expect(head?.nextElementSibling).toBe(status);
+    for (const [index, source] of sources.entries()) {
+      expect(
+        source.includes('LiveRegion'),
+        `${TIP_BEARING_SOURCES[index]} now mounts a LiveRegion — this branch's `
+          + 'invariant is no longer vacuous. Assert the region\'s tree position '
+          + 'directly instead of deleting this test.',
+      ).toBe(false);
+    }
   });
 });

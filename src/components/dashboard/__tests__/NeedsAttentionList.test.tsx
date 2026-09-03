@@ -293,7 +293,10 @@ describe('NeedsAttentionList info tip (#1086)', () => {
     const trigger = await screen.findByRole('button', { name: 'What Needs attention means' });
     const panel = document.getElementById(trigger.getAttribute('aria-controls') as string);
 
-    expect(panel).toHaveTextContent('Guardian reads every review');
+    // "every review that is not a clear positive" — runTriage returns early on
+    // positive sentiment, and 4★/5★ are positive. The unqualified claim was
+    // false.
+    expect(panel).toHaveTextContent('every review that is not a clear positive');
     expect(panel).toHaveTextContent('never replies and never posts anything');
   });
 
@@ -313,6 +316,8 @@ describe('NeedsAttentionList info tip (#1086)', () => {
     renderList();
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+    // Structural, so a reworded sr-only label cannot silently unpin this.
+    expect(document.querySelectorAll('.info-tip')).toHaveLength(0);
     expect(screen.queryByRole('button', { name: /^What .* means$/ })).toBeNull();
   });
 });

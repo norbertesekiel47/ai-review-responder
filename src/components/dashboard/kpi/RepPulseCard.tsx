@@ -29,14 +29,19 @@ const GAUGE_CIRCUMFERENCE = 289;
  * become part of the card's accessible name.
  *
  * Weights come from `REP_PULSE_WEIGHTS`, so the copy cannot drift from the
- * arithmetic.
+ * arithmetic. It says "up to", because `repPulseScore` renormalises the rating
+ * to carry all 100 points whenever the response rate is null — a state the
+ * "What moved it" breakdown right below already renders as `… / 100`. An
+ * unconditional 70/30 contradicted that breakdown by inches.
  */
 function PulseTip() {
   return (
     <InfoTip subject="Rep Pulse">
-      A score out of 100, built from two numbers you already see. Your average
-      rating sets {REP_PULSE_WEIGHTS.rating} of the points. How often you reply
-      sets the other {REP_PULSE_WEIGHTS.response}.
+      A score out of 100, built from the numbers you already see. Your average
+      rating sets up to {REP_PULSE_WEIGHTS.rating} of the points and how often
+      you reply sets the other {REP_PULSE_WEIGHTS.response}. With no replies to
+      measure yet, your rating carries the whole score. &ldquo;What moved
+      it&rdquo; below shows which applies.
     </InfoTip>
   );
 }

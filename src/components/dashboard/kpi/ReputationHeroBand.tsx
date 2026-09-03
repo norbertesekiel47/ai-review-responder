@@ -155,9 +155,16 @@ export function ReputationHeroBand({
           </div>
           <span className="rep-stat-label">
             Average rating
+            {/* Says WRITTEN, not received, and names no fixed window. Both
+                matter: the star query buckets on the Review-time anchor
+                (ADR 0019 — `reviewTimeAnchor` in `src/lib/kpi/fragments.ts` is
+                its single owner, and spelling the SQL here would trip that
+                file's ownership guard), and this band also renders on
+                /dashboard/analytics where the owner picks 7d, 30d, 90d or 12w. */}
             <InfoTip subject="Average rating">
-              The mean star rating of the reviews you received in the last 30
-              days. It is not your all-time rating on Google.
+              The mean star rating of the reviews written in this period. An
+              imported review counts in the period it was written, not the day
+              RepWorth found it — and this is not your all-time Google rating.
             </InfoTip>
           </span>
           <Delta value={averageStar.delta} unit="rating points" decimals={1} />
@@ -182,7 +189,10 @@ export function ReputationHeroBand({
           </div>
           <span className="rep-stat-label">
             Time saved
-            <InfoTip subject="Time saved">
+            {/* `align="end"` because this is the RIGHT-hand stat: a panel
+                growing rightward from here runs past the canvas and is clipped
+                between roughly 769px and 1100px. */}
+            <InfoTip subject="Time saved" align="end">
               An estimate. RepWorth counts {MINUTES_SAVED_PER_RESPONSE} minutes
               for every reply it handled for you in this period.
             </InfoTip>
