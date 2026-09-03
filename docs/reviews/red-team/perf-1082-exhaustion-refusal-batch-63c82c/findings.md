@@ -254,6 +254,16 @@ dependency change sits between the two SHAs, unlike the previous run's
 extrapolation, which is why that one was retired and replaced by this fresh
 pass instead.
 
+**Advanced again after the staging drill.** `head_sha` now names `5c48e57b` and
+`intake_sha256` the intake at that commit. Same basis, re-checked:
+`git diff b5e94ca6..5c48e57b -- src worker` classified by first non-whitespace
+token contains **zero executable lines** — the drill added an evidence document,
+corrected the value-case prose in one comment block, raised the intake's
+line estimates, and recorded a deviation. The intake change is estimates only;
+no goal, non-goal, invariant, edge case or surface entry moved, which is what
+makes advancing the hash a bookkeeping act rather than a claim about untested
+code.
+
 **A note on why this SHA is recorded in a FOLLOWING commit, not this one.**
 Writing HEAD into a file that is part of HEAD changes HEAD — the first attempt
 amended the fix commit to carry its own SHA and produced a dangling reference
