@@ -131,13 +131,32 @@ mid-settlement flip exists. The intake's wording is tightened rather than the
 code changed.
 
 **R2 — "the unit suite is intermittently red at HEAD" (spec-correctness,
-medium).** REJECTED on evidence. The proposed mechanism is refuted by the
-vitest source: `mockClear` empties `calls` and `invocationCallOrder` in one
-function, and the two are pushed on adjacent unconditional lines, so they
-cannot desync. I ran the suite 60 times at HEAD with 0 failures. The async axis
-independently traced its own single first-run failure to a stale vitest
-transform cache, which is the better explanation for both observations. Re-run
-at volume after these fixes and recorded below.
+medium).** REJECTED on evidence, with the reasoning corrected after red-team
+round 2 flagged that the first version of this entry answered the wrong
+question.
+
+The reporting axis was explicit that it **could not identify a mechanism**. My
+first rejection refuted a call-array/`invocationCallOrder` desync — a mechanism
+nobody had proposed — and presented that as the answer. The desync claim is
+true (`mockClear` empties `calls` and `invocationCallOrder` in one function and
+the two are pushed on adjacent unconditional lines in `@vitest/spy@4.1.7`, so
+they cannot desync), but it answers that axis's appendix item, not its finding.
+
+The finding is rejected on VOLUME, which is the only evidence that speaks to an
+unexplained intermittency:
+
+| Where | Runs | Failures |
+|---|---|---|
+| Reporting axis, at `4f39fbd2` | ~102 | 2 |
+| Me, at `4f39fbd2` | 60 | 0 |
+| Me, at `aa3fab6e` | 80 | 0 |
+| Red team round 2, at `aa3fab6e` | 200 | 0 |
+
+340 runs across two heads with zero reproductions, against 2 in 102. The async
+axis independently traced its own single first-run failure to a stale vitest
+transform cache, which remains the best available explanation and is a property
+of the local cache rather than of this branch. Recorded as unexplained rather
+than as solved: if it recurs, this table is the baseline to compare against.
 
 **R3 — `docs/directory.md` prose is stale (async, low).** RAISED, NOT TAKEN.
 The file is outside `allowed_edit_surface` and `ci:directory-map` checks row

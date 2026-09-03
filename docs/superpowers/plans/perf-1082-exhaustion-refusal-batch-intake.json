@@ -48,7 +48,7 @@
     "A settlement that aborts after the loop: neither the fills nor their Refusals commit, because both writes are on the one transaction."
   ],
   "existing_patterns_to_follow": [
-    "CITATIONS HERE ARE BY SYMBOL, NOT BY LINE — eight path:line citations in this intake and its plan went stale inside this branch's own commits, and prevalidate-plan.py passed them because it resolves files, not lines.",
+    "CITATION RULE: a file this branch EDITS is cited by symbol; a file it does not touch may be cited by line. Eight path:line citations into edited files went stale inside this branch's own commits, and prevalidate-plan.py passed them because it resolves files, not lines. The flat 'no line numbers anywhere' version of this rule was itself false when written (red-team round 2) — the surviving line citations here all point at unchanged files and all resolve.",
     "commitAskDecisions in src/lib/solicitation/batch-builder.ts — the repo's only other writeRefusalEvents call site. It builds the array at the call site, calls once, and carries a comment naming the lock window it protects.",
     "writeRefusalEvents in src/lib/refusals/write.ts — the set arm's docblock and body: an empty input issues no statement, no affected-row assertion, and the flag is read live per call inside the body.",
     "src/lib/refusals/write.ts — the two-arm shape itself: a single-row arm and a set arm side by side, sharing one documented contract.",

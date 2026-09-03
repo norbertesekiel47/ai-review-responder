@@ -49,6 +49,38 @@ needed" in the same wave. Neither axis settled it — the code did:
 The async axis conflated *asks inserted* — up to 5,000, nearly all `withhold` —
 with *asks carrying `status='send'`*, which is at most 25.
 
+## Round 2 — red team, scoped to the fix commit `aa3fab6e`
+
+All six round-1 findings verified fixed. Five new findings, every one about
+the FIXES rather than the code.
+
+| ID | Sev | Finding | Verdict |
+|---|---|---|---|
+| T15 | P0 | The T2 fix retracted one unmeasured "LOAD-BEARING" and asserted a second one in the same bullet — `clearRefusalCalls()` is also inert today | **FIXED** — I re-ran the mutation myself before rewriting: one-armed clear leaves 51/51 green. Both helpers now documented as inert-today trap-removers |
+| T16 | P1 | "27 executable lines added (40 comment, 3 blank — measured AT HEAD)" was falsified by the commit that re-published it: 66 comment lines at `aa3fab6e` | **FIXED** — the row now quotes the stable half (27 code) and the METHOD, and says re-derive. Same failure the #1080 row records by name, one entry later |
+| T17 | P1 | The "CITATIONS ARE BY SYMBOL" banner was itself false — two bare citations survived, one (`:1632`) unresolvable | **FIXED** — the rule is now stated correctly: symbol for files this branch edits, line permitted for files it does not. The two survivors are gone |
+| T18 | P2 | The intermittent-suite rejection refuted a desync mechanism nobody proposed; the axis said it could not identify one | **FIXED** — rejection now rests on volume (340 runs, 0 failures across two heads), and the finding is recorded as unexplained rather than solved |
+| T19 | P2 | The bound comment added `restraint-policy.ts:440-448` — a line citation in production code | **ACCEPTED under the corrected rule** — `restraint-policy.ts` is untouched by this branch and the citation resolves |
+
+**Red team independently re-derived and CONFIRMED `BATCH_CAP` = 25**, including
+the question I had not closed myself: a batch cannot be rebuilt past the cap,
+because `constructBatch` returns `already_built` when `built_at IS NOT NULL`
+and `built_at`'s single writer is guarded on `built_at IS NULL`. Two write
+statements repo-wide, no trigger.
+
+Also verified: the `@vitest/spy` cannot-desync claim, `deadLetterWholeBatch`
+never throwing on any path, the abort comment's both halves, and the
+`recordOutreachWithheldRefusal` census.
+
+## The pattern this branch should be remembered for
+
+Three false self-claims, all mine, all the same shape: **an adjective asserted
+where a measurement was available and cheap.** 5,000 was quoted from a sibling
+lane instead of derived. "Load-bearing" was written twice without running the
+mutation that settles it — the second time in the commit fixing the first. The
+code was correct throughout; the prose about the code was not. Rule, now in the
+arch-review-log: RUN THE MUTATION BEFORE WRITING THE ADJECTIVE.
+
 ## What survived the wave unchanged
 
 The code. Same-`tx` guarantee proven by type; self-conflict inside the one

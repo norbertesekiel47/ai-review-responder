@@ -1291,12 +1291,21 @@ describe('the outreach_withheld render lane (#1011)', () => {
    * Both arms, for a test that drives several writers in PHASES and asserts
    * between them (#1082).
    *
-   * A ONE-ARMED CLEAR IS THE TRAP THE SORT ABOVE EXISTS FOR, which is why
-   * this is a helper and not two lines at each site. Clearing only
-   * `writeRefusalEvent` leaves an earlier phase's set-arm call in the mock;
-   * its `invocationCallOrder` is lower than the current phase's, so it sorts
-   * FIRST and shifts every positional assertion by one. That is silent — the
-   * lengths still match if the phases happen to be the same size.
+   * INERT TODAY, EXACTLY LIKE THE SORT ABOVE — MEASURED, NOT ASSUMED.
+   * Reverting this to the one-armed `mocks.writeRefusalEvent.mockClear()`
+   * leaves the suite at 51/51, because its only consuming case drives W1 in
+   * every phase and W1 is a single-row writer, so the set-arm mock is already
+   * empty at both clear points. An earlier version of this docblock called it
+   * "load-bearing". That was the SECOND unmeasured use of that word on this
+   * branch and red team falsified both. The lesson is cheap and worth keeping:
+   * RUN THE MUTATION BEFORE WRITING THE ADJECTIVE.
+   *
+   * IT IS STILL PAIRED, for the same reason the sort is kept — it removes a
+   * trap rather than fixing a bug. A one-armed clear would leave an earlier
+   * phase's set-arm call in the mock; its `invocationCallOrder` is lower than
+   * the current phase's, so it would sort FIRST and shift every positional
+   * assertion by one, silently, the moment a phase drives a set-arm writer.
+   * Nothing does that today.
    */
   const clearRefusalCalls = (): void => {
     mocks.writeRefusalEvent.mockClear();

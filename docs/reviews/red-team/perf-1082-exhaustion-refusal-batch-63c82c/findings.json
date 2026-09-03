@@ -5,197 +5,164 @@
   "branch": "perf/1082-exhaustion-refusal-batch",
   "fork_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
   "merge_base_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
-  "head_sha": "4f39fbd26e51e46bea1a45d8e6069d576c756021",
-  "intake_sha256": "2bc2a55ffe54ecc2a6e9223353e95bcdd919f16c04a5dac99ae01ae6f6f3a160",
+  "head_sha": "aa3fab6eabd4eff982b5da7cd918d55629c076e1",
+  "intake_sha256": "e8b60f8917d9063e3ca76f13ea82595ff2b499bbcdf9cdee843bca22d81f31ea",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-03T12:11:50Z",
+  "round": 2,
+  "generated_at": "2026-09-03T19:22:13Z",
   "inventory": [
     {
-      "id": "INV-01",
-      "test": "a generation exhaustion records every hole's Refusal in ONE writeRefusalEvents call, never one call per hole",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1580",
-      "outcome": "killed",
-      "reason": "M1 (writeRefusalEvent restored inside the hole loop, batched call removed) and M3 (refusals.pop() before the write) and M8 (unconditional call hoisted above the stale guard) all turn this case red."
-    },
-    {
-      "id": "INV-02",
-      "test": "a generation exhaustion that finds no holes issues no Refusal write through either arm",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1608",
-      "outcome": "killed",
-      "reason": "M6 (caller-side `if (refusals.length > 0)` guard) and M1 both turn this case red; the toHaveBeenCalledTimes(1)/toEqual([]) pair pins the unconditional call."
-    },
-    {
-      "id": "INV-03",
-      "test": "a stale generation-exhaustion attempt writes no Refusal through either the single-row or the set arm",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1565",
-      "outcome": "killed",
-      "reason": "M8 (an unconditional `writeRefusalEvents(tx, [])` moved above the outbox-CAS guard) turns it red, and the paired M8+M7 run proves the kill comes from expectNoRefusalWrite's SET-arm line: with that line deleted the same mutant passes."
-    },
-    {
-      "id": "INV-04",
-      "test": "refusalCalls() invocationCallOrder sort (changed test helper, Direction A)",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1269",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT1082-01",
-      "reason": "M4 replaced the two-arm sort with plain `[...single, ...set].flatMap(...)`. Full unit file: 51 total, 0 failed."
-    },
-    {
-      "id": "INV-05",
-      "test": "all four render writers carry the paired outreach's tenant category subject and occurred_at shape",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1443",
-      "outcome": "killed",
-      "reason": "M3 (dropped input), M5b (wrong subjectType) and M5c ('transaction_time' sentinel) each turn this case red."
-    },
-    {
-      "id": "INV-06",
+      "id": "INV-R2-01",
       "test": "the render lane maps render_failed and lint_failed to below_our_bar and moderation_high to unsafe_content",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1367",
-      "outcome": "killed",
-      "reason": "M5a (outreachWithheldRefusalInput returns a hard-coded refusalCategory 'unsafe_content') turns it red; it is the ONLY unit case that catches that mutation."
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1394",
+      "outcome": "equivalent",
+      "reason": "R2-M1 reverted clearRefusalCalls() to the one-armed form the fix replaced (deleted `mocks.writeRefusalEvents.mockClear()`, ask-generation.test.ts:1303). Green baseline confirmed first (assert-one-test: exactly one executed). Mutant: the single case passed, and the whole file passed 51/51. PROOF OF EQUIVALENCE: clearRefusalCalls() has exactly two call sites (:1409, :1419), both inside this one case; the case drives only `runSingleChild`, whose lane is persistChildRender -> recordOutreachWithheldRefusal -> writeRefusalEvent, the SINGLE-ROW arm. `writeRefusalEvents` is reached only from settleGenerationExhaustion, which this case never invokes, so the set-arm mock holds zero calls at both clear points and clearing it is a no-op. The deleted line therefore cannot change any observable. The mutant is behaviour-preserving; the DOC CLAIM that it is load-bearing is not, and is raised as RT1082-07 under duty 3."
     },
     {
-      "id": "INV-07",
-      "test": "every render-lane refusal_events row carries subject_type solicitation_outreach and the account and location of the generation context",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1409",
+      "id": "INV-R2-02",
+      "test": "a generation exhaustion that finds no holes issues no Refusal write through either arm",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1639",
       "outcome": "killed",
-      "reason": "M5b (subjectType 'solicitation_ask') turns it red."
+      "reason": "R2-M2 wrapped the batched write in the caller-side guard the fix's comment names verbatim: `if (refusals.length > 0) { await writeRefusalEvents(tx, refusals); }` (ask-generation.ts:1930). Whole-file run: 1 failed / 50 passed. The single failure is this case, and it fails at ask-generation.test.ts:1659 — `expect(mocks.writeRefusalEvents).toHaveBeenCalledTimes(1)`, the DESIGN PIN. The three title-property assertions above it (:1648 refusalCalls() toEqual([]), :1649 writeRefusalEvent not called, :1650 insertOutreachRender not called) all passed. RT1082-05's separation behaves exactly as the fix's comment promises."
     },
     {
-      "id": "INV-08",
-      "test": "a forced clock advance between outreach insertion and refusal writing cannot change occurred_at from the outreach rendered_at",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1486",
-      "outcome": "killed",
-      "reason": "M5c ('transaction_time' sentinel in the extracted builder) turns it red."
+      "id": "INV-R2-03",
+      "test": "all four render writers carry the paired outreach's tenant category subject and occurred_at shape",
+      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1470",
+      "outcome": "equivalent",
+      "reason": "R2-M3 re-ran round 1's M4 at the NEW head (the test file changed between them): the `.sort((left, right) => left.order - right.order)` was removed from refusalCalls(), leaving plain `[...single, ...set]`. Whole file: 51/51 green. PROOF: this is the only case that mixes arms, and it drives W1 (:1477) -> W2 (:1479) -> W3 (:1481) -> W4 (:1483) with W4 = settleGenerationExhaustion the only set-arm writer, so the set arm's calls already sort last under plain concatenation and the comparator is not load-bearing for any current assertion. This re-measurement CONFIRMS the fix commit's retraction; no finding is raised against it."
     },
     {
-      "id": "INV-09",
-      "test": "expectNoRefusalWrite() set-arm assertion (changed test helper, Direction A)",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts:1274",
-      "outcome": "killed",
-      "reason": "M7 alone (delete the writeRefusalEvents line) leaves 51/51 green, which on a correct implementation proves nothing. The discriminating measurement is M8+M7: under M8 the stale case fails WITH the line and passes WITHOUT it, so the second assertion is load-bearing, not decorative."
-    },
-    {
-      "id": "INV-10",
-      "test": "a generation exhaustion that aborts after its fills records neither the outreach rows nor their refusal_events rows (NEW live-DB case) vs M2",
+      "id": "INV-R2-04",
+      "test": "a generation exhaustion that aborts after its fills records neither the outreach rows nor their refusal_events rows",
       "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1493",
-      "outcome": "killed",
-      "reason": "M2 (`writeRefusalEvents(sql, refusals)` — the pool handle in place of the transaction) turns this case red: expected [] to have length 0, got 2 committed refusal_events rows."
-    },
-    {
-      "id": "INV-11",
-      "test": "a generation exhaustion that aborts after its fills records neither the outreach rows nor their refusal_events rows (NEW live-DB case) vs M2b",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1493",
-      "outcome": "killed",
-      "reason": "M2b is the drift the case names — `refusals` hoisted out and `await writeRefusalEvents(sql, refusals)` moved AFTER the `sql.begin`. The full live-DB file goes red at three cases (INV-12, INV-13, INV-14) but NOT at this one, because `sql.begin` rejects before the hoisted statement can run. Recorded killed at the suite level; the coverage claim about THIS case is RT1082-02."
-    },
-    {
-      "id": "INV-12",
-      "test": "a refusal written by each render writer does not survive a later rollback of its outreach transaction",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1682",
-      "outcome": "killed",
-      "reason": "Pre-existing case; its settleGenerationExhaustion arm turns red under both M2 and M2b."
-    },
-    {
-      "id": "INV-13",
-      "test": "a ledger failure at each of persistChildRender, regenerateAsk, and settleGenerationExhaustion rolls back the outreach insert it accompanies",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1624",
-      "outcome": "killed",
-      "reason": "Pre-existing case; red under M2b."
-    },
-    {
-      "id": "INV-14",
-      "test": "a generation exhaustion never stamps occurred_at from the settlement transaction, so a slow lock does not move the decision time",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1360",
-      "outcome": "killed",
-      "reason": "Pre-existing case; red under M2b."
-    },
-    {
-      "id": "INV-15",
-      "test": "a generation exhaustion writes one refusal_events row per outreach hole it settles as withheld (pre-existing live-DB id-set guard)",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1462",
       "outcome": "excluded",
-      "reason": "In-scope covering test for the same hunk, but every mutation that would exercise it (M1, M3) is already killed at the unit level; not executed against the live DB to stay inside the 30-run budget. Not skipped for lack of budget — the hunk is covered by an executed row (INV-01, INV-05)."
+      "reason": "The fix commit's only change to this file is 10 lines of comment (integration.test.ts:1500-1511). No assertion, fixture or production line under it moved, so there is nothing to mutate that the fix introduced. The comment's two factual halves were verified statically instead and both hold — see RT1082-02's disposition. The suite was run once at HEAD under the isolated environment as a regression check: 22/22 green."
     },
     {
-      "id": "INV-16",
-      "test": "production hunk: docblock and comment-only additions in ask-generation.ts (40 comment lines)",
-      "file": "src/lib/solicitation/ask-generation.ts:709",
+      "id": "INV-R2-05",
+      "test": "settleGenerationExhaustion and recordOutreachWithheldRefusal (production hunks of the fix commit)",
+      "file": "src/lib/solicitation/ask-generation.ts:651-664,1867-1885",
       "outcome": "excluded",
-      "reason": "No behaviour; comments cannot be semantically mutated. Their factual content is checked under Duty 3 instead."
+      "reason": "Direction-B row. The fix commit's production diff to ask-generation.ts is COMMENT-ONLY: classifying every added line of the merge-base..HEAD diff by first non-whitespace token gives 27 code / 66 comment / 3 blank, and the code count is unchanged from round 1's 27 at 4f39fbd2 — the commit added 26 net comment lines and moved no executable line. There is therefore no behaviour-affecting production hunk in scope beyond the one INV-R2-02 already mutates. The comments' factual content was checked under duty 3 instead (RT1082-08, RT1082-11)."
     }
   ],
   "findings": [
     {
-      "id": "RT1082-01",
+      "id": "RT1082-07",
       "severity": "P0",
-      "title": "The arch-review-log row's central test claim is false at HEAD: the invocationCallOrder sort is NOT load-bearing, and no test kills its removal",
+      "title": "The fix retracted one false LOAD-BEARING claim and asserted another in the same bullet: clearRefusalCalls() is NOT load-bearing today, and the finding it acted on said so",
       "at": ".claude/reference/arch-review-log.md:1513",
       "duty": 3,
       "disposition": "open",
-      "arbiter_reasoning": "M4 replaced `[...single, ...set].sort((l, r) => l.order - r.order).flatMap(...)` with `[...single, ...set].flatMap(...)` in refusalCalls(). The whole unit file stayed green: 51 total, 0 failed. The mutation is semantically meaningful — refusalCalls() loses its chronological guarantee and returns arm order — and it is not equivalent: the two orders coincide only because every case that drives BOTH arms (the matrix test at :1443) runs the set-arm writer W4 LAST, so arm order happens to equal call order today. It is not on an unexecuted branch either: the mutated expression is evaluated by every one of the eight cases that call refusalCalls(). The row states the opposite as measured fact — 'sorts on `invocationCallOrder`, which is LOAD-BEARING and not tidiness' and 'Arm order mis-pairs every row the moment a second arm exists' — when a second arm exists NOW and arm order mis-pairs ZERO rows. The same false claim is repeated verbatim in the helper docblock at src/lib/solicitation/__tests__/ask-generation.test.ts:1246. The sort itself is correct and worth keeping; what is false is the claim that the suite protects it. Remedy: either reword the row and the docblock to say the sort is defensive and unexercised, or make it exercised — drive W4 before W1/W2/W3 in the matrix test (or add a case that interleaves the arms) so plain concatenation goes red."
+      "arbiter_reasoning": "The row's bullet (d) now reads, verbatim: \"What IS load-bearing today is the paired `clearRefusalCalls()` — a one-armed mid-test `mockClear` leaves an earlier phase's set call sorting FIRST and shifts every positional assertion by one, undetectably when the phases are the same size.\" Present tense, and false. R2-M1 reverted clearRefusalCalls() to exactly that one-armed form and the suite stayed 51/51 green (INV-R2-01 carries the proof that the mutant is behaviour-preserving: the only consuming case drives W1 alone, so the set-arm mock is empty at both clear points and there is no earlier set call to leave behind). The claim is not merely unmeasured — the review finding the fix was ACTING ON says the opposite in the same words: docs/reviews/perf-1082-exhaustion-refusal-batch/spec-correctness.md:275 (F3) reads \"Today this is inert: all three phases run W1, which uses only the single-row arm\", and gives its trigger as a FUTURE edit. The ledger therefore converts an explicitly-prospective hazard into a present-tense measured fact. That is the same operative meaning of load-bearing the branch itself adopted when it retracted the sort claim on mutation evidence three clauses earlier in the same bullet, and the same class the #1080 row one entry above records three times by name. NOT equivalent-and-harmless: the row is the durable architecture ledger, and a later reader is told this helper is measured-live when it is not. The test-file docblock at ask-generation.test.ts:1290-1300 is written prospectively (\"Clearing only `writeRefusalEvent` leaves an earlier phase's set-arm call in the mock\") and is defensible as a rationale; the arch-review-log sentence is not. The helper itself is a correct forward-looking change and should stay — only the ledger's present tense needs to become prospective, exactly as the sort's own retraction two clauses earlier already does correctly."
+    },
+    {
+      "id": "RT1082-08",
+      "severity": "P1",
+      "title": "The row's \"measured AT HEAD\" line count was falsified by the commit that re-published it: 40 comment lines is now 66",
+      "at": ".claude/reference/arch-review-log.md:1513",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The row opens \"One production file, 27 executable lines added (40 comment, 3 blank - measured AT HEAD by first non-whitespace token)\". Re-measured on the pinned diff b9fb9601..aa3fab6e for src/lib/solicitation/ask-generation.ts, classifying every added line by first non-whitespace token: 96 added = 27 code + 66 comment + 3 blank (git numstat: 96 added / 24 deleted). The code count is right and unchanged; the comment count is understated by 26, because THIS commit rewrote the file's two docblocks and the settlement comment and did not re-measure. The explicit \"AT HEAD\" qualifier makes it a claim about aa3fab6e, so it is false rather than stale. The #1080 row one entry above records this exact failure by name (\"This row first said 79, a figure measured at the round-1 tree; the very commit that wrote the row added seven more comment lines\") and prescribes re-deriving or quoting the ratio instead; the ratio here is now 2.4x, not the 1.5x deviations D1 states."
+    },
+    {
+      "id": "RT1082-09",
+      "severity": "P1",
+      "title": "The plan's new \"CITATIONS IN THIS PLAN ARE BY SYMBOL, NOT BY LINE\" banner is false, and the one surviving line citation it hides does not resolve",
+      "at": "docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-plan.md:55",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The fix added a blockquote banner at plan:19-25 asserting the plan cites by symbol only, and the commit message states \"the plan and intake now cite BY SYMBOL\". Two bare line citations survive at plan:55: \"`persistChildRender` (`:832`) and `regenerateAsk` (`:1632`)\". Hand-checked at HEAD, because prevalidate-plan.py now reports \"CITATIONS: 0 checked, 0 unresolved\" for this file - its pattern needs a filename before the colon, so bare `:NNN` citations are invisible to it and the PASS is vacuous. `:832` lands on the first parameter of `persistChildRender`, declared at ask-generation.ts:831 - effectively right. `:1632` does NOT resolve: `regenerateAsk` is declared at :1486 and its recordOutreachWithheldRefusal call site is at :1674; :1632 is an unrelated `SELECT ... WHERE kind = 'solicitation_send_batch'` inside the function body. Separately the intake carries the same banner in existing_patterns_to_follow[0] while user_visible_behavior[0] and [2] still spell restraint-policy.ts:440-448, write.ts:368 and write.ts:296 - and the FIRST of those three was ADDED by this commit. All three resolve correctly at HEAD (verified line by line), so they are a self-contradiction rather than a defect; :1632 is the citation a reader is told not to re-check and would be misled by."
+    },
+    {
+      "id": "RT1082-10",
+      "severity": "P2",
+      "title": "The intermittent-suite rejection refutes a mechanism the reporting axis never proposed",
+      "at": "docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-deviations.md:134",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "D6/R2 rejects the spec axis's intermittent-red report with \"The proposed mechanism is refuted by the vitest source: mockClear empties calls and invocationCallOrder in one function, and the two are pushed on adjacent unconditional lines, so they cannot desync.\" The vitest half is TRUE and was verified independently in the installed @vitest/spy@4.1.7: mockClear resets state.calls and state.invocationCallOrder inside one function body (node_modules/.pnpm/@vitest+spy@4.1.7/node_modules/@vitest/spy/dist/index.js:142-150), and registerCalls / registerInvocationOrder are invoked on adjacent unconditional lines :288-289 of the mock body, so the two arrays are always index-aligned - which also makes the same claim in the refusalCalls() docblock (ask-generation.test.ts:1261-1263) true. But no such mechanism was proposed: spec-correctness.md:261 says \"I could not identify the mechanism\", and neither observed signature is a desync - one is a `(tx, [])` set call recorded during the stale-CAS case, the other is refusalCalls() short by exactly one exhaustion-lane Refusal while writeRefusalEvents was called once, both pointing at sqlReturnQueue / mock-reset leakage rather than at the fold. The desync sentence answers appendix item A4, not F2. The rejection stands on its run-volume evidence alone, which this round reinforces (200/200 green); the stated refutation does not reach the report it rejects."
+    },
+    {
+      "id": "RT1082-11",
+      "severity": "P2",
+      "title": "The corrected production comment cites by line while the same commit's plan and intake banners forbid it",
+      "at": "src/lib/solicitation/ask-generation.ts:1878",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The new bound comment reads \"`evaluateBatch` (`restraint-policy.ts:440-448`) keeps at most `BATCH_CAP` send decisions\". The citation RESOLVES at HEAD - :440 is `if (eligible.length <= BATCH_CAP)` and :448 is `.slice(0, BATCH_CAP)`, so the range covers exactly the cap logic - so this is recorded as convention drift, not a wrong citation. It is the only new line citation in production code on a branch whose plan banner, intake banner and commit message all say the branch moved to symbol citation because line citations went stale inside its own commits."
+    },
+    {
+      "id": "RT1082-01",
+      "severity": "P0",
+      "title": "Round 1: the arch-review-log row's LOAD-BEARING claim about the invocationCallOrder sort is false at HEAD",
+      "at": ".claude/reference/arch-review-log.md:1513",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "VERIFIED FIXED. Both prose sites now retract the claim explicitly and say the sort is NOT load-bearing today, giving the W1->W4 test-order happenstance as the reason and order-independence as the reason to keep it (arch-review-log.md:1513 bullet d; ask-generation.test.ts:1246-1263). Independently re-measured at the new head as R2-M3: removing the sort leaves 51/51 green, and the matrix case's writer order W1(:1477) -> W2(:1479) -> W3(:1481) -> W4(:1483) confirms the stated mechanism. The retraction's supporting @vitest/spy claim was also checked in the installed 4.1.7 and holds (see RT1082-10). The NEW claim the same bullet substitutes is RT1082-07."
     },
     {
       "id": "RT1082-02",
       "severity": "P1",
-      "title": "The new live-DB abort case does not kill the drift it was written for; three pre-existing cases already do",
+      "title": "Round 1: the new live-DB abort case does not kill the drift it was written for; three pre-existing cases already do",
       "at": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1493",
       "duty": 1,
-      "disposition": "open",
-      "reason": "Arch-review-log claim (e) names one new hazard — 'the single statement drifting out of `sql.begin` on a later edit, where it would commit on its own connection' — and presents this case as the guard for it. M2b implements exactly that drift (`refusals` hoisted above the transaction, `await writeRefusalEvents(sql, refusals)` moved after `sql.begin`) and this case stays GREEN, because `sql.begin` rejects on the 22012 poison before the hoisted statement is reached. The mutant is caught, but by three pre-existing cases: :1682 'a refusal written by each render writer does not survive a later rollback of its outreach transaction' (whose settleGenerationExhaustion arm is behaviourally the same scenario, ~190 lines below), :1624, and :1391. The one mutant the new case does kill (M2, the pool handle in place of `tx`) is also killed by :1682. Remedy: either state in the row that the drift is covered by :1682 and this case is a real-Postgres-abort variant, or extend the case so a post-commit write is observable (assert the ledger rows on the SUCCESS path are visible only after the settlement commits, or drive the abort from inside the callback after the ledger write)."
+      "disposition": "fixed",
+      "reason": "VERIFIED FIXED, by an honest comment rather than by deleting the case. Both halves of the new comment (integration.test.ts:1500-1511) hold. The named sibling `'a refusal written by each render writer does not survive a later rollback of its outreach transaction'` exists at :1692, settles W4 through abortAfterLedgerWrite (:367), and at that phase only askOne is a hole (askTwo was rendered by seedRenderedAttempt at :1712), so \"aborts ONE hole with a JS throw\" is exact - the helper's abort is `throw abort` on a JS Error (:383). The new case seeds two send asks (:1509-1510) and poisons with `tx\\`SELECT 1 / 0\\`` (:1515), asserting `.rejects.toMatchObject({ code: '22012' })` (:1522), so \"aborts TWO with a real Postgres error (22012)\" is exact. The plan carries the same disclosure at :123-131."
     },
     {
       "id": "RT1082-03",
       "severity": "P1",
-      "title": "Seven path:line citations in the changed plan do not resolve at HEAD",
+      "title": "Round 1: seven path:line citations in the changed plan do not resolve at HEAD",
       "at": "docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-plan.md:99",
       "duty": 3,
-      "disposition": "open",
-      "reason": "Hand-checked, because `prevalidate-plan.py` reports PASS (5 citations checked, 0 unresolved) — it resolves FILES, not line numbers. Present-tense HEAD claim: ':99' cites `ask-generation.integration.test.ts:1461` as 'the existing integration guard ... is untouched'; at HEAD that `it(` is line 1462 (the diff added one import line). Pre-fix-state block, all stale at HEAD: `ask-generation.ts:1742` (settleGenerationExhaustion is 1776), `:1824` (`for (const hole of holes)` is 1868), `:1827`, `:1851`, `:832` (persistChildRender is 823), `:1632` (the regenerateAsk refusal call is 1666). The same off-by-one applies to the intake's `existing_patterns_to_follow` entry `ask-generation.integration.test.ts:1461`. All were accurate at the merge-base b9fb960; the plan does not say it is quoting the pre-fix tree."
+      "disposition": "fixed",
+      "reason": "FIXED for the seven citations named. Every `file.ts:NN` citation the finding listed is gone from the plan, replaced by symbol or verbatim-test-title references, and each replacement symbol was re-resolved at HEAD in this pass: settleGenerationExhaustion, writeRefusalEvents, commitAskDecisions, persistChildRender, regenerateAsk, recordOutreachWithheldRefusal, outreachWithheldRefusalInput, abortingExecutor, abortAfterLedgerWrite, evaluateBatch, insertOutreachRender all resolve, as do the three quoted test titles ('all four render writers...' :1470, 'a generation exhaustion writes one refusal_events row per outreach hole it settles as withheld' :1462, 'a refusal written by each render writer...' :1692). The residue the fix left behind is raised separately as RT1082-09."
     },
     {
       "id": "RT1082-04",
       "severity": "P2",
-      "title": "Intake observability claim conflates the job's Sentry issue with the settlement's own failure signal",
+      "title": "Round 1: intake observability claim conflates the job's Sentry issue with the settlement's own failure signal",
       "at": "docs/superpowers/plans/perf-1082-exhaustion-refusal-batch-intake.json:83",
       "duty": 5,
-      "disposition": "open",
-      "reason": "The claim is 'A CHECK violation still surfaces as a terminal generate_solicitation_asks settlement failure raised to Sentry by worker/job-failure-sink.ts.' `deadLetterWholeBatch` (worker/jobs/solicitation-batch/generate-failed-hook.ts:170-209) CATCHES the settlement throw, retries it in-hook, then logs a `terminal_settlement_*` status through `logFailureSafely` and returns; it never rethrows. job-failure-sink raises the ORIGINAL job failure whether or not the settlement succeeded, so Sentry cannot distinguish a settled batch from one whose settlement aborted on a CHECK violation. `docs/runbooks/beta-launch-alerting.md` carries no rule row for `terminal_settlement_abandoned` or its siblings. This path is PRE-EXISTING — the diff adds no new terminal or swallowed failure path — so it is recorded, not blocking."
+      "disposition": "fixed",
+      "reason": "VERIFIED FIXED. The observability entry now reads \"a CHECK violation inside the settlement does NOT reach worker/job-failure-sink.ts. deadLetterWholeBatch catches, logs and never rethrows, so an abandoned terminal settlement raises no Sentry issue and has no alert row.\" Confirmed against worker/jobs/solicitation-batch/generate-failed-hook.ts:170-209: the whole body is a `for` loop whose `try` returns after logFailureSafely and whose `catch` either continues (retry_in_hook) or logs and returns - there is no `throw` on any path, and the sole caller at :279 immediately returns. Confirmed the second half too: `terminal_settlement_abandoned` (:136) appears in no rule row of docs/runbooks/beta-launch-alerting.md."
     },
     {
       "id": "RT1082-05",
       "severity": "P2",
-      "title": "Fragile-assertion class: the 'no holes' case's title states a behavioural property, its assertions pin a structural one",
+      "title": "Round 1: the 'no holes' case's title states a behavioural property, its assertions pin a structural one",
       "at": "src/lib/solicitation/__tests__/ask-generation.test.ts:1608",
       "duty": 2,
-      "disposition": "open",
-      "reason": "The title is 'a generation exhaustion that finds no holes issues no Refusal write through either arm'. The assertions are `toHaveBeenCalledTimes(1)` plus `mock.calls[0][1]` toEqual([]) — they require the call to HAPPEN. M6 (`if (refusals.length > 0) await writeRefusalEvents(tx, refusals)`) preserves the titled behaviour exactly (still no ledger write) and turns the case red. The pinning is deliberate per the case's own docblock (#1001's second-authority argument), so this is not a defect — but a reader debugging the red sees a title that says the opposite of what failed. Remedy: retitle to name the unconditional call, e.g. '... calls writeRefusalEvents unconditionally with an empty set and issues no ledger write'."
+      "disposition": "fixed",
+      "reason": "VERIFIED FIXED BY MUTATION. The case now asserts the title's property first and alone (:1648-1650) and carries the design pin below, separately commented (:1658-1659). R2-M2 introduced the behaviour-preserving `if (refusals.length > 0)` guard the comment predicts: exactly one case went red across the whole file, and it failed at :1659 - the pin - with all three title-property assertions passing. The comment says the guard \"would turn THESE two lines red\"; strictly the first pin line fails and vitest never reaches the second, which is a wording nit and not a finding."
     },
     {
       "id": "RT1082-06",
       "severity": "P2",
-      "title": "Claimed suite sizes do not match HEAD",
+      "title": "Round 1: claimed suite sizes (53 / 23) do not match HEAD (51 / 22)",
       "at": "src/lib/solicitation/__tests__/ask-generation.test.ts:1",
       "duty": 3,
-      "disposition": "open",
-      "reason": "The claimed evidence handed to this pass says the unit suite passes 53 tests and the live-DB sibling 23. Measured at 4f39fbd2 by full-file vitest JSON runs under the isolated environment: ask-generation.test.ts numTotalTests = 51, ask-generation.integration.test.ts numTotalTests = 22. `it(` counts agree (51 and 22). Not a checked-in document; recorded so the numbers are not repeated."
+      "disposition": "fixed",
+      "reason": "VERIFIED FIXED. No 53 / 23 suite-size claim survives anywhere on the branch: greps over the plan, both intake copies, the deviations file, the review-staging reports and .feature/gate-status.json return nothing. Re-measured at aa3fab6e under the isolated environment: ask-generation.test.ts is 51 tests (200 consecutive full-file runs, all 51/51) and ask-generation.integration.test.ts is 22."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 16,
-    "killed": 13,
-    "survived_confirmed_p0": 1,
-    "equivalent": 0,
+    "inventory_total": 5,
+    "killed": 1,
+    "survived_confirmed_p0": 0,
+    "equivalent": 2,
     "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 2,
-    "findings_total": 6,
+    "findings_total": 11,
     "p0_open": 1,
     "p1_open": 2,
-    "p2_open": 3,
+    "p2_open": 2,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 6,
     "rejected": 0
   },
   "status": "OPEN_P0"
