@@ -189,6 +189,8 @@ than silently bumping the number.
 
 The intake now carries the measured figures.
 
+**Verdict:** ACCEPT — re-classification run, same lane, estimates corrected.
+
 
 ## D9 — round-2 verification: 11 of 12 confirmed, 1 not fixed, 3 new
 
