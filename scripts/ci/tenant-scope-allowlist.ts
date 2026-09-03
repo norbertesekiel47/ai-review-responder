@@ -255,7 +255,12 @@ export interface TenantScopeAllowlistEntry {
 //     markInboundEventStaleIgnored helper, and one was REMOVED because the
 //     Stripe dispatcher's inline `processed` write moved behind that same
 //     marker seam.
-export const ALLOWLIST_BASELINE = 375;
+//   - feat/stripe-customer-redaction, review-fix pass: +1. The acked-for-age
+//     health probe (checkStaleIgnoredInboundEvents) is a new cross-tenant
+//     read. It exists BECAUSE the 15-minute ack moved those rows out of the
+//     failed-only probe's set, so omitting it would have made the ack a net
+//     loss of paging coverage. 375 -> 376.
+export const ALLOWLIST_BASELINE = 376;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -966,6 +971,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: HEALTH_FAILED_INBOUND_EVENTS_SQL,
     category: 'background-global-scan',
     reason: "HealthAlertPoller failed-inbound-events probe: counts inbound_events rows stuck in status='failed' grouped by (source, event_type) to surface webhook processing bugs otherwise masked by provider retries. Read-only platform health probe, intentionally cross-tenant (prod-hardening P7).",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "inbound_events",
+    sqlSnippet: "SELECT source, event_type, COUNT(*)::int AS count FROM inbound_events WHERE status = 'stale_ignored' AND processed_at > NOW() - make_interval(secs => ${cfg.staleIgnoredWindowS}) GROUP BY source, event_type",
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller acked-for-age probe: counts inbound_events rows closed as stale_ignored, grouped by (source, event_type), so a STREAM of unprovisionable customers still pages after the 15-minute out-of-order bound removed them from the failed-only probe next door. Same scope story as that sibling — inbound_events holds raw provider payloads and no tenant column (deny-all RLS, migration 066). Read-only platform health probe, intentionally cross-tenant.",
   },
   {
     file: "worker/background/pollers/health-alert/checks.ts",
@@ -2826,14 +2838,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/account-offboarding/purge-stages.ts",
     table: "accounts",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.status = 'purged' )",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.status IN ('purge_scheduled', 'purged') )",
     category: 'background-global-scan',
     reason: "The Stripe Customer redaction guard (D1) counts OTHER accounts sharing this Stripe customer, so it is cross-account by construction — scoping it to the purging account would always return zero and defeat the guard. accounts.stripe_customer_id carries no unique constraint and subscription-deleted.ts states the rule outright, so blind redaction would erase a live co-tenant's billing contact. Read-only count inside the purge transaction, serialized by acquireStripeCustomerBindingLock; returns a number only, never a row.",
   },
   {
     file: "worker/jobs/account-offboarding/purge-stages.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.status = 'purged' )",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.status IN ('purge_scheduled', 'purged') )",
     category: 'background-global-scan',
     reason: "The NOT EXISTS arm of the same redaction guard: a sibling account whose own purge already completed is not a live co-tenant and must not block redaction. Correlated to the outer accounts row (ao.account_id = a.id), and cross-account for the same reason the outer count is.",
   },
