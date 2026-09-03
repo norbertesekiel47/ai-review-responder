@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 13** — last reset to 0 by the
+**Merges since last architecture pass: 14** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -183,6 +183,26 @@ Merges since the 2026-08-26 pass:
   it — and `/settings/review-qr` is kept as a redirect rather than deleted. The
   LOCKED **Review QR** term in `CONTEXT.md` named the old route and was updated
   in the same change.
+- 2026-09-03 — `perf(#1082)` (#1111): `settleGenerationExhaustion` batches its
+  per-hole **Refusal** writes into one `writeRefusalEvents` statement, inside
+  the transaction that already holds the per-Business advisory lock and the
+  `solicitation_batches` row lock. Touches
+  `src/lib/solicitation/ask-generation.ts` ·
+  `src/lib/solicitation/__tests__/{ask-generation.test.ts,ask-generation.integration.test.ts}`.
+  **COUNTS** — a production file under `src/lib/`. Takes the counter to **14**.
+  **27 executable production lines; no new statement, no schema, no
+  dependency.** The row for this merge is at the bottom of this file and
+  carries eight lettered notes; the two worth surfacing here: **(f)** the
+  ticket's own bound was wrong — `holes` is capped at `BATCH_CAP` (25), not
+  `MAX_DATA_ROWS` (5,000), a constant borrowed from the neighbouring
+  `ask_withheld` lane; and the correction then produced a SECOND error, the
+  inference that 25 made the ticket marginal. The staging drill measured it:
+  **1754 ms for 25 single-row inserts against 141 ms for one set insert**, so
+  ~1.6 s of lock-held time. A round trip costs ~70 ms through PgBouncer to
+  Supabase and ~0.4 ms to a local Docker Postgres, which is why the integration
+  suite's own timings understate the production saving by two orders of
+  magnitude. **A ROW COUNT IS NOT A COST.** Evidence:
+  `docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md`.
 
 ---
 
