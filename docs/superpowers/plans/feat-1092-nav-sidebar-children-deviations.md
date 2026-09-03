@@ -230,3 +230,24 @@ constant feeds both.
 
 **Verdict:** ACCEPT — all four fixed. No round 3: R1 is the only behavioural
 change and it is covered by a test that now reads the file it was blind to.
+
+## D10 — the fallow PR gate caught what the local gate could not
+
+CI's `fallow` job failed on `MobileTabBar`: cognitive complexity 21, breached.
+The conditional third slot tipped a component built from five near-identical
+`<Link>` blocks, each repeating the same `.active` / `aria-current` pairing.
+
+**The 28-row verify gate passed, and so did a bare `fallow audit`.** Only
+`pnpm test:coverage && pnpm ci:fallow:coverage` reproduced it — the third time
+this session that combination was the only local command that predicted CI,
+exactly as CLAUDE.md's lab note says.
+
+**Fix.** The bar is a LIST now: one `MobileTab` component, five entries, and the
+flag chooses the third slot's data rather than duplicating a whole row. Pairing
+`.active` with `aria-current` in one place also stops the visual and
+assistive-tech current-page markers drifting — the same defect class round 1
+found in the sidebar.
+
+Complexity 0, dead code 0, duplication 0.
+
+**Verdict:** ACCEPT.
