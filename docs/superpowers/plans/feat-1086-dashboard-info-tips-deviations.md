@@ -92,11 +92,29 @@ tip without meeting assumption 4 first.
 **Approved by:** the owner approved the same reasoning for Response rate at the
 T3 checkpoint; these follow it. Reversible — say the word and either gets one.
 
-## D5 — the architecture review log is untouched
+## D5 — WITHDRAWN. The architecture review log gets its line on the branch
 
-`.claude/reference/arch-review-log.md` sits in `allowed_edit_surface`, but its
-counter increments on **merge**, not on branch work. This branch is not merged,
-so nothing was written. That row belongs to the merge step.
+**This entry first said the opposite, and it was wrong.** It claimed the log's
+counter increments on merge, so nothing was owed on the branch. The verify gate
+failed `merge-ledger` on that reasoning.
+
+`scripts/ci/merge-ledger-audit.ts` states the design in its own header:
+
+> THE AUDIT RUNS ON THE MERGING PR, NOT ON A POST-MERGE SWEEP, and that is the
+> whole design: "the sweep did not run" IS the failure mode, so a check that
+> itself runs after the merge inherits it.
+
+It triggers on any non-test file under `src/`, `worker/` or `supabase/` — this
+branch changes six — and it requires **one added line**, not a counter edit.
+The audit says so explicitly: "The counter number is NOT this audit's business
+— leave it to the pass."
+
+The bullet is written to match the form its four map-#1084 siblings use, and
+`allowed_edit_surface` already admitted the file. No amendment was needed.
+
+**Lesson for a resumed session:** the gate is the authority on what a branch
+owes. A deviation that reasons *from* a doc's prose about when a rule applies
+must be checked against the audit that enforces it.
 
 ## Defects found during T3, fixed in the same tracer
 

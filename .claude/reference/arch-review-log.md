@@ -204,6 +204,32 @@ Merges since the 2026-08-26 pass:
   magnitude. **A ROW COUNT IS NOT A COST.** Evidence:
   `docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md`.
 
+- 2026-09-03 — `feat(#1086)` (map #1084, build #1094): the dashboard gets its
+  first tooltip primitive, `src/components/ui/InfoTip.tsx`, and five tips across
+  four surfaces. Touches `src/components/ui/InfoTip.tsx` ·
+  `src/components/dashboard/kpi/{ReputationHeroBand,RepPulseCard,WeeklyRecapCard}.tsx` ·
+  `src/components/dashboard/NeedsAttentionList.tsx` ·
+  `src/app/(authenticated)/_styles/console.css`. Takes the counter to **14**.
+  **It does NOT reuse `useMenuPopover`**, which `docs/design/console/DESIGN.md`
+  names the single owner of popover behavior — that hook `preventDefault`s
+  Arrow/Home/End *before* checking whether a `menuitem` exists, so a tip, which
+  has none, would swallow arrow-key page scrolling; reuse would also be the
+  first `components/ui/` → `components/dashboard/` import in the repo. The rule
+  is written about **menus** (`aria-haspopup="menu"`); a tip is a disclosure. A
+  test named `does not swallow arrow keys while it is open` pins the reason so
+  it cannot rot. **Two of the six planned surfaces deliberately carry no tip**
+  under the ticket's own rule that a tip is warranted only when a better label
+  will not do — `PendingApprovalsStrip` already explains itself in its sub-line,
+  and `AgentTeamStrip` has a second reason: the one unstated fact is whether an
+  agent posts unattended, which depends on subscription tier and autonomy flags
+  the component never receives, so a static tip could only be true for one tier.
+  Both omissions are pinned by their own test. **Hover is bound only where
+  `(hover: hover)` reports a real pointer** — a tap emits a synthetic
+  `mouseenter` on many touch browsers, and opening on it would let the click
+  that follows toggle the tip straight shut. `allowed_edit_surface` was amended
+  **once**, with owner approval, to admit six existing dashboard test files; the
+  intake promised surface tests but locked their files out.
+
 ---
 
 Merges since the 2026-08-24 pass — **CLOSED by the 2026-08-26 pass.** Retained
