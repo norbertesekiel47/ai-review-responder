@@ -212,11 +212,11 @@ const normalizedEmailSchema = z.preprocess(
  * was `min(8).max(128)`, so a digitless password was marked unmet on screen
  * and accepted by the server.
  *
- * `MIN_PASSWORD_LENGTH` is re-exported because placeholder and hint copy
- * already import it from here.
+ * No re-export of `MIN_PASSWORD_LENGTH` here: every caller that needs the
+ * number imports it from `./password-rules`, the module that owns it. A
+ * pass-through export would be a second name for the same fact and the first
+ * thing to drift.
  */
-export { MIN_PASSWORD_LENGTH } from './password-rules';
-
 const passwordSchema = z
   .string()
   .max(MAX_PASSWORD_LENGTH)

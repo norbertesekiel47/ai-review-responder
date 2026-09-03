@@ -134,9 +134,12 @@ Merges since the 2026-08-26 pass:
   `src/components/auth/{ResetPasswordFormClient.tsx,shared/strength.ts,auth-island/SignupForm.tsx}`.
   Takes the counter to **10**. Scope held to the reported defect: mixed case
   LEFT the requirements list rather than becoming a rule, because promoting it
-  would have tightened self-serve signup beyond the ask. **The count may lag
-  reality** — #1071, #1069, #1073, #1074 and #1075 merged with no entry in this
-  section; not reconciled here.
+  would have tightened self-serve signup beyond the ask. **The count lags
+  reality** — #1069, #1071, #1073, #1074, #1075, #1097, #1098 and #1099 all
+  merged with production changes and no entry in this section (the last three
+  added rows to the review TABLE at the foot of this file instead, and left the
+  counter untouched). Eight unrecorded merges, not reconciled here: reconciling
+  them is the next architecture pass's job, not this change's.
 
 ---
 
