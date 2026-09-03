@@ -668,10 +668,14 @@ describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
  * declares `type AssertSentimentBlind<T> = … extends never ? true : never` and
  * consumes it as `const candidateIsBlind: AssertSentimentBlind<AskCandidate> =
  * true`. That shape works and stays; it is not copied here because its failure
- * is a `TS2322` reading "Type 'boolean' is not assignable to type 'never'",
- * which never NAMES the offending member. Naming the unranked member is this
- * ticket's entire deliverable, and only a constraint violation (`TS2344` on
- * `AssertNever<T extends never>`) prints it.
+ * is a `TS2322` reading "Type 'true' is not assignable to type 'never'." —
+ * MEASURED by compiling that alias shape over a seeded type under this repo's
+ * own `tsc`, not recalled. An earlier version of this paragraph quoted it as
+ * `'boolean'` and was simply wrong: TypeScript reports the LITERAL type of the
+ * initializer here (red-team round 2, RT1080-10). What matters either way is
+ * that the message names a type, never the offending MEMBER. Naming the
+ * unranked member is this ticket's entire deliverable, and only a constraint
+ * violation (`TS2344` on `AssertNever<T extends never>`) prints it.
  *
  * WHY THE HOLE IS SEEDED IN THE TYPE ARGUMENT rather than in the production
  * tuple. `UnrankedIn<P>` is parameterized precisely so a hole can be seeded
@@ -756,14 +760,25 @@ describe('Refusal ledger vocabulary — precedence totality (#1080)', () => {
     // not tell a missing map entry from a missing rank. The regexes above prove
     // the unmapped path does not report as `unranked`; these two lines prove the
     // module still declares a SECOND, differently-named fault for the other hole.
+    //
+    // MATCHED ON THE TEMPLATE TEXT ONLY, never on the interpolated expression.
+    // The first spelling of these two assertions included `${code}` and
+    // `${blockReasons.join(',')}`, so renaming the resolver's loop variable —
+    // a behaviour-preserving refactor that moves no fault name — failed this
+    // case reporting "the unmapped fault lost its own name", which was untrue
+    // (red-team round 2, RT1080-08). An oracle that reports a false cause on a
+    // refactor teaches the next reader to distrust it. The literal prefix up to
+    // the `:` is the part a rename cannot move, and it is also the part support
+    // greps for in a log line.
     const source = readRepoFile(VOCABULARY_MODULE);
-    expect(source, 'the unmapped fault lost its own name').toContain(
-      'new Error(`unmapped_auto_approval_block_reason:${code}`)',
-    );
     expect(
       source,
-      'the unranked fault lost its own name, or was folded into the unmapped one',
-    ).toContain("new Error(`unranked_auto_approval_block_reason:${blockReasons.join(',')}`)");
+      'vocabulary.ts no longer throws an Error whose message text begins `unmapped_auto_approval_block_reason:`',
+    ).toContain('new Error(`unmapped_auto_approval_block_reason:');
+    expect(
+      source,
+      'vocabulary.ts no longer throws a SECOND, differently named Error whose message text begins `unranked_auto_approval_block_reason:` — the two faults may have been folded into one',
+    ).toContain('new Error(`unranked_auto_approval_block_reason:');
   });
 
   it('resolvePolicyGateRefusal resolves the same winner for every locked tier after the change', () => {
@@ -782,9 +797,17 @@ describe('Refusal ledger vocabulary — precedence totality (#1080)', () => {
     //
     //   1. TIER MEMBERSHIP comes from the MAP's key order, never from
     //      `precedence`. A member mapped to a category and dropped from the
-    //      precedence list therefore still appears in `members` — and blows up in
-    //      `resolve` below with `unranked_auto_approval_block_reason` naming it.
-    //      Filtering `precedence` could not contain that member at all.
+    //      precedence list therefore still appears in `members`, where filtering
+    //      `precedence` could not contain it at all. The per-tier rank assertion
+    //      below is what reports it, and it runs FIRST — it names the tier and
+    //      lists the unranked members. (An earlier version of this bullet said
+    //      the member "blows up in `resolve` below with
+    //      `unranked_auto_approval_block_reason` naming it". That narration
+    //      pre-dated the per-tier assertion and was wrong twice over: the
+    //      assertion pre-empts the resolver, and the resolver would only throw
+    //      if EVERY member of the tier had lost its rank — with one ranked
+    //      member left, `find` still elects a winner and nothing throws.
+    //      Red-team round 2, RT1080-09.)
     //   2. ORDER-INVARIANCE: the resolver elects by rank, not by input position,
     //      so the forward and reversed inputs must agree. Both sides here come
     //      from the resolver on different inputs, so nothing cancels out.

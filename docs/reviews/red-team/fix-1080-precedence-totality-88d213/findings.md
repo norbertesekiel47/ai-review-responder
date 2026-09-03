@@ -1,372 +1,332 @@
-# Red team — `fix/1080-precedence-totality`
+# Red team — `fix/1080-precedence-totality` — ROUND 2 (scoped)
 
 | | |
 |---|---|
-| Mode | `feature` (review wave, step 7) |
-| Round | 1 of 2 |
-| Fork / merge-base | `f797d25064c31997dfe400414baf99967b63315f` |
-| Head | `0bb77f47d305bdcf616f38f34946073616411433` |
-| Intake | `.feature/intake.json` · sha256 `7ebe561126c6d2c494e7d11e6c0a8912807e56f6994e5ebfb3f8378ee3077f20` · risk `high` · `db_touching: false` |
-| Generated | 2026-09-03 |
-| **Status** | **`OPEN_P1`** — no P0. Three open P1s. High-risk lane, so they need adjudication. |
+| Mode | `feature` |
+| Run id | `feature-fix-1080-precedence-totality-88d213` |
+| Round | **2 of 2 — there is no round 3** |
+| Fork / merge-base | `f797d25064c31997dfe400414baf99967b63315f` (identical — the branch is a clean descendant) |
+| Head reviewed | `d3a6e562900133ac826b9bf9b27e4b8ab7361c1b` |
+| Round-1 head | `0bb77f47d305bdcf616f38f34946073616411433` |
+| Intake sha256 | `c64ada5eca1adeeae4885f2519cf21765ddd0f7344c5d7a5a189791f0ff02222` (round 1 saw `7ebe5611…`) |
+| Risk | **high** (from the intake) |
+| Status | **`OPEN_P1`** |
+| Worktree | `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/fix-1080-precedence-totality` |
 
-Preconditions re-verified independently: tree clean at a committed SHA (`git status
---porcelain --untracked-files=no` empty), no watcher serving the worktree
-(`mutation-runner.mjs watchers` → none), journal closed and round 1 opened.
-`db_touching` is false, so `pnpm test:db:setup` was never run and
-`REPWORTH_DISABLE_LIVE_DB_SUITES=1` was set for the whole pass.
+## Scope of this round
 
----
+Per the dispatch, this round attacks **the fix hunks (`git diff 0bb77f47 HEAD`) and their direct
+callers only**. Taken as given from round 1 and NOT re-derived: that the assertion fires (healthy
+tree → 0 diagnostics; seeded hole → `TS2344` naming the member), that the seven veto members never
+fire, that the committed `@ts-expect-error` routes through the real map and a real tuple, and that
+zero runtime lines changed *as a line-level claim* (this round re-proved the stronger form — see
+RT1080-07).
 
-## The two attacks the dispatch asked for, hardest first
+Nine files changed in the round-2 commit. Three carry code or tests
+(`src/lib/refusals/vocabulary.ts`, `src/lib/refusals/__tests__/vocabulary.test.ts`,
+`worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts`); the rest are
+the plan, the intake, the arch-review-log row, the round-1 report pair, and an appended
+finding-checklist file.
 
-### 1. Does the assertion actually fire? — YES, confirmed by measurement
+## Verdict in one paragraph
 
-| Tree state | `npx tsc --noEmit` |
+**The four headline mechanisms all re-verify.** The deterministic singleton sweep is a real proof of
+#1080's invariant 7, it kills a seeded hole and names the member, and it is not vacuous — it is
+*scoped*, and I can prove the scoping is correct rather than accidental. Both previously-empty tests
+now assert something a mutation can break, and each does so as the sole detector of the defect it
+was strengthened for. Both corrected `satisfies`-vs-`as const` claims are true in both directions,
+compiled. The plan's citations are clean and its one surviving `path:line` in the arch-review-log row
+is the deliberately-historical one, whose historical claim is exactly right.
+
+**What is not done is the same class of problem the dispatch predicted.** The corrections stopped at
+the plan and the code and did not reach two artifacts this branch also created and also amended: the
+committed intake still ships the refuted per-run figure (RT1080-02) and six fork-relative citations,
+two now pointing at different content and two of those inside forward-facing *"do not edit"*
+instructions (RT1080-03). A third artifact carries a corrected number that the correcting commit
+itself invalidated (RT1080-07). And one new assertion is fragile in a way I measured (RT1080-08).
+
+**No `P0`.** Nothing I found is a proven-fake test, a false behavioural claim, or a correctness
+defect. Four `P1`s and two `P2`s are open. On a `high`-risk run the checker requires user
+adjudication for every open `P1`, and there is no round behind this one.
+
+## Severity table
+
+| Id | Sev | Disposition | What |
+|---|---|---|---|
+| RT1080-01 | P1 | **fixed** | `as const` / TS2578 false mechanism — corrected and re-measured both directions |
+| RT1080-02 | P1 | **open** | The refuted `~86% over 500 runs` figure survives in the committed intake |
+| RT1080-03 | P1 | **open** | Six fork-relative citations survive in the committed intake; two now point at different content |
+| RT1080-04 | P2 | **fixed** | Locked-tier case now detects two real defects; its stated limits are true as measured |
+| RT1080-05 | P2 | **fixed** | `RankableBlockReason` docblock mis-attribution — corrected and re-measured |
+| RT1080-06 | P2 | **rejected** | Stale fallow suppression — round-1 rejection stands |
+| RT1080-07 | P1 | **open** | `79 comment lines` was re-derived at round-1 HEAD; the same commit took it to 86 |
+| RT1080-08 | P1 | **open** | Fragile assertion: the source-text oracle fails a behaviour-preserving rename, with a false message |
+| RT1080-09 | P2 | **open** | Locked-tier comment describes a failure mode its own new assertion pre-empts |
+| RT1080-10 | P2 | **open** | The precedent docblock misquotes the `TS2322` text it reasons from |
+
+## Preconditions and environment
+
+- Worktree clean at `d3a6e562` before any mutation; clean again after (`git status --porcelain`
+  empty except this round's two report artifacts).
+- `mutation-runner.mjs watchers` → none. `round-start` → round 2 open, 30 runs available.
+- Environment is the runner's allowlist with a temporary `HOME`, `NODE_ENV=test`, `CI=true`,
+  `MOCK_EXTERNAL_APIS=true` and, with no validated local database supplied,
+  `REPWORTH_DISABLE_LIVE_DB_SUITES=1`. `.env.local` was swapped for a scrubbed copy for every
+  mutation cycle and restored by `finalize` each time. **The live-DB lane was never woken** and
+  `pnpm test:db:setup` was never run — this branch is `db_touching: false` and a sibling worktree
+  owns the shared database. Vitest ran with `MAX_PARALLEL=2 VITEST_WORKERS=2`.
+- Budget: 6 supervised `run` invocations of the 30 available, plus four unsupervised `tsc --noEmit`
+  invocations (typecheck is not a Vitest candidate and takes ~5s). No candidate was skipped for
+  budget.
+
+## 1 — The deterministic sweep
+
+`policy-gate-precedence.property.test.ts:156`, `'every mapped non-veto block reason alone resolves
+to itself, exhaustively'`.
+
+**Does it catch a seeded hole, every time?** Yes (INV-01). Removing `'daily_cap_exhausted'` from
+`AUTO_APPROVAL_BLOCK_PRECEDENCE` made the sweep fail with
+`Error: unranked_auto_approval_block_reason:daily_cap_exhausted` thrown from
+`resolvePolicyGateRefusal`, under `assert-one-test` confirming exactly one executed test. The
+"every time" is stronger than a 30/30 trial: **the sweep contains no randomness** — it walks
+`Object.keys(map)` and calls `resolve([member])` — so one kill is the entire population. The
+branch's reported 30/30 against a mirrored resolver is the same measurement repeated, and is
+consistent with mine.
+
+**Is the singleton really the witness?** Yes, and it is a proof rather than a heuristic. `resolve`
+throws `unranked` only when every input member is mapped, none is `null`-mapped, and none is in
+precedence. If every mapped non-`null` member individually *is* in precedence, then any subset of
+mapped non-`null` members contains a ranked member and `find` succeeds; a subset containing a
+`null`-mapped member returns before `find`; an unmapped code throws the *other* error. So singleton
+coverage implies totality over all `2^15` subsets in all orders. The claim in the file's comment is
+sound.
+
+**Is it vacuous if the resolver is stubbed to return the input unchanged?** This was the sharpest
+question in the dispatch, and the answer is **no — it is scoped, and correctly so** (INV-02). I
+replaced the precedence lookup with `const winner = blockReasons[0]`, which for a singleton input is
+exactly "return the input unchanged". The sweep survived. But the survivor is *provably* behaviour-
+preserving **for the property the sweep asserts**: under that mutant `winner` is `undefined` only
+for empty input, and empty input already returned at the destructure guard above, so the
+`unranked_auto_approval_block_reason` throw is unreachable — invariant 7 still holds. The sweep
+passing is the correct answer, not a blind spot. Classified `equivalent` with that proof, which does
+not block.
+
+The election rule that mutant *does* break is not the sweep's job, and the tests that own it did
+fire: `'resolvePolicyGateRefusal resolves the same winner for every locked tier after the change'`
+(`tier watchdog_unavailable elects by input position`) and
+`'resolvePolicyGateRefusal picks the highest precedence tier present, not the evaluation order'`.
+
+## 2 — The two tests that previously asserted nothing
+
+### 2a. The locked-tier case (RT1080-04 → fixed; RT1080-09 opened)
+
+Tier membership now comes from `Object.keys(map)` instead of `precedence.filter(...)`, and two
+independent oracles were added. Measured:
+
+| Mutation | Result |
 |---|---|
-| HEAD, unmutated | **0 diagnostics** — the seven `null`-mapped veto members do not fire |
-| M1: `'rating_below_threshold'` deleted from `AUTO_APPROVAL_BLOCK_PRECEDENCE` | `src/lib/refusals/vocabulary.ts(650,39): error TS2344: Type '"rating_below_threshold"' does not satisfy the constraint 'never'.` (line 650 in the one-line-shorter mutant = `_PrecedenceIsTotal` at `vocabulary.ts:651` at HEAD) — **and it names the member** |
+| Drop `'daily_cap_exhausted'` from precedence (mapped-but-unranked) | **detected** — `tier owner_review_required has mapped members with no rank: expected [ 'daily_cap_exhausted' ] to deeply equal []` |
+| `find(...)` → `blockReasons[0]` (elect by input position) | **detected** — `tier watchdog_unavailable elects by input position: expected 'triage_fallback' to be 'provider_moderation_disabled'` |
+| Within-tier swap (`provider_moderation_error` ↔ `provider_moderation_disabled`) | **not detected — by 31 of 31 tests.** Deliberate: `vocabulary.ts`'s own docblock says within-tier order "changes the stored `refusal_code` only … carries no `vocabulary_version` obligation (#1003) … deliberately NOT pinned by any test". Independently re-read at HEAD — the docblock says exactly that. |
+| Cross-tier move (`triage_fallback` → end of tuple) | **detected, by the contiguity case only** — `tiers are not contiguous, or not in the locked order`. The locked-tier case did not fire, exactly as its comment says. |
 
-`rating_below_threshold` was chosen deliberately over `daily_cap_exhausted`: it is
-the one rank whose removal leaves both run-time premises of the committed
-`@ts-expect-error` case intact, so the kill is attributable to
-`_PrecedenceIsTotal` alone.
+So the comment's account of what it can and cannot catch is accurate, on all four axes, as measured.
 
-The shipped spelling is not one of the six vacuous spellings the plan enumerates
-(the bare alias, `type _X = U extends never ? true : false`, an unconsumed error
-object, `const _x: U[] = []`, `const _x = [] satisfies U[]`, `declare const
-_probe: U`) — it is a **constraint violation on a consumed type argument**,
-`AssertNever<T extends never>`, which is the one shape that cannot go quiet. It
-is also not the distributive false positive `type Bad<T> = T extends never ? …`:
-the healthy tree compiles with zero diagnostics, which that spelling could not do.
+One residual: numbered claim (1) says a mapped-but-unranked member "blows up in `resolve` below with
+`unranked_auto_approval_block_reason` naming it". It does not — the `toEqual([])` assertion added
+immediately *above* `resolve` fires first and `resolve` is never reached. That is a description one
+revision behind its own code, filed as **RT1080-09 (P2)**.
 
-The run-time half kills M1 too: the new fast-check property fails with
-`Error: unranked_auto_approval_block_reason:rating_below_threshold` raised from
-`resolvePolicyGateRefusal`.
+### 2b. The duplicate / reverse-hole case (real oracle; but see RT1080-08)
 
-### 2. Is the committed `@ts-expect-error` a real permanent proof? — YES, and it is the *only* detector
+**Is the source-text assertion a real oracle or a restatement?** A real oracle, and the sole one
+(INV-05). Renaming the unranked throw to `unmapped_auto_approval_block_reason` — the exact
+"collapse the two faults into one name" defect — failed **1 test of 31**, and it was this one:
+`the unranked fault lost its own name, or was folded into the unmapped one`. The two anchored
+regexes above it passed unchanged under that mutant, so the source-text lines are not a restatement
+of them.
 
-Two mutations attack the derivation itself rather than the data:
+The comment's supporting claim also checks out: the `unranked` throw cannot be provoked at run time
+at HEAD, because all fifteen non-`null` map keys are in precedence and `resolve` takes only
+`AutoApprovalBlockReason`s, so no test input can reach it without editing the module.
 
-| Mutation | `tsc --noEmit` |
-|---|---|
-| M2 — `RankableBlockReason` rewritten to `{ [K in AutoApprovalBlockReason]: never }[…]` (vacuous derivation) | `src/lib/refusals/__tests__/vocabulary.test.ts(679,5): error TS2578: Unused '@ts-expect-error' directive.` |
-| M3 — `export type AssertNever<T extends never> = T` → `export type AssertNever<T> = T` (**the exact shape that shipped wrong on `feat/refusal-log`**) | `src/lib/refusals/__tests__/vocabulary.test.ts(679,5): error TS2578: Unused '@ts-expect-error' directive.` |
+But the assertion is **fragile** (**RT1080-08, P1**). It pins the entire `new Error(...)` expression
+including the interpolated identifier. Renaming only the resolver's loop variable
+`code` → `reason` — behaviour byte-identical — turns the suite red with
+`the unmapped fault lost its own name`, which is false. The fix is to narrow, not delete: this same
+file already demonstrates the robust shape at `:269-278` (regex-extract the declaration, assert the
+minimal literal). A bare `toContain('unranked_auto_approval_block_reason')` would be *too* loose —
+both names also appear in prose inside `vocabulary.ts`'s docblocks — so the throw expression must
+stay part of the anchor:
 
-In both cases `_PrecedenceIsTotal` in production goes silent — correctly, since a
-vacuous derivation has nothing to complain about — and **nothing but the committed
-test case catches it**. So the case is not asserting a fact about `AssertNever` in
-isolation: it seeds the hole in its own type argument, routes through the real
-`RankableBlockReason` (and therefore the real
-`POLICY_GATE_HELD_REFUSAL_CATEGORIES`) and a real precedence tuple, and it is the
-durable proof the ticket needed. This is the branch's strongest claim and it
-holds.
-
----
-
-## Findings
-
-### RT1080-01 — P1 — the anti-vacuity docblock names a trigger that does not fire
-
-`src/lib/refusals/__tests__/vocabulary.test.ts:699-705`
-
-> "If `AUTO_APPROVAL_BLOCK_PRECEDENCE` ever lost its `as const` and widened to
-> `readonly AutoApprovalBlockReason[]`, `Ranks[number]` would swallow the whole
-> union, `UnrankedIn<Ranks>` would be `never` for the WRONG reason, and `_Whole`
-> would pass while proving nothing. … so this directive is load-bearing and
-> becomes TS2578 the day the widening happens."
-
-Measured, three ways:
-
-- **M5** — `as const` removed from `AUTO_APPROVAL_BLOCK_PRECEDENCE`, `satisfies
-  readonly AutoApprovalBlockReason[]` kept: `tsc --noEmit` reports **zero
-  diagnostics**. No TS2578. The named edit does not trigger the guard.
-- **M5b** — same edit *plus* a dropped rank: `TS2344` still fires at
-  `vocabulary.ts:650` and `vocabulary.test.ts:697`, naming
-  `"rating_below_threshold"`. So `_Whole` is **not** vacuous under that edit —
-  `Ranks[number]` does not swallow the union, because the `satisfies` contextual
-  type still yields the union of the fifteen listed element literals.
-- **M5c** — the real widening (`export const AUTO_APPROVAL_BLOCK_PRECEDENCE:
-  readonly AutoApprovalBlockReason[] = […]`): **TS2578 fires** at
-  `vocabulary.test.ts:706`, exactly as the comment describes.
-
-So the guard is genuine and load-bearing — against the *annotation* form, not
-against `as const` removal. The comment states a hazard that the edit it names
-does not create and predicts a diagnostic that edit does not produce.
-
-**Behavioural replacement:** state the trigger as the annotated form (or, more
-robustly, "any widening that erases the element literal types"), and drop the
-`as const` framing. Considered P0 and rejected: no shipped guarantee is
-misrepresented — the assertion works, and the guard does fire on the real hazard.
-
-**Disposition: open.**
-
-### RT1080-02 — P1 — the property test's false-green arithmetic is wrong by ~5x, and the same figure is in the intake and the plan
-
-`worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts:159`
-· `docs/superpowers/plans/fix-1080-precedence-totality-plan.md:245`
-· `.feature/intake.json` `edge_cases[9]`
-
-> "…witnesses a hole only when it contains the hole member AND none of the seven
-> vetoes — roughly 0.4% per run, ~86% over 500 runs. A 14% false green on the one
-> property meant to pin totality is not a property."
-
-0.4% is the independent-coin model (1/2 x 1/2^7 = 1/256). `fc.shuffledSubarray(pool,
-{ minLength: 1 })` does not sample that way. Measured against
-`fast-check@4.9.0`, the version in this lockfile:
-
-- **Length histogram** over 100,000 draws from a 22-member pool: lengths 1-5 at
-  ~7.1% each, lengths 6-22 at ~3.8% each, mean length **10.05**. Roughly uniform
-  over the length range, not binomial.
-- **Per-run witness rate**: 4,049 / 200,000 = **2.02%**, not 0.4%.
-- **Detection over 500 runs**, 4,000 independent trials: **1.0000**. The false-green
-  rate is ~0%, not 14%.
-
-The design decision the paragraph justifies — draw the pool from the map's
-non-`null` keys — is still right, and strictly better than the alternative
-(deterministic instead of probabilistic). Only the arithmetic is false. It is
-quoted in three committed artifacts, so a later reader has three chances to
-inherit it.
-
-**Behavioural replacement:** either re-derive the numbers against
-`fc.shuffledSubarray`'s actual length distribution, or drop the numbers and keep
-the categorical reason ("a 22-member pool makes the property probabilistic where
-it can be deterministic").
-
-**Disposition: open.**
-
-### RT1080-03 — P1 — committed plan citations are fork-relative and stale at HEAD; one target does not exist
-
-`docs/superpowers/plans/fix-1080-precedence-totality-plan.md` ·
-`.claude/reference/arch-review-log.md:1510` · `.feature/intake.json`
-
-`python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py
-docs/superpowers/plans/fix-1080-precedence-totality-plan.md --repo .` →
-`CITATIONS: 22 checked, 1 unresolved`.
-
-**Unresolvable:** `docs/reviews/refusal-ledger-audit/spec-verification.md:78`
-(plan:33, and an `.feature/intake.json` non-goal). The file does not exist at
-HEAD — it is untracked in the root checkout and absent from this worktree, so the
-citation cannot be followed by anyone reading the committed plan.
-
-**Stale (each resolves exactly at `f797d250`, verified; each is wrong at HEAD):**
-
-| Citation | Resolves at fork to | At HEAD |
-|---|---|---|
-| `vocabulary.test.ts:513` (plan:34; arch-log) | `it('every AutoApprovalBlockReason member appears exactly once…')` | line 518 |
-| `vocabulary.test.ts:513-540` (plan:183) | the partition + tier assertions | 518-545 |
-| `vocabulary.test.ts:527` (plan:153; arch-log (e)) | `expect(new Set(precedence).size, …)` | line 532 |
-| `vocabulary.test.ts:192` (plan:253) | `function unionMembers(…)` | line 197 |
-| `vocabulary.ts:650` (plan:155) | the `AUTO_APPROVAL_BLOCK_PRECEDENCE.find(…)` call | line 724 |
-| `vocabulary.ts:652-655` (plan:170) | the unreachable-branch comment | 726-729 |
-| `vocabulary.ts:656` (plan:18, 170) | the `unranked_…` throw | line 746 |
-| `vocabulary.ts:659-664` (plan:188) | the deleted-sibling-throw comment | 749-754 |
-| `vocabulary.ts:643-648` (plan:242) | the veto `for` loop | 717-722 |
-
-The test file gained 5 lines above the shift point (the `import type` block and
-its comment); `vocabulary.ts` gained ~74.
-
-**Correct at HEAD, re-resolved and confirmed:** `vocabulary.ts:555-577`
-(the precedence declaration), `vocabulary.ts:455-462`, `vocabulary.ts:498-504`,
-`.fallowrc.jsonc:71` ("fallow excludes test files as consumers"),
-`eslint.config.mjs:122-126` (`varsIgnorePattern: '^_'`), `scripts/verify-gate.sh:7`
-("ci:fallow* is excluded"), `verify-gate.sh:451-475` (the promised-tests grep),
-`.claude/commands/feature.md:409` (the fast-check requirement),
-`write.test.ts:227-230` (the `@ts-expect-error` inversion precedent),
-`worker-types.ts:183-190` (the 22 = 7 + 15 partition paragraph).
-
-**Disposition: open.**
-
-### RT1080-04 — P2 — the new tier case cannot detect any reordering of the precedence list
-
-`src/lib/refusals/__tests__/vocabulary.test.ts:729-747`
-
-`members` is derived from `blockPrecedence().filter(…)` and the assertion is
-`resolved.refusalCode === members[0]`. Both sides move together, so the case is
-structurally insensitive to precedence order. Measured:
-
-- **M9** — cross-tier move (`'daily_cap_exhausted'` relocated from tier 6 to
-  position 1): 1 failed / 29 passed, and the failure is the **pre-existing**
-  `AUTO_APPROVAL_BLOCK_PRECEDENCE groups its members into the six locked category
-  tiers in order` (`vocabulary.test.ts:547`). The new tier case passed.
-- **M8** — within-tier swap (`triage_high_severity` <-> `daily_cap_exhausted`,
-  both `owner_review_required`): **30/30 passed**, which independently confirms
-  the module's own claim at `vocabulary.ts:516-520` that a within-tier reorder is
-  deliberately unpinned.
-
-It is not vacuous — **M10** (`const winner = blockReasons[0]`) kills it — but it
-shares that kill with three pre-existing cases. Recorded so no later reader takes
-it for the reorder guard; the reorder contract is owned entirely by
-`vocabulary.test.ts:547`.
-
-**Disposition: open** (P2, never blocks).
-
-### RT1080-05 — P2 — the `RankableBlockReason` docblock mis-attributes which half is load-bearing
-
-`src/lib/refusals/vocabulary.ts:589-592`
-
-> "It reads the map through its OWN `as const satisfies` type … widen it and
-> every value becomes `RefusalCategory | null`, every key survives `extends
-> null`, and this resolves to the full 22 — an assertion that fires on a healthy
-> tree."
-
-- **M4** — `as const` dropped from `POLICY_GATE_HELD_REFUSAL_CATEGORIES`
-  (`satisfies` kept): **zero diagnostics**. The values keep their literal types
-  through the `satisfies` contextual type, so nothing widens.
-- **M4b** — same edit plus a dropped rank: `TS2344` naming
-  `"rating_below_threshold"` still fires at both sites. The derivation is intact.
-- **M4c** — the real widening (`: Record<AutoApprovalBlockReason, RefusalCategory
-  | null>` annotation): `TS2344 … Type '"policy_not_enabled"' is not assignable
-  to type 'never'` on a **healthy** tree, plus `TS2322` at the lookup in
-  `resolvePolicyGateRefusal`.
-
-The **safety property the docblock claims is TRUE** — a widened map fails loudly
-on a healthy tree, never silently. Only the attribution is imprecise: `satisfies`
-carries it, `as const` is belt-and-braces. Same class as RT1080-01, lower stakes
-because the conclusion is right.
-
-**Disposition: open** (P2).
-
-### RT1080-06 — P2 — the branch surfaces a stale fallow suppression, correctly documented, gates nothing
-
-`src/lib/refusals/vocabulary.ts:554`
-
-`FALLOW_BASE=f797d250 pnpm ci:fallow` at HEAD:
-
-```
-● Stale suppressions (1)
-  src/lib/refusals/vocabulary.ts:554:0 // fallow-ignore-next-line unused-export
-      (no unused-export issue found on the next line)
-✗ 1 stale suppression   ·   exit code 0
+```ts
+expect(source).toMatch(/throw new Error\(`unranked_auto_approval_block_reason:\$\{[^}]+\}`\)/);
 ```
 
-`.claude/reference/arch-review-log.md`'s causal claim was re-derived rather than
-trusted, and it is **TRUE**:
+## 3 — The two corrected mechanisms, compiled
 
-- Removing the production `_PrecedenceIsTotal` line (M6) does **not** clear it.
-- Replacing the test's two `typeof vocabulary.AUTO_APPROVAL_BLOCK_PRECEDENCE`
-  references (M7) **does** clear it — 0 stale suppressions.
+Four `tsc --noEmit` runs against the real tree. Every prediction the branch now makes is true.
 
-So the test's new `typeof` reference is indeed the first statically visible
-cross-module consumer, exactly as the log says. Exit code 0, so neither
-`ci:fallow` nor the `ci:fallow:coverage` gate is affected. Recorded, not actioned;
-the log's decision to leave it stands.
-
-**Disposition: rejected** — the log already records this as a deliberate,
-non-gating side effect with a stated reason ("removing it would trade a warn for a
-real finding later"), and the measurement confirms every fact in that record.
-Evidence: `src/lib/refusals/vocabulary.ts:554`, `.fallowrc.jsonc:71`,
-`scripts/verify-gate.sh:7`.
-
----
-
-## Duty 2 — fragile assertions
-
-Scanned all five added cases plus the modified property file. **None found** of
-the three named shapes: no absence-of-tag proxy, no exact string count on
-rendered output, no order assertion where no ordering contract exists. The two
-run-time companions in the `@ts-expect-error` cases
-(`vocabulary.test.ts:684-689`, `:709`) are premise guards, not structural
-proxies — they name which premise moved when the directive stops being necessary,
-which is the correct pattern. `RT1080-04` is filed as an insensitivity finding,
-not a fragility one.
-
-## Duty 3 — docs vs reality
-
-Ran `prevalidate-plan.py` (present). Every citation re-resolved by hand as well —
-results in RT1080-03. Other prose claims checked against HEAD:
-
-| Claim | Where | Verdict |
+| Variant | Predicted by the branch | Measured |
 |---|---|---|
-| "the repo has 22 `@ts-expect-error` uses" | `vocabulary.test.ts:655` | TRUE at the fork (`git grep -c` over `f797d250` = 22); 24 at HEAD |
-| "zero `expectTypeOf`" | same | TRUE — the only tracked occurrence is that sentence |
-| "no vitest `typecheck` block" | same | TRUE — `vitest.config.ts` has none |
-| "Test files are inside `tsconfig.json`'s `include`" | same | TRUE — `include` is `["next-env.d.ts", "**/*.ts", "**/*.tsx", …]` |
-| "`vocabulary.test.ts` already asserts `new Set(precedence).size`" | `vocabulary.ts:648` | TRUE — `vocabulary.test.ts:532` |
-| "`_`-prefixed for `eslint.config.mjs`'s `varsIgnorePattern: '^_'`" | `vocabulary.ts:634-636` | TRUE — `eslint.config.mjs:124`; `npx eslint` over the three changed files exits 0 |
-| "`tsconfig.json` sets no `noUnusedLocals`" | same | TRUE |
-| "the throw is STRUCTURALLY REQUIRED — `find` returns `T \| undefined`" | `vocabulary.ts:727-737` | TRUE by construction; `refusalCode: winner` does not type-check without the branch |
-| "a member listed TWICE is NOT caught" | `vocabulary.ts:646-650` | TRUE — `P[number]` collapses duplicates; covered at run time by `vocabulary.test.ts:532` |
-| "`ci:fallow --fail-on-issues` exits 0" | arch-review-log | TRUE — measured, exit 0 |
-| "the test's `typeof` reference is what makes `:554` stale" | arch-review-log | TRUE — M6/M7, see RT1080-06 |
-| "ZERO runtime lines changed" | arch-review-log | TRUE — the only `resolvePolicyGateRefusal` hunk replaces comment lines |
-| the anti-vacuity `as const` trigger | `vocabulary.test.ts:699-705` | **FALSE** → RT1080-01 |
-| "~0.4% / ~86% / 14% false green" | property test, plan, intake | **FALSE** → RT1080-02 |
-| "`as const satisfies` … widen it and every value becomes `RefusalCategory \| null`" | `vocabulary.ts:589-592` | imprecise → RT1080-05 |
+| `POLICY_GATE_HELD_REFUSAL_CATEGORIES` loses `as const`, keeps `satisfies` | zero diagnostics | **zero diagnostics**, exit 0 |
+| `AUTO_APPROVAL_BLOCK_PRECEDENCE` loses `as const`, keeps `satisfies` | zero diagnostics | **zero diagnostics**, exit 0 |
+| The map respelled as a type **annotation** | `_PrecedenceIsTotal` fires on a healthy tree | **`TS2344`** at `vocabulary.ts:658` *and* at `vocabulary.test.ts:711`, `Type '"policy_not_enabled"' is not assignable to type 'never'` (+ `TS2322` fallout at `vocabulary.ts:764`) |
+| The array respelled as a type **annotation** | the `@ts-expect-error` becomes unnecessary → `TS2578` | **`TS2578` Unused '@ts-expect-error' directive** at `vocabulary.test.ts:728` (+ the same `TS2322` fallout). `_Whole` goes silent, which is precisely why the *directive* is the guard |
 
-All five `tests_to_add` titles appear verbatim in `*.test.ts` under `src`/`worker`
-(the gate's own `grep -rqF` check, `verify-gate.sh:451-475`). Note for the record,
-not as a finding against this branch: that gate row is a **presence** check on the
-title string only — it never inspects what the case asserts. Every one of the five
-was separately mutation-tested here, which is the coverage that row cannot give.
+One nuance, recorded rather than filed: under the map-annotation form `UnrankedIn<…>` resolves to
+the **seven veto members**, while `RankableBlockReason` is what resolves to the full 22. The
+`vocabulary.ts` docblock states this precisely; the arch-review-log row's compressed
+"fire on a HEALTHY tree with all 22 members" is loose but not false.
 
-## Duty 4 — missed sibling cases
+## 4 — Citations
 
-The defect shape is: *an ordered `as const satisfies readonly Enum[]` list that
-must be TOTAL over the non-`null` keys of a companion `Record<Enum, V | null>`
-map, where only membership is proved.*
+Method: `prevalidate-plan.py` is **not present** on this host under `~/.claude/skills/grill-me-codex/scripts/`,
+so every citation was hand-checked and this is the record of that, as the skill requires.
 
-Searched, scope `src/**` + `worker/**` + `scripts/**`, tracked files only:
+**The plan (`docs/superpowers/plans/fix-1080-precedence-totality-plan.md`) is clean.** Zero
+`path:line` citations survive. Every symbol citation re-resolves at HEAD, each verified individually:
 
-- `git grep -n "as const satisfies readonly" -- '*.ts'` → 15 hits. Reviewed each;
-  the other 14 are flat vocabularies with no companion nullable map
-  (`TIERS`, `VARIANTS`, `ONBOARDING_PLAN_ORDER`, `AdminNavGroup`,
-  `TableDisposition`, two `AccountOffboardingStatus`, `PRICE_VARIANTS`,
-  `BUSINESS_HEALTH_FILTERS`, `AnalyticsEventName`, `AutoPolicyAuditMetadata` keys,
-  `SubscriptionTierValue`, `BatchState`, one test-local).
-- `git grep -n "as const satisfies Record<" -- 'src/lib/refusals/*.ts'` → the seven
-  lane maps. Only three take `| null` (`WithholdReason` at `:298`,
-  `BatchHaltedRefusalCode` at `:389`, `AutoApprovalBlockReason` at `:487`), and
-  only `AutoApprovalBlockReason` has a companion ordered list.
-  `WITHHOLD_REASONS` (`src/lib/solicitation/restraint-policy.ts:45`) is the
-  *source* of its own union (`(typeof WITHHOLD_REASONS)[number]`), so the
-  `satisfies Record<WithholdReason, …>` already gives totality in both
-  directions — no hole.
-- `git grep -n "\.find(" … | grep -i "ORDER|PRECEDENCE|PRIORITY|RANK"` →
-  `vocabulary.ts:724` (the one under fix) plus two test-local helpers
-  (`auto-approval.test.ts:272`, `dispatch-gate.test.ts:80`), both of which use
-  `?? null` rather than throwing.
-- `grep -n "^export const"` over `vocabulary.ts` → `AUTO_APPROVAL_BLOCK_PRECEDENCE`
-  is the module's only ordered list, and `resolvePolicyGateRefusal` its only
-  resolver.
+- `restraint-policy.test.ts`'s `'is sentiment-blind at the TYPE level, not only in serialized output'` → `src/lib/solicitation/__tests__/restraint-policy.test.ts:626`, and its `type AssertSentimentBlind<T> = Extract<keyof T, SentimentBearingKey> extends never ? true : never` consumed as `const candidateIsBlind: AssertSentimentBlind<AskCandidate> = true` is exactly as described.
+- `feat-1013-refusal-policy-gate-held-plan.md` § *"Two tests that must NOT be written"* → `:167`.
+- `vocabulary.test.ts`'s `'every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list'` → `:518`; the `new Set(precedence).size` assertion it names → `:532`.
+- `working-rules.md` → `.agents/skills/feature/references/working-rules.md`, and its § *"Precedent over invention — … Name the precedent in the summary"* at `:23-24` does require what the new paragraph says it requires.
+- `.fallowrc.jsonc`, `eslint.config.mjs`, `scripts/verify-gate.sh`, `.claude/commands/feature.md`, `src/lib/shared/worker-types.ts`, `src/lib/refusals/__tests__/write.test.ts` — all present.
+- `docs/reviews/refusal-ledger-audit/spec-verification.md` — correctly **dropped rather than re-anchored**; `git ls-files` does not know that path, confirming RT1080-03's premise and the fix.
 
-Exclusions: `node_modules`, `.next`, untracked files, `supabase/migrations/`.
+**The arch-review-log row's one surviving `path:line` is the deliberately-historical one, and its
+historical claim is exactly right.** Verified by `git show` at all three SHAs:
 
-**Result: zero siblings.** Sound search, recorded as a result rather than padded
-with an invented instance.
+| | `f797d250` (fork) | `0bb77f47` | `d3a6e562` |
+|---|---|---|---|
+| `vocabulary.test.ts:513` | the partition test title | `'below_our_bar',` | `'below_our_bar',` |
+| `vocabulary.test.ts:527` | `new Set(precedence).size` | blank | blank |
 
-## Duty 5 — operational completeness
+Both moved by exactly +5, to `:518` and `:532`, and `:513` does land on `'below_our_bar',` inside
+`LOCKED_TIER_ORDER` — "plausible enough that a reader misses the miss", as the row says.
 
-The diff changes **zero runtime lines**. It adds no terminal path, no swallowed
-catch, and no new operator-actionable failure. The one throw in scope
-(`unranked_auto_approval_block_reason`, `vocabulary.ts:746`) is unchanged and
-pre-dates the branch; the change moves its trigger condition from run time to
-compile time, which strictly reduces the operational surface. No rule row in
-`docs/runbooks/beta-launch-alerting.md` is required or contradicted.
+**The committed intake was not re-anchored (RT1080-03).** Six fork-relative citations survive there.
+Four of the six are ones round 1 listed by name:
 
-**No finding.**
+| Intake location | Citation | At HEAD |
+|---|---|---|
+| `non_goals[1]` | `vocabulary.test.ts:513-540` | **stale**, +5 → `518-545` |
+| `non_goals[2]` | `vocabulary.ts:615-621` | **stale and now different content** — the `AssertNever` docblock, not the unmapped-throw paragraph the non-goal describes |
+| `invariants[1]` | `vocabulary.test.ts:513` | **stale**, → `518` |
+| `edge_cases[2]` | `vocabulary.test.ts:527` | **stale**, → `532` |
+| `edge_cases[2]` | `vocabulary.ts:650` | **stale and now different content** — the `TS2536` signpost comment, not the `Array.prototype.find` call |
+| `existing_patterns_to_follow[5]` | `vocabulary.test.ts:513-553` | **stale**, +5 |
 
-## Restoration
+Still correct at HEAD and needing no change (each re-checked): `vocabulary.ts:455-462`, `:463`,
+`:490-505`, `:554`; `write.test.ts:227-230`; `eslint.config.mjs:122-126`; `.fallowrc.jsonc:71`.
 
-`mutation-runner.mjs finalize` ran after every mutation and once more at the end.
-All 15 journal entries are `state: "restored"`, `dotenv.open: false` with no
-backup files, `supervisors: []`. `git status --porcelain` shows only
-`?? docs/reviews/finding-checklists/` — the root's triage tooling, not this run —
-plus this run's own two artifacts. No tracked file is modified.
+`non_goals[1]` and `non_goals[2]` are *"do not edit"* instructions, so a later agent honouring them
+protects the wrong regions. The same commit re-anchored two *other* `non_goals` entries by symbol,
+so the file now mixes two conventions with nothing marking which is which.
 
-### Protocol deviation, disclosed
+## 5 — The counts (RT1080-07)
 
-Baseline and mutant commands were invoked directly (with the runner's `env`
-allowlist applied inline: temporary `HOME`/`TMPDIR`, `NODE_ENV=test`, `CI=true`,
-`MOCK_EXTERNAL_APIS=true`, `REPWORTH_DISABLE_LIVE_DB_SUITES=1`,
-`MAX_PARALLEL=2 VITEST_WORKERS=2`) rather than through `mutation-runner.mjs run`,
-so `journal.runs` reads 0. Consequence: the per-round run budget was self-enforced
-(15 mutations, well inside the 30-run cap) instead of runner-enforced, and no
-process group was journaled. Every mutation itself went through
-`mutation-runner.mjs mutate`, so the blob-OID restore guarantee is intact and
-verified. No dotenv swap was needed: the gate under test is `tsc --noEmit`, and
-the two vitest suites are pure — neither reads `.env.local`.
+Token-classified line counts on `src/lib/refusals/vocabulary.ts`, at two commit pairs:
+
+| Range | code | comment | blank | comment removed |
+|---|---|---|---|---|
+| `f797d250..0bb77f47` (round-1 HEAD) | 11 | **79** | 4 | 4 |
+| `f797d250..d3a6e562` (**HEAD — the row's actual subject**) | 11 | **86** | 4 | 4 |
+
+`"11 executable lines across 4 declarations"` **re-verifies at HEAD** — the eleven lines are
+`RankableBlockReason` (5), `AssertNever` (1), `UnrankedIn` (4) and `_PrecedenceIsTotal` (1), and
+there are exactly four declarations. `"4 blank"` re-verifies. `"79 comment lines"` **does not**: the
+round-2 commit rewrote the `RankableBlockReason` docblock, adding 11 comment lines and removing 4,
+taking the figure to 86 added / 82 net. The number was carried over from the round-1 measurement
+rather than re-derived at the commit that changed it — the same mechanism the row itself spends a
+sentence warning about ("the commit that writes the citation is the commit that moves the target").
+
+`"ZERO runtime lines changed — the transpiled JS is byte-identical to the fork point"` **is true,
+and I proved it by a stronger method than the row uses**: `tsc` emit of `vocabulary.ts` at
+`f797d250` and at `d3a6e562` (same `--target es2022 --module esnext --removeComments`) is
+byte-identical at 4632 bytes.
+
+The `@ts-expect-error` tally was correctly replaced by a qualitative claim, and **both halves of that
+claim are true**: there is no `expectTypeOf` **call** anywhere in the repo (the four textual hits are
+all prose — this file's own sentence, the round-1 report, the plan, and a `feat-727` plan discussing
+it as a rejected option), and `vitest.config.ts` has no `typecheck` block.
+
+## 6 — Duty 4, missed siblings (zero, with the search recorded)
+
+Patterns searched, over `**/*.ts` and `**/*.tsx`, excluding `node_modules/` and `docs/reviews/`:
+
+- `as const.{0,60}(literal|widen|preserv)` and `(literal|widen|preserv).{0,60}as const` — comments crediting `as const` with what `satisfies` does.
+- `extends never> = T`, `AssertNever`, `extends never \? true`, `: never =`, `satisfies never` — other compile-time assertion aliases.
+- `readRepoFile` — other source-text assertions of the shape RT1080-08 concerns.
+
+**Result: zero siblings of the corrected defect.** The one candidate,
+`src/lib/solicitation/__tests__/suppression.test.ts:75` ("The whole reason the arrays are
+`as const`"), is **not** the same defect: `SUPPRESSION_SCOPES`, `SUPPRESSION_SOURCES` and
+`SUPPRESSION_CHANNELS` are declared with a bare `as const` and **no** `satisfies` clause, so there
+`as const` genuinely is the load-bearing clause. `src/lib/refusals/vocabulary.ts:714`'s pre-existing
+"erases the `as const satisfies` literal types" paragraph exists unchanged at the fork point and is
+out of this round's scope.
+
+The `readRepoFile` search found the new assertion is the fifth in this file (`:93`, `:199`, `:269`,
+`:407` are pre-existing), so the *technique* follows house precedent — but the two closest
+pre-existing ones regex-extract a declaration first, which is the shape RT1080-08 asks for.
+
+## 7 — Duty 5, operational completeness
+
+Vacuously satisfied, and proved rather than asserted: the diff adds **no runtime code** — the `tsc`
+emit is byte-identical to the fork point — so no failure path, log line, Sentry signal, tag or
+grouping title can have changed. No `docs/runbooks/beta-launch-alerting.md` rule row is required or
+affected. Nothing to compare on any of the six facets.
+
+## 8 — The intake amendment
+
+**Confirmed: the intake changed by exactly two `non_goals` lines and nothing else.** The diff
+`0bb77f47..d3a6e562` on `docs/superpowers/plans/fix-1080-precedence-totality-intake.json` is a
+single hunk, `-2 / +2`, both lines inside `non_goals`, re-anchoring the two entries that had cited
+the untracked `docs/reviews/refusal-ledger-audit/spec-verification.md`. That is the fix for RT1080-03
+and it is correct. `.feature/intake.json` and the committed copy are byte-identical
+(`c64ada5e…`); round 1 recorded `7ebe5611…`, which is why the evidence-integrity checker flags an
+amendment.
+
+**Does the amendment affect anything I measured? No.** Nothing in this round depends on either
+edited line. `goal`, `invariants`, `edge_cases`, `allowed_edit_surface`, `tests_to_add`,
+`verification_commands` and `risk` are unchanged; all five promised `tests_to_add` titles still
+exist verbatim in the tree, so the gate's `promised-tests` row is unaffected. The only consequence
+is that the round-1 sidecar's `intake_sha256` no longer matches — expected, and this round's sidecar
+carries the current hash.
+
+**One second-order consequence, and it is what RT1080-02 and RT1080-03 are about.** Amending the
+intake spends the defence that the contract is frozen. Having chosen to edit it, the branch left
+inside it the refuted `~86% over 500 runs` figure and six fork-relative citations — including two
+now pointing at different content, inside forward-facing "do not edit" instructions.
+
+## 9 — What I could not verify
+
+- **The branch's "30/30 in a mirrored resolver"** — I did not reconstruct their mirrored harness. I
+  measured the real sweep against a real seeded hole in the real module (1 kill) and established
+  that the sweep is deterministic, which makes 30/30 the same fact. The two are consistent; I have
+  not reproduced their exact instrument.
+- **The round-1 givens** listed under *Scope* — taken as given per the dispatch, except the
+  zero-runtime-change claim, which I re-derived in a stronger form.
+- **The PR body.** Per the skill, PR-body validation happens after the draft PR exists and is not
+  part of this pass. RT1080-06's rejection must appear in a *"Red-team findings rejected"* section
+  there.
+
+## Red-team findings rejected
+
+**RT1080-06 — P2 — `src/lib/refusals/vocabulary.ts:554`.** *Verdict:* not a defect; the round-1
+rejection stands unchanged in round 2. `arch-review-log.md` already records the stale
+`fallow-ignore-next-line unused-export` as a deliberate non-gating side effect with a stated reason;
+round 1 independently verified every fact in that record (`ci:fallow` reports it but exits 0, and
+the test's new `typeof` reference is the first statically visible cross-module consumer); and
+nothing in the round-2 fix hunks touches that line or the `.fallowrc.jsonc` belief it rests on.
 
 ## Authorizations
 
-None.
+None. No finding on this run is `accepted-risk`.
+
+---
+
+*The full inventory, every mutation's reasoning, and the machine-readable dispositions are in
+`findings.json` beside this file. The checker recomputes counts and status from that file and does
+not parse this one.*
