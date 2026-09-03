@@ -42,7 +42,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Account',
     items: [
       { label: 'Locations', href: LOCATIONS_HREF, icon: 'location' },
-      { label: 'Review QR', href: '/settings/review-qr', icon: 'qr' },
       // These three are also the account menu's destinations. One destination,
       // one icon: `user` / `card` / `shield` in both places, or the same page
       // wears two marks depending on how the owner reached it.

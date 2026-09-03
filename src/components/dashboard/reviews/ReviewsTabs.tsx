@@ -18,7 +18,7 @@ interface Props {
  */
 export function ReviewsTabs({ active }: Props) {
   return (
-    <nav className="tabs" aria-label="Reviews views">
+    <nav className="tabs tabs--routed" aria-label="Reviews views">
       <Link
         href="/dashboard/reviews"
         className={`tab ${active === 'needs' ? 'active' : ''}`}

@@ -279,7 +279,7 @@ describe('Sidebar — section children', () => {
     );
   });
 
-  it('the sidebar lists Requests, Contacts and Review QR under Requests', () => {
+  it('the sidebar lists Contacts and Review QR under Requests', () => {
     pathnameMock.mockReturnValue('/dashboard/requests');
     render(
       wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),

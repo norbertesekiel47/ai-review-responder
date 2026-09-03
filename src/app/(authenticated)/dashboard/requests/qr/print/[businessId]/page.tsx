@@ -1,4 +1,4 @@
-// src/app/(authenticated)/settings/review-qr/print/[businessId]/page.tsx
+// src/app/(authenticated)/dashboard/requests/qr/print/[businessId]/page.tsx
 //
 // Print view for one location's Review QR (CONTEXT.md "Review QR"). Tenant
 // scope is structural: the lookup happens INSIDE the caller's account list,
@@ -15,7 +15,7 @@ import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { getOwnerReviewQrLocation } from '@/lib/locations/review-qr';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
-import { PrintButton } from '@/app/(authenticated)/settings/review-qr/PrintButton';
+import { PrintButton } from '@/app/(authenticated)/dashboard/requests/qr/PrintButton';
 
 const PRINT_CSS = `
 @page { margin: 12mm; }
@@ -87,7 +87,7 @@ export default async function ReviewQrPrintPage({
         <TopBar
           title="Print Review QR"
           subtitle={location.displayName}
-          rightLink={{ href: '/settings/review-qr', label: 'Back to Review QR' }}
+          rightLink={{ href: '/dashboard/requests/qr', label: 'Back to Review QR' }}
         />
       </div>
       <section className="review-qr-sheet">
