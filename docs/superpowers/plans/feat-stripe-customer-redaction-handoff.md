@@ -1,18 +1,10 @@
 # Handoff — feat/stripe-customer-redaction
 
-Written at the step 3 → 4 boundary, 2026-09-03. Resume with
+Rewritten 2026-09-03 during the execute phase. Resume with
 `/feature-resume feat/stripe-customer-redaction`.
 
-**The run is PARKED.** `.feature/intake.json` was renamed to
-`.feature/intake.parked.json` as a deliberate act, so the stop gate does not
-block an unrelated session on a gate that is legitimately red before
-implementation exists. Rename it back on resume. The durable audit copy at
-`docs/superpowers/plans/feat-stripe-customer-redaction-intake.json` is
-authoritative and was byte-identical to the arming copy when parked.
-`state.json` records `headSha` `bc2cddf3`; HEAD is now `4e2ac5b0`, one commit
-later, which is the T0 start plus this handoff. Treat the recorded phase
-`plan_approved` as still correct — that commit added tests and documentation
-only.
+The run is **ARMED and live** — the earlier deliberate park is over,
+`.feature/intake.json` is back in place, and `arm-check.sh` reports ARMED.
 
 ## Artifacts, by path
 
@@ -23,88 +15,107 @@ Read these; this file never restates them.
 | Locked intake (audit copy) | `docs/superpowers/plans/feat-stripe-customer-redaction-intake.json` |
 | Arming copy (byte-identical) | `.feature/intake.json` |
 | Plan | `docs/superpowers/plans/feat-stripe-customer-redaction-plan.md` |
-| Deviations (D1, D2 — both ACCEPT) | `docs/superpowers/plans/feat-stripe-customer-redaction-deviations.md` |
+| Deviations (D1, D2, D3 — all ACCEPT) | `docs/superpowers/plans/feat-stripe-customer-redaction-deviations.md` |
 | Machine state | `.feature/state.json` |
+| Glossary terms coined | `CONTEXT.md` § "Stripe Customer redaction" |
 
 Worktree root: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-stripe-customer-redaction`
 
 ## State
 
-- Phase `plan_approved`. HEAD `bc2cddf3`. Branch ahead of `origin/main` by 6
-  commits, all documentation.
-- Plan review rounds: **3 of 3, exhausted.** Nothing is left to escalate —
-  round 3 verified every mechanism sound and its residue was stale text,
-  corrected in `bc2cddf3`.
-- Surface amendments: **3 of the budget used.** A fourth needs owner sign-off.
-- Codex session for all three rounds: `01a066d6-7a49-7001-b248-83f0ab4d80d4`.
-  Round transcripts are in the session scratchpad, not the repo.
+- Phase `executing`. Fork point is `origin/main` at `b9fb9601` — the branch was
+  **rebased** on resume when it was 3 commits behind, before the review wave
+  opened. It is 0 behind now. Do not rebase again once the review wave starts.
+- Plan review rounds: **3 of 3, exhausted.** Branch review rounds: 0.
+- Surface amendments: **3 of the budget used**, and all three are now actually
+  written into the intake. A fourth needs owner sign-off.
+- Intake hash `5a5b508c…`, identical across both copies and `state.json`.
 
-## The ten locked decisions
+## What resume found, and fixed
 
-D1–D10 are in the plan's "Locked decisions" table with their evidence. Do not
-re-litigate them. The four that cost the most to establish:
+Recorded because a later session will otherwise re-derive it wrongly.
 
-- **D5** — the redaction stage runs late, immediately before the tombstone, not
-  first. Running first would leave a live account with a wiped Stripe billing
-  contact if a later stage failed.
-- **D8** — a customer-keyed advisory lock in
-  `applyStripeSubscriptionStateInternal`, NOT in the `UnderEntitlementLock`
-  wrapper. Both exported entry points funnel through the internal function.
-- **D9** — the stale ack writes `stale_ignored`, never `processed`. This is the
-  single most important detail on the branch: `claimInboundEvent`
-  (`worker/ingress/shared.ts:42`) reclaims only `failed` or a stale `received`
-  and returns `duplicate` for `processed`, so acking with `processed` would
-  make operator replay strictly worse than today's behaviour.
-- **D10** — the D8 ordering residual is accepted, not closed with a marker
-  table, because `create-checkout-session.ts:206` passes `customer_email` and
-  never `customer`. A test pins that premise.
+1. **The run was parked, not broken.** `.feature/intake.json` had been renamed
+   to `intake.parked.json` on purpose so the stop gate would not block an
+   unrelated session on a gate that was legitimately red before implementation
+   existed. Renaming it back re-armed cleanly.
+2. **`state.json` carried a stale `headSha`** (`bc2cddf3`, two commits behind).
+   Repaired via `feature-state.sh set-phase`.
+3. **Surface amendment 3 was logged but never applied.** See deviation D3. It
+   named `worker/background/pollers/health-alert/__tests__/checks.test.ts`,
+   which no `allowed_edit_surface` entry matched, so promised test title 43 had
+   no legal home. Owner-approved on resume; applied in `0c4c5b8f`.
+
+## Tracers
+
+| Tracer | State | Commit |
+|---|---|---|
+| T0 — all 45 promised tests, red | done | `80894a30` |
+| T1 — `redactStripeCustomer` + directory row | done | `d64f6b3a` |
+| T2 — purge stage, D5 ordering, D8 lock | done | `50e0d98a` |
+| T3 — classification and disclosure | done | `52f1dc14` |
+| T4 — webhook retry bound | in flight | — |
+
+T3 and T4 were delegated to subagents with disjoint file leases; T0, T1 and T2
+were implemented in the root context. The T1 first-task enforcement spot check
+passed: every changed file matched `allowed_edit_surface`, zero violations.
+
+### Two things worth knowing about the promised tests
+
+- **Titles 38 and 43 were GREEN at T0, by design.** Both are pins on premises
+  the design rests on, not behaviour this branch adds. 38 pins that
+  `buildCheckoutSessionParams` passes `customer_email` and never `customer`,
+  which is the entire reason D10's residual is accepted. 43 pins that
+  `checkFailedInboundEvents` filters `status='failed'` only. A change that
+  breaks either premise now fails loudly.
+- **The T0 meta-check (title 37) initially reported its own comment** as a
+  pending test. Fixed in `d64f6b3a`; it now skips comment lines. A false
+  positive there teaches the next reader to ignore the check.
 
 ## Next actions, in order
 
-1. **Finish T0.** One of its files is written:
-   `src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts`
-   (10 tests, with a fake that applies Stripe's real metadata MERGE semantics —
-   keep that; a replacement-model fake proves nothing). The remaining 35 titles
-   are listed in the intake's `tests_to_add`, and the plan's tracer table says
-   which tracer owns which count: T0 1, T1 10, T2 13, T3 6, T4 15.
-
-   **No `.todo`, no `.skip`, no conditional skip.** A pending test cannot make
-   `vitest run` fail, so it is not a promise. Title 38 is the meta-check that
-   enforces this.
-
-2. **T1** — `src/lib/account-offboarding/stripe-customer-redaction.ts` plus its
-   `docs/directory.md` row. Runs ALONE: it carries the first-task enforcement
-   spot check (diff `git status --porcelain` against `allowed_edit_surface`; an
-   out-of-surface file means enforcement did not bind — stop and report).
-
-3. **T2, T3, T4.** T2 is blocked by T1. T3 and T4 are disjoint from everything
-   and from each other, so they may run concurrently with T2.
-
-4. Gate, deviations read-back, review wave, red team, staging, PR.
+1. **Wait for T4, then review its diff.** Never start the gate while it is in
+   flight — the tree is mid-edit and the result is false in either direction.
+2. **Run `bash scripts/verify-gate.sh` once, against the resulting HEAD**, as
+   the final serialized step. Record the SHA the evidence was produced at.
+   `db_touching` is true, so the gate provisions the test database and runs the
+   two edited integration suites; a `SKIP` row on those makes the gate not
+   review-ready.
+3. Deviations read-back, review wave, red team (RISK is high, so the
+   adversarial pass is required and `red-team-status.mjs` fails its absence).
+4. Staging, then PR. Pause for explicit merge approval.
 
 ## Gate
 
-Currently RED on `feature-surface` only, and that is CORRECT: the intake names
-`src/lib/account-offboarding/stripe-customer-redaction.ts`, which T1 creates.
-The audit's own message names this case. It goes green when T1 lands.
+`.feature/gate-status.json` at the time of writing is **stale** — timestamp
+`1788432111`, produced before any implementation existed. Its single failure,
+`feature-surface`, was CORRECT then: the intake named
+`src/lib/account-offboarding/stripe-customer-redaction.ts` and T1 had not yet
+created it. That file exists now. Treat the recorded result as carrying no
+information about the current tree.
 
-**Do not run per-path `pnpm test <dir>` as `verification_commands`.** That was
+**Do not put per-path `pnpm test <dir>` in `verification_commands`.** That was
 deviation D2: the gate runs its `extra-*` rows in parallel, and concurrent
 vitest processes against one Postgres test database interfere. The gate's own
 `pnpm test` row already covers every suite with the right serialization.
 `verification_commands` is deliberately empty.
 
-## Two things this session got wrong
+## Things earlier sessions got wrong
 
-Recorded so a resumed session does not repeat them.
+Kept so they are not repeated.
 
-1. I told the owner the acked webhook event stayed "operator-replayable". It
-   did not. Round 2 disproved it and D9 changed as a result.
-2. I estimated the D8 lock as "two call sites, one file" when six
-   transaction-opening callers existed. Placing the lock in the internal
-   function restored the small footprint, but the estimate was wrong when the
-   owner made the decision on it.
+1. An earlier session told the owner an acked webhook event stayed
+   "operator-replayable". It did not. Plan round 2 disproved it and D9 changed
+   as a result — the ack writes `stale_ignored`, never `processed`, because
+   `claimInboundEvent` returns `duplicate` for `processed`.
+2. An earlier session estimated the D8 lock as "two call sites, one file" when
+   six transaction-opening callers existed. Placing the lock in
+   `applyStripeSubscriptionStateInternal` restored the small footprint, but the
+   estimate was wrong when the owner decided on it.
+3. This session claimed T4 had finished when it had not — the completion signal
+   watched a stale transcript path. Verify an agent's state with `ListAgents`,
+   not a file size.
 
 Codex asserted twice that `worker/jobs/account-offboarding` has a pre-existing
-test failure. It does not: 88/88 pass when the suite runs alone with
+test failure. It does not: the suite is green when run with
 `TEST_DATABASE_POOL_URL` exported. That red was deviation D2, now removed.
