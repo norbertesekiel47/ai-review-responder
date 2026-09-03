@@ -4,8 +4,17 @@ Resume with `/feature-resume feat/1086-dashboard-info-tips`.
 
 ## Where this run is
 
-**Step 3 complete, step 4 not started.** Phase `plan_approved`. No code written.
-Prepared 2026-09-03.
+**Step 4 complete — T1 through T5 built. Next is the verify gate (step 6),
+then the review wave (step 7), then the red-team pass (step 7.5).** Phase
+`executing`. Updated 2026-09-03.
+
+Three commits carry the work: the primitive and its first three placements, the
+remaining placements, and the docs. Five tips across four surfaces; two of the
+six planned surfaces deliberately carry none, each pinned by a test.
+
+`allowed_edit_surface` was amended **once**, with owner approval, to admit six
+existing dashboard test files. `feature-state.sh` will now REFUSE a second
+amendment without an explicit reason — do not work around that, re-plan.
 
 ## Read these, by path
 
@@ -13,8 +22,19 @@ Prepared 2026-09-03.
 |---|---|
 | Locked scope contract | `docs/superpowers/plans/feat-1086-dashboard-info-tips-intake.json` |
 | Plan, and the four assumptions | `docs/superpowers/plans/feat-1086-dashboard-info-tips.md` |
+| **Every departure, with its reason** | `docs/superpowers/plans/feat-1086-dashboard-info-tips-deviations.md` |
 | Decision ticket | `gh issue view 1086` |
 | Build ticket | `gh issue view 1094` |
+
+## Two things a reviewer will reach for, and the answers
+
+**"Why not `useMenuPopover`?"** Deviation D1. The short form: that hook
+preventDefaults Arrow/Home/End before it checks whether a `menuitem` exists, and
+a tip has none. A test named "does not swallow arrow keys while it is open"
+pins it.
+
+**"Why do two surfaces have no tip?"** Deviation D4. Assumption 4. Both
+omissions are pinned by their own test.
 
 ## The one thing that decides the design
 

@@ -64,6 +64,40 @@ repeat it.
 
 **Approved by:** the owner, at the T3 checkpoint, 2026-09-03.
 
+## D4 — two of the six planned surfaces carry no tip
+
+**Plan said:** assumption 3 named six surfaces.
+
+**What the code does:** four carry a tip. Five tips in total.
+
+| Surface | Tip | Why |
+|---|---|---|
+| `ReputationHeroBand` | 2 | Average rating, Time saved |
+| `RepPulseCard` | 1 | What the coined score is |
+| `WeeklyRecapCard` | 1 | Which week a review counts in |
+| `NeedsAttentionList` | 1 | What puts a review here; Guardian never posts |
+| `PendingApprovalsStrip` | 0 | Its own sub-line already says what to do and roughly how long it takes |
+| `AgentTeamStrip` | 0 | See below |
+
+**`AgentTeamStrip` has a second reason.** Every card already names the agent,
+states its role, its windowed activity and the window. The one fact still
+unstated is whether an agent posts **without** the owner — and that depends on
+the subscription tier and the autonomy flags, which this component never
+receives. A static tip could only be true for one tier, so writing one would
+trade a gap for a falsehood.
+
+Both omissions are pinned by a test, so a later session cannot quietly add a
+tip without meeting assumption 4 first.
+
+**Approved by:** the owner approved the same reasoning for Response rate at the
+T3 checkpoint; these follow it. Reversible — say the word and either gets one.
+
+## D5 — the architecture review log is untouched
+
+`.claude/reference/arch-review-log.md` sits in `allowed_edit_surface`, but its
+counter increments on **merge**, not on branch work. This branch is not merged,
+so nothing was written. That row belongs to the merge step.
+
 ## Defects found during T3, fixed in the same tracer
 
 - **`replace_all` matched one branch of two.** The two `pulse-head` blocks in
