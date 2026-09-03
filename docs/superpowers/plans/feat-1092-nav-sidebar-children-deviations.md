@@ -100,6 +100,8 @@ with a longer list of test paths, spends the owner's time to buy nothing.
 **This is the owner's call to overrule.** It is stated here, and in the PR
 description, rather than left in a counter nobody reads.
 
+**Verdict:** ACCEPT — with the breach surfaced to the owner rather than absorbed.
+
 ## D5 — diff-coverage forced a real test the move would otherwise have skipped
 
 **What happened.** The review gate failed `diff-coverage` at 67.2% (min 80%).
@@ -119,3 +121,46 @@ bar — the only mobile path to its siblings — and that the location read is
 scoped to the account the access check returned (invariant #8).
 
 **Verdict:** ACCEPT.
+
+## D6 — round-1 review triage (both axes)
+
+Two axes, twelve findings after de-duplication. Every one was verified against
+the code before triage; none was accepted on the agent's word.
+
+**Accepted and fixed:**
+
+| From | Finding | Fix |
+|---|---|---|
+| spec | The moved page rendered UNSTYLED — `SettingsShell`/`.set-section` live in `settings.css`, imported only by `settings/layout.tsx` | Import it on the page, per `add-location/page.tsx:22` |
+| spec | With watch-mode OFF (prod default) Review QR had ZERO entry points, while `CONTEXT.md` claimed "visible to every owner" | Owner decision: promote to a top-level row in both navs when the section is absent |
+| spec | With the flag off the QR page's pill bar offered two pills to routes that `notFound()` | Gate the bar on the flag; the page itself stays ungated |
+| spec | `/settings/review-qr/print/[businessId]` 404'd — only the parent redirected | Its own redirect page; Next has no catch-all under `settings/` |
+| standards | `Analytics` parent and `Metrics` child BOTH rendered `aria-current="page"` | `NavItem` yields to a child that owns the page; `.active` (section) and `aria-current` (page) are now distinct |
+| standards | `tabs--routed` hand-typed at 3 sites, asserted at 1 | Marker test on all three bars |
+| both | Hiding the nav left its row's `padding: 20px 32px 0` as an empty band | Hide the tabs-only rows; the history row is re-aligned instead, because it also carries "Showing: `<location>`" |
+| standards | "uses ONE breakpoint number" asserted a selector COUNT — 768→900px still passed | Assert the number, and that no other media query governs the bars |
+| standards | Three near-identical child blocks | One `NAV_CHILDREN` table, which `hasCurrentChild` also reads — a second copy of those hrefs is how parent and child disagree |
+| spec | Dead `'qr'` widening + inline svg in `SettingsSidebar` | The glyph MOVED to the shell `Icon`, where the new standalone row uses it |
+| spec | `Needs action` → `Needs Action` was undeclared drift | Declared in `user_visible_behavior` |
+| standards | Header comment on the moved page still said "settings section" | Rewritten |
+
+**The two HIGH findings are the ones worth remembering.** Neither was reachable
+by the 27-row gate: jsdom loads no CSS, so an unstyled page passes every test,
+and no gate row knows that a production flag makes a nav row disappear. The
+maintainability axis also found that the branch VIOLATED an invariant its own
+intake declared — "exactly one nav row highlights for any pathname".
+
+**Verdict:** ACCEPT — all twelve fixed.
+
+## D7 — fourth surface amendment
+
+The round-1 fixes reached `MobileTabBar.tsx`, `Icon.tsx`, `ReviewsContent.tsx`,
+a new nested redirect page and a MobileTabBar test. All five flow from the two
+HIGH findings; none widens the feature. Declared in both intake copies.
+
+Together with D4 this is four amendments against a budget of one. The reasoning
+in D4 stands and now covers production files as well as tests: the growth came
+from review findings against the declared behaviour, not from new scope. Stated
+for the owner to overrule.
+
+**Verdict:** ACCEPT, surfaced.

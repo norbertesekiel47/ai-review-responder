@@ -14,7 +14,10 @@ import { useHasUnsavedChanges } from '@/hooks/useUnsavedChangesGuard';
  * (same 24-box, stroke and `ni-icon` class, so it sits in the rail like the
  * rest). Promote it to `IconName` when a second surface needs it.
  */
-type NavIcon = IconName | 'qr';
+// #1092: the Review QR row left this nav, so the `| 'qr'` widening and the
+// inline glyph it carried are gone. The glyph itself moved to the shell `Icon`,
+// which the main sidebar's standalone Review QR entry now uses.
+type NavIcon = IconName;
 
 interface NavItem {
   label: string;
@@ -80,28 +83,7 @@ function visibleGroups(showLocations: boolean): NavGroup[] {
 }
 
 function NavGlyph({ icon }: { icon: NavIcon }) {
-  if (icon !== 'qr') return <Icon name={icon} size={16} />;
-  return (
-    <svg
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      focusable={false}
-      className="ni-icon"
-      data-icon="qr"
-    >
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <path d="M14 14h3v3h-3zM20 14h1M14 20h1M20 20h1M17.5 20v1" />
-    </svg>
-  );
+  return <Icon name={icon} size={16} />;
 }
 
 interface Props {

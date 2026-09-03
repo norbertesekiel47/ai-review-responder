@@ -41,13 +41,26 @@ export function MobileTabBar({ solicitationEnabled }: Props) {
         <Icon name="inbox" size={22} /> Reviews
         {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
       </Link>
-      {solicitationEnabled && (
+      {solicitationEnabled ? (
         <Link
           href="/dashboard/requests"
           className={`mtab ${activeNav === 'requests' ? 'active' : ''}`}
           aria-current={activeNav === 'requests' ? 'page' : undefined}
         >
           <Icon name="trend" size={22} /> Requests
+        </Link>
+      ) : (
+        /* **Review QR** is visible to EVERY owner (CONTEXT.md), and #1092 moved
+           it under Requests — which is gated on watch-mode, OFF in production.
+           On a phone the sidebar is hidden, so without this row the surface has
+           no entry point at all. It takes the slot Requests would have used, so
+           the bar stays five wide. Owner decision 2026-09-03. */
+        <Link
+          href="/dashboard/requests/qr"
+          className={`mtab ${activeNav === 'requests' ? 'active' : ''}`}
+          aria-current={activeNav === 'requests' ? 'page' : undefined}
+        >
+          <Icon name="qr" size={22} /> Review QR
         </Link>
       )}
       <Link

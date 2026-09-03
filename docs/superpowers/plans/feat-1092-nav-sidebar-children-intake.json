@@ -21,7 +21,11 @@
     "At or below 768px each of those pages still renders its pill bar, and Requests gains a third pill for Review QR.",
     "The Review QR surface answers at /dashboard/requests/qr, and its printable per-location view at /dashboard/requests/qr/print/[businessId].",
     "An owner opening the old /settings/review-qr URL is redirected to the new one rather than seeing a 404.",
-    "The Settings sidebar no longer lists Review QR."
+    "The Settings sidebar no longer lists Review QR.",
+    "When solicitation is disabled, Review QR appears as a top-level sidebar row and in the mobile tab bar's Requests slot, so every owner can still reach it.",
+    "On a section whose first child shares the parent's route, only the child is announced as the current page; the parent keeps its open-section styling.",
+    "The Reviews sidebar child reads 'Needs Action', matching the tab it opens (previously 'Needs action').",
+    "The old /settings/review-qr/print/[businessId] path redirects to the moved printable view instead of 404ing."
   ],
   "invariants": [
     "Every sub-route reachable on a phone today stays reachable on a phone after this change.",
@@ -75,14 +79,19 @@
     "src/app/(authenticated)/settings/channels/__tests__/page-source.test.ts",
     "src/app/(authenticated)/settings/review-qr/__tests__/redirect.test.ts",
     "src/app/(authenticated)/settings/review-qr/page.tsx",
+    "src/app/(authenticated)/settings/review-qr/print/[businessId]/page.tsx",
+    "src/components/dashboard/__tests__/MobileTabBar.test.tsx",
     "src/components/dashboard/__tests__/Sidebar.test.tsx",
     "src/components/dashboard/analytics/AnalyticsTabs.tsx",
     "src/components/dashboard/analytics/__tests__/AnalyticsTabs.test.tsx",
+    "src/components/dashboard/reviews/ReviewsContent.tsx",
     "src/components/dashboard/reviews/ReviewsTabs.tsx",
     "src/components/dashboard/reviews/__tests__/ReviewsTabs.test.tsx",
     "src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx",
     "src/components/dashboard/settings/SettingsSidebar.tsx",
     "src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx",
+    "src/components/dashboard/shell/Icon.tsx",
+    "src/components/dashboard/shell/MobileTabBar.tsx",
     "src/components/dashboard/shell/Sidebar.tsx",
     "src/components/dashboard/shell/__tests__/active-nav.test.ts",
     "src/components/dashboard/shell/active-nav.ts"
@@ -96,7 +105,9 @@
     "RequestsTabs offers Review QR alongside Requests and Contacts",
     "the Requests section and its children are hidden when solicitation is disabled",
     "deriveNavSection folds the moved Review QR route into requests",
-    "the old settings Review QR path redirects to the Requests one"
+    "the old settings Review QR path redirects to the Requests one",
+    "offers Review QR as a top-level row when solicitation is disabled",
+    "marks exactly one link aria-current on /dashboard/reviews"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 190,

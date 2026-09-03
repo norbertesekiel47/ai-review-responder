@@ -59,8 +59,47 @@ describe('routed tab bars are scoped to the sidebar breakpoint', () => {
   it('uses ONE breakpoint number, not a second copy', () => {
     // #1089's accepted cost is two navigation models, bounded by ONE boundary.
     // A second number is how they start disagreeing.
-    const routedRules = consoleCss.match(/\.tabs--routed/g) ?? [];
-    expect(routedRules.length).toBe(2);
+    //
+    // Asserting the NUMBER, not a selector count: the earlier version counted
+    // `.tabs--routed` occurrences, so changing 768px to 900px still passed
+    // while a harmless third rule failed a working feature (standards review,
+    // 2026-09-03).
+    const block = sidebarBreakpointBlock();
+    expect(block.startsWith('@media (max-width: 768px)')).toBe(true);
+    // No OTHER media query may govern the routed bars.
+    for (const match of consoleCss.matchAll(/@media\s*\(([^)]*)\)\s*\{/g)) {
+      const start = match.index!;
+      const body = consoleCss.slice(start, start + 4000);
+      if (!/\.tabs--routed|\.rq-subnav|\.reviews-subnav--tabs-only/.test(body.split('@media')[1] ?? body)) continue;
+      expect(match[1]!.trim(), 'a second breakpoint governs the routed bars').toBe(
+        'max-width: 768px',
+      );
+    }
+  });
+
+  it('hides the ROWS that hold nothing but a routed bar', () => {
+    // Hiding the nav alone leaves its row's `padding: 20px 32px 0` as an
+    // unexplained band on desktop (standards + spec review, 2026-09-03).
+    for (const selector of ['.rq-subnav', '.reviews-subnav--tabs-only']) {
+      const rule = new RegExp(`^\\${selector}\\s*\\{([^}]*)\\}`, 'm').exec(consoleCss);
+      expect(rule, `no base rule for ${selector}`).not.toBeNull();
+      expect(rule![1]).toMatch(/display:\s*none/);
+    }
+    const block = sidebarBreakpointBlock();
+    expect(block).toMatch(/\.rq-subnav\s*\{[^}]*display:\s*flex/);
+    expect(block).toMatch(/\.reviews-subnav--tabs-only\s*\{[^}]*display:\s*flex/);
+  });
+
+  it('never hides the Reviews history row, which carries more than tabs', () => {
+    // `.reviews-subnav` also holds "Showing: <location>" on the history route.
+    // Hiding it would hide real information; it is re-aligned instead.
+    const base = /^\.reviews-subnav\s*\{([^}]*)\}/m.exec(consoleCss);
+    expect(base, 'no base .reviews-subnav rule').not.toBeNull();
+    const desktopOverride = /^\.reviews-subnav\s*\{\s*justify-content:\s*flex-end;\s*\}/m.exec(consoleCss);
+    expect(desktopOverride, 'the lone Showing span is not re-aligned').not.toBeNull();
+    expect(sidebarBreakpointBlock()).toMatch(
+      /\.reviews-subnav\s*\{[^}]*justify-content:\s*space-between/,
+    );
   });
 
   it('does not hide the bare .tabs container, which a future bar may reuse', () => {
