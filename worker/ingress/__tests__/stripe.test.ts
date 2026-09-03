@@ -7,6 +7,9 @@ const {
   mockSql,
   mockClaimInboundEvent,
   mockConstructEvent,
+  mockCaptureMessage,
+  mockProcessSubscriptionUpdated,
+  mockProcessSubscriptionDeleted,
 } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
@@ -18,8 +21,16 @@ const {
     mockSql: sqlFn,
     mockClaimInboundEvent: vi.fn(),
     mockConstructEvent: vi.fn(),
+    mockCaptureMessage: vi.fn(),
+    mockProcessSubscriptionUpdated: vi.fn(),
+    mockProcessSubscriptionDeleted: vi.fn(),
   };
 });
+
+vi.mock('@sentry/node', () => ({
+  captureMessage: mockCaptureMessage,
+  captureException: vi.fn(),
+}));
 
 vi.mock('../../../src/lib/db/server', () => ({
   sql: mockSql,
@@ -141,6 +152,7 @@ function sqlTexts(): string[] {
 beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
+  mockCaptureMessage.mockReset();
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 
   mockClaimInboundEvent.mockReset();
@@ -482,5 +494,130 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
     expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── D6/D9: the dispatcher threads the event context and records the ack ──
+
+// The context mocks live in their own suite so the rest of this file keeps
+// exercising the real handlers.
+vi.mock('../stripe/subscription-updated', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../stripe/subscription-updated')>();
+  return { ...actual, processSubscriptionUpdated: mockProcessSubscriptionUpdated };
+});
+vi.mock('../stripe/subscription-deleted', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../stripe/subscription-deleted')>();
+  return { ...actual, processSubscriptionDeleted: mockProcessSubscriptionDeleted };
+});
+
+describe('handleStripeWebhook — subscription event context and stale ack', () => {
+  const CREATED = Math.floor(Date.now() / 1000) - 30;
+
+  beforeEach(() => {
+    mockProcessSubscriptionUpdated.mockReset();
+    mockProcessSubscriptionUpdated.mockResolvedValue({ kind: 'ignored' });
+    mockProcessSubscriptionDeleted.mockReset();
+    mockProcessSubscriptionDeleted.mockResolvedValue(undefined);
+  });
+
+  it('handleStripeWebhook passes the event context to both subscription handlers', async () => {
+    // D6 makes the argument REQUIRED, and round 2 finding 4 made it an object:
+    // a Stripe.Subscription does not carry its enclosing event's id, so a bare
+    // timestamp would make D9's promised warning unbuildable.
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_ctx_updated',
+      type: 'customer.subscription.updated',
+      created: CREATED,
+      data: { object: { id: 'sub_ctx', customer: 'cus_ctx' } },
+    });
+    await handleStripeWebhook(mkRequest('customer.subscription.updated'), mkReply().reply);
+
+    expect(mockProcessSubscriptionUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'sub_ctx' }),
+      { id: 'evt_ctx_updated', created: CREATED },
+    );
+
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_ctx_deleted',
+      type: 'customer.subscription.deleted',
+      created: CREATED,
+      data: { object: { id: 'sub_ctx', customer: 'cus_ctx' } },
+    });
+    await handleStripeWebhook(mkRequest('customer.subscription.deleted'), mkReply().reply);
+
+    expect(mockProcessSubscriptionDeleted).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'sub_ctx' }),
+      { id: 'evt_ctx_deleted', created: CREATED },
+    );
+  });
+
+  it('the stripe webhook replies 200 when a stale no-account subscription event is acked', async () => {
+    // The handler returns instead of throwing, so the dispatcher must NOT take
+    // its catch arm. 200 is what stops Stripe's ~3-day retry schedule.
+    mockProcessSubscriptionUpdated.mockResolvedValue({
+      kind: 'ignored',
+      reason: 'stale_no_account',
+      accountId: null,
+      subscriptionId: 'sub_stale',
+      transition: null,
+      alerts: [],
+    });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_stale_no_account',
+      type: 'customer.subscription.updated',
+      created: CREATED,
+      data: { object: { id: 'sub_stale', customer: 'cus_stale' } },
+    });
+
+    const { reply, status, send } = mkReply();
+    await handleStripeWebhook(mkRequest('customer.subscription.updated'), reply);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ received: true }));
+    // D9: the row is closed as stale_ignored, NEVER processed — 'processed'
+    // is the one status claimInboundEvent refuses to reclaim.
+    const closing = sqlTexts().filter((t) => /UPDATE\s+inbound_events/i.test(t));
+    expect(closing).toHaveLength(1);
+    expect(closing[0]).toContain('stale_ignored');
+    expect(closing[0]).not.toMatch(/status\s*=\s*'processed'/);
+    expect(closing[0]).not.toMatch(/status\s*=\s*'failed'/);
+  });
+
+  it('the acked-for-age Sentry warning is raised from an event context carrying both id and created', async () => {
+    // The warning is the operator's handle for the retained inbound_events
+    // row. Without the event id there is nothing to look up, and without the
+    // customer id there is nothing to correlate — so both must be present,
+    // and both can only come from the event context.
+    mockProcessSubscriptionUpdated.mockImplementation(
+      async (_sub: unknown, ctx: { id: string; created: number }) => {
+        const Sentry = await import('@sentry/node');
+        Sentry.captureMessage('stripe_subscription_event_acked_for_age', {
+          level: 'warning',
+          extra: { event_id: ctx.id, event_created: ctx.created, stripe_customer_id: 'cus_stale' },
+        });
+        return { kind: 'ignored', reason: 'stale_no_account' };
+      },
+    );
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_warning_context',
+      type: 'customer.subscription.updated',
+      created: CREATED,
+      data: { object: { id: 'sub_stale', customer: 'cus_stale' } },
+    });
+
+    await handleStripeWebhook(mkRequest('customer.subscription.updated'), mkReply().reply);
+
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockCaptureMessage.mock.calls[0]!;
+    expect(options).toMatchObject({
+      level: 'warning',
+      extra: {
+        event_id: 'evt_warning_context',
+        event_created: CREATED,
+        stripe_customer_id: 'cus_stale',
+      },
+    });
   });
 });

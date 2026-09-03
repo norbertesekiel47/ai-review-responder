@@ -50,6 +50,10 @@ vi.mock('@sentry/node', () => ({
 }));
 
 import { processSubscriptionUpdated } from '../stripe/subscription-updated';
+import {
+  AccountNotProvisionedYetError,
+  OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+} from '../stripe/shared';
 import { resetServerConfigForTests } from '../../../src/lib/config/server';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
@@ -862,5 +866,81 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(billingIndex).toBeGreaterThan(entitlementIndex);
     expect(accountRowIndex).toBeGreaterThan(billingIndex);
     expectExactSqlCalls(9);
+  });
+});
+
+// ── D4/D6/D7: the out-of-order retry bound ─────────────────────────────
+//
+// Every case here freezes the clock. An unfrozen clock can cross a second
+// between building the event context and evaluating the predicate, which stops
+// the test from testing the stated boundary at all (plan round 1 finding 6).
+// The two handlers are proven SEPARATELY for the same reason: one shared
+// boundary test could exercise processSubscriptionUpdated while
+// processSubscriptionDeleted quietly used >= 900.
+describe('processSubscriptionUpdated out-of-order retry bound', () => {
+  const NOW_SECONDS = 1_800_000_000;
+
+  function eventContext(ageSeconds: number) {
+    return { id: 'evt_boundary', created: NOW_SECONDS - ageSeconds };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_SECONDS * 1000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('processSubscriptionUpdated throws AccountNotProvisionedYetError when the event is 60 seconds old and no account exists', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([])); // resolveAccountReference: no rows
+
+    await expect(
+      processSubscriptionUpdated(subscription(), eventContext(60)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+  });
+
+  it('processSubscriptionUpdated logs and returns without throwing when the event is older than 15 minutes and no account exists', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    const outcome = await processSubscriptionUpdated(
+      subscription(),
+      eventContext(OUT_OF_ORDER_RETRY_WINDOW_SECONDS + 60),
+    );
+
+    expect(outcome).toMatchObject({ kind: 'ignored', reason: 'stale_no_account' });
+    // D9: the warning carries the operator's handle for the retained
+    // inbound_events row — the customer id AND the event id. A bare "an event
+    // was acked" line would not replace the rejected reconciliation worker.
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockCaptureMessage.mock.calls[0]!;
+    expect(options).toMatchObject({ level: 'warning' });
+  });
+
+  it('processSubscriptionUpdated throws at an event age of exactly 900 seconds and acks at 901 under a frozen clock', async () => {
+    expect(OUT_OF_ORDER_RETRY_WINDOW_SECONDS).toBe(900);
+
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    await expect(
+      processSubscriptionUpdated(subscription(), eventContext(900)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    const outcome = await processSubscriptionUpdated(
+      subscription(),
+      eventContext(901),
+    );
+    expect(outcome).toMatchObject({ kind: 'ignored', reason: 'stale_no_account' });
+  });
+
+  it('processSubscriptionUpdated throws rather than acking for a future event timestamp', async () => {
+    // Clock skew produces a negative age. It must leave the window OPEN, so
+    // skew fails toward today's retry behaviour instead of silently acking.
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    await expect(
+      processSubscriptionUpdated(subscription(), eventContext(-3600)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
   });
 });

@@ -179,6 +179,51 @@ describe('buildAccountOffboardingEmailHtml', () => {
     expect(html).not.toContain('opt-out');
     expect(html).not.toContain('retained');
   });
+
+  // The payment-processor disclosure. Categories only, no counts and no
+  // identifiers, written the same way as the retained-opt-out sentence beside
+  // it. It renders on EVERY purge receipt, including the zero-suppression one,
+  // because what survives at Stripe does not depend on any local count.
+  it('buildAccountOffboardingEmailHtml renders the payment-processor retention sentence in the purge receipt', () => {
+    const html = buildAccountOffboardingEmailHtml({
+      emailType: 'purge_receipt',
+      accessEndsAt: null,
+      purgedAt: '2026-07-06T00:00:00.000Z',
+      retainedSuppressionCount: 0,
+    });
+
+    expect(html).toContain('payment processor');
+    expect(html).toContain('invoice');
+    // Categories, never a handle: no customer id, no subscription id, no email.
+    expect(html).not.toContain('cus_');
+    expect(html).not.toContain('sub_');
+    expect(html).not.toMatch(/\d+ invoice/);
+  });
+
+  it('buildAccountOffboardingEmailHtml renders no payment-processor sentence for any non purge_receipt email type', () => {
+    // The sentence describes what a PURGE left behind. On a cancellation or a
+    // reminder nothing has been purged yet, so the same words would be false.
+    const otherTypes = [
+      'cancel_only_confirmation',
+      'cancel_only_access_end',
+      'cancel_only_reactivation_confirmation',
+      'delete_data_confirmation',
+      'delete_data_purge_reminder',
+      'keep_my_data_confirmation',
+    ] as const;
+
+    for (const emailType of otherTypes) {
+      const html = buildAccountOffboardingEmailHtml({
+        emailType,
+        accessEndsAt: '2026-07-06T00:00:00.000Z',
+        purgeAfter: '2026-08-06T00:00:00.000Z',
+        keepMyDataUrl: 'https://app.repworth.com/offboarding/keep?token=abc',
+      });
+
+      expect(html, `${emailType} must not disclose payment-processor retention`)
+        .not.toContain('payment processor');
+    }
+  });
 });
 
 // ── buildWeeklyValueReportHtml ──────────────────────────────────────────

@@ -193,6 +193,26 @@ describe('ArchivalPoller', () => {
     expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
   });
 
+  it('ArchivalPoller sweeps stale_ignored rows on the same 30-day clock as processed rows', async () => {
+    // D9 leaves a second terminal status behind. Without widening arm 2 those
+    // rows are never swept and inbound_events grows without bound — the cost
+    // of keeping the operator's replay path open must not be a leak.
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    // The 2nd sql() call (index 1) is the inbound_events block.
+    const eventsCall = mockSql.mock.calls[1];
+    expect(eventsCall).toBeDefined();
+    const fullSql = (eventsCall![0] as TemplateStringsArray).join(' ');
+    expect(fullSql).toContain('inbound_events');
+    expect(fullSql).toContain("'processed'");
+    expect(fullSql).toContain("'stale_ignored'");
+    // One clock, one predicate — not a second query with its own interval.
+    expect(fullSql).toContain("processed_at < NOW() - INTERVAL '30 days'");
+    expect(fullSql).toContain('LIMIT 5000');
+  });
+
   it('agent_outcomes query enforces the 180-day spine retention window (query shape assertion)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 

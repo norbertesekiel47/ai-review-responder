@@ -53,6 +53,8 @@ const {
   mockCaptureMessage,
   mockEnqueueOffboardingPurged,
   mockSendInternalEmail,
+  stageOrder,
+  mockRedactionStage,
 } = vi.hoisted(() => {
   const calls: QueryCall[] = [];
   const mockState = {
@@ -170,6 +172,9 @@ const {
     mockVerifyAccountOffboardingPurge: vi.fn(async () => ({ ok: true, issues: [] })),
     mockCaptureMessage: vi.fn(),
     mockEnqueueOffboardingPurged: vi.fn(),
+    /** Stage call order, recorded by the delegating spies below. */
+    stageOrder: [] as string[],
+    mockRedactionStage: vi.fn(),
     mockSendInternalEmail: vi.fn(),
   };
 });
@@ -218,6 +223,36 @@ vi.mock('@sentry/node', () => ({
   captureMessage: mockCaptureMessage,
 }));
 
+vi.mock('../../../../src/lib/payments/stripe-client', () => ({
+  getStripe: () => ({ customers: { retrieve: vi.fn(), update: vi.fn(), del: vi.fn() } }),
+}));
+
+// Partial mock: every stage keeps its REAL body (so the rest of this suite
+// still drives real SQL against the mock client) and only records its name.
+// A pure spy would turn every other test in this file into a no-op.
+vi.mock('../purge-stages', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../purge-stages')>();
+  const trace = <A extends unknown[], R>(
+    name: string,
+    fn: (...args: A) => Promise<R>,
+  ) => async (...args: A): Promise<R> => {
+    stageOrder.push(name);
+    return fn(...args);
+  };
+  return {
+    ...actual,
+    runAuditAndCostPayloadPurgeStage: trace(
+      'audit',
+      actual.runAuditAndCostPayloadPurgeStage,
+    ),
+    runStripeCustomerRedactionPurgeStage: mockRedactionStage,
+    runParentTombstonePurgeStage: trace(
+      'tombstone',
+      actual.runParentTombstonePurgeStage,
+    ),
+  };
+});
+
 vi.mock('../../../../src/lib/shared/logger', () => ({
   createWorkerLogger: () => ({
     log: vi.fn(),
@@ -241,6 +276,11 @@ describe('AccountOffboarding PurgeWorker', () => {
     mockCaptureMessage.mockClear();
     mockEnqueueOffboardingPurged.mockClear();
     mockEnqueueOffboardingPurged.mockResolvedValue(undefined);
+    stageOrder.length = 0;
+    mockRedactionStage.mockReset();
+    mockRedactionStage.mockImplementation(async () => {
+      stageOrder.push('redaction');
+    });
     mockSendInternalEmail.mockClear();
     mockSendInternalEmail.mockResolvedValue({ messageId: 'email-purge-receipt-1' });
     mockState.authRevalidationPasses = true;
@@ -673,6 +713,46 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(mockState.offboarding?.status).toBe('failed');
     expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
+  });
+
+  // ── D5: the redaction stage runs LATE, not first ───────────────────────
+  describe('Stripe Customer redaction ordering', () => {
+    it('handleAccountOffboardingPurge runs the redaction stage between runAuditAndCostPayloadPurgeStage and runParentTombstonePurgeStage', async () => {
+      // The assertion is the full three-call SUBSEQUENCE, not merely "before the
+      // tombstone" (plan round 1 finding 5). A redaction stage inserted FIRST
+      // would satisfy a before-tombstone assertion while violating D5 outright:
+      // running first leaves a LIVE account with a wiped Stripe billing contact
+      // whenever a later local stage fails.
+      await handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob());
+
+      expect(stageOrder).toEqual(['audit', 'redaction', 'tombstone']);
+      // The worker resolves getStripe() at its own boundary and passes the client
+      // down — a domain module never imports the singleton (invariant #15).
+      expect(mockRedactionStage).toHaveBeenCalledWith(
+        mockSql,
+        expect.objectContaining({ customers: expect.anything() }),
+        expect.objectContaining({ id: OFFBOARDING_ID, stripe_customer_id: 'cus_123' }),
+      );
+    });
+
+    it('handleAccountOffboardingPurge does not finalize the purge when the redaction stage throws a retryable error', async () => {
+      // Retry safety: account_offboardings.stripe_customer_id survives until
+      // finalize, and loadPurgeOffboarding re-reads it, so a retry after a failed
+      // redaction still has the id. Finalizing anyway would destroy the last copy
+      // of the identifier while the Stripe Customer is still un-redacted.
+      mockRedactionStage.mockImplementation(async () => {
+        stageOrder.push('redaction');
+        throw new Error('stripe connection error');
+      });
+
+      await expect(
+        handleAccountOffboardingPurge(mockSql, mockSupabaseServer, makeJob()),
+      ).rejects.toThrow();
+
+      expect(stageOrder).toEqual(['audit', 'redaction']);
+      expect(mockEnqueueOffboardingPurged).not.toHaveBeenCalled();
+      expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+    });
   });
 });
 

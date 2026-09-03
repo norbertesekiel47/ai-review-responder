@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   redactStripeCustomer,
@@ -239,5 +240,56 @@ describe('redactStripeCustomer', () => {
     expect(stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID)).toBe(
       stripeCustomerRedactionIdempotencyKey(OFFBOARDING_ID),
     );
+  });
+});
+
+/**
+ * The T0 meta-check. Plan round 1 finding 1: `pnpm test` is ordinary
+ * `vitest run`, and a pending test does not make it fail — so a suite of
+ * `.todo` titles would exit 0 with zero feature behaviour behind it. A pending
+ * test is not a promise. This walks the feature's OWN test files and refuses
+ * any of the three ways to write one.
+ */
+describe('feature test suite integrity', () => {
+  // Every file this feature adds a promised test to, relative to the repo
+  // root. Adding a file to allowed_edit_surface without adding it here would
+  // let a pending test hide in it.
+  const FEATURE_TEST_FILES = [
+    'src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts',
+    'src/lib/account-offboarding/__tests__/table-disposition.test.ts',
+    'src/lib/notifications/__tests__/email-templates.test.ts',
+    'src/lib/legal/__tests__/content.test.ts',
+    'src/lib/accounts/__tests__/billing-locks.test.ts',
+    'src/lib/accounts/__tests__/billing-locks.integration.test.ts',
+    'src/lib/payments/__tests__/create-checkout-session.test.ts',
+    'worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts',
+    'worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts',
+    'worker/ingress/__tests__/shared.test.ts',
+    'worker/ingress/__tests__/stripe.test.ts',
+    'worker/ingress/__tests__/stripe-subscription-updated.test.ts',
+    'worker/ingress/stripe/__tests__/apply-subscription-state.test.ts',
+    'worker/ingress/stripe/__tests__/subscription-deleted-trial.test.ts',
+    'worker/background/pollers/__tests__/ArchivalPoller.test.ts',
+    'worker/background/pollers/health-alert/__tests__/checks.test.ts',
+  ] as const;
+
+  const REPO_ROOT = new URL('../../../../', import.meta.url);
+
+  it('the feature test suite contains no todo or skipped tests', () => {
+    const offenders: string[] = [];
+
+    for (const relativePath of FEATURE_TEST_FILES) {
+      const source = readFileSync(new URL(relativePath, REPO_ROOT), 'utf8');
+      for (const [index, line] of source.split('\n').entries()) {
+        // `.todo` and `.skip` on it/describe, plus the conditional forms
+        // `it.skipIf(...)` / `describe.runIf(...)`, which are the same evasion
+        // wearing a predicate.
+        if (/\b(it|test|describe)\.(todo|skip|skipIf|runIf)\b/.test(line)) {
+          offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
   });
 });

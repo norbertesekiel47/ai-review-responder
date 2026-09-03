@@ -218,6 +218,23 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([]);
       expect(await checkFailedInboundEvents(mockSql, CFG)).toEqual([]);
     });
+
+    it('checkFailedInboundEvents does not count stale_ignored rows', async () => {
+      // The alert class this branch exists to kill. An age-stale no-account
+      // subscription event is acked, not failed, so it must fall outside this
+      // query entirely. The predicate is failed-only today; pin it rather than
+      // assume it, because widening it later would silently restore the storm.
+      sqlReturnQueue.push([]);
+
+      await checkFailedInboundEvents(mockSql, CFG);
+
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain("status = 'failed'");
+      expect(queryText).not.toContain('stale_ignored');
+      expect(queryText).not.toContain('IN (');
+      expect(queryText).not.toContain('!=');
+    });
   });
 
   describe('checkZeroDeliveryNotifications', () => {

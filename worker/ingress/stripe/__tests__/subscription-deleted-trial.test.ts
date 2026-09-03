@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
  * customer.subscription.deleted — ALL cancellations route through the applier.
@@ -15,6 +15,7 @@ const {
   sqlReturnQueue,
   sqlCalls,
   mockApplyStripeSubscriptionState,
+  mockCaptureMessage,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const sqlCalls: { text: string; values: unknown[] }[] = [];
@@ -33,6 +34,7 @@ const {
       accountResolved: true, fromStatus: 'trialing', toStatus: 'cancelled',
       changed: true, activated: false, primaryBusinessId: null,
     }),
+    mockCaptureMessage: vi.fn(),
   };
 });
 
@@ -42,8 +44,16 @@ vi.mock('../apply-subscription-state', () => ({
   applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
+vi.mock('@sentry/node', () => ({
+  captureMessage: mockCaptureMessage,
+  captureException: vi.fn(),
+}));
 
 import { processSubscriptionDeleted } from '../subscription-deleted';
+import {
+  AccountNotProvisionedYetError,
+  OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+} from '../shared';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const CUSTOMER_ID = 'cus_test_123';
@@ -66,6 +76,7 @@ beforeEach(() => {
   sqlReturnQueue.length = 0;
   sqlCalls.length = 0;
   mockApplyStripeSubscriptionState.mockClear();
+  mockCaptureMessage.mockClear();
 });
 
 describe('subscription.deleted — cancel during trial', () => {
@@ -140,5 +151,75 @@ describe('subscription.deleted — cancel during trial', () => {
     await processSubscriptionDeleted(deletedSub()); // deletes SUB_ID, owned by neither account
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+});
+
+// ── D4/D6/D7: the out-of-order retry bound, proven for THIS handler ─────
+//
+// Deliberately duplicated from the subscription-updated suite rather than
+// shared. Plan round 1 finding 6: one shared boundary case could exercise a
+// single handler while the other silently used the wrong comparison. The
+// clock is frozen so the boundary under test is the stated one.
+describe('processSubscriptionDeleted out-of-order retry bound', () => {
+  const NOW_SECONDS = 1_800_000_000;
+
+  function eventContext(ageSeconds: number) {
+    return { id: 'evt_deleted_boundary', created: NOW_SECONDS - ageSeconds };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_SECONDS * 1000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('processSubscriptionDeleted throws AccountNotProvisionedYetError when the event is 60 seconds old and no account exists', async () => {
+    sqlReturnQueue.push([]); // customer-scoped SELECT: no accounts
+
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(60)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
+  it('processSubscriptionDeleted logs and returns without throwing when the event is older than 15 minutes and no account exists', async () => {
+    sqlReturnQueue.push([]);
+
+    await expect(
+      processSubscriptionDeleted(
+        deletedSub(),
+        eventContext(OUT_OF_ORDER_RETRY_WINDOW_SECONDS + 60),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockCaptureMessage.mock.calls[0]!;
+    expect(options).toMatchObject({ level: 'warning' });
+  });
+
+  it('processSubscriptionDeleted throws at an event age of exactly 900 seconds and acks at 901 under a frozen clock', async () => {
+    expect(OUT_OF_ORDER_RETRY_WINDOW_SECONDS).toBe(900);
+
+    sqlReturnQueue.push([]);
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(900)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+
+    sqlReturnQueue.push([]);
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(901)),
+    ).resolves.toBeUndefined();
+  });
+
+  it('processSubscriptionDeleted throws rather than acking for a future event timestamp', async () => {
+    sqlReturnQueue.push([]);
+
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(-3600)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
   });
 });

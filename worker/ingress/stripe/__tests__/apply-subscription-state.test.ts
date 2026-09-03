@@ -432,3 +432,75 @@ describe('ref resolution + missing account', () => {
     expect(sqlReturnQueue).toHaveLength(0);
   });
 });
+
+// ── D8: the customer-keyed binding lock ────────────────────────────────
+//
+// The lock lives in applyStripeSubscriptionStateInternal, NOT in the
+// UnderEntitlementLock wrapper (round 2 finding 2). BOTH exported entry points
+// funnel through that internal function, so both are proven here: placing it
+// in the wrapper would have left applyStripeSubscriptionState outside the lock
+// and made the declared invariant false.
+//
+// Lock ORDER is fixed and must not be inverted: account-scoped tier
+// entitlement first, customer-keyed binding second. The redaction stage takes
+// ONLY the binding lock and requests no other, so it cannot join a cycle.
+describe('stripe customer binding lock (D8)', () => {
+  function lockKeys(): unknown[] {
+    return sqlCalls
+      .filter((call) => /pg_advisory_xact_lock/.test(call.text))
+      .map((call) => call.values[0]);
+  }
+
+  function indexOfLock(suffix: string): number {
+    return sqlCalls.findIndex(
+      (call) =>
+        /pg_advisory_xact_lock/.test(call.text) &&
+        call.values.some((value) => typeof value === 'string' && value.endsWith(suffix)),
+    );
+  }
+
+  it('applyStripeSubscriptionStateUnderEntitlementLock takes the customer binding lock before writing stripe_customer_id', async () => {
+    sqlReturnQueue.push([]); // binding lock
+    queueLockedAccountRow('pending_payment');
+
+    await applyStripeSubscriptionStateUnderEntitlementLock(
+      mockSql,
+      ACCOUNT_ID,
+      subRef,
+      activeSub(),
+    );
+
+    expect(lockKeys()).toContain(`${CUSTOMER_ID}:stripe_customer_binding`);
+    const lockIndex = indexOfLock(':stripe_customer_binding');
+    const writeIndex = sqlCalls.findIndex(
+      (call) =>
+        /\bUPDATE\s+accounts\b/.test(call.text) &&
+        /stripe_customer_id\s*=\s*COALESCE/.test(call.text),
+    );
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(writeIndex).toBeGreaterThanOrEqual(0);
+    expect(lockIndex).toBeLessThan(writeIndex);
+  });
+
+  it('applyStripeSubscriptionState takes the customer binding lock on its own exported entry point', async () => {
+    sqlReturnQueue.push([{ id: ACCOUNT_ID }]); // resolveAccountId
+    sqlReturnQueue.push([]); // entitlement lock
+    sqlReturnQueue.push([]); // binding lock
+    queueLockedAccountRow('pending_payment');
+
+    await applyStripeSubscriptionState(mockSql, subRef, activeSub());
+
+    // Both locks, and entitlement is FIRST — inverting this reopens the
+    // account -> business -> entitlement -> account deadlock billing-locks.ts
+    // documents.
+    const entitlementIndex = indexOfLock(':tier_entitlement');
+    const bindingIndex = indexOfLock(':stripe_customer_binding');
+    expect(entitlementIndex).toBeGreaterThanOrEqual(0);
+    expect(bindingIndex).toBeGreaterThanOrEqual(0);
+    expect(entitlementIndex).toBeLessThan(bindingIndex);
+    expect(lockKeys()).toEqual([
+      `${ACCOUNT_ID}:tier_entitlement`,
+      `${CUSTOMER_ID}:stripe_customer_binding`,
+    ]);
+  });
+});
