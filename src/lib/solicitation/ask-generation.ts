@@ -649,13 +649,21 @@ interface ChildIdentity {
  * Record one `outreach_withheld` Refusal for a render this lane declined to
  * turn into a sendable Ask (#1011, map #994).
  *
- * PRIVATE, AND SHARED BY THE LANE'S THREE PHYSICAL CALL SITES —
- * `persistChildRender` (which `settleBudgetStop` also settles through),
- * `regenerateAsk`'s swap, and `settleGenerationExhaustion`'s hole fill. Four
- * WRITERS, three call sites. The alternative was three repeated nine-field
- * objects each restating the lane, the category lookup, the subject pair and
- * both tenant columns, which is past the "no abstraction before the second
- * use" line; the plan settles this and it is not re-opened here.
+ * PRIVATE, AND SHARED BY THE LANE'S TWO SINGLE-ROW CALL SITES —
+ * `persistChildRender` (which `settleBudgetStop` also settles through) and
+ * `regenerateAsk`'s swap. FOUR WRITERS, THREE CALL SITES, TWO OF THEM HERE:
+ * `settleGenerationExhaustion`'s hole fill was the third until #1082 batched
+ * it, and it now reaches the ledger through `outreachWithheldRefusalInput` +
+ * `writeRefusalEvents` instead. That is why the field list moved into the
+ * builder below: this function no longer spells the shape, it names the ACT,
+ * and the builder is the shape's one owner across both arms.
+ *
+ * IT IS KEPT RATHER THAN INLINED, and that was a review decision, not an
+ * oversight. It is now a pass-through, so `writeRefusalEvent(tx,
+ * outreachWithheldRefusalInput(…))` at both sites would be one indirection
+ * fewer. What that loses is this docblock's home: half of it — the no-catch
+ * rule, migration 116's CHECKs, the `dispatch.ts` counterpart — describes the
+ * WRITE, and would sit wrongly on a pure value builder that performs none.
  *
  * NOT A SEAM. `src/lib/refusals/write.ts` states there is no `RefusalLedger`
  * interface and that nothing varies across call sites — this is a local
@@ -1858,12 +1866,23 @@ export async function settleGenerationExhaustion(
     // W4. ONE Refusal PER HOLE — never one per invocation and never one per
     // BullMQ attempt. This settlement withholds every remaining ask in the
     // batch, and each of them is its own subject. The rows are COLLECTED here
-    // and written in one statement below (#1082): `holes` is bounded only by
-    // the batch, `loadCandidateWindow` bounds a batch at MAX_DATA_ROWS
-    // (5,000), and this transaction already holds the per-Business advisory
-    // lock AND the `solicitation_batches` row lock — so a write per iteration
-    // is that many sequential round trips with both locks held, behind the
-    // `src/lib/db/admission.ts` chokepoint.
+    // and written in one statement below (#1082), because a write per
+    // iteration is a round trip per hole inside a transaction that already
+    // holds the per-Business advisory lock AND the `solicitation_batches` row
+    // lock.
+    //
+    // THE BOUND IS `BATCH_CAP` (25), NOT `MAX_DATA_ROWS` (5,000), and it is
+    // worth stating because #1082 was written with it wrong. `holes` filters
+    // `ask.status = 'send'`; `commitAskDecisions` writes
+    // `status = decision.decision` and `evaluateBatch`
+    // (`restraint-policy.ts:440-448`) keeps at most `BATCH_CAP` send
+    // decisions, so at most 25 asks in a batch can ever BE a hole. The 5,000
+    // ceiling is real but belongs to the `ask_withheld` lane, where withheld
+    // candidates are uncapped — which is why `writeRefusalEvents`' own
+    // docblock cites it THERE. Carrying that constant into this lane
+    // overstated the saving 200-fold. The saving here is at most 24 round
+    // trips; the reason to batch is that a per-row write in a loop is the
+    // shape the set arm exists to prevent, not the size of the number.
     const refusals: WriteRefusalEventInput[] = [];
 
     for (const hole of holes) {

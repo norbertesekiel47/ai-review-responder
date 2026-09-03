@@ -1497,6 +1497,16 @@ describeWithDb(
         // Refusals for fills that never landed — a ledger claiming a decision
         // the batch never made. Column equality cannot see that; only an
         // abort can.
+        //
+        // THIS IS NOT THE ONLY GUARD, AND SAYING SO MATTERS. The red-team pass
+        // measured it: `'a refusal written by each render writer does not
+        // survive a later rollback of its outreach transaction'` already
+        // settles W4 under `abortAfterLedgerWrite` and kills the same
+        // mutation. Two things are different here and both are the batching
+        // change's own: that case aborts ONE hole with a JS throw, this one
+        // aborts TWO with a real Postgres error (22012) that leaves the
+        // transaction in aborted state — the multi-row set write, poisoned
+        // the way production would poison it.
         await seedSendAsk(1);
         await seedSendAsk(2);
         await mintSendParentRun();

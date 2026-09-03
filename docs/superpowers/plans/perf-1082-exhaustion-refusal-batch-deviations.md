@@ -66,3 +66,87 @@ before it — the first insert landed out of date order and was moved, because a
 chronological ledger that is not chronological is worse than no ledger.
 
 **Verdict:** ACCEPT
+
+---
+
+## D4 — the ticket's premise was 200x too large, and the branch repeated it
+
+**What happened.** The review wave's standards axis found that `holes` is
+bounded by `BATCH_CAP` (25), not `MAX_DATA_ROWS` (5,000). The 5,000 figure came
+from the ticket itself and I carried it into the intake, the plan, a production
+comment and a test comment without deriving it.
+
+**The chain that settles it**, derived independently of both axes:
+
+1. `holes` filters `ask.status = 'send'`.
+2. `commitAskDecisions` writes `status: decision.decision`.
+3. `evaluateBatch` keeps at most `BATCH_CAP` = 25 `send` decisions per batch.
+4. `AskDecision` is `send | withhold`, and the sole `UPDATE solicitation_asks`
+   sets `agent_run_id`, never `status`.
+
+So at most 25 asks per batch can be a hole. The saving is at most 24 round
+trips, not 4,999.
+
+**Two axes disagreed.** The async axis re-derived 5,000 from the candidate
+window and wrote "no correction needed". It conflated *asks inserted* (up to
+5,000, mostly `withhold`) with *asks with `status='send'`* (at most 25). The
+standards axis is right.
+
+**Action.** Corrected in five places: the production comment, the test comment,
+the plan, both intake copies, and a new bullet (f) in the arch-review-log row.
+The owner reviewed the corrected value case and chose to ship.
+
+**Verdict:** ACCEPT
+
+---
+
+## D5 — the branch's "load-bearing" claim about the sort was false (red-team P0)
+
+**What happened.** The `refusalCalls()` docblock and the arch-review-log row
+both claimed the `invocationCallOrder` sort was LOAD-BEARING and that arm-order
+concatenation "mis-pairs every row the moment a second arm exists". Red team
+replaced the sort with plain concatenation and got a green suite. The claim was
+false when written.
+
+**Why it was false.** The only arm-mixing test drives W1 → W2 → W3 → W4, and W4
+is the only set-arm writer, so its calls are already last. Test ordering, not a
+property of the helper.
+
+**Action.** The sort is KEPT — it buys order-independence, and a later
+interleaving test would mis-pair silently without it — but both claims are
+rewritten to say what is true. A real one-armed hazard *was* found next to it
+(the mid-test `mockClear` calls) and is now `clearRefusalCalls`.
+
+**Verdict:** ACCEPT
+
+---
+
+## D6 — three review findings rejected, with reasoning
+
+**R1 — "N live kill-switch reads became one" (Codex, medium).** REJECTED as
+unreachable. `readFlagEnabledByDefault` is `process.env[name] !== 'false'`, and
+there is no `process.env` assignment anywhere in `src/` or `worker/` outside
+tests. The flag changes on redeploy, which restarts the worker, so no
+mid-settlement flip exists. The intake's wording is tightened rather than the
+code changed.
+
+**R2 — "the unit suite is intermittently red at HEAD" (spec-correctness,
+medium).** REJECTED on evidence. The proposed mechanism is refuted by the
+vitest source: `mockClear` empties `calls` and `invocationCallOrder` in one
+function, and the two are pushed on adjacent unconditional lines, so they
+cannot desync. I ran the suite 60 times at HEAD with 0 failures. The async axis
+independently traced its own single first-run failure to a stale vitest
+transform cache, which is the better explanation for both observations. Re-run
+at volume after these fixes and recorded below.
+
+**R3 — `docs/directory.md` prose is stale (async, low).** RAISED, NOT TAKEN.
+The file is outside `allowed_edit_surface` and `ci:directory-map` checks row
+presence, not prose. Filed as a follow-up rather than widening the surface.
+
+**Also rejected: inline `recordOutreachWithheldRefusal`** (standards, medium).
+It is now a pass-through, so deleting it would remove one indirection. Rejected
+because half of its docblock — the no-catch rule, migration 116's CHECKs, the
+`dispatch.ts` counterpart — describes the WRITE and would sit wrongly on a pure
+value builder that performs none. The stale census it carried is fixed instead.
+
+**Verdict:** ACCEPT

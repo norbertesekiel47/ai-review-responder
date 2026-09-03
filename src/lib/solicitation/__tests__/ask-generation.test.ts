@@ -1243,13 +1243,24 @@ describe('the outreach_withheld render lane (#1011)', () => {
    * Every Refusal this lane proposed, across BOTH ledger arms, in the order
    * the lane proposed them (#1082).
    *
-   * `invocationCallOrder` IS THE MECHANISM AND NOT A DETAIL. Vitest records
-   * calls per mock, so concatenating the two arms would order by arm — and
-   * the matrix test below pairs `refusalCalls()[i]` with `withheld[i]`
-   * positionally against `insertOutreachRender`'s own call order. Arm order
-   * would mis-pair every row the moment a second arm appears. The counter is
-   * global and monotonic across mocks, so sorting on it restores the real
-   * chronology.
+   * `invocationCallOrder` IS NOT LOAD-BEARING TODAY, AND SAYING SO IS THE
+   * POINT. An earlier version of this docblock claimed arm-order
+   * concatenation "mis-pairs every row the moment a second arm appears". The
+   * red-team pass falsified it: replacing the sort with plain
+   * `[...single, ...set]` leaves the suite green, because the only test that
+   * mixes arms runs the writers W1 -> W2 -> W3 -> W4 and W4 is the only
+   * set-arm writer, so its calls are already last. That is happenstance of
+   * test order, not a property of the helper.
+   *
+   * THE SORT STAYS ANYWAY, for order-INDEPENDENCE rather than for today.
+   * The matrix test below pairs `refusalCalls()[i]` with `withheld[i]`
+   * positionally against `insertOutreachRender`'s own call order, so a later
+   * test that interleaves the arms — W4 before W1, say — would mis-pair every
+   * row under plain concatenation, and silently. The counter is global and
+   * monotonic across mocks, so sorting on it costs nothing and removes the
+   * trap. Indexing it is safe: `mockClear` empties `calls` and
+   * `invocationCallOrder` in one function and the two are pushed on adjacent
+   * unconditional lines (`@vitest/spy`), so they cannot desync.
    *
    * A SET CALL FLATTENS IN ITS INPUT ORDER, which is the loop order the lane
    * collected the holes in — so the fan-out reads exactly as N single-row
@@ -1274,6 +1285,22 @@ describe('the outreach_withheld render lane (#1011)', () => {
   const expectNoRefusalWrite = (): void => {
     expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
     expect(mocks.writeRefusalEvents).not.toHaveBeenCalled();
+  };
+
+  /**
+   * Both arms, for a test that drives several writers in PHASES and asserts
+   * between them (#1082).
+   *
+   * A ONE-ARMED CLEAR IS THE TRAP THE SORT ABOVE EXISTS FOR, which is why
+   * this is a helper and not two lines at each site. Clearing only
+   * `writeRefusalEvent` leaves an earlier phase's set-arm call in the mock;
+   * its `invocationCallOrder` is lower than the current phase's, so it sorts
+   * FIRST and shifts every positional assertion by one. That is silent — the
+   * lengths still match if the phases happen to be the same size.
+   */
+  const clearRefusalCalls = (): void => {
+    mocks.writeRefusalEvent.mockClear();
+    mocks.writeRefusalEvents.mockClear();
   };
 
   const insertInputs = (): Record<string, unknown>[] =>
@@ -1379,7 +1406,7 @@ describe('the outreach_withheld render lane (#1011)', () => {
       refusalCategory: 'below_our_bar',
     });
 
-    mocks.writeRefusalEvent.mockClear();
+    clearRefusalCalls();
     resetMockSql();
     // No attested postal address (#622 §7.6): the footer cannot be assembled.
     await runSingleChild({ postal_address: null });
@@ -1389,7 +1416,7 @@ describe('the outreach_withheld render lane (#1011)', () => {
       refusalCategory: 'below_our_bar',
     });
 
-    mocks.writeRefusalEvent.mockClear();
+    clearRefusalCalls();
     resetMockSql();
     mocks.moderateResponse.mockResolvedValue({
       ...cleanModeration(),
@@ -1578,11 +1605,15 @@ describe('the outreach_withheld render lane (#1011)', () => {
   });
 
   it("a generation exhaustion records every hole's Refusal in ONE writeRefusalEvents call, never one call per hole", async () => {
-    // THE TICKET (#1082). `holes` is bounded only by the batch, and
-    // `loadCandidateWindow` bounds a batch at MAX_DATA_ROWS = 5,000. A
-    // single-row write per iteration puts that many sequential round trips
-    // inside a transaction already holding the per-Business advisory lock AND
-    // the `solicitation_batches` row lock.
+    // THE TICKET (#1082). A single-row write per iteration puts one round
+    // trip per hole inside a transaction already holding the per-Business
+    // advisory lock AND the `solicitation_batches` row lock.
+    //
+    // THREE HOLES, NOT A CEILING FIXTURE, and the ceiling is 25 rather than
+    // the 5,000 this test first cited: `holes` filters `ask.status = 'send'`
+    // and `evaluateBatch` keeps at most `BATCH_CAP` send decisions per batch.
+    // Three is enough — a writer that records one Refusal per INVOCATION sits
+    // at 1 here, and a one-hole fixture would not tell the two apart.
     //
     // THE CALL COUNT IS THE ASSERTION, and the row count is checked beside it:
     // a writer that batched but dropped rows, and a writer that kept every row
@@ -1606,19 +1637,26 @@ describe('the outreach_withheld render lane (#1011)', () => {
   });
 
   it('a generation exhaustion that finds no holes issues no Refusal write through either arm', async () => {
-    // The empty case is the helper's, not the caller's: `writeRefusalEvents`
-    // documents that an empty input issues NO STATEMENT and returns before it
-    // even reads the kill switch. So the lane calls it unconditionally rather
-    // than re-spelling that guarantee behind an `if` — a caller-side length
-    // check would be the second authority that drifts.
     await runExhaustion(0);
 
+    // THE TITLE'S PROPERTY, first and on its own: zero Refusals proposed
+    // through either arm. This is what "issues no Refusal write" means, and
+    // it holds however the lane spells the empty case.
+    expect(refusalCalls()).toEqual([]);
     expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+
+    // A DESIGN PIN, NOT THE TITLE'S PROPERTY — kept deliberately separate
+    // because the two fail for different reasons (red team, P2). The empty
+    // case belongs to the helper: `writeRefusalEvents` documents that an
+    // empty input issues NO STATEMENT and returns before it even reads the
+    // kill switch, so the lane calls it unconditionally rather than
+    // re-spelling that guarantee behind an `if` — a caller-side length check
+    // would be the second authority that drifts. A future `if
+    // (refusals.length > 0)` would be outcome-identical and would turn THESE
+    // two lines red and none of the three above; that is the signal working,
+    // and the fix then is to delete this pin, not to weaken the test.
     expect(mocks.writeRefusalEvents).toHaveBeenCalledTimes(1);
     expect(mocks.writeRefusalEvents.mock.calls[0]![1]).toEqual([]);
-    // Zero PROPOSED Refusals is the fact that matters; one call carrying an
-    // empty set is not a ledger write.
-    expect(refusalCalls()).toEqual([]);
-    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
   });
 });
