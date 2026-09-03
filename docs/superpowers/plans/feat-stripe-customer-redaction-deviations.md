@@ -217,3 +217,92 @@ decision, and I routed around it by accident. **Use Edit/Write for repo source
 during a /feature run, never a scripted write.**
 
 **Verdict:** ACCEPT
+
+## D6 — the review wave inverted D5, and four other owner decisions
+
+**What happened.** The six-member review wave against `00f6d56b` returned 21
+distinct findings, two of them P0, against a tree whose full gate was green.
+Four needed owner decisions; all four were taken 2026-09-03 and all four
+matched the recommendation.
+
+**D5 is INVERTED.** Redaction now runs FIRST, before any local destruction,
+where the locked decision put it immediately before the tombstone.
+
+The original rationale was **false**, which is why the decision moved rather
+than being traded away. D5 said running late was safe because "every local
+destruction has committed, so the point of no return has passed". The async and
+database axes independently showed `runParentTombstonePurgeStage` — the stage
+that actually replaces names, emails, phones and addresses with sentinels —
+runs AFTER redaction. A Stripe outage that exhausted retries therefore left auth
+deleted and content destroyed while `users`/`businesses`/`accounts` still held
+live PII, terminal, with no receipt and no automatic re-run.
+
+The hazard D5 feared — a LIVE account left with a wiped billing contact — is
+not reachable. Cancellation is gated on `purge_started_at IS NULL`
+(`keep-my-data.ts`), confirmed by the database axis, so an account at this point
+cannot return to service. **The shared-customer guard, not the ordering, is what
+protects a co-tenant.** That is what makes this an inversion rather than a
+trade.
+
+**Promised test title 13 moved with it**, in both intake copies, because it
+named the old ordering and the gate matches titles verbatim. The assertion
+stays a full subsequence: the dangerous direction is now redaction drifting
+LATER, back behind a destructive stage, which a bare before-tombstone check
+would allow.
+
+**The other three decisions.** PaymentMethods are DETACHED, not merely
+disclosed — they carry name, email, phone, full address and card `last4`, and
+unlike a paid invoice that data is deletable, so leaving it was an erasure gap
+rather than an under-disclosure. A `stale_ignored` rate probe restores the
+pager the ack removed. The guard predicate now names `purge_scheduled` and
+scopes to `mode = 'delete_data'`.
+
+**Surface amendment 4 reached fourteen files**, every addition disclosed and
+approved: seven ingress suites, the shared webhook harness,
+`static-policy-audit.ts` and its paired test, `tenant-scope-allowlist.ts`,
+`arch-review-log.md`, `health-alert/checks.ts` and its integration test.
+
+**One promise NOT delivered, and deliberately.** The intake's
+`user_visible_behavior` promised the receipt would say "RepWorth cleared the
+identifying details". The shipped receipt is a retention disclosure only. The
+promised clause would be FALSE in the `skipped_shared_customer` outcome, and the
+template has no outcome data to condition on. Restoring it literally would ship
+a sentence that is sometimes untrue to a compliance surface. Recorded here
+rather than forced.
+
+**Two new env vars were also declined.** The `stale_ignored` probe's window and
+threshold are module constants, not `HEALTH_ALERT_*` vars, because two vars
+would pull in three registries for a threshold production data has not yet
+informed. Promote them when someone needs to tune it without a deploy.
+
+**Verdict:** ACCEPT
+
+## D7 — what the wave says about this branch's own verification
+
+Recorded because the pattern repeated, and a later session should expect it.
+
+**Three defects came from comments I wrote confidently.** "ONE predicate, not a
+second query with its own interval" was the reasoning that cost the
+`ArchivalPoller` its index. "Every local destruction has committed" was the
+false premise under D5. "Requests no other lock, so it cannot participate in a
+deadlock cycle" was untrue of the disposition append. In each case the prose
+read like a design rule and was in fact the defect.
+
+**A green gate proved almost nothing about test QUALITY.** 14,805 tests passed
+over a tree in which `ackedForAge = false` — which removes D9's guarantee for
+half its surface — killed nothing at all. Mutation is what separated a real
+pin from a tautology, and it disagreed with severity twice: the spec axis rated
+the delete-handler stub P3 where red team's mutation proved P0.
+
+**A stub is part of a signature's contract.** The P0 existed because I changed
+`processSubscriptionDeleted` from `void` to a typed ack and did not revisit the
+test stub that had encoded the old shape. The dispatcher then threw a
+`TypeError` into its own catch arm and the test passed on an assertion that had
+already fired.
+
+**My own verification script disagreed with the gate and I believed the
+script.** It composed `describe` + `it` names and reported 45/45 promised titles
+present; the gate matches VERBATIM and found ten missing. A check must
+reproduce the gate's rule, not a reasonable-looking equivalent.
+
+**Verdict:** ACCEPT (no code change; recorded for the next run)
