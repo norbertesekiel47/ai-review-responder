@@ -74,8 +74,8 @@
     "a generation exhaustion that aborts after its fills records neither the outreach rows nor their refusal_events rows"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 90,
-  "estimated_test_lines": 150,
+  "estimated_prod_lines": 250,
+  "estimated_test_lines": 220,
   "dependencies_added": [],
   "rollback_plan": "Revert the branch. The change adds no schema, no dependency and no new statement — writeRefusalEvents already ships and commitAskDecisions already calls it — so reverting restores the per-hole loop, which is slower but correct. REFUSAL_LEDGER_ENABLED=false remains the operational lever if the ledger itself must go dark.",
   "observability": [

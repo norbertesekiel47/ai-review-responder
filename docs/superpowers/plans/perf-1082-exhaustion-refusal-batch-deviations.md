@@ -43,6 +43,32 @@ budget.
 
 **Verdict:** ACCEPT
 
+### D1b — the trigger fired a second time, after the staging drill
+
+`estimated_prod_lines` went 35 → 90 → 250. The last raise needs its breakdown,
+or 250 reads as "the code kept growing". It did not:
+
+| Lines | File | Is it code? |
+|---|---|---|
+| 130 | `src/lib/solicitation/ask-generation.ts` | 27 executable; the rest is comment |
+| 107 | `docs/runbooks/evidence/2026-09-03-…-drill.md` | No — the staging drill evidence |
+| 1 | `.claude/reference/arch-review-log.md` | No |
+
+The executable production diff has been **27 lines since the first commit** and
+has not moved since.
+
+**A gap in the gate, filed rather than patched.** `verify-gate.sh` excludes
+`docs/superpowers/plans/**` and `docs/reviews/**` from the buckets — "the plan
+document is not scope creep against itself" — but not
+`docs/runbooks/evidence/**`, which is a workflow artifact by exactly the same
+argument. So a high-risk branch is penalised for producing the staging evidence
+its own lane requires. The script is outside `allowed_edit_surface`; filed as a
+follow-up.
+
+Step 0 re-run again: `size` small, `risk` high, `surface` backend. Unchanged.
+
+**Verdict:** ACCEPT
+
 ---
 
 ## D2 — the promised-test title had to be re-quoted, not renamed
