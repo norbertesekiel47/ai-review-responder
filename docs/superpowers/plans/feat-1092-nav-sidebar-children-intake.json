@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "On desktop the owner reaches every dashboard sub-route from sidebar children and sees no in-page pill bar; on mobile every one of those sub-routes stays reachable exactly as it is today, and the Review QR surface lives under Requests instead of Settings.",
+  "non_goals": [
+    "Deleting ReviewsTabs, RequestsTabs or AnalyticsTabs — #1089 reversed that; they are retained and scoped to mobile",
+    "Moving or changing the QR redirect GET /q/[businessId] — printed codes point at it",
+    "Changing which locations are QR-eligible, or the subscriptionAllowsQrRedirect gate",
+    "Adding a children row to MobileTabBar — #1089 chose the pill bar for mobile instead",
+    "Repointing SETTINGS_DEFAULT_HREF",
+    "Deleting the shared .tabs/.tab styles — CardViewTabs is a view switch and keeps them",
+    "Changing the solicitation feature flag's meaning or default"
+  ],
+  "user_visible_behavior": [
+    "Above 768px the Reviews, Requests and Analytics pages render no pill tab bar.",
+    "The sidebar lists Needs Action and All Reviews under Reviews, Requests and Contacts and Review QR under Requests, and Metrics and Restraint under Analytics.",
+    "At or below 768px each of those pages still renders its pill bar, and Requests gains a third pill for Review QR.",
+    "The Review QR surface answers at /dashboard/requests/qr, and its printable per-location view at /dashboard/requests/qr/print/[businessId].",
+    "An owner opening the old /settings/review-qr URL is redirected to the new one rather than seeing a 404.",
+    "The Settings sidebar no longer lists Review QR."
+  ],
+  "invariants": [
+    "Every sub-route reachable on a phone today stays reachable on a phone after this change.",
+    "deriveNavSection remains the single owner of the nav-highlight rule; Sidebar and MobileTabBar both read it and cannot drift.",
+    "The QR redirect GET /q/[businessId] and src/lib/locations/review-qr.ts are untouched, so printed Review QR codes keep resolving.",
+    "The Requests section and all of its children stay hidden when the solicitation flag is off.",
+    "Exactly one nav row highlights for any pathname.",
+    "The 768px boundary is read from the existing console.css rule, never re-spelled as a second number."
+  ],
+  "edge_cases": [
+    "Solicitation flag off: the Requests parent and its three children, Review QR included, are all absent.",
+    "A pathname under the moved QR route folds to the requests nav section, not to the dashboard catch-all.",
+    "The bare /settings pathname still highlights the SETTINGS_DEFAULT_HREF row, which is unrelated to this change.",
+    "An owner on the aggregate location scope still reaches Review QR; the surface itself decides eligibility.",
+    "A QR-ineligible location still gets its explanatory card, not a dead-end QR.",
+    "ContactsClient and ReviewsContent each render their pill bar in two branches; both branches must behave the same."
+  ],
+  "existing_patterns_to_follow": [
+    "src/components/dashboard/shell/Sidebar.tsx NavChild — the existing sidebar-child component and its aria-current pairing",
+    "src/components/dashboard/shell/active-nav.ts deriveNavSection — ordered prefix tests, specific before the catch-all",
+    "src/components/dashboard/reviews/ReviewsTabs.tsx — routed tab bar with plain next/link and aria-current, never role=tab",
+    "src/app/(authenticated)/_styles/console.css @media (max-width: 768px) — the single existing sidebar/mobile boundary"
+  ],
+  "test_seams": [
+    "deriveNavSection",
+    "Sidebar",
+    "MobileTabBar",
+    "ReviewsTabs",
+    "RequestsTabs",
+    "AnalyticsTabs",
+    "SettingsSidebar"
+  ],
+  "allowed_edit_surface": [
+    "src/components/dashboard/shell/Sidebar.tsx",
+    "src/components/dashboard/shell/active-nav.ts",
+    "src/components/dashboard/shell/__tests__/active-nav.test.ts",
+    "src/components/dashboard/__tests__/Sidebar.test.tsx",
+    "src/components/dashboard/reviews/ReviewsTabs.tsx",
+    "src/components/dashboard/reviews/__tests__/ReviewsTabs.test.tsx",
+    "src/components/dashboard/reviews/__tests__/past-reply-card-states.test.tsx",
+    "src/components/dashboard/analytics/AnalyticsTabs.tsx",
+    "src/components/dashboard/analytics/__tests__/AnalyticsTabs.test.tsx",
+    "src/components/dashboard/settings/SettingsSidebar.tsx",
+    "src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx",
+    "src/app/(authenticated)/dashboard/requests/RequestsTabs.tsx",
+    "src/app/(authenticated)/dashboard/requests/requests.css",
+    "src/app/(authenticated)/dashboard/requests/qr/page.tsx",
+    "src/app/(authenticated)/dashboard/requests/qr/ReviewQrClient.tsx",
+    "src/app/(authenticated)/dashboard/requests/qr/PrintButton.tsx",
+    "src/app/(authenticated)/dashboard/requests/qr/print/[businessId]/page.tsx",
+    "src/app/(authenticated)/dashboard/requests/qr/__tests__/ReviewQrClient.test.tsx",
+    "src/app/(authenticated)/dashboard/requests/qr/__tests__/PrintButton.test.tsx",
+    "src/app/(authenticated)/dashboard/requests/qr/__tests__/print-page-source.test.ts",
+    "src/app/(authenticated)/settings/review-qr/page.tsx",
+    "src/app/(authenticated)/_styles/console.css",
+    "CONTEXT.md",
+    "docs/directory.md",
+    "docs/currents.md",
+    ".claude/reference/arch-review-log.md"
+  ],
+  "tests_to_add": [
+    "the sidebar lists Needs Action and All Reviews under Reviews",
+    "the sidebar lists Requests, Contacts and Review QR under Requests",
+    "the sidebar lists Metrics and Restraint under Analytics",
+    "every sub-route reachable by a pill today is still reachable below the breakpoint",
+    "no in-page tab pill bar is visible above the sidebar breakpoint",
+    "RequestsTabs offers Review QR alongside Requests and Contacts",
+    "the Requests section and its children are hidden when solicitation is disabled",
+    "deriveNavSection folds the moved Review QR route into requests",
+    "the old settings Review QR path redirects to the Requests one"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 190,
+  "estimated_test_lines": 230,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the squash commit. No migration, no schema, no flag change and no external state, so a revert fully restores the previous navigation; printed Review QR codes are unaffected either way because GET /q/[businessId] never moves.",
+  "observability": [],
+  "required_approvals": [
+    "commit",
+    "push",
+    "merge"
+  ],
+  "open_questions": []
+}
