@@ -1577,7 +1577,7 @@ describe('the outreach_withheld render lane (#1011)', () => {
     expectNoRefusalWrite();
   });
 
-  it('a generation exhaustion records every hole\'s Refusal in ONE writeRefusalEvents call, never one call per hole', async () => {
+  it("a generation exhaustion records every hole's Refusal in ONE writeRefusalEvents call, never one call per hole", async () => {
     // THE TICKET (#1082). `holes` is bounded only by the batch, and
     // `loadCandidateWindow` bounds a batch at MAX_DATA_ROWS = 5,000. A
     // single-row write per iteration puts that many sequential round trips
