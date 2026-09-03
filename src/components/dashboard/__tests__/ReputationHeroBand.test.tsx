@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
+import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
+import { MINUTES_SAVED_PER_RESPONSE } from '@/lib/dashboard/constants';
 import type { ReputationSummary } from '@/lib/dashboard/types';
 
 const baseSummary: ReputationSummary = {
@@ -105,5 +107,51 @@ describe('ReputationHeroBand footer grammar', () => {
 
     expect(screen.getByText(/1 reply handled for you since joining/)).toBeInTheDocument();
     expect(screen.getByText(/about 1 hour back in your day/)).toBeInTheDocument();
+  });
+});
+
+describe('ReputationHeroBand info tips (#1086)', () => {
+  function renderHero() {
+    return render(
+      <ReputationHeroBand
+        summary={baseSummary}
+        lifetimeReviewsHandled={1284}
+        lifetimeTimeSavedMinutes={3120}
+        connected
+      />,
+    );
+  }
+
+  function panelFor(name: string) {
+    const trigger = screen.getByRole('button', { name });
+    return document.getElementById(trigger.getAttribute('aria-controls') as string);
+  }
+
+  it('says an average rating is the window, not the all-time Google score', () => {
+    renderHero();
+
+    const panel = panelFor('What Average rating means');
+    expect(panel).toHaveTextContent('last 30 days');
+    expect(panel).toHaveTextContent('not your all-time rating on Google');
+  });
+
+  // The number is an estimate built from a constant. The tip names the
+  // constant, so the figure is not mistaken for a measurement.
+  it('says time saved is an estimate and names the minutes per reply', () => {
+    renderHero();
+
+    const panel = panelFor('What Time saved means');
+    expect(panel).toHaveTextContent('An estimate');
+    expect(panel).toHaveTextContent(String(MINUTES_SAVED_PER_RESPONSE));
+  });
+
+  // Assumption 4: a tip is warranted only where a better label or an existing
+  // sentence will not do. Response rate already carries one, right below.
+  it('gives response rate no tip, because a sentence already explains it', () => {
+    renderHero();
+
+    expect(screen.queryByRole('button', { name: 'What Response rate means' })).toBeNull();
+    expect(screen.getByText(RESPONSE_RATE_PERIOD_CONTEXT)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^What .* means$/ })).toHaveLength(2);
   });
 });

@@ -9,6 +9,7 @@ import {
   REP_PULSE_WEIGHTS,
   type RepPulseContribution,
 } from '@/lib/dashboard/rep-pulse';
+import { InfoTip } from '@/components/ui/InfoTip';
 
 interface Props {
   summary: ReputationSummary;
@@ -17,6 +18,28 @@ interface Props {
 // r=46 in a 120-viewBox circle → circumference ≈ 289 (pinned in console.css:
 // .pulse-val stroke-dasharray + the rw-gauge-sweep keyframe start).
 const GAUGE_CIRCUMFERENCE = 289;
+
+/**
+ * What the coined score IS — the one thing neither state says. "What moved it"
+ * and "What will set it" both explain the composition; a name and a Beta chip
+ * cannot say that the number runs 0–100 or where its points come from.
+ *
+ * It sits BESIDE the `<h2>`, never inside it: the section is
+ * `aria-labelledby="pulse-heading"`, so a trigger within the heading would
+ * become part of the card's accessible name.
+ *
+ * Weights come from `REP_PULSE_WEIGHTS`, so the copy cannot drift from the
+ * arithmetic.
+ */
+function PulseTip() {
+  return (
+    <InfoTip subject="Rep Pulse">
+      A score out of 100, built from two numbers you already see. Your average
+      rating sets {REP_PULSE_WEIGHTS.rating} of the points. How often you reply
+      sets the other {REP_PULSE_WEIGHTS.response}.
+    </InfoTip>
+  );
+}
 
 /**
  * Rep Pulse — the coined-score card beside the reputation hero. The gauge is
@@ -32,6 +55,7 @@ export function RepPulseCard({ summary }: Props) {
       <section className="card pulse-card" aria-labelledby="pulse-heading">
         <div className="pulse-head">
           <h2 id="pulse-heading" className="pulse-title">Rep Pulse</h2>
+          <PulseTip />
           <span className="pulse-beta">Beta</span>
         </div>
         <div className="pulse-empty" role="status">
@@ -70,6 +94,7 @@ export function RepPulseCard({ summary }: Props) {
     <section className="card pulse-card" aria-labelledby="pulse-heading">
       <div className="pulse-head">
         <h2 id="pulse-heading" className="pulse-title">Rep Pulse</h2>
+        <PulseTip />
         <span className="pulse-beta">Beta</span>
       </div>
       <div className="pulse-gauge-wrap">

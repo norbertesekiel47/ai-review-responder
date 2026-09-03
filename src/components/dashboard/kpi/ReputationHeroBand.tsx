@@ -2,6 +2,8 @@
 
 import type { ReputationSummary } from '@/lib/dashboard/types';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { InfoTip } from '@/components/ui/InfoTip';
+import { MINUTES_SAVED_PER_RESPONSE } from '@/lib/dashboard/constants';
 import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
 import { computeHeroHeadline } from '@/components/dashboard/kpi/hero-headline';
 import { starTrendPoints, starTrendPlot, trendSpanLabel } from '@/components/dashboard/charts/star-trend-plot';
@@ -151,7 +153,13 @@ export function ReputationHeroBand({
             </span>
             {averageStar.current != null && <Stars rating={averageStar.current} />}
           </div>
-          <span className="rep-stat-label">Average rating</span>
+          <span className="rep-stat-label">
+            Average rating
+            <InfoTip subject="Average rating">
+              The mean star rating of the reviews you received in the last 30
+              days. It is not your all-time rating on Google.
+            </InfoTip>
+          </span>
           <Delta value={averageStar.delta} unit="rating points" decimals={1} />
         </div>
 
@@ -172,7 +180,13 @@ export function ReputationHeroBand({
               {formatHours(timeSavedMinutes.current ?? 0)}<small>hrs</small>
             </span>
           </div>
-          <span className="rep-stat-label">Time saved</span>
+          <span className="rep-stat-label">
+            Time saved
+            <InfoTip subject="Time saved">
+              An estimate. RepWorth counts {MINUTES_SAVED_PER_RESPONSE} minutes
+              for every reply it handled for you in this period.
+            </InfoTip>
+          </span>
           <Delta
             value={timeSavedMinutes.delta == null ? null : Math.round(timeSavedMinutes.delta / 60)}
             unit="hrs vs prior 30 days"

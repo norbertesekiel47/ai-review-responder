@@ -49,6 +49,12 @@
     "src/components/dashboard/kpi/PendingApprovalsStrip.tsx",
     "src/components/dashboard/AgentTeamStrip.tsx",
     "src/components/dashboard/NeedsAttentionList.tsx",
+    "src/components/dashboard/__tests__/ReputationHeroBand.test.tsx",
+    "src/components/dashboard/__tests__/PendingApprovalsStrip.test.tsx",
+    "src/components/dashboard/__tests__/AgentTeamStrip.test.tsx",
+    "src/components/dashboard/__tests__/NeedsAttentionList.test.tsx",
+    "src/components/dashboard/kpi/__tests__/RepPulseCard.test.tsx",
+    "src/components/dashboard/kpi/__tests__/WeeklyRecapCard.test.tsx",
     "docs/directory.md",
     ".claude/reference/arch-review-log.md"
   ],

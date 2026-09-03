@@ -100,3 +100,48 @@ describe('RepPulseCard — ramping', () => {
     expect(screen.queryByText('What moved it')).not.toBeInTheDocument();
   });
 });
+
+describe('RepPulseCard — info tip (#1086)', () => {
+  const TIP_NAME = 'What Rep Pulse means';
+
+  // "What moved it" and "What will set it" both explain the COMPOSITION. A
+  // coined name and a Beta chip never say what the number IS.
+  it('names what the coined score is, in the scored state', () => {
+    render(<RepPulseCard summary={summary()} />);
+
+    const tip = screen.getByRole('button', { name: TIP_NAME });
+    const panel = document.getElementById(tip.getAttribute('aria-controls') as string);
+
+    expect(panel).toHaveTextContent('A score out of 100');
+    expect(panel).toHaveTextContent('70');
+    expect(panel).toHaveTextContent('30');
+  });
+
+  it('names it in the ramping state too, where there is no score to read', () => {
+    render(<RepPulseCard summary={summary({ isRamping: true })} />);
+
+    expect(screen.getByRole('button', { name: TIP_NAME })).toBeInTheDocument();
+  });
+
+  // The section is `aria-labelledby="pulse-heading"`. A trigger inside the
+  // heading would become part of the card's accessible name.
+  it('sits beside the heading, so the card is still named "Rep Pulse"', () => {
+    const { container } = render(<RepPulseCard summary={summary()} />);
+
+    expect(screen.getByRole('region', { name: 'Rep Pulse' })).toBeInTheDocument();
+    expect(container.querySelector('#pulse-heading .info-tip')).toBeNull();
+    expect(container.querySelector('.pulse-head .info-tip')).not.toBeNull();
+  });
+
+  // Intake invariant: a screen reader only announces changes to a region that
+  // already existed, so the tip must not displace one.
+  it('does not move the ramping card live region in the tree', () => {
+    const { container } = render(<RepPulseCard summary={summary({ isRamping: true })} />);
+
+    const head = container.querySelector('.pulse-head');
+    const status = container.querySelector('[role="status"]');
+
+    expect(status).toHaveClass('pulse-empty');
+    expect(head?.nextElementSibling).toBe(status);
+  });
+});

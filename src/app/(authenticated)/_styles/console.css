@@ -2957,6 +2957,113 @@
 .settings-skeleton__field { height: 40px; width: 100%; border-radius: 10px; background: var(--rw-recess); }
 .settings-skeleton__row > div { animation: rw-skeleton-pulse 1.4s ease-in-out infinite; }
 @keyframes rw-skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* ==========================================================================
+   Info tip (#1086)
+   ==========================================================================
+   The shared affordance that says what a headline number means. Both elements
+   are inline spans, so a tip is legal inside a heading; the panel is taken out
+   of flow, so adding one never re-flows the row it sits in.
+
+   `left: 0` rather than a centred transform: every placement sits at the START
+   of a card header, so the panel grows inward and the clamp below is what
+   keeps it off the right edge. A centred panel would overhang at 390px. */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-start: var(--rw-sp-1);
+}
+
+.info-tip-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--rw-radius-pill);
+  background: transparent;
+  color: var(--rw-app-text-muted);
+  cursor: pointer;
+  transition: background var(--rw-dur-fast) var(--rw-ease),
+    color var(--rw-dur-fast) var(--rw-ease);
+}
+
+.info-tip-trigger svg { width: 14px; height: 14px; }
+
+.info-tip-trigger:hover {
+  background: var(--rw-control-hover);
+  color: var(--rw-app-text);
+}
+
+.info-tip-trigger:focus-visible {
+  outline: 2px solid var(--rw-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--rw-focus-ring);
+}
+
+.info-tip-panel {
+  position: absolute;
+  top: calc(100% + var(--rw-sp-2));
+  left: 0;
+  z-index: 20;
+  /* The clamp is the 390px rule: never wider than the viewport less its
+     gutters, so a long tip wraps instead of clipping. */
+  width: max-content;
+  max-width: min(18rem, calc(100vw - var(--rw-sp-8)));
+  padding: var(--rw-sp-3);
+  border: 1px solid var(--rw-app-border);
+  border-radius: var(--rw-radius-core);
+  background: var(--rw-floating-surface);
+  box-shadow: var(--rw-shadow-pop);
+  color: var(--rw-app-text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: start;
+  white-space: normal;
+  transition: opacity var(--rw-dur-fast) var(--rw-ease);
+}
+
+.info-tip-panel[hidden] { display: none; }
+
+/* Below the shell breakpoint the panel spans the page gutters instead of
+   hanging off its trigger. `left: 0` on a trigger that sits part-way along a
+   row pushes 18rem of panel past the right edge at 390px — it clipped, and it
+   widened the page. Dropping `.info-tip` out of the positioning context hands
+   the panel the initial containing block, so the two gutters bound it. */
+@media (max-width: 768px) {
+  .info-tip { position: static; }
+
+  .info-tip-panel {
+    top: auto;
+    left: var(--rw-sp-4);
+    right: var(--rw-sp-4);
+    width: auto;
+    max-width: none;
+    /* `top: auto` resolves to the static position, which is the trigger's own
+       baseline. Clear the line it sits on. */
+    margin-top: var(--rw-sp-6);
+  }
+}
+
+/* `.pulse-head` is `space-between`, so a third child would strand the tip in
+   the middle of the row. The auto margin keeps it beside the title and holds
+   the Beta chip at the far edge. */
+.pulse-head .info-tip { margin-inline-end: auto; }
+
+/* The hero is the one placement that is not a white card. Muted app ink is too
+   pale on the gradient, so the trigger borrows the hero's own ink tokens. */
+.rep-hero .info-tip-trigger { color: var(--rw-hero-ink-soft); }
+
+.rep-hero .info-tip-trigger:hover {
+  background: var(--rw-hero-chip);
+  color: var(--rw-hero-ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live-dot::after,
   .loc-picker-dropdown,
@@ -2997,6 +3104,8 @@
   .btn,
   .rating-row,
   .empty-link,
+  .info-tip-trigger,
+  .info-tip-panel,
   .loc-kpi-card { transition: none; }
 
   .loc-kpi-card:hover { transform: none; }
@@ -3018,4 +3127,17 @@
   .mtab { min-height: 44px; }
 
   .collapsed-toggle { min-width: 44px; }
+
+  /* The tip trigger sits inline beside a heading, so it cannot join the list
+     above — a 44px min-height would stretch the header row. It gets the touch
+     target as an invisible overlay instead, and keeps its 20px footprint. */
+  .info-tip-trigger::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
 }
