@@ -60,7 +60,11 @@ import { moderateResponse } from '@/lib/moderation/moderate';
 import type { ModerationDecision } from '@/lib/moderation/output-filter';
 import { openaiModerationEnabled } from '@/lib/moderation/flags';
 import { OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
-import { writeRefusalEvent } from '@/lib/refusals/write';
+import {
+  writeRefusalEvent,
+  writeRefusalEvents,
+  type WriteRefusalEventInput,
+} from '@/lib/refusals/write';
 import {
   recordGenerationSteps,
   recordStep,
@@ -695,7 +699,42 @@ async function recordOutreachWithheldRefusal(
   reason: RenderWithholdReason,
   decidedAt: Date,
 ): Promise<void> {
-  await writeRefusalEvent(tx, {
+  await writeRefusalEvent(
+    tx,
+    outreachWithheldRefusalInput(ids, outreachId, reason, decidedAt),
+  );
+}
+
+/**
+ * The render lane's Refusal, as data — the ONE place this lane spells the
+ * `outreach_withheld` shape (#1082).
+ *
+ * IT EXISTS BECAUSE THE LANE USES BOTH LEDGER ARMS. Three of the four writers
+ * settle one render per transaction and go through
+ * `recordOutreachWithheldRefusal` above; `settleGenerationExhaustion` settles
+ * every hole in the batch at once and goes through `writeRefusalEvents`. Two
+ * call sites spelling the same source, code axis, subject axis and clock rule
+ * by hand is how the two drift, and the docblock above is the contract they
+ * would drift away from — so it stays the contract, and this is its only
+ * projection into a value.
+ *
+ * IT IS PURE, and that is what makes it safe to call inside a loop: no `tx`,
+ * no clock read, no flag read. The kill switch and the statement both stay in
+ * `src/lib/refusals/write.ts`, which #1001 made the only owner of either.
+ *
+ * `occurredAt` IS THE CALLER'S `Date`, NEVER the `'transaction_time'`
+ * sentinel. `NOW()` is `transaction_timestamp()` — it freezes at transaction
+ * START, and every transaction in this lane waits on the per-Business
+ * advisory lock before it decides anything, so the sentinel would record
+ * neither the decision nor the write.
+ */
+function outreachWithheldRefusalInput(
+  ids: { accountId: string; businessId: string },
+  outreachId: string,
+  reason: RenderWithholdReason,
+  decidedAt: Date,
+): WriteRefusalEventInput {
+  return {
     accountId: ids.accountId,
     businessId: ids.businessId,
     refusalSource: 'outreach_withheld',
@@ -704,13 +743,8 @@ async function recordOutreachWithheldRefusal(
     refusalCategory: OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES[reason],
     subjectType: 'solicitation_outreach',
     subjectId: outreachId,
-    // NEVER the `'transaction_time'` sentinel. `NOW()` is
-    // `transaction_timestamp()` — it freezes at transaction START, and every
-    // transaction in this lane waits on the per-Business advisory lock before
-    // it decides anything, so the sentinel would record neither the decision
-    // nor the write.
     occurredAt: decidedAt,
-  });
+  };
 }
 
 function toInsertInput(
@@ -1821,6 +1855,17 @@ export async function settleGenerationExhaustion(
       LIMIT 1
     `;
 
+    // W4. ONE Refusal PER HOLE — never one per invocation and never one per
+    // BullMQ attempt. This settlement withholds every remaining ask in the
+    // batch, and each of them is its own subject. The rows are COLLECTED here
+    // and written in one statement below (#1082): `holes` is bounded only by
+    // the batch, `loadCandidateWindow` bounds a batch at MAX_DATA_ROWS
+    // (5,000), and this transaction already holds the per-Business advisory
+    // lock AND the `solicitation_batches` row lock — so a write per iteration
+    // is that many sequential round trips with both locks held, behind the
+    // `src/lib/db/admission.ts` chokepoint.
+    const refusals: WriteRefusalEventInput[] = [];
+
     for (const hole of holes) {
       // The decision-2 never-produced fills (renderFailedOutcome shape);
       // interpolation snapshot {} — these asks were never assembled.
@@ -1845,17 +1890,25 @@ export async function settleGenerationExhaustion(
         renderedSubject: null,
         renderedBody: null,
       });
-      // W4. ONE Refusal PER HOLE, inside the loop — never one per invocation
-      // and never one per BullMQ attempt. This settlement withholds every
-      // remaining ask in the batch, and each of them is its own subject.
-      await recordOutreachWithheldRefusal(
-        tx,
-        { accountId, businessId: input.businessId },
-        outreachId,
-        'render_failed',
-        decidedAt,
+      refusals.push(
+        outreachWithheldRefusalInput(
+          { accountId, businessId: input.businessId },
+          outreachId,
+          'render_failed',
+          decidedAt,
+        ),
       );
     }
+
+    // UNCONDITIONAL, and the empty case is the helper's. `writeRefusalEvents`
+    // issues no statement for an empty input and returns before it even reads
+    // the kill switch, so a caller-side length check here would be a second
+    // authority for a guarantee that module already owns and documents.
+    //
+    // INSIDE THE TRANSACTION, after the last fill and before the run-spine
+    // receipt: a rollback must take the fills and their Refusals together, or
+    // the ledger records a decision the batch never made.
+    await writeRefusalEvents(tx, refusals);
 
     if (parent) {
       // Receipt for everything the lane actually did (prior partial renders +

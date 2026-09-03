@@ -31,13 +31,21 @@ const mocks = vi.hoisted(() => ({
   acquireConcurrencySlot: vi.fn(),
   releaseConcurrencySlot: vi.fn(),
   recordApiCost: vi.fn(),
-  // #1011 — the Refusal ledger's single writer. Mocked HERE and only here:
-  // this suite drives `sql` through the fragment-aware mock whose return queue
-  // is a strict FIFO, so an unmocked ledger INSERT would shift a queued result
-  // out from under the next real query in every pre-existing test. The
-  // live-DB sibling runs the REAL helper against the REAL table, which is
-  // where the row's validity, its transaction and the kill switch are proven.
+  // #1011 — the Refusal ledger's writer. Mocked HERE and only here: this
+  // suite drives `sql` through the fragment-aware mock whose return queue is a
+  // strict FIFO, so an unmocked ledger INSERT would shift a queued result out
+  // from under the next real query in every pre-existing test. The live-DB
+  // sibling runs the REAL helper against the REAL table, which is where the
+  // row's validity, its transaction and the kill switch are proven.
+  //
+  // BOTH ARMS, NEVER ONE (#1082). The ledger is one module with two arms and
+  // this lane uses both: `settleGenerationExhaustion` batches its holes into
+  // `writeRefusalEvents`, the other three writers stay single-row. Mocking
+  // only `writeRefusalEvent` leaves `refusalCalls()` blind to the batching
+  // lane and every negative assertion below naming one half of a two-half
+  // writer — green, and covering nothing.
   writeRefusalEvent: vi.fn(),
+  writeRefusalEvents: vi.fn(),
   logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
@@ -98,6 +106,7 @@ vi.mock('@/lib/costs/audit', async (importOriginal) => ({
 vi.mock('@/lib/refusals/write', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/refusals/write')>()),
   writeRefusalEvent: mocks.writeRefusalEvent,
+  writeRefusalEvents: mocks.writeRefusalEvents,
 }));
 vi.mock('@/lib/shared/logger', () => ({
   createWorkerLogger: () => mocks.logger,
@@ -269,6 +278,7 @@ beforeEach(() => {
   mocks.checkAskRegenBudget.mockResolvedValue(undefined);
   mocks.recordApiCost.mockResolvedValue('api-cost-1');
   mocks.writeRefusalEvent.mockResolvedValue(undefined);
+  mocks.writeRefusalEvents.mockResolvedValue(undefined);
 });
 
 describe('generateAsksForBatch', () => {
@@ -1229,8 +1239,42 @@ describe('the outreach_withheld render lane (#1011)', () => {
     occurredAt: Date | 'transaction_time';
   }
 
-  const refusalCalls = (): RefusalCall[] =>
-    mocks.writeRefusalEvent.mock.calls.map((call) => call[1] as RefusalCall);
+  /**
+   * Every Refusal this lane proposed, across BOTH ledger arms, in the order
+   * the lane proposed them (#1082).
+   *
+   * `invocationCallOrder` IS THE MECHANISM AND NOT A DETAIL. Vitest records
+   * calls per mock, so concatenating the two arms would order by arm — and
+   * the matrix test below pairs `refusalCalls()[i]` with `withheld[i]`
+   * positionally against `insertOutreachRender`'s own call order. Arm order
+   * would mis-pair every row the moment a second arm appears. The counter is
+   * global and monotonic across mocks, so sorting on it restores the real
+   * chronology.
+   *
+   * A SET CALL FLATTENS IN ITS INPUT ORDER, which is the loop order the lane
+   * collected the holes in — so the fan-out reads exactly as N single-row
+   * calls would have. The count is the ROW count, never the call count: that
+   * is the property #1082 changed the lane to preserve.
+   */
+  const refusalCalls = (): RefusalCall[] => {
+    const single = mocks.writeRefusalEvent.mock.calls.map((call, index) => ({
+      order: mocks.writeRefusalEvent.mock.invocationCallOrder[index]!,
+      inputs: [call[1] as RefusalCall],
+    }));
+    const set = mocks.writeRefusalEvents.mock.calls.map((call, index) => ({
+      order: mocks.writeRefusalEvents.mock.invocationCallOrder[index]!,
+      inputs: [...(call[1] as readonly RefusalCall[])],
+    }));
+    return [...single, ...set]
+      .sort((left, right) => left.order - right.order)
+      .flatMap((invocation) => invocation.inputs);
+  };
+
+  /** Both arms, for the guard paths that must reach NEITHER (#1082). */
+  const expectNoRefusalWrite = (): void => {
+    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+    expect(mocks.writeRefusalEvents).not.toHaveBeenCalled();
+  };
 
   const insertInputs = (): Record<string, unknown>[] =>
     mocks.insertOutreachRender.mock.calls.map((call) => call[1] as Record<string, unknown>);
@@ -1482,7 +1526,7 @@ describe('the outreach_withheld render lane (#1011)', () => {
     await generateAsksForBatch(sql, GENERATE_INPUT);
 
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
-    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+    expectNoRefusalWrite();
   });
 
   it('a batch halted during the LLM round trip writes neither an outreach row nor a refusal_events row', async () => {
@@ -1499,7 +1543,7 @@ describe('the outreach_withheld render lane (#1011)', () => {
     // The render WAS produced and withheld — and still nothing is recorded,
     // because the lifecycle re-check refused the insert it would accompany.
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
-    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+    expectNoRefusalWrite();
   });
 
   it('a regeneration rejected by swap revalidation writes neither a replacement outreach row nor a refusal_events row', async () => {
@@ -1515,16 +1559,66 @@ describe('the outreach_withheld render lane (#1011)', () => {
 
     expect(mocks.supersedeLiveRender).not.toHaveBeenCalled();
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
-    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+    expectNoRefusalWrite();
   });
 
-  it('a stale generation-exhaustion attempt writes neither outreach hole rows nor refusal_events rows', async () => {
+  it('a stale generation-exhaustion attempt writes no Refusal through either the single-row or the set arm', async () => {
+    // The CAS loses, so the lane returns before the hole query — neither arm
+    // is reached. Renamed from "…neither outreach hole rows nor
+    // refusal_events rows" at #1082: this lane now batches, and a negative
+    // assertion naming one arm of a two-arm writer is exactly the assertion
+    // that stays green while covering nothing.
     mocks.markOutboxFailed.mockResolvedValue(false);
 
     const settled = await settleGenerationExhaustion(sql, LANE_DEAD_LETTER_INPUT);
 
     expect(settled).toEqual({ status: 'stale' });
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expectNoRefusalWrite();
+  });
+
+  it('a generation exhaustion records every hole\'s Refusal in ONE writeRefusalEvents call, never one call per hole', async () => {
+    // THE TICKET (#1082). `holes` is bounded only by the batch, and
+    // `loadCandidateWindow` bounds a batch at MAX_DATA_ROWS = 5,000. A
+    // single-row write per iteration puts that many sequential round trips
+    // inside a transaction already holding the per-Business advisory lock AND
+    // the `solicitation_batches` row lock.
+    //
+    // THE CALL COUNT IS THE ASSERTION, and the row count is checked beside it:
+    // a writer that batched but dropped rows, and a writer that kept every row
+    // but looped, both fail here and neither fails a count-only test.
+    mintDistinctOutreachIds();
+    await runExhaustion(3);
+
     expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+    expect(mocks.writeRefusalEvents).toHaveBeenCalledTimes(1);
+    // One INPUT per hole. `refusalCalls()` flattens the set arm, so this reads
+    // the fan-out the lane proposed, not the number of times it called.
+    expect(refusalCalls()).toHaveLength(3);
+    expect(refusalCalls().map((call) => call.subjectId)).toEqual([
+      'outreach-1',
+      'outreach-2',
+      'outreach-3',
+    ]);
+    // The fills still happen per hole — batching `insertOutreachRender` is
+    // out of this ticket's scope and is a separate writer of a separate table.
+    expect(mocks.insertOutreachRender).toHaveBeenCalledTimes(3);
+  });
+
+  it('a generation exhaustion that finds no holes issues no Refusal write through either arm', async () => {
+    // The empty case is the helper's, not the caller's: `writeRefusalEvents`
+    // documents that an empty input issues NO STATEMENT and returns before it
+    // even reads the kill switch. So the lane calls it unconditionally rather
+    // than re-spelling that guarantee behind an `if` — a caller-side length
+    // check would be the second authority that drifts.
+    await runExhaustion(0);
+
+    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+    expect(mocks.writeRefusalEvents).toHaveBeenCalledTimes(1);
+    expect(mocks.writeRefusalEvents.mock.calls[0]![1]).toEqual([]);
+    // Zero PROPOSED Refusals is the fact that matters; one call carrying an
+    // empty set is not a ledger write.
+    expect(refusalCalls()).toEqual([]);
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
   });
 });

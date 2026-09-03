@@ -22,7 +22,7 @@
   "user_visible_behavior": [
     "Operational: a terminal generation exhaustion that settles N holes issues 1 INSERT INTO refusal_events instead of N, inside the same transaction. At the lane's documented ceiling of 5,000 asks that removes up to 4,999 sequential round trips from the advisory-lock window.",
     "Operational: no owner-facing change. The Restraint tab renders the same rows, with the same stored Refusal category, refusal code, subject and occurred_at.",
-    "Operational: with REFUSAL_LEDGER_ENABLED=false the warning count does not change. warnLedgerDisabled is latched per episode by a module-level flag (src/lib/refusals/write.ts:291), so N single-row calls already produced exactly one warning."
+    "Operational: with REFUSAL_LEDGER_ENABLED=false the warning count does not change. warnLedgerDisabled (src/lib/refusals/write.ts:368) is latched per episode by the module-level warnedThisEpisode (src/lib/refusals/write.ts:296), so N single-row calls already produced exactly one warning."
   ],
   "invariants": [
     "src/lib/refusals/write.ts stays the ONLY place INSERT INTO refusal_events is spelled. This branch adds no statement.",
@@ -48,8 +48,8 @@
     "A settlement that aborts after the loop: neither the fills nor their Refusals commit, because both writes are on the one transaction."
   ],
   "existing_patterns_to_follow": [
-    "src/lib/solicitation/batch-builder.ts:655-698 — the repo's only other writeRefusalEvents call site. It builds the array at the call site, calls once, and carries a comment naming the lock window it protects.",
-    "src/lib/refusals/write.ts:504-560 — the set arm's contract: an empty input issues no statement, no affected-row assertion, and the flag is read live per call inside the body.",
+    "src/lib/solicitation/batch-builder.ts:655-697 — the repo's only other writeRefusalEvents call site. It builds the array at the call site, calls once, and carries a comment naming the lock window it protects.",
+    "src/lib/refusals/write.ts:547-683 — the set arm's docblock and body: an empty input issues no statement, no affected-row assertion, and the flag is read live per call inside the body.",
     "src/lib/refusals/write.ts — the two-arm shape itself: a single-row arm and a set arm side by side, sharing one documented contract.",
     "src/lib/solicitation/ask-generation.ts:691-714 — recordOutreachWithheldRefusal, whose docblock is the lane's mapping contract and must keep owning it.",
     "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1461 — the existing behavioural guard: one refusal_events row per hole, read back from the real database.",
