@@ -1,19 +1,9 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { RepPulseCard } from '@/components/dashboard/kpi/RepPulseCard';
 import { REP_PULSE_WEIGHTS } from '@/lib/dashboard/rep-pulse';
 import type { ReputationSummary } from '@/lib/dashboard/types';
-
-/** The four surfaces #1086 places a tip on, relative to `src/`. */
-const TIP_BEARING_SOURCES = [
-  'components/dashboard/kpi/ReputationHeroBand.tsx',
-  'components/dashboard/kpi/RepPulseCard.tsx',
-  'components/dashboard/kpi/WeeklyRecapCard.tsx',
-  'components/dashboard/NeedsAttentionList.tsx',
-] as const;
 
 function summary(overrides: Partial<{
   star: number | null;
@@ -150,28 +140,10 @@ describe('RepPulseCard — info tip (#1086)', () => {
     expect(container.querySelector('.pulse-head .info-tip')).not.toBeNull();
   });
 
-  // Intake invariant: a screen reader only announces changes to a region that
-  // already existed, so a tip must not displace one.
-  //
-  // The invariant holds here by PREMISE, not by placement: none of the four
-  // surfaces this branch touches mounts `LiveRegion` at all. So the honest
-  // oracle is the premise itself. The earlier version of this test asserted
-  // `head.nextElementSibling` on `RepPulseCard`'s own local `role="status"`
-  // div, which is not a `LiveRegion` — it could not have detected a violation,
-  // and it would have failed on a harmless subtitle.
-  it('adding a tip does not move an existing LiveRegion in the tree', () => {
-    const sources = TIP_BEARING_SOURCES.map((rel) =>
-      // __tests__ -> kpi -> dashboard -> components -> src
-      readFileSync(join(import.meta.dirname, '../../../..', rel), 'utf8'),
-    );
-
-    for (const [index, source] of sources.entries()) {
-      expect(
-        source.includes('LiveRegion'),
-        `${TIP_BEARING_SOURCES[index]} now mounts a LiveRegion — this branch's `
-          + 'invariant is no longer vacuous. Assert the region\'s tree position '
-          + 'directly instead of deleting this test.',
-      ).toBe(false);
-    }
-  });
+  // The LiveRegion invariant used to live here over a HAND-MAINTAINED list of
+  // four tip-bearing surfaces. It went stale on the very next branch, when
+  // `ValueKpiGrid` gained two tips and nothing went red. It now lives in
+  // `dashboard/__tests__/info-tip-coverage.test.tsx` over a DERIVED list, and
+  // with a second arm for the case this one could not see: a PARENT that
+  // mounts the region.
 });
