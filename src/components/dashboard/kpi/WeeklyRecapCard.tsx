@@ -3,6 +3,7 @@
 import type { DashboardDataActive, ReputationSummary } from '@/lib/dashboard/types';
 import { computeWeeklyRecap, type RecapWeek } from '@/lib/dashboard/weekly-recap';
 import { getBriefBullets } from '@/components/dashboard/kpi/brief-bullets';
+import { InfoTip } from '@/components/ui/InfoTip';
 
 interface Props {
   trend: ReputationSummary['trend'];
@@ -37,6 +38,13 @@ export function WeeklyRecapCard({ trend, brief }: Props) {
       {/* The shared card-heading row, not a private copy of it. */}
       <div className="card-h2-row">
         <h2 id="recap-heading">Your week</h2>
+        {/* Beside the heading, not inside it: the section is
+            `aria-labelledby="recap-heading"`. */}
+        <InfoTip subject="Your week">
+          A review counts in the week it was written, not the week RepWorth
+          found it. So a review posted last week stays in last week, even if it
+          reached you today.
+        </InfoTip>
         <span className="recap-range">{recap.rangeLabel} · so far</span>
       </div>
 
