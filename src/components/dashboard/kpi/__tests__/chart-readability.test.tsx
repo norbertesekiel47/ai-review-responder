@@ -281,11 +281,18 @@ async function nameEachChart(
 // The five promised tests
 // ---------------------------------------------------------------------------
 
+// `it.fails` marks a test that MUST fail today — the eval-first contract from
+// the /feature workflow ("slices not yet buildable may use .todo/.fails"). It
+// keeps the verify gate honest and green while the spec is still red, and it is
+// a forcing function in both directions: the moment a tracer closes its gap the
+// `.fails` itself starts failing, so the tracer cannot land without flipping it
+// back to a plain `it`. Each one names the tracer that owns it.
 describe('chart readability (feat/1088)', () => {
   // G6. Every chart is already reachable by a screen reader — the corrected
   // measurement settled that — but reachable is not named. The two `Recent*`
   // charts label each row and leave the chart itself anonymous.
-  it('every dashboard chart exposes an accessible name', async () => {
+  // RED until T5 adds chart-level names to the two `Recent*` charts.
+  it.fails('every dashboard chart exposes an accessible name', async () => {
     const named = await nameEachChart(CHART_SUBJECTS);
 
     expect(named.filter((entry) => entry.name === '').map((entry) => entry.chart)).toEqual([]);
@@ -296,7 +303,8 @@ describe('chart readability (feat/1088)', () => {
   // gets every number and no period. `VelocityCard` is rendered whole here on
   // purpose: its "last 3 weeks" header is present in the DOM and still must not
   // count.
-  it('every dashboard chart states the window it covers', async () => {
+  // RED until T2 puts the window into each chart's own caption / label.
+  it.fails('every dashboard chart states the window it covers', async () => {
     const named = await nameEachChart(PLOTTED_CHART_SUBJECTS);
 
     expect(
@@ -308,7 +316,8 @@ describe('chart readability (feat/1088)', () => {
   // two `Recent*` charts return null at total === 0 so the caller can drop the
   // slot, and that is the contract — asserted below so this title cannot be
   // satisfied by giving them an empty state they are not supposed to have.
-  it('a chart with an empty series still says what it would plot', () => {
+  // RED until T2 names the unit and window in the trend chart's empty state.
+  it.fails('a chart with an empty series still says what it would plot', () => {
     const { container: trend } = render(<ReputationTrendChart trend={EMPTY_SERIES_WEEKS} />);
     const empty = within(trend).getByText(/not enough reviews/i);
 
@@ -326,7 +335,9 @@ describe('chart readability (feat/1088)', () => {
 
   // G3 + G4. Two pairs that sit next to each other, each pinned to the thing
   // that is actually wrong with it.
-  it('a per-location chart and its aggregate peer describe the same measure identically', async () => {
+  // RED until T5 gives the stacked aggregate the same week labels as its
+  // per-location twin. The G4 arm below already passes and is a regression pin.
+  it.fails('a per-location chart and its aggregate peer describe the same measure identically', async () => {
     // G3: the TRUE per-location/aggregate pair. Both plot review velocity by
     // week, so their week labels must read the same way. Today the per-location
     // chart uses `weekShortLabel` and the stacked aggregate puts the raw ISO
