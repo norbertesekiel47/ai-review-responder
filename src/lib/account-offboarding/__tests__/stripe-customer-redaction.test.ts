@@ -103,7 +103,10 @@ function makeStripe(
       del: vi.fn(),
     },
     paymentMethods: {
-      list: vi.fn(async () => ({ data: [...attachedPaymentMethods], has_more: false })),
+      list: vi.fn(async (_params: { customer: string; limit: number }) => ({
+        data: [...attachedPaymentMethods],
+        has_more: false,
+      })),
       detach: vi.fn(async (id: string) => {
         const i = attachedPaymentMethods.findIndex((m) => m.id === id);
         if (i >= 0) attachedPaymentMethods.splice(i, 1);
@@ -237,6 +240,125 @@ describe('redactStripeCustomer', () => {
 
     expect(stripe.customers.update).not.toHaveBeenCalled();
     expect(state.email).toBe('jordan@example.com');
+  });
+
+  // ---- R04: pagination, the half of the contract has_more names ------------
+
+  it('redactStripeCustomer keeps listing while has_more is true, and detaches every page', async () => {
+    // The first version fetched ONE page of 100, declared `has_more` on the
+    // result type, and never read it. Everything past the first page stayed
+    // attached with its billing_details intact.
+    const { stripe } = makeStripe();
+    const pages: { data: { id: string }[]; has_more: boolean }[] = [
+      { data: [{ id: 'pm_p1a' }, { id: 'pm_p1b' }], has_more: true },
+      { data: [{ id: 'pm_p2a' }], has_more: true },
+      { data: [{ id: 'pm_p3a' }], has_more: false },
+    ];
+    let call = 0;
+    stripe.paymentMethods.list.mockImplementation(
+      async () => pages[Math.min(call++, pages.length - 1)]!,
+    );
+
+    const result = await redactStripeCustomer({
+      stripe,
+      customerId: CUSTOMER_ID,
+      offboardingId: OFFBOARDING_ID,
+    });
+
+    expect(result.outcome).toBe('redacted');
+    expect(stripe.paymentMethods.list).toHaveBeenCalledTimes(3);
+    expect(stripe.paymentMethods.detach.mock.calls.map((c) => c[0])).toEqual([
+      'pm_p1a',
+      'pm_p1b',
+      'pm_p2a',
+      'pm_p3a',
+    ]);
+  });
+
+  it('redactStripeCustomer re-lists from the start rather than paging past detached methods', async () => {
+    // Detaching removes a method from the customer's list, so a
+    // `starting_after` anchor would point at a row that no longer exists and
+    // Stripe would return what follows it — skipping everything behind it.
+    const { stripe } = makeStripe();
+    let call = 0;
+    stripe.paymentMethods.list.mockImplementation(async () => ({
+      data: [{ id: `pm_${call}` }],
+      has_more: call++ < 2,
+    }));
+
+    await redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID });
+
+    expect(stripe.paymentMethods.list).toHaveBeenCalledTimes(3);
+    for (const [params] of stripe.paymentMethods.list.mock.calls) {
+      expect(params).toEqual({ customer: CUSTOMER_ID, limit: 100 });
+      expect(params).not.toHaveProperty('starting_after');
+    }
+  });
+
+  it('redactStripeCustomer throws retryable bounded_pagination_exhausted instead of reporting redacted', async () => {
+    // THE FAILURE THIS CLOSES. Returning `redacted` finalizes the purge,
+    // `runParentTombstonePurgeStage` NULLs accounts.stripe_customer_id, and the
+    // marker written on the same run makes isAlreadyRedacted short-circuit any
+    // retry — silent, permanent partial erasure. So a sweep that cannot finish
+    // must fail loudly and retryably, never succeed quietly.
+    const { stripe } = makeStripe();
+    stripe.paymentMethods.list.mockImplementation(async () => ({
+      data: [{ id: `pm_${Math.random()}` }],
+      has_more: true, // never terminates on its own
+    }));
+
+    await expect(
+      redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID }),
+    ).rejects.toMatchObject({
+      name: 'StripeCustomerRedactionError',
+      retryable: true,
+      operation: 'list_payment_methods',
+      stripeError: { code: 'bounded_pagination_exhausted' },
+    });
+
+    // The Customer's own fields are untouched, so the retry starts clean.
+    expect(stripe.customers.update).not.toHaveBeenCalled();
+  });
+
+  it('redactStripeCustomer bounds the sweep at ten pages', async () => {
+    const { stripe } = makeStripe();
+    stripe.paymentMethods.list.mockImplementation(async () => ({ data: [], has_more: true }));
+
+    await expect(
+      redactStripeCustomer({ stripe, customerId: CUSTOMER_ID, offboardingId: OFFBOARDING_ID }),
+    ).rejects.toThrow();
+
+    expect(stripe.paymentMethods.list).toHaveBeenCalledTimes(10);
+  });
+
+  it('redactStripeCustomer treats resource_missing on the FIRST list as done, and on a later one as retryable', async () => {
+    // A customer that is already gone on the first call has nothing to detach.
+    // A customer that vanishes mid-sweep leaves the remaining methods
+    // unaccounted for, which is a retry rather than a success.
+    const first = makeStripe();
+    first.stripe.paymentMethods.list.mockRejectedValueOnce(
+      stripeError('StripeInvalidRequestError', 'resource_missing'),
+    );
+    const firstResult = await redactStripeCustomer({
+      stripe: first.stripe,
+      customerId: CUSTOMER_ID,
+      offboardingId: OFFBOARDING_ID,
+    });
+    expect(firstResult.outcome).toBe('redacted');
+
+    const later = makeStripe();
+    later.stripe.paymentMethods.list
+      .mockResolvedValueOnce({ data: [{ id: 'pm_1' }], has_more: true })
+      .mockRejectedValueOnce(stripeError('StripeInvalidRequestError', 'resource_missing'));
+
+    await expect(
+      redactStripeCustomer({
+        stripe: later.stripe,
+        customerId: CUSTOMER_ID,
+        offboardingId: OFFBOARDING_ID,
+      }),
+    ).rejects.toMatchObject({ operation: 'list_payment_methods' });
+    expect(later.stripe.customers.update).not.toHaveBeenCalled();
   });
 
   it('redactStripeCustomer never calls customers.del', async () => {

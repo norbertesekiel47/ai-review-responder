@@ -260,7 +260,15 @@ export interface TenantScopeAllowlistEntry {
 //     read. It exists BECAUSE the 15-minute ack moved those rows out of the
 //     failed-only probe's set, so omitting it would have made the ack a net
 //     loss of paging coverage. 375 -> 376.
-export const ALLOWLIST_BASELINE = 376;
+//   - feat/stripe-customer-redaction, red-team round-2 fix pass: +1. The
+//     ArchivalPoller inbound_events sweep became TWO statements instead of one
+//     `UNION ALL` (red-team R06): the combined form returned ONE count against
+//     a 5000 threshold whose true cap was 10000, so both arms draining to
+//     3000 + 2000 warned "more rows may remain" when nothing remained, and the
+//     `events:` log key hid an acked-for-age backlog behind processed volume.
+//     Same table, same cross-tenant justification, one entry became two.
+//     376 -> 377.
+export const ALLOWLIST_BASELINE = 377;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -2810,9 +2818,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/background/pollers/ArchivalPoller.ts",
     table: "inbound_events",
-    sqlSnippet: "WITH candidates AS ( ( SELECT id FROM inbound_events WHERE status = 'processed' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ) UNION ALL ( SELECT id FROM inbound_events WHERE status = 'stale_ignored' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ) ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM inbound_events WHERE status = 'processed' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
     category: 'background-global-scan',
-    reason: "Global retention poller deletes processed webhook rows independent of tenant request scope; inbound_events has no account/business column (deny-all RLS, migration 066).",
+    reason: "Global retention poller, arm 2a: deletes processed webhook rows independent of tenant request scope; inbound_events has no account/business column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "inbound_events",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM inbound_events WHERE status = 'stale_ignored' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global retention poller, arm 2b: the same 30-day sweep for acked-for-age rows (D9). A SEPARATE statement from arm 2a, not a UNION ALL branch, so each arm carries its own count and its own saturation signal.",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",

@@ -106,25 +106,44 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     // events acked for age, D9) and uses idx_ie_status, which covers it because
     // the value satisfies that index's `!= 'processed'` predicate.
     //
-    // The cap is now per-arm, so a saturated cycle can delete up to 10000 rows
-    // rather than 5000. That is the intended reading: each arm saturates and
-    // reports independently, and the low-volume arm cannot starve behind the
-    // high-volume one, which a shared cap would have allowed.
-    const [eventsResult] = await sql<{ count: string }[]>`
+    // The cap is per-arm, so a saturated cycle can delete up to 10000 rows
+    // rather than 5000, and the low-volume arm cannot starve behind the
+    // high-volume one as a shared cap would have allowed.
+    //
+    // TWO QUERIES, TWO COUNTS. An earlier version ran both arms under one
+    // `UNION ALL` and returned ONE combined count, while claiming in this very
+    // comment that "each arm saturates and reports independently". It did not.
+    // A cycle deleting 3000 processed + 2000 stale_ignored — both arms
+    // exhausted, nothing left behind — summed to exactly the 5000 saturation
+    // threshold and warned "more rows may remain" when none did, reachable
+    // anywhere in [5000, 9999]; and the `events:` log key became the sum of two
+    // unrelated retention arms, so a growing acked-for-age backlog was
+    // invisible. Arms 9 and 10 below are the same situation — one table split
+    // for the same index reason — and they carry two counts and two saturation
+    // entries. This follows them.
+    // 2a. 'processed' — the high-volume arm, on idx_ie_archival.
+    const [eventsProcessedResult] = await sql<{ count: string }[]>`
       WITH candidates AS (
-        (
-          SELECT id FROM inbound_events
-          WHERE status = 'processed'
-            AND processed_at < NOW() - INTERVAL '30 days'
-          LIMIT 5000
-        )
-        UNION ALL
-        (
-          SELECT id FROM inbound_events
-          WHERE status = 'stale_ignored'
-            AND processed_at < NOW() - INTERVAL '30 days'
-          LIMIT 5000
-        )
+        SELECT id FROM inbound_events
+        WHERE status = 'processed'
+          AND processed_at < NOW() - INTERVAL '30 days'
+        LIMIT 5000
+      ),
+      deleted AS (
+        DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
+    // 2b. 'stale_ignored' — the low-volume arm (no-account subscription events
+    // acked for age, D9), on idx_ie_status.
+    const [eventsStaleIgnoredResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM inbound_events
+        WHERE status = 'stale_ignored'
+          AND processed_at < NOW() - INTERVAL '30 days'
+        LIMIT 5000
       ),
       deleted AS (
         DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates)
@@ -426,7 +445,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     `;
 
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
-    const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
+    const eventsProcessedCount = parseInt(eventsProcessedResult?.count ?? '0', 10);
+    const eventsStaleIgnoredCount = parseInt(eventsStaleIgnoredResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
     const costsCount = parseInt(costsResult?.count ?? '0', 10);
     const notificationsCount = parseInt(notificationsResult?.count ?? '0', 10);
@@ -439,7 +459,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
 
     const totalArchived =
       outboxCount +
-      eventsCount +
+      eventsProcessedCount +
+      eventsStaleIgnoredCount +
       demosCount +
       costsCount +
       notificationsCount +
@@ -453,7 +474,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     if (totalArchived > 0) {
       logger.log('Archived', {
         outbox: outboxCount,
-        events: eventsCount,
+        events_processed: eventsProcessedCount,
+        events_stale_ignored: eventsStaleIgnoredCount,
         demos: demosCount,
         api_costs: costsCount,
         notifications: notificationsCount,
@@ -469,7 +491,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       const BATCH_LIMIT = 5000;
       const saturated: string[] = [];
       if (outboxCount >= BATCH_LIMIT) saturated.push('outbox');
-      if (eventsCount >= BATCH_LIMIT) saturated.push('events');
+      if (eventsProcessedCount >= BATCH_LIMIT) saturated.push('events_processed');
+      if (eventsStaleIgnoredCount >= BATCH_LIMIT) saturated.push('events_stale_ignored');
       if (demosCount >= BATCH_LIMIT) saturated.push('demos');
       if (costsCount >= BATCH_LIMIT) saturated.push('api_costs');
       if (notificationsCount >= BATCH_LIMIT) saturated.push('notifications');

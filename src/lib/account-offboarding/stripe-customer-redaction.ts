@@ -250,8 +250,15 @@ export async function redactStripeCustomer(
   return { outcome: 'redacted' };
 }
 
-/** One page is 100; a customer with more attached methods than this is not real. */
+/** Stripe's own maximum for a list call. */
 const PAYMENT_METHOD_PAGE_SIZE = 100;
+
+/**
+ * Ten pages, so a thousand methods. Bounded rather than unbounded for the same
+ * reason `stripe-invoices.ts` bounds its own sweep: an unbounded loop against a
+ * paginating API is a way to hang a worker on provider data nobody predicted.
+ */
+const PAYMENT_METHOD_MAX_PAGES = 10;
 
 /**
  * Detach every PaymentMethod attached to the Customer.
@@ -266,6 +273,17 @@ const PAYMENT_METHOD_PAGE_SIZE = 100;
  * of the surviving data that is genuinely deletable; invoices and tax_ids are
  * not, and `PROVIDER_DATA_RETENTION` records those instead.
  *
+ * IT PAGINATES, AND IT THROWS RATHER THAN UNDER-REPORTING. The first version
+ * fetched one page of 100, ignored the `has_more` it declared, and let
+ * `redactStripeCustomer` return `redacted` — which finalizes the purge and lets
+ * `runParentTombstonePurgeStage` NULL `accounts.stripe_customer_id`. With the
+ * marker written on that same run `isAlreadyRedacted` then short-circuits, so a
+ * retry could never reach this function again: silent, permanent partial
+ * erasure past 100 attached methods, which is verbatim the outcome
+ * `redactStripeCustomer`'s own error mapping exists to prevent. Exhausting the
+ * page bound is therefore a RETRYABLE throw, never a success — the same answer
+ * `cleanupSubscriptionInvoices` gives, 100 lines away, for the same situation.
+ *
  * `resource_missing` on an individual detach is success: another attempt in the
  * same retry sequence already removed it.
  */
@@ -274,27 +292,50 @@ async function detachPaymentMethods(
   customerId: string,
   offboardingId: string,
 ): Promise<void> {
-  let page: StripePaymentMethodListResult;
-  try {
-    page = await stripe.paymentMethods.list({
-      customer: customerId,
-      limit: PAYMENT_METHOD_PAGE_SIZE,
-    });
-  } catch (err) {
-    if (isResourceMissing(err)) return;
-    throw redactionError(err, 'list_payment_methods');
-  }
-
-  for (const method of page.data) {
+  for (let pageIndex = 0; pageIndex < PAYMENT_METHOD_MAX_PAGES; pageIndex += 1) {
+    let page: StripePaymentMethodListResult;
     try {
-      await stripe.paymentMethods.detach(method.id, undefined, {
-        idempotencyKey: `${stripeCustomerRedactionIdempotencyKey(offboardingId)}:pm:${method.id}`,
+      // Each pass re-reads from the START rather than advancing a
+      // `starting_after` cursor, and that is deliberate. Detaching removes a
+      // method from the customer's list, so the anchor a cursor would point at
+      // no longer exists and paging past it would SKIP the methods behind it.
+      // `has_more` is what terminates the sweep.
+      // sequential by construction: each pass depends on the previous detaches landing
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      page = await stripe.paymentMethods.list({
+        customer: customerId,
+        limit: PAYMENT_METHOD_PAGE_SIZE,
       });
     } catch (err) {
-      if (isResourceMissing(err)) continue;
-      throw redactionError(err, 'detach_payment_method');
+      // Only the FIRST page may treat a missing customer as done. On a later
+      // page the customer existed a moment ago, so `resource_missing` means
+      // something changed mid-sweep and the remaining methods are unaccounted
+      // for — that is a retry, not a success.
+      if (isResourceMissing(err) && pageIndex === 0) return;
+      throw redactionError(err, 'list_payment_methods');
     }
+
+    for (const method of page.data) {
+      try {
+        // rate-limited Stripe provider call: sequential to avoid Stripe rate-limit/429 bursts
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
+        await stripe.paymentMethods.detach(method.id, undefined, {
+          idempotencyKey: `${stripeCustomerRedactionIdempotencyKey(offboardingId)}:pm:${method.id}`,
+        });
+      } catch (err) {
+        if (isResourceMissing(err)) continue;
+        throw redactionError(err, 'detach_payment_method');
+      }
+    }
+
+    if (!page.has_more) return;
   }
+
+  throw new StripeCustomerRedactionError({
+    retryable: true,
+    operation: 'list_payment_methods',
+    stripeError: { code: 'bounded_pagination_exhausted' },
+  });
 }
 
 /**
