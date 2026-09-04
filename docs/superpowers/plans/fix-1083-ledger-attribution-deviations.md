@@ -118,3 +118,57 @@ asserts the shape, not the count.
 
 **Verdict:** ACCEPT — the plan's own Done-when wording was imprecise, not the
 eval. Fourteen is the correct number of red tests.
+
+---
+
+## D6 — The reclassify trigger fired on reindentation, not on scope
+
+**When**: step 4, after T2/T3.
+
+`verify-gate.sh` raised
+`RECLASSIFY: production 367 > 2x estimated_prod_lines (180)`.
+
+| Measure | Added | Removed | Total |
+|---|---|---|---|
+| Raw `git diff --numstat` | 253 | 114 | **367** |
+| `git diff -w` (whitespace ignored) | 159 | 20 | **179** |
+
+The 188-line gap is entirely reindentation: T2 and T3 wrap two long tagged SQL
+templates in `try` blocks, so every line of both templates shifts two spaces and
+`git diff` counts each as changed-and-re-added. The substance is 179 lines
+against an estimate of 180.
+
+No re-classification is warranted, and the estimate was accurate. The row is not
+wrong — it measures raw changed lines, which is the right default for a scope
+trigger — it simply cannot distinguish a reindent from new logic. Worth noting
+beside open issue #1114, which is the same row misclassifying a different input.
+
+**Verdict:** ACCEPT — measured, not waved away. The trigger is a WARN, the
+substance is on estimate, and step 0 is not re-run.
+
+---
+
+## D7 — A baseline gate was run while a subagent was in flight, and it raced
+
+**When**: step 4, between T1 and T2/T3.
+
+The Stop hook blocked the session for stale gate evidence while the T2/T3
+subagent was working. `git status --porcelain` showed a CLEAN tree, so the gate
+looked safe to run against HEAD. It was not: the agent wrote `write.ts` during
+the roughly two-minute run, and the reclassify row read a tree that already
+carried the edit. The 367 in D6 is exactly `253 + 114` from a file the gate was
+never meant to see.
+
+The `execution-lanes.md` subagent barrier says not to do this, and the reason it
+gives is the narrower one — a subagent returning mid-gate moves HEAD. Subagents
+here commit nothing, so HEAD could not move, and that made the rule look
+inapplicable. **The working tree moves too, and that is enough to corrupt a
+row.** A clean `git status` is a snapshot, not a lease.
+
+No bad evidence survived: `--baseline` does not advance the phase and writes no
+fingerprint, so nothing downstream consumed it. The correct move was to wait for
+the agent and gate afterwards.
+
+**Verdict:** ACCEPT — no artifact was poisoned, and the lesson is durable.
+Promote to lab-notes at step 8: *the subagent barrier is about the working tree,
+not only HEAD; a clean porcelain does not make a mid-flight gate safe.*

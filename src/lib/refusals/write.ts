@@ -24,25 +24,33 @@
  *   2. It NEVER raises on a duplicate subject — `ON CONFLICT … DO NOTHING`.
  *   3. It MAY return without writing — the kill switch. The caller cannot
  *      detect this and must not try to.
- *   4. It DOES raise on a CHECK violation, which is a writer bug. Not caught.
+ *   4. It DOES raise on a CHECK violation, which is a writer bug. The error is
+ *      caught for ATTRIBUTION and rethrown as the SAME INSTANCE (#1083), so the
+ *      decision still aborts and no caller observes anything it did not before.
  *
  * WHAT IT DOES NOT DO, and why each omission is a decision:
  *
- *   * It does not CATCH the insert error. Migration 116's five CHECKs each name
- *     a bug rather than a preference, and a violation aborts the deciding
- *     transaction. BE EXACT ABOUT WHAT A CATCH WOULD BUY, because an earlier
- *     wording of this bullet overclaimed it: a catch would NOT save the
- *     transaction. postgres.js records an `uncaughtError` per query inside
- *     `scope()`'s `handler` (`postgres/src/index.js:291-296`) and rethrows it
- *     after the callback returns (`:265-266`), so the deciding transaction
- *     fails either way. What a catch WOULD hide is the error from THIS HELPER'S
- *     OWN CALLER — the decision dies regardless, but the writer bug that killed
- *     it stops being the thing the caller sees and raises, and the ledger is
- *     precisely the place that cannot report it instead. The lever against a
- *     writer bug is the kill switch — the ticket says so in those words. The
- *     `.claude/CLAUDE.md` rule about best-effort work needing its own
- *     `try/catch` is about work AFTER a primary side effect; this write is
- *     INSIDE the decision, not beside it.
+ *   * It does not SWALLOW the insert error — and since #1083 it no longer leaves
+ *     it UNATTRIBUTED either. The statement is wrapped: a fault is captured
+ *     against the Refusal ledger and then RETHROWN UNCHANGED. Migration 116's
+ *     five CHECKs each name a bug rather than a preference, and a violation
+ *     aborts the deciding transaction exactly as it did before. BE EXACT ABOUT
+ *     WHAT SWALLOWING WOULD BUY, because an earlier wording of this bullet
+ *     overclaimed it: swallowing would NOT save the transaction. postgres.js
+ *     records an `uncaughtError` per query inside `scope()`'s `handler`
+ *     (`postgres/src/index.js:291-296`) and rethrows it after the callback
+ *     returns (`:265-266`), so the deciding transaction fails either way. What
+ *     swallowing WOULD hide is the error from THIS HELPER'S OWN CALLER — the
+ *     decision dies regardless, but the writer bug that killed it stops being
+ *     the thing the caller sees and raises, and the ledger is precisely the
+ *     place that cannot report it instead. So the rethrow is not negotiable.
+ *     What #1083 adds beside it is the LEDGER ATTRIBUTION: the tag that tells an
+ *     operator the fault belongs to the ledger rather than to the decision the
+ *     Refusal was recording, and therefore that the lever is the kill switch —
+ *     the ticket says so in those words. The `.claude/CLAUDE.md` rule about
+ *     best-effort work needing its own `try/catch` is about work AFTER a primary
+ *     side effect; this write is INSIDE the decision, not beside it, which is
+ *     why the catch reports and rethrows instead of logging and continuing.
  *   * It does not REVALIDATE its input at run time. `WriteRefusalEventInput`
  *     projects C1–C5 into the type system and migration 116 still enforces them
  *     in storage; a THIRD, run-time copy would be the second authority that
@@ -50,10 +58,14 @@
  *     `AutoApprovalBlockReason` members.
  *   * It does not READ. The read path is #1014.
  *
- * THE `try/catch` DECISIONS BELOW LOOK CONTRADICTORY AND ARE NOT. The ledger
- * INSERT is not caught because it CARRIES the fact. Both transports of the
- * disabled-ledger warning are caught because they merely OBSERVE it. Facts
- * propagate; observations swallow.
+ * THE `try/catch` DECISIONS BELOW LOOK CONTRADICTORY AND ARE NOT, AND #1083 DID
+ * NOT CHANGE THE RULE. The ledger write is caught only to ATTRIBUTE the fault
+ * and is rethrown as the same instance, because it CARRIES the fact. Both
+ * transports of the disabled-ledger warning — and the attribution capture
+ * itself — are caught and swallowed, because they merely OBSERVE it. Facts
+ * propagate; observations swallow. Catch-and-rethrow sits on the PROPAGATING
+ * side of that line: nothing is absorbed, the decision still aborts, and the
+ * error the caller sees is the one the writer raised.
  */
 
 import * as Sentry from '@sentry/node';
@@ -700,6 +712,66 @@ function noteUnmappedOverflow(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ledger attribution — the write arms tag their own faults (#1083).
+// ---------------------------------------------------------------------------
+
+/**
+ * Tag a Refusal-ledger WRITE FAULT so an operator can tell it from a fault in
+ * the decision the Refusal was recording. **Ledger attribution**, in one place.
+ *
+ * WHY IT LIVES ON THE WRITER'S SIDE OF THE SEAM, and why the call sites are not
+ * the fix. Attribution used to be a caller's job (`withLedgerAttribution` in
+ * `worker/jobs/response-generation/persist.ts`), which put it on the far side of
+ * a seam that already existed — so five of the seven lanes simply omitted it and
+ * nothing stopped an eighth omitting it next. A fault in `INSERT INTO
+ * refusal_events` is a property of THAT STATEMENT, and this module is its only
+ * owner (#1001). Reporting it here adds ZERO interface members and ZERO
+ * parameters, covers every lane BY CONSTRUCTION, and makes the omission
+ * unspellable.
+ *
+ * PRIVATE, AND IT STAYS PRIVATE. Two callers, both in this file, both arms of
+ * the same write. Exporting it would invite a lane to attribute a fault this
+ * module never raised, which is the confusion the ticket exists to remove.
+ *
+ * THE CAPTURE CARRIES ITS OWN `try/catch`, on `withLedgerAttribution`'s inner
+ * guard and on every other transport in this module: a broken reporter must
+ * never replace the writer bug it was reporting. The caller rethrows the
+ * ORIGINAL error immediately after, so attribution is never recovery.
+ *
+ * `extra` IS CLOSED ENUMS AND UUIDs ONLY, and each arm passes its own. No
+ * `refusalCode` — that is the gate reason verbatim and free-ish text on several
+ * lanes — and no review or response prose. The set arm additionally carries no
+ * per-row subject id: `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000)
+ * Refusals in one build, and 5,000 ids in a Sentry event is a payload, not a
+ * signal.
+ *
+ * @param lane the `RefusalSource` for the single-row arm; for the set arm, the
+ *             DISTINCT sources sorted and comma-joined (see `writeRefusalEvents`).
+ */
+function captureLedgerWriteFault(
+  error: unknown,
+  lane: string,
+  extra: Record<string, string | number | null>,
+): void {
+  try {
+    Sentry.captureException(error, {
+      level: 'error',
+      // THREE TAGS, EXACTLY. `subsystem` is the facet that separates a ledger
+      // fault from a decision fault; `refusal_lane` says which lane; `flag` is
+      // the NAME of the lever, never its value — `flag=false` would tell an
+      // operator nothing about which switch to reach for. A fourth tag is a
+      // fourth facet nobody agreed to.
+      tags: { subsystem: 'refusal_ledger', refusal_lane: lane, flag: REFUSAL_LEDGER_FLAG },
+      extra,
+    });
+  } catch {
+    // Swallowed on purpose, on this module's standing terms: the observation
+    // must never displace the fact. The caller rethrows the original error on
+    // the next line whatever happened here.
+  }
+}
+
 /**
  * `NOW()` unparameterised, or the caller's `Date` bound and cast. Two fragments,
  * ONE statement — the alternative is a second near-identical INSERT, which is
@@ -774,35 +846,67 @@ export async function writeRefusalEvent(
   // (Nothing may be commented INSIDE the template — a `--` comment would eat the
   // rest of the squashed statement, and an interpolation inside one would emit a
   // bind parameter Postgres never consumes.)
-  await tx`
-    INSERT INTO refusal_events (
-      id,
-      account_id,
-      business_id,
-      refusal_source,
-      refusal_code,
-      all_refusal_codes,
-      refusal_category,
-      vocabulary_version,
-      subject_type,
-      subject_id,
-      occurred_at
-    ) VALUES (
-      ${uuidv7()}::uuid,
-      ${input.accountId}::uuid,
-      ${input.businessId}::uuid,
-      ${input.refusalSource},
-      ${input.refusalCode},
-      ${input.allRefusalCodes === null ? null : [...input.allRefusalCodes]}::text[],
-      ${input.refusalCategory},
-      ${REFUSAL_VOCABULARY_VERSION},
-      ${input.subjectType},
-      ${input.subjectId}::uuid,
-      ${occurredAtFragment(tx, input.occurredAt)}
-    )
-    ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL
-    DO NOTHING
-  `;
+  //
+  // WRAPPED FOR ATTRIBUTION AND NOTHING ELSE (#1083). The `catch` captures and
+  // rethrows THE SAME INSTANCE, so the deciding transaction still aborts and no
+  // caller observes a different error. Four facts the placement preserves:
+  //
+  //   1. The kill-switch guard above returns BEFORE this block, so with the
+  //      switch off none of this can run — #1079's containment guarantee is
+  //      untouched, and that is load-bearing rather than incidental.
+  //   2. `ON CONFLICT DO NOTHING` absorbing a duplicate is NOT an error. The
+  //      statement runs, affects zero rows, nothing is captured, and the
+  //      transaction commits.
+  //   3. `endDisabledEpisode()` stays OUTSIDE. It is not a write and must never
+  //      report as one.
+  //   4. `uuidv7()` MUST NOT BE HOISTED out of the template. It is interpolated
+  //      below, so it evaluates when the tag function is invoked — inside this
+  //      `try` — and an entropy failure is therefore attributed too. A tidy to
+  //      `const id = uuidv7();` above the `try` silently moves it out of the
+  //      guard; `write.test.ts` has a case whose only job is to fail on that.
+  try {
+    await tx`
+      INSERT INTO refusal_events (
+        id,
+        account_id,
+        business_id,
+        refusal_source,
+        refusal_code,
+        all_refusal_codes,
+        refusal_category,
+        vocabulary_version,
+        subject_type,
+        subject_id,
+        occurred_at
+      ) VALUES (
+        ${uuidv7()}::uuid,
+        ${input.accountId}::uuid,
+        ${input.businessId}::uuid,
+        ${input.refusalSource},
+        ${input.refusalCode},
+        ${input.allRefusalCodes === null ? null : [...input.allRefusalCodes]}::text[],
+        ${input.refusalCategory},
+        ${REFUSAL_VOCABULARY_VERSION},
+        ${input.subjectType},
+        ${input.subjectId}::uuid,
+        ${occurredAtFragment(tx, input.occurredAt)}
+      )
+      ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL
+      DO NOTHING
+    `;
+  } catch (error) {
+    captureLedgerWriteFault(error, input.refusalSource, {
+      refusal_source: input.refusalSource,
+      subject_type: input.subjectType,
+      subject_id: input.subjectId,
+      account_id: input.accountId,
+      business_id: input.businessId,
+    });
+    // THE SAME INSTANCE, rethrown. Attribution is not recovery: the decision
+    // still aborts, and a caller that never branched on this error keeps
+    // observing exactly what it observed before.
+    throw error;
+  }
   // THE PREDICATE IS RE-SPELLED BYTE-FOR-BYTE from `refusal_events_subject_uniq`
   // (migration 116), and it may NOT be parameterised. Postgres cannot infer a
   // partial index without its predicate, and a bind parameter inside
@@ -899,71 +1003,106 @@ export async function writeRefusalEvents(
 
   endDisabledEpisode();
 
-  // Column names, not the input's camelCase: these are the `jsonb_to_recordset`
-  // column aliases, so the JSON keys and the AS list are one contract.
-  const rows: RefusalEventRow[] = inputs.map((input) => ({
-    id: uuidv7(),
-    account_id: input.accountId,
-    business_id: input.businessId,
-    refusal_source: input.refusalSource,
-    refusal_code: input.refusalCode,
-    // The SPREAD copies a `readonly string[]` into the mutable array the JSON
-    // serializer requires; the explicit `null` arm keeps NULL ("this lane has no
-    // code axis") distinct from `'{}'`, which C5 rejects outright.
-    all_refusal_codes: input.allRefusalCodes === null ? null : [...input.allRefusalCodes],
-    refusal_category: input.refusalCategory,
-    vocabulary_version: REFUSAL_VOCABULARY_VERSION,
-    subject_type: input.subjectType,
-    subject_id: input.subjectId,
-    // ISO 8601, never the `Date` object: this value is JSON, and a `Date`
-    // serialized by `JSON.stringify` is the same string with none of the
-    // guarantee. The `timestamptz` column of the recordset parses it back at
-    // full precision.
-    occurred_at: input.occurredAt === 'transaction_time' ? null : input.occurredAt.toISOString(),
-  }));
+  // THE GUARD STARTS AT THE ROW MAP, NOT AT THE STATEMENT (#1083, plan round 1
+  // finding F2) — this ticket's own defect, one layer in. Materializing the rows
+  // is a separate step, and TWO things in it throw: `input.occurredAt` may be a
+  // TYPE-VALID `new Date(NaN)`, whose `toISOString()` raises `RangeError: Invalid
+  // time value`, and `uuidv7()` can fail on an exhausted entropy source. Either
+  // aborts the deciding transaction with NO ledger row AND no attribution, which
+  // is precisely what a statement-only guard would leave uncovered.
+  //
+  // Everything the single-row arm's guard preserves holds here too: the empty
+  // return and the kill-switch guard above both come FIRST, so with the switch
+  // off nothing below can run, and `endDisabledEpisode()` stays outside.
+  try {
+    // Column names, not the input's camelCase: these are the `jsonb_to_recordset`
+    // column aliases, so the JSON keys and the AS list are one contract.
+    const rows: RefusalEventRow[] = inputs.map((input) => ({
+      id: uuidv7(),
+      account_id: input.accountId,
+      business_id: input.businessId,
+      refusal_source: input.refusalSource,
+      refusal_code: input.refusalCode,
+      // The SPREAD copies a `readonly string[]` into the mutable array the JSON
+      // serializer requires; the explicit `null` arm keeps NULL ("this lane has no
+      // code axis") distinct from `'{}'`, which C5 rejects outright.
+      all_refusal_codes: input.allRefusalCodes === null ? null : [...input.allRefusalCodes],
+      refusal_category: input.refusalCategory,
+      vocabulary_version: REFUSAL_VOCABULARY_VERSION,
+      subject_type: input.subjectType,
+      subject_id: input.subjectId,
+      // ISO 8601, never the `Date` object: this value is JSON, and a `Date`
+      // serialized by `JSON.stringify` is the same string with none of the
+      // guarantee. The `timestamptz` column of the recordset parses it back at
+      // full precision.
+      occurred_at: input.occurredAt === 'transaction_time' ? null : input.occurredAt.toISOString(),
+    }));
 
-  await tx`
-    INSERT INTO refusal_events (
-      id,
-      account_id,
-      business_id,
-      refusal_source,
-      refusal_code,
-      all_refusal_codes,
-      refusal_category,
-      vocabulary_version,
-      subject_type,
-      subject_id,
-      occurred_at
-    )
-    SELECT
-      event.id,
-      event.account_id,
-      event.business_id,
-      event.refusal_source,
-      event.refusal_code,
-      event.all_refusal_codes,
-      event.refusal_category,
-      event.vocabulary_version,
-      event.subject_type,
-      event.subject_id,
-      COALESCE(event.occurred_at, NOW())
-    FROM jsonb_to_recordset(${tx.json(rows as never)}) AS event(
-      id uuid,
-      account_id uuid,
-      business_id uuid,
-      refusal_source text,
-      refusal_code text,
-      all_refusal_codes text[],
-      refusal_category text,
-      vocabulary_version text,
-      subject_type text,
-      subject_id uuid,
-      occurred_at timestamptz
-    )
-    ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL
-    DO NOTHING
-  `;
+    await tx`
+      INSERT INTO refusal_events (
+        id,
+        account_id,
+        business_id,
+        refusal_source,
+        refusal_code,
+        all_refusal_codes,
+        refusal_category,
+        vocabulary_version,
+        subject_type,
+        subject_id,
+        occurred_at
+      )
+      SELECT
+        event.id,
+        event.account_id,
+        event.business_id,
+        event.refusal_source,
+        event.refusal_code,
+        event.all_refusal_codes,
+        event.refusal_category,
+        event.vocabulary_version,
+        event.subject_type,
+        event.subject_id,
+        COALESCE(event.occurred_at, NOW())
+      FROM jsonb_to_recordset(${tx.json(rows as never)}) AS event(
+        id uuid,
+        account_id uuid,
+        business_id uuid,
+        refusal_source text,
+        refusal_code text,
+        all_refusal_codes text[],
+        refusal_category text,
+        vocabulary_version text,
+        subject_type text,
+        subject_id uuid,
+        occurred_at timestamptz
+      )
+      ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL
+      DO NOTHING
+    `;
+  } catch (error) {
+    // COMPUTED IN THE CATCH, FROM `inputs`, NEVER FROM `rows` — `rows` may not
+    // exist, because materializing them is one of the two things that can fail
+    // here. DISTINCT sources, SORTED, comma-joined: sorting is what makes the tag
+    // deterministic, and an input-order tag would open two Sentry facets for the
+    // same pair of lanes. A `Set` over closed-enum strings cannot itself throw,
+    // which is what makes it safe to do inside a catch. Cardinality is bounded at
+    // 127 and is 1 in practice — both call sites pass a single lane — but the
+    // input type permits a mixed array and the tag must not lie about one.
+    const lanes = [...new Set(inputs.map((row) => row.refusalSource))].sort().join(',');
+    // `row_count` and `refusal_lanes`, AND NOTHING ELSE. Never a per-row subject
+    // id: `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000) Refusals in one
+    // build. `refusal_lanes` duplicates the TAG on purpose — a Sentry tag value
+    // truncates at 200 characters and `extra` does not, so `extra` is the durable
+    // copy for a cohort spanning every lane.
+    captureLedgerWriteFault(error, lanes, {
+      row_count: inputs.length,
+      refusal_lanes: lanes,
+    });
+    // The SAME instance, on the single-row arm's terms. Attribution is not
+    // recovery.
+    throw error;
+  }
   // THE PREDICATE IS RE-SPELLED BYTE-FOR-BYTE from the single-row arm above,
   // which is itself byte-for-byte `refusal_events_subject_uniq` (migration 116).
   // `write.test.ts` reads BOTH clauses out of this module's source and compares
