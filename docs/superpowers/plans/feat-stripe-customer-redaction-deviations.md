@@ -515,3 +515,45 @@ removes a real drift hazard — two copies of a provider-error classifier can
 disagree silently.
 
 **Verdict:** ACCEPT
+
+## D11 — the local gate cannot produce clean evidence on this machine, and CI is the authority
+
+**What happened.** Two review-mode gate runs at `c77b6308`, two DIFFERENT sets
+of failures, every one a timeout:
+
+| run | failures | files |
+|---|---|---|
+| 1 | 5 | `live-db-suites-audit.test.ts`, `review-qr.test.ts` |
+| 2 | 4 | mock-mode responses, inbound-event dedup, `live-db-suites-audit.test.ts` |
+
+One file overlaps. **Different files each run is contention, not logic.** None
+of them is in this branch's diff, and re-running run 1's two files alone gives
+60 passed in 989ms.
+
+**The cause is measured, not assumed.** `load averages: 8.52 19.98 28.35` on 12
+cores — roughly 2.5x oversubscribed — with 196 `claude` processes and a live
+`gh pr checks 1122 --watch` belonging to ANOTHER session's PR. `CLAUDE.md`
+already says the Mac "shares its cores with local agents"; this is that,
+observed. Review mode is the heaviest run available: all 14,986 tests WITH
+coverage instrumentation.
+
+**CI is green where it counts.** At this exact commit, on dedicated runners:
+`test` (all 14,986), `lint`, `build`, `e2e`, `changes` and `react-doctor` all
+pass. `test` is a required check and it passed the very suites that timed out
+locally. Only `fallow` fails, for the reason D10 records and the owner accepted.
+
+**Owner decision 2026-09-04: accept CI as the authority for this branch's final
+evidence.** `.feature/gate-status.json` therefore stays RED and the Stop hook
+keeps objecting. **That objection is the hook working correctly on a signal we
+are deliberately discounting** — it is recorded here rather than suppressed, and
+`phase: reviewed` rests on CI plus the fingerprint from the last clean local
+run, not on a green local file.
+
+**This is the THIRD time on this branch that the local gate and CI disagreed,
+and the third time CI was right.** D9 (a Stripe key the local env supplies and
+CI does not), D10 (a coverage gate that had never run locally at all), and now
+D11. The durable lesson, for the next feature rather than this one: **a local
+gate is a fast pre-filter, never the final word.** Treat CI as the arbiter from
+the first push, not after `reviewed` has already been authorized.
+
+**Verdict:** ACCEPT
