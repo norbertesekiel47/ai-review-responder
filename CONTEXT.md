@@ -164,3 +164,52 @@ than none.
 - **Refusal category**: the owner-facing axis, **frozen at write** alongside the `vocabulary_version` that froze it. **EIGHT members, not the parked text's seven** — `owner_review_required` was coined in #998: `unsafe_content`, `watchdog_unavailable`, `below_our_bar`, `no_permission`, `wrong_moment`, `autonomy_paused`, `missing_information`, `owner_review_required`. Every source code maps to exactly one category **or to explicit `null`**, and `null` is the recorded decision "not a refusal", **never an omission** — a member with no entry is a member nobody decided about, which is why `Object.hasOwn` and not truthiness is the test, and why a `null`-mapped draft writes no row at all rather than a row with a null category. **Two owners, one fact each**: the closed set lives in a storage CHECK (migration-bearing on ADD and on nothing else — retiring softly needs no migration, renaming is forbidden, reordering is presentation), and the code→category MAP lives in TypeScript. A CHECK pinning `held_draft` to `unsafe_content` was rejected for exactly that reason: true today, but it would make a future lane re-map migration-bearing. **An unrecognised code is a fault, not a category** — the resolver throws rather than defaulting, because a default files an unmapped refusal under a plausible-looking heading and the owner cannot tell the difference. **AND THE FAULT IS NOW SIGNALLED WHEN THE LEDGER IS OFF (#1105), which is a different act from throwing.** With `REFUSAL_LEDGER_ENABLED` off, guard 4 returns before the resolver can throw (#1079), so the fault used to be invisible: `wouldRecordRefusal` is `every(mapped && non-null)`, so an unmapped member made IT false too and even the ledger-dark line stayed silent. `noteUnmappedBlockReasons` now raises its own Sentry event at level `error`, tagged `fault=unmapped_block_reason`, latched per code and bounded. It is NOT a ledger gap and must never be reported as one — an unmapped member would have thrown rather than written, so no **Refusal** row was lost. **The fault CLASS is not closed codebase-wide**: five lanes index a category map directly (`MAP[reason]` yields `undefined` rather than throwing) and remain unsignalled; different mechanism, separate ticket. _Avoid_: refusal type, refusal code (that is the **Refusal source**'s verbatim value), bucket, reason group. *(locked in #995; eighth member from #998; the unmapped-code signal from #1105)*
 - **Restraint tab**: the second of the two tabs `/dashboard/analytics` WILL carry — `Metrics` and `Restraint` — routed at `/dashboard/analytics/restraint`. **Not built yet**: #1014 ships it, and the route today has no Metrics/Restraint page-level tabs — two of its cards carry per-card view tabs in the all-locations scope, which are a different LEVEL rather than a different control — so every sentence below describes the locked target rather than current behaviour. It states the window's total **Refusal** count and its breakdown by **Refusal category**, newest first within each. **Links only, no writes** — a held draft links to its review and shows no draft text, no review text and no moderation reason; `autonomy_paused` links to `/settings/auto-approval`; `no_permission` links to the contacts list; the rest carry none. It **drops the link, never the row**: the category and `occurred_at` are always true, only the link is contingent on a subject that may no longer resolve. It never selects `all_refusal_codes`, and deny-all RLS is what makes that a guarantee rather than a convention — **RLS filters rows, not columns** (ADR 0023). The empty window reads as a plain sentence, never an error or an empty grid. **CORRECTION to the parked text**, which said this surface "adds no migration": it does now — migration **116** creates `refusal_events`, and the tab reads that ledger rather than re-deriving one. Per-location scope is `account_id = $1 AND (business_id = $2 OR business_id IS NULL)`, so an account-wide suspension appears under every location once each and **once** in the account total; a per-location sum therefore legitimately exceeds the account total whenever a suspension is in the window, and the tab must state which number it shows. _Avoid_: refusals dashboard, restraint report (that is the **Spoilage report**, a different surface on `/dashboard/requests`), "what we blocked". *(locked in the refusal-log intake; migration corrected by #1001)*
 - **Coverage start**: the instant from which the **Restraint tab** may claim it was watching — `accounts.created_at` in the account view, `businesses.created_at` in a location view — rendered as a stated line and never implied by an empty result. It is a CLAIM ABOUT THE LEDGER, not about the account, which is why archive and reactivate touch neither value: an archived location's Refusals survive their full 180 days (#996, `VAL-LOC-044`), so the record does not restart when the location comes back. It exists because #1002 decided there is **never a backfill**, leaving the ledger's history to begin the day it shipped; without a stated start an empty window reads as "nothing was held back" when it means "we were not recording". **It is NOT honest per-lane, and #1014 does not claim it is.** `policy_gate_held` is silent while `AUTO_APPROVAL_ENABLED` is off, so an account created before the go-live flip accumulates real held drafts the ledger never recorded. Owner decision 2026-09-01: **disclose, do not date** — the tab renders one account-wide Coverage start plus a separate line naming that lane as not yet recording, shown only while the flag is off, and adds no activation marker (#1013 declined one, and a hand-maintained date whose wrongness is undetectable is worse than a stated gap). The <=90-day period AFTER the flip, during which a selectable window can still overlap the pre-flip hole, is a declared non-goal of #1014 and needs its own ticket. A `businesses.created_at` of NULL is representable (migration 001 leaves it nullable) and the tab OMITS the line rather than naming a date it does not have. _Avoid_: watching since, start date, ledger epoch, "since we began". *(coined in #1014; the no-backfill premise from #1002; the per-lane correction from #1003 and #1013)*
+
+### Open work on this ledger — read before opening a ticket here
+
+Standing items as of **2026-09-04**, after #1105. **Each names its OWNER and does
+not restate it**, so no figure lives in two places — the failure this project's
+lab notes record repeatedly. Verify against the owner before quoting anything
+here; this list says WHAT is open, never the detail.
+
+1. **Sentry rules 7 and 8 do not exist in either project.** The unmapped-code
+   signal (`fault:unmapped_block_reason`) and its overflow marker ship and fire,
+   and nothing is configured to page on them. Read back from the Sentry API
+   2026-09-04, with a result that DIFFERS BY PROJECT — staging has a
+   demonstrable gap, production has an unproven inference. Owner:
+   `docs/runbooks/beta-launch-alerting.md` §1 (the checkbox) and §1a-do (the
+   register and the click-path table).
+2. **That signal's acceptance drill is BLOCKED, and the blocker is structural.**
+   The fault it tests cannot be produced by any reachable input: block reasons
+   are compiled literals and the category map is total over them. Closing it
+   needs a DECISION — a test-only injection seam, or rescoping the drill to prove
+   only the route. Owner: `beta-launch-alerting.md` §4.
+3. **The unmapped-code fault CLASS is not closed codebase-wide.** #1105 fixed the
+   `policy_gate_held` shape only. The lanes that index a category map directly
+   yield `undefined` instead of throwing, and with the ledger off they raise the
+   ledger-dark line — claiming a gap for a row migration 116 would reject, naming
+   no code. Different mechanism, separate ticket. Owner: the
+   `unmappedBlockReasons` docblock in
+   `worker/jobs/response-generation/persist.ts`, which records the class. **It
+   does not enumerate the sites and this list must not either** — derive them
+   with `rg 'REFUSAL_CATEGORIES\[' src worker --glob '!**/__tests__/**'` and
+   discount `vocabulary.ts`'s own two, which are the resolver that throws rather
+   than a direct index. A ticket that needs the count should re-derive it; the
+   figure quoted elsewhere in this repo counts LANES, not index sites, and the
+   two differ because one lane owns two constants.
+4. **`policy_gate_held` is still silent in production**, because
+   `AUTO_APPROVAL_ENABLED` is off. Everything above about that lane is capacity,
+   not observed volume. Owner: the **Refusal source** and **Coverage start**
+   entries above, which already carry the consequence for #1014.
+5. **One accepted risk carries forward** from #1105's red-team close-out (V-F3,
+   owner-authorized): a possibly-stale count or cross-reference in
+   `beta-launch-alerting.md`. No production code is implicated. Owner:
+   `docs/reviews/red-team/fix-1105-unmapped-block-reason-signal-e06658/`.
+
+**Evidence and reasoning for #1105**, if a ticket needs to re-derive rather than
+trust: the triage table and four review reports in
+`docs/reviews/fix-1105-unmapped-block-reason-signal/`, the seventeen deviations
+in `docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md`,
+and the lessons in `.claude/reference/lab-notes.md` (2026-09-04). The last of
+those is the one to read first if the ticket touches tests or runbook prose in
+this area.
