@@ -258,8 +258,15 @@ export interface TenantScopeAllowlistEntry {
 //   - feat/stripe-customer-redaction, review-fix pass: +1. The acked-for-age
 //     health probe (checkStaleIgnoredInboundEvents) is a new cross-tenant
 //     read. It exists BECAUSE the 15-minute ack moved those rows out of the
-//     failed-only probe's set, so omitting it would have made the ack a net
-//     loss of paging coverage. 375 -> 376.
+//     failed-only probe's set. It restores watching over the AGGREGATE STREAM
+//     and no more: the failed-only probe tolerates zero, so one orphaned
+//     customer used to page continuously for Stripe's retry schedule, and this
+//     probe fires above 5 per (source, event_type) per hour — the single-orphan
+//     case now pages nothing here. The per-event handle is the
+//     `feature:stripe_subscription_out_of_order` alert rule (rule 7 in
+//     beta-launch-alerting.md §1a-do), not this probe. An earlier version of
+//     this note said the probe made the ack coverage-neutral; corrected by
+//     red-team round 2, R10. 375 -> 376.
 //   - feat/stripe-customer-redaction, red-team round-2 fix pass: +1. The
 //     ArchivalPoller inbound_events sweep became TWO statements instead of one
 //     `UNION ALL` (red-team R06): the combined form returned ONE count against

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type postgres from 'postgres';
 import {
   createMockSql,
@@ -82,11 +82,25 @@ function sharingCountIndex(): number {
   );
 }
 
+let logSpy: ReturnType<typeof vi.spyOn>;
+
+/** Every structured line the stage's logger emitted this test. */
+function logLines(): string[] {
+  return logSpy.mock.calls
+    .map((call) => call[0])
+    .filter((first): first is string => typeof first === 'string');
+}
+
 beforeEach(() => {
   harness = createMockSql();
   sql = harness.mockSql as unknown as postgres.Sql;
   mockRedactStripeCustomer.mockReset();
   mockRedactStripeCustomer.mockResolvedValue({ outcome: 'redacted' });
+  logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  logSpy.mockRestore();
 });
 
 describe('runStripeCustomerRedactionPurgeStage', () => {
@@ -203,5 +217,96 @@ describe('runStripeCustomerRedactionPurgeStage', () => {
     const serialized = JSON.stringify(append!.values);
     expect(serialized).not.toContain(CUSTOMER_ID);
     expect(serialized).toContain('sha256:');
+  });
+  // ---- R08: the lazy-factory fix, pinned on the property it protects -------
+
+  it('runStripeCustomerRedactionPurgeStage does not resolve the client when there is no customer id', async () => {
+    // THE MUTATION THIS KILLS. Hoisting `resolveStripe()` above the
+    // `stripe_customer_id` null check survived every existing test, because
+    // their contract was "no Stripe CALL and no SQL" — which an eagerly
+    // resolved-but-unused client still satisfies. The property that actually
+    // broke is the one the code states: getStripe() THROWS when
+    // STRIPE_SECRET_KEY is unset, so eager resolution made every delete_data
+    // purge depend on the key, including accounts that never had a Customer.
+    // A factory that throws is the only way to assert it.
+    const resolveStripe = vi.fn(() => {
+      throw new Error('STRIPE_SECRET_KEY is not set');
+    });
+
+    await expect(
+      runStripeCustomerRedactionPurgeStage(
+        sql,
+        resolveStripe as unknown as () => ReturnType<typeof fakeStripe>,
+        purgeRow({ stripe_customer_id: null }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(resolveStripe).not.toHaveBeenCalled();
+  });
+
+  it('runStripeCustomerRedactionPurgeStage resolves the client exactly once when a customer id is present', async () => {
+    // The other half: lazy must not become never, and must not become per-call.
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ count: 0 }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
+    const resolveStripe = vi.fn(fakeStripe);
+
+    await runStripeCustomerRedactionPurgeStage(sql, resolveStripe, purgeRow());
+
+    expect(resolveStripe).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- R07: the outcome log line, which had no test at all ----------------
+
+  it('logs one structured line per redaction outcome, including not_applicable', async () => {
+    // The intake's first observability promise. `not_applicable` matters most:
+    // it is the ONLY trace a no-Stripe-Customer purge leaves anywhere, since
+    // that path writes no disposition record either.
+    await runStripeCustomerRedactionPurgeStage(
+      sql,
+      () => fakeStripe(),
+      purgeRow({ stripe_customer_id: null }),
+    );
+
+    const line = logLines().find((l) => l.includes('not_applicable'));
+    expect(line).toBeDefined();
+    expect(line).toContain(OFFBOARDING_ID);
+    expect(line).toContain(ACCOUNT_ID);
+  });
+
+  it('logs skipped_shared_customer when the guard skips', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ count: 1 }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
+
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
+
+    expect(logLines().some((l) => l.includes('skipped_shared_customer'))).toBe(true);
+  });
+
+  it('logs the outcome redactStripeCustomer returned, not a fixed string', async () => {
+    // A hardcoded 'redacted' would read identically on the happy path and hide
+    // every other outcome, which is the whole point of the line.
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ count: 0 }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
+    mockRedactStripeCustomer.mockResolvedValue({ outcome: 'customer_absent' });
+
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
+
+    expect(logLines().some((l) => l.includes('customer_absent'))).toBe(true);
+    expect(logLines().some((l) => l.includes('"redacted"'))).toBe(false);
+  });
+
+  it('never logs the raw stripe customer id — the identifier the stage exists to erase', async () => {
+    // scrubOffboardingErrorForStorage does not redact a `cus_` handle, so
+    // logging one would defeat the stage inside its own audit trail.
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ count: 0 }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{ id: OFFBOARDING_ID }]));
+
+    await runStripeCustomerRedactionPurgeStage(sql, () => fakeStripe(), purgeRow());
+
+    expect(logLines().join('\n')).not.toContain(CUSTOMER_ID);
   });
 });

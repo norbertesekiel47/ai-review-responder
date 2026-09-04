@@ -253,9 +253,33 @@ would allow.
 **The other three decisions.** PaymentMethods are DETACHED, not merely
 disclosed — they carry name, email, phone, full address and card `last4`, and
 unlike a paid invoice that data is deletable, so leaving it was an erasure gap
-rather than an under-disclosure. A `stale_ignored` rate probe restores the
-pager the ack removed. The guard predicate now names `purge_scheduled` and
-scopes to `mode = 'delete_data'`.
+rather than an under-disclosure. A `stale_ignored` rate probe restores watching
+over the acked stream. The guard predicate names `purge_scheduled` and scopes to
+`mode = 'delete_data'`.
+
+> **Two of those three sentences were corrected by red-team round 2, and the
+> corrections are recorded here rather than silently applied.**
+>
+> **R10 — "restores the pager the ack removed" OVERSTATED it.** The probe
+> restores the AGGREGATE stream and no more. The failed-inbound probe it
+> replaces tolerates zero, so one orphaned customer used to page continuously
+> for Stripe's ~3-day retry schedule; this probe fires above 5 per
+> `(source, event_type)` per hour, so the single-orphan case now pages nothing
+> through it. The per-event handle is a separate signal — the
+> `feature:stripe_subscription_out_of_order` alert rule, rule 7 in
+> `beta-launch-alerting.md` §1a-do, which R05 found had no rule row at all and
+> was therefore routing to nobody. The two are complements, not substitutes.
+>
+> **R03 — the guard predicate was WRONG, and naming `purge_scheduled` is what
+> made it wrong.** It keyed on status where the property it needs is "past the
+> point of no return". That excluded the entire purge grace window, where a
+> co-tenant can still cancel — so account A's purge redacted a shared Customer
+> while co-tenant B was still a paying customer who could click "Keep my data".
+> It also failed to exclude a terminally `failed` sibling, which IS past the
+> point of no return, so the both-siblings-skip case survived one status over.
+> The predicate is now `purge_started_at IS NOT NULL AND purge_cancelled_at IS
+> NULL`, and it has a behavioural live-DB test — verified by reinstating the old
+> predicate and watching three cases fail.
 
 **Surface amendment 4 reached fourteen files**, every addition disclosed and
 approved: seven ingress suites, the shared webhook harness,
@@ -265,10 +289,28 @@ approved: seven ingress suites, the shared webhook harness,
 **One promise NOT delivered, and deliberately.** The intake's
 `user_visible_behavior` promised the receipt would say "RepWorth cleared the
 identifying details". The shipped receipt is a retention disclosure only. The
-promised clause would be FALSE in the `skipped_shared_customer` outcome, and the
-template has no outcome data to condition on. Restoring it literally would ship
-a sentence that is sometimes untrue to a compliance surface. Recorded here
-rather than forced.
+promised clause would be FALSE in the `skipped_shared_customer` outcome, so
+shipping it literally would put a sometimes-untrue sentence on a compliance
+surface. **The decision stands. The reason first recorded for it did not.**
+
+> **R09 — "the template has no outcome data to condition on" was FALSE, and
+> correcting it matters more than the decision it supported.** The
+> counter-example is in the same payload type: `worker-types.ts` carries
+> `retained_suppression_count` on the `purge_receipt` payload, "snapshotted
+> inside the finalize transaction rather than queried at send time", with its
+> enqueue field in `outbox.ts`. The redaction outcome is written to
+> `account_offboardings.provider_dispositions` by an earlier transaction of the
+> same job, and `finalizePurgeInTransaction` — which enqueues the receipt — runs
+> last, so the outcome is committed and readable at exactly the moment
+> `retained_suppression_count` is snapshotted, by the same mechanism, for the
+> same reason.
+>
+> So the option is **one snapshotted field away**, not infeasible. It is
+> declined on its merits — a conditional erasure sentence on a compliance email
+> is a scope and legal-review question this branch did not open — and a future
+> session must not read D6 and conclude the door is shut. This is the
+> "confident prose that is in fact the defect" pattern D7 names, committed by
+> D7's own author in the same document.
 
 **Two new env vars were also declined.** The `stale_ignored` probe's window and
 threshold are module constants, not `HEALTH_ALERT_*` vars, because two vars

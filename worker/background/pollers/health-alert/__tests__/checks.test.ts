@@ -290,6 +290,57 @@ describe('health-alert checks', () => {
 
       expect(await checkStaleIgnoredInboundEvents(mockSql, CFG)).toEqual([]);
     });
+
+    // ---- R11: the two choices the tests above could not tell apart ---------
+
+    it('windows on processed_at, NOT the received_at its sibling probe uses', async () => {
+      // Substituting received_at passed both tests above, and the choice is not
+      // arbitrary: markInboundEventStaleIgnored stamps `processed_at = NOW()`
+      // at the moment of the ack, and reclaim does not NULL it, so a redelivered
+      // orphan re-stamps and stays in window. `received_at` is what RECLAIM
+      // resets, so windowing on it would make a reclaimed row look new. The
+      // sibling checkFailedInboundEvents legitimately uses received_at because
+      // a failed row's arrival IS its event; keep the two spellings apart.
+      sqlReturnQueue.push([]);
+
+      await checkStaleIgnoredInboundEvents(mockSql, CFG);
+
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain('processed_at >');
+      expect(queryText).not.toContain('received_at');
+    });
+
+    it('is strictly ABOVE the threshold — exactly 5 does not page', async () => {
+      // `count > threshold` reads as 6-and-up. Flipping it to `>=` also passed
+      // both tests above while silently moving the effective threshold to 5,
+      // which is one full step of alert fatigue on a probe whose whole design
+      // is "a handful is normal, a stream is not".
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 5 },
+      ]);
+      expect(await checkStaleIgnoredInboundEvents(mockSql, CFG)).toEqual([]);
+
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 6 },
+      ]);
+      expect(await checkStaleIgnoredInboundEvents(mockSql, CFG)).toHaveLength(1);
+    });
+
+    it('reports each (source, event_type) pair independently', async () => {
+      // The key is per-pair, so one broken event type must not be masked by a
+      // quiet one, nor page under the other's name.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 40 },
+        { source: 'stripe', event_type: 'customer.subscription.deleted', count: 2 },
+      ]);
+
+      const findings = await checkStaleIgnoredInboundEvents(mockSql, CFG);
+
+      expect(findings.map((f) => f.key)).toEqual([
+        'inbound_events_stale_ignored:stripe:customer.subscription.updated',
+      ]);
+    });
   });
 
   describe('checkZeroDeliveryNotifications', () => {
