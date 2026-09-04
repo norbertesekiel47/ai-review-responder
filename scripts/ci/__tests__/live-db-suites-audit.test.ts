@@ -414,6 +414,14 @@ describe('live-db-suites-audit', () => {
   // inside `pnpm test`, where it fails next to the rules it depends on.
   //
   // Precedent for a unit test that reads the repository: src/__tests__/ci-audit-wiring.test.ts
+  //
+  // EXPLICIT 30s TIMEOUT, not vitest's 5s default. This case walks every
+  // live-DB file in the repository and parses each one's AST, so its cost
+  // grows with the repo while the default budget does not. Measured at
+  // 272-389ms in isolation but 5038-5059ms inside a full `pnpm test` run —
+  // it had been failing marginally, by tens of milliseconds, on unrelated
+  // branches at both high and low machine load. A repo-wide scan reported as
+  // a failing assertion is a false red that trains people to re-run the gate.
   it('every live-DB file in the repository passes the widened detector', async () => {
     const { readFile } = await import('node:fs/promises');
     const offenders: string[] = [];
@@ -422,5 +430,5 @@ describe('live-db-suites-audit', () => {
       offenders.push(...findings.map((finding) => `${finding.file} [${finding.rule}]`));
     }
     expect(offenders).toEqual([]);
-  });
+  }, 30_000);
 });

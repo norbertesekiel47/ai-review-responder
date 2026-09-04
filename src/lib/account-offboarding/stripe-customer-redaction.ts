@@ -38,14 +38,10 @@
 // inventory, so the three are kept in step by review, not by the compiler.
 
 import {
-  RETRYABLE_STRIPE_ERROR_TYPES,
-  PERMANENT_STRIPE_ERROR_TYPES,
-} from '../payments/stripe-error-inspect';
-import {
-  RETRYABLE_NETWORK_ERROR_CODES,
   errorStringProperty as stringProperty,
   errorNumberProperty as numberProperty,
 } from '../shared/error-inspect';
+import { isRetryableStripeError } from './stripe-retry-policy';
 
 /** The one metadata key a redacted Customer keeps, naming the offboarding. */
 export const STRIPE_CUSTOMER_REDACTION_METADATA_KEY = 'repworth_redacted_offboarding_id';
@@ -409,6 +405,13 @@ function isResourceMissing(err: unknown): boolean {
   return stringProperty(err, 'code') === 'resource_missing';
 }
 
+/**
+ * Both arms throw. The classification rides on the thrown error so an operator
+ * reading `last_error` can tell a Stripe outage from a misconfiguration without
+ * parsing a provider message — nothing in the worker branches on it. The
+ * retryable/permanent rule itself lives in `stripe-retry-policy.ts`, shared with
+ * `stripe-invoices.ts`.
+ */
 function redactionError(
   err: unknown,
   operation: StripeCustomerRedactionOperation,
@@ -423,31 +426,4 @@ function redactionError(
       requestId: stringProperty(err, 'requestId'),
     },
   });
-}
-
-/**
- * BYTE-IDENTICAL to `stripe-invoices.ts`'s function of the same name, and that
- * duplication is deliberate rather than overlooked. `stripe-error-inspect.ts`
- * owns the type VOCABULARY and says in its own header that each consumer keeps
- * its own retry POLICY; two offboarding modules currently agree on that policy,
- * and collapsing them would make a future divergence in one a silent change to
- * the other. An earlier version of this comment claimed the policy was "this
- * module's own", which read as though it differed. It does not, today.
- *
- * Both arms throw. The classification rides on the thrown error so an operator
- * reading `last_error` can tell a Stripe outage from a misconfiguration without
- * parsing a provider message — nothing in the worker branches on it.
- */
-function isRetryableStripeError(err: unknown): boolean {
-  const type = stringProperty(err, 'type');
-  if (type && RETRYABLE_STRIPE_ERROR_TYPES.has(type)) return true;
-  if (type && PERMANENT_STRIPE_ERROR_TYPES.has(type)) return false;
-
-  const statusCode = numberProperty(err, 'statusCode') ?? numberProperty(err, 'status');
-  if (statusCode === 429) return true;
-  if (typeof statusCode === 'number' && statusCode >= 500 && statusCode <= 599) return true;
-  if (typeof statusCode === 'number' && statusCode >= 400 && statusCode <= 499) return false;
-
-  const code = stringProperty(err, 'code');
-  return code ? RETRYABLE_NETWORK_ERROR_CODES.has(code) : false;
 }
