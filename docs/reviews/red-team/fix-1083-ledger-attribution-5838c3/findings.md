@@ -12,6 +12,35 @@ current state: **11 findings, all fixed, sidecar status `CLEAR`.**
 > and is the machine-read record; `red-team-status.mjs` recomputes status from
 > the inventory rather than trusting it.
 
+## `head_sha` was repointed — read this before trusting the sidecar
+
+Round 2 reviewed `6a382d1a`. The sidecar now says `8a15f0eb`, and that is a
+deliberate, owner-authorised repoint rather than a fact the pass established.
+Deviations **D12** carries the full record; the essentials:
+
+- **Zero code changed** between the two.
+  `git diff --name-only 6a382d1a..HEAD -- src worker` returns **0 files**. Every
+  byte this pass mutated, killed and cleared is identical.
+- What moved is **six documents**, and they are the fixes for this round's own
+  four doc-truth findings (RT-3, RT2-1, RT2-2, RT2-3).
+- **Round 3 is refused by hard cap**, so no pass was available to re-establish
+  the evidence at the new SHA.
+
+**What the repoint overclaims, stated rather than buried.** This pass's brief
+included re-resolving doc claims. Its CODE verification stands untouched. Its
+DOC verification is genuinely stale for the four files the fixes changed, and a
+repointed `head_sha` asserts a doc review that did not happen.
+
+**The compensating control** is that those four claims were re-verified
+mechanically by the orchestrator — derived from code and the intake, never from
+reading the prose: the deleted `lane` parameter against the real signature, the
+four-key `extra` against the real call site, and the seventeen titles against the
+intake's length and a grep split of 12 + 5.
+
+A reader who wants evidence untouched by this should read round 1 and round 2's
+findings as recorded, and treat the doc-claim column as verified by the
+orchestrator rather than by the pass.
+
 ## Counts
 
 | | Round 1 | Round 2 |

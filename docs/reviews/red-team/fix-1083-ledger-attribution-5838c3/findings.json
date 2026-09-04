@@ -5,7 +5,7 @@
   "branch": "fix/1083-ledger-attribution",
   "fork_sha": "91b32506a694954643e9523eae3901d784a348ca",
   "merge_base_sha": "91b32506a694954643e9523eae3901d784a348ca",
-  "head_sha": "6a382d1a5a0f175f2db24d00940e369b930e5906",
+  "head_sha": "8a15f0eb69cbcc0ca4ad05ceb52763eeb4a6b521",
   "intake_sha256": "1da0d8d18bc9fbe4dda9c2e2c2f691add4954cca5ebde169240fffc532b22da4",
   "risk": "high",
   "round": 2,
@@ -157,9 +157,7 @@
       "at": "docs/runbooks/beta-launch-alerting.md:467",
       "duty": 5,
       "disposition": "fixed",
-      "reason": "HALF FIXED. The count-and-description half is fixed in both prose sites (:106-121 and :508-517) and both read true at HEAD. The MISSING-RULE half is not. The runbook's own no-rule register at :467-473 still reads 'Four §1 signals have no DEDICATED rule in either project' and lists four, when at HEAD there are six: this diff added `fault:ledger_write` (all seven lanes, level error, no filter, no threshold, no destination action) and `fault:ledger_vocabulary`. Round 1 named that register explicitly ('it is now five'). The register's own text says its defect class is 'the count was two and the two new signals were not listed when they shipped' — which is what happened again, one commit later.",
-      "resolution": "Runbook no-dedicated-rule register corrected from four signals to SIX, naming fault:ledger_write and fault:ledger_vocabulary, both level error with no filter, threshold or destination. The prose half was fixed in 6a382d1a; this closes the register half.",
-      "resolved_at": "2026-09-04T12:57:45.946Z"
+      "reason": "Runbook no-dedicated-rule register corrected from four signals to SIX, naming fault:ledger_write and fault:ledger_vocabulary, both level error with no filter, threshold or destination. The prose half was fixed in 6a382d1a; this closes the register half."
     },
     {
       "id": "RT-4",
@@ -213,9 +211,7 @@
       "at": "docs/directory.md:1593",
       "duty": 3,
       "disposition": "fixed",
-      "reason": "Both re-resolved against HEAD. (1) 'It is therefore synchronous, and its `lane` parameter is the single literal rather than a two-member union' — at HEAD the signature is `withLedgerAttribution<T>(responseId: string, resolve: () => T)`, with NO lane parameter; this commit removed it and inlined the literal. (2) Trap (b): 'the eval asserts the surviving capture carries the writer's five-key `extra`' — the writer's `extra` is FOUR keys at HEAD (subject_type, subject_id, account_id, business_id), this commit having dropped `refusal_source`, and persist.test.ts asserts exactly four. The same commit updated the `write.ts` row in this file for both facts and left the `persist.ts` row untouched; deviations D10's 'Stale citations, six sites' does not list it. `ci:directory-map` checks row PRESENCE, not row truth, so nothing in the gate can see this.",
-      "resolution": "docs/directory.md persist.ts row corrected: the lane parameter was deleted (signature is withLedgerAttribution<T>(responseId, resolve)), and the eval asserts a FOUR-key extra since refusal_source was dropped. The fault-tag pair is now stated in the same row.",
-      "resolved_at": "2026-09-04T12:57:45.947Z"
+      "reason": "docs/directory.md persist.ts row corrected: the lane parameter was deleted (signature is withLedgerAttribution<T>(responseId, resolve)), and the eval asserts a FOUR-key extra since refusal_source was dropped. The fault-tag pair is now stated in the same row."
     },
     {
       "id": "RT2-2",
@@ -224,9 +220,7 @@
       "at": "docs/superpowers/plans/fix-1083-ledger-attribution-handoff.md:46",
       "duty": 3,
       "disposition": "fixed",
-      "reason": "Re-derived: `tests_to_add` holds 17 entries at HEAD, all resolving verbatim — 12 in write.test.ts, 5 in persist.test.ts. This commit added 'tags the policy gate vocabulary fault with its own fault class' (16 -> 17, a change deviations D10 itself records) and renamed one, then rewrote the section three lines BELOW this sentence without correcting it. The sentence also tells the next agent how the `promised-tests` gate row is populated, so a wrong count is the kind of claim that gets acted on rather than read past.",
-      "resolution": "Handoff corrected to seventeen titles split twelve/five, naming the seventeenth and why the count moved.",
-      "resolved_at": "2026-09-04T12:57:45.947Z"
+      "reason": "Handoff corrected to seventeen titles split twelve/five, naming the seventeenth and why the count moved."
     },
     {
       "id": "RT2-3",
@@ -235,9 +229,7 @@
       "at": "docs/superpowers/plans/fix-1083-ledger-attribution.md:232",
       "duty": 3,
       "disposition": "fixed",
-      "reason": "`if (inputs.length === 0) return;` is at write.ts:1017 at HEAD; :891 is `INSERT INTO refusal_events (` inside `writeRefusalEvents`. The sentence is the immediate trailing context of the T3 hunk this commit rewrote, in the same document whose new D4 note says line numbers in a post-implementation artifact are a liability. Graded P2 to match round 1's grading of the identical class. The plan's other pre-fork citations sit outside this round's scope and are recorded in the report appendix instead.",
-      "resolution": "Plan citation converted to a symbol. A sweep resolving EVERY file:line in the branch docs against HEAD then found fifteen more, all in the plan; they are left in place under an explicit header note that every citation in that document resolves at the fork and is stale at HEAD.",
-      "resolved_at": "2026-09-04T12:57:45.947Z"
+      "reason": "Plan citation converted to a symbol. A sweep resolving EVERY file:line in the branch docs against HEAD then found fifteen more, all in the plan; they are left in place under an explicit header note that every citation in that document resolves at the fork and is stale at HEAD."
     }
   ],
   "authorizations": [],
