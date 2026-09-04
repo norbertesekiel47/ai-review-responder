@@ -68,20 +68,103 @@ email shares the Resend provider with the product.
   decision every one of whose reasons maps to `null` records nothing either way
   and correctly stays silent.
 
-  **This is the only signal that the ledger has a gap** — the ledger
+  **This is the only signal that the ledger has a GAP** — the ledger
   structurally cannot show its own absence, since an absent row and a decision
-  that never happened look identical at read time. One blind spot #1079 leaves
-  standing, stated so an operator is not surprised by it: an UNMAPPED block
-  reason (the #1080 fault class) raises nothing on this lane while the switch is
-  off, because it would have thrown rather than written. The Restraint tab's
+  that never happened look identical at read time. The Restraint tab's
   `ledgerRecording` disclaimer is what tells an operator the ledger is off at
-  all. **It is CONFIG-1's shape exactly** (see the audit note
+  all.
+
+  **#1079's blind spot is CLOSED (#1105), and the sentence recording it is
+  corrected here rather than deleted.** It read: an UNMAPPED block reason (the
+  #1080 fault class) "raises nothing on this lane while the switch is off,
+  because it would have thrown rather than written". The reason clause is still
+  true, and is why such a code raises no *ledger-dark* line — it costs no row, so
+  there is no gap to claim. The conclusion is false at HEAD: that lane now raises
+  a SEPARATE signal, its own checklist item below. Do not merge the two rules.
+
+  **It is CONFIG-1's shape exactly** (see the audit note
   below): a `warning`-level `captureMessage` does not reliably classify as high
   priority, so today it is captured-but-not-paged. CONFIG-1's option (b) —
   raising the level — is **wrong here**: a flipped kill switch is a deliberate
   operator state, not an error, so this one needs the tag-based rule rather than
   a level change. The structured log line (`refusals:write`) is the durable
   second transport meanwhile. Added by #1009 (red-team RT-1).
+- [ ] **Refusal vocabulary hole routed to Discord** — issues tagged
+  **`fault:unmapped_block_reason`** at level `error`. Emitted by
+  `noteUnmappedBlockReasons` (`src/lib/refusals/write.ts`) from guard 4's
+  off-arm in `worker/jobs/response-generation/persist.ts`. Added by #1105.
+
+  **UNCHECKED FOR TWO REASONS, NOT ONE — and neither is "nobody got to it".**
+  The rule does not exist in either Sentry project (read back 2026-09-04), AND
+  §4's acceptance drill for it is BLOCKED because the fault it tests cannot be
+  produced by any reachable input. Building the rule alone does not earn the
+  tick: §4's own standard is that a rule is unproven until it has been seen to
+  deliver. Both entries carry the detail.
+
+  **RULE ON THE `fault` TAG, NEVER ON `subsystem:refusal_ledger AND
+  level:error`.** An earlier draft of this item called it "the only one above
+  `warning`" and that was false when written: `withLedgerAttribution`
+  (`worker/jobs/response-generation/persist.ts`) has raised `error`-level
+  `subsystem:refusal_ledger` issues since #1079, and the overflow marker below
+  adds a third. A level-plus-subsystem rule selects all of them and pages on
+  three different faults.
+
+  **It is a DIFFERENT fault from the item above, which is why it gets its own
+  rule and its own level.** The ledger being off is a deliberate operator act
+  and warns. A block reason with no entry in
+  `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is a defect, and it means autonomy
+  decisions are being taken against a broken map. A rule written against
+  `subsystem:refusal_ledger` at `warning` alone does NOT catch it.
+
+  **What an operator does with it.** The event carries the offending codes in
+  `extra.codes`, in the gate's own evaluation order, DE-DUPLICATED — the ones NOT
+  ALREADY REPORTED by this worker process, since the latch is per code (see
+  below). **A code you expected and cannot find is in one of three states**: it
+  was reported in an earlier event; it is a repeat within the same decision; or
+  it arrived once the cap was full, in which case it is named NOWHERE and only
+  the overflow marker records that it existed. Find each code in
+  `POLICY_GATE_HELD_REFUSAL_CATEGORIES` (`src/lib/refusals/vocabulary.ts`). It
+  will not be there — that is the point — so the question is which producer
+  emitted a value outside the compiled `AutoApprovalBlockReason` union, since
+  the map is total over that union at `pnpm typecheck`. Expect an unsafe cast,
+  a deserialized payload, or a mutated object.
+
+  **The message is a CONSTANT** (`auto_approval_unmapped_block_reason`) so every
+  occurrence groups into one Sentry issue and per-issue throttling applies to
+  the fault rather than to each distinct code set.
+
+  **_When_ cadence for both new rules: `Every event`, NEVER "a new issue is
+  created".** An earlier version of this item said first-seen, reasoning that a
+  repeat trigger would delay a page for a fault that fires at most once per code.
+  That reasoning had the failure backwards, and §1a-do's own rule-4/5/6 paragraph
+  states why: **the capture title is a CONSTANT**, so every occurrence groups into
+  ONE Sentry issue, and a first-seen trigger fires once ever and then stays silent
+  through exactly the repetition that IS the signal. Here the repetition is a
+  SECOND DISTINCT unmapped code — the precise event the per-code latch exists to
+  make visible. First-seen would have made the whole per-code design unobservable
+  to an operator. Volume is not a concern: the latch and the cap already bound
+  these to at most `UNMAPPED_SIGNAL_CAP` + 1 events per worker process.
+
+  **A second event, `auto_approval_unmapped_block_reason_cap_reached`, tagged
+  `fault:unmapped_block_reason_overflow`,** means more than
+  `UNMAPPED_SIGNAL_CAP` distinct codes escaped in one worker process. Read it as
+  "a producer is generating varied garbage", not as "one map entry is missing".
+  It names no code deliberately, and it fires once per process. **It also
+  carries `subsystem:refusal_ledger` at `error`** — the second reason the rule
+  must key on the `fault` tag.
+
+  **Latching:** per CODE, per PROCESS, BOUNDED. Each distinct code reports once
+  and never re-arms — unlike the ledger-dark line above, which re-arms per
+  disabled episode. A worker restart clears it. So a repeat of the SAME code is
+  silence by design.
+
+  **A new code is reported UNTIL the cap, and silent after it.** An earlier
+  draft of this item said "a new code is always reported", which contradicted
+  the cap paragraph four lines above it. Past `UNMAPPED_SIGNAL_CAP` distinct
+  codes the process emits the overflow marker once and then nothing at all —
+  including for codes it has never seen. **That is the state to restart the
+  worker out of**, and it is why the marker is worth a rule of its own rather
+  than being folded into the item above.
 - [ ] **Autonomy Governor candidate failure routed to Discord** — issues tagged
   `subsystem:autonomy_governor`, emitted by `AutonomyGovernorScheduler`'s
   per-candidate `catch`. **Unlike the row above this one is a `captureException`,
@@ -279,7 +362,9 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 4 | `import-consent-analytics-drift → discord` | `subsystem` equals `import_consent_analytics` | **seen more than 3 times in one hour** | `warning` |
 | 5 | ~~`solicitation-send-breaker → discord`~~ **SUPERSEDED — do not build** | `finding` equals `solicitation_send_breaker_tripped` | **seen more than 3 times in one hour** | `error` |
 | 6 | `solicitation-unattributed-suppression → discord` | `feature` equals `solicitation_lane` | **seen more than 3 times in one hour** | `warning` |
-| 7 | `stripe-out-of-order-ack → discord` | `feature` equals `stripe_subscription_out_of_order` | **seen more than 3 times in one hour** | `warning` |
+| 7 | `refusal-vocabulary-hole → discord` | `fault` equals `unmapped_block_reason` | **every event** | `error` |
+| 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
+| 9 | `stripe-out-of-order-ack → discord` | `feature` equals `stripe_subscription_out_of_order` | **seen more than 3 times in one hour** | `warning` |
 
 > **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
 > This table is the design; these are the rules. Re-read them before assuming a signal
@@ -352,7 +437,16 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > message for every breaker tick and buy nothing. Proven by G.3 §4.5, which exercised
 > exactly that route.
 >
-> **Rule 6 is the one still genuinely owed, and it is owed in PRODUCTION.**
+> **Rule 6 is not the only one still owed — #1105 added rules 7 and 8, and this
+> paragraph said otherwise for one commit.** A fresh red-team pass caught it
+> against the register further down this section (cited by name, not by line
+> offset — the first version said "eleven lines below" and was already wrong),
+> which is the same
+> stale-count-after-an-edit failure this section keeps recording. Rule 6 remains
+> the one owed in PRODUCTION SPECIFICALLY, and that is what the rest of this
+> paragraph is about.
+>
+> **Rule 6 is owed in PRODUCTION.**
 > `reportUnattributedSuppression` emits `level:'warning'` tagged `feature:solicitation_lane`.
 > That matches none of `3925256`'s four filters, and CONFIG-1 already established that a
 > `warning` `captureMessage` does not reliably classify as high priority, so `3920752`
@@ -360,26 +454,75 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > the failure this section predicts. Not yet harmful, because solicitation sending is off
 > in production; harmful the moment it is on.
 >
-> **Two §1 signals have no rule in either project** and are named here so the absence is
-> not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector) and
+> **Four §1 signals have no DEDICATED rule in either project** and are named here so the
+> absence is not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector),
 > `subsystem:autonomy_governor` (a `captureException`, so today it reaches issue owners by
-> **email** — which §1's own premise rules out as an acceptable route).
+> **email** — which §1's own premise rules out as an acceptable route), and — added by
+> #1105 — `fault:unmapped_block_reason` and `fault:unmapped_block_reason_overflow`,
+> rules 7 and 8 above. **The count was "two" and the two new signals were not listed
+> when they shipped**; red team caught the omission, which is the same class of defect
+> this whole register exists to prevent.
+>
+> **"No dedicated rule" is NOT "pages nobody", and the two must not be conflated for the
+> #1105 pair.** The premise that makes this register alarming — CONFIG-1's finding that a
+> `warning` `captureMessage` does not reliably classify as high priority — applies to
+> `subsystem:refusal_ledger`, which IS `warning`. **It does NOT apply to
+> `subsystem:autonomy_governor`**, and an earlier version of this paragraph said it did:
+> that signal is a `captureException` with no level override, so it defaults to `error`,
+> exactly as this file already states twice elsewhere. Its problem is the ROUTE (email),
+> not the level.
+>
+> **READ BACK FROM THE SENTRY API 2026-09-04, and the answer SPLITS BY PROJECT.** The
+> previous version of this paragraph said the question was unverified. It is now
+> answered, and the two projects differ:
+>
+> - **`repworth-staging` — NO PATH.** `3608329`'s action filter is four `Tagged event`
+>   equalities (`health_alert`, `limit_exceeded`, `stripe_reconciliation`,
+>   `import_consent_analytics`) plus `Issue category = 10`, under `any-short` logic. None
+>   matches `fault:unmapped_block_reason` or `subsystem:refusal_ledger`. **On staging the
+>   two new signals page nobody**, whatever their level. Its name says "high priority
+>   issues" and its filter says otherwise — read the filter, never the name.
+> - **`repworth-production` — CANDIDATE PATH, STILL UNPROVEN.** `3920752` carries NO
+>   action-filter conditions at all; it triggers on New/Existing **high priority issue**
+>   and routes to Email + Discord. An `error`-level capture is Sentry's default high
+>   priority, so rules 7 and 8 are probably already routed there. **`lastTriggered` is
+>   `null` on all three production rules** — no production rule has ever fired, so the
+>   classification remains observed by nobody.
+>
+> So the two signals stay owed, but for a sharper reason than "unverified": staging has a
+> demonstrable gap, and production has an unproven inference.
 
-_Then_ action for all six: **Send a notification to the Discord integration** →
+_Then_ action for all eight: **Send a notification to the Discord integration** →
 your server → the `#repworth-alerts` channel ID from step 0.
 
-**Rules 4, 5, 6 and 7 are the odd ones, and the difference is not cosmetic.**
-Rules 1–3 fire on a new issue. Rules 4, 5, 6 and 7 must not. Each capture title
-is a **constant string**, so every occurrence groups into ONE Sentry issue — for
-rule 4, both **Import offer** event names across every location and both lanes;
-for rule 5, every re-page of one open breaker trip; for rule 6, every
-unattributed suppression across every account, event type and source; for rule
-7, every acked-for-age Stripe subscription event across every customer and event
-type. A first-seen trigger fires once, ever, and then stays silent through
+**Rules 7 and 8 filter on the `fault` tag, NOT on `subsystem` plus level (#1105).**
+Three different faults now carry `subsystem:refusal_ledger` at `error` —
+`withLedgerAttribution`'s ledger-failure attribution (since #1079) and both of
+these — so a subsystem-and-level filter pages on all three and tells an operator
+nothing about which. **Their trigger is `Every event`, the SAME as rules 4-6**,
+and an earlier version of this paragraph said the opposite. The reasoning it gave
+— that the per-code latch and the cap already bound the volume, so a repeat
+trigger would only delay the page — had the failure backwards. Both titles are
+CONSTANTS, so every occurrence groups into one issue and a first-seen rule fires
+once ever, then stays silent through exactly the repetition that IS the signal
+here: a SECOND DISTINCT unmapped code, which the per-code latch exists to make
+visible. The bound is what makes `Every event` safe, not what makes first-seen
+sufficient.
+
+**Rules 4-9 are the odd ones, and the difference is not cosmetic.** Rules 1-3
+fire on a new issue. Rules 4, 5, 6, 7, 8 and 9 must not. Each capture title is a
+**constant string**, so every occurrence groups into ONE Sentry issue — for rule
+4, both **Import offer** event names across every location and both lanes; for
+rule 5, every re-page of one open breaker trip; for rule 6, every unattributed
+suppression across every account, event type and source; for rules 7 and 8,
+every unmapped block reason and every cap-reached marker across every worker
+process; for rule 9, every acked-for-age Stripe subscription event across every
+customer and event type. A first-seen trigger fires once, ever, and then stays
+silent through
 exactly the repetition that is the signal. See #697 and
 `.claude/reference/lab-notes.md` (2026-08-08).
 
-**Rule 6 is a REPLACEMENT, not an addition (#967).** The other five add
+**Rule 6 is a REPLACEMENT, not an addition (#967).** The other rules add
 coverage; this one restores coverage that #967 deliberately removed. That ticket
 made an unmatched suppression-bearing Resend event ack instead of throw — right
 for the recipient's opt-out and right for payload retention, but it takes the
@@ -390,7 +533,7 @@ before #630 commits `provider_message_id` — is why the trigger is frequency an
 not first-seen; its alarming cause is #965, an unexplained loss of Outreach rows
 that is still open. §1's bullet carries the response procedure.
 
-**Rule 7 is a REPLACEMENT too, and it is the narrower half of one (red-team
+**Rule 9 is a REPLACEMENT too, and it is the narrower half of one (red-team
 R05).** Bounding the Stripe out-of-order retry at 15 minutes and acking takes
 the event out of `inbound_events.status='failed'`, exactly as #967 did for the
 Resend lane — the same removal, one provider over. Two signals replace it, not
@@ -423,11 +566,15 @@ when the trip opens and roughly one per hour after that — Sentry's default act
 interval is 60 minutes per issue, so a 5-minute poll interval does not mean a
 5-minute page.
 
-**Step 8 — the dead-man switch.** (Renumbered 7 → 8 because red-team R05 added
-a seventh rule — the step number and the rule number must not collide. It was 7
-while #967's rule 6 was the last one, and 6 while #907's rule 5 was.) The cron
+**Step 7 — the dead-man switch.** (**Its number is a STEP number and it now
+collides with a rule number — the old "must not collide" rule is retired, not
+satisfied.** It was numbered 7 when #967 made rule 6 the last one; #1105 then
+added rules 7 and 8, so the collision the parenthetical existed to avoid has
+happened and renumbering the step would only chase the next rule. Read "Step 7"
+as a step throughout this section. Rule 9 arrived after that retirement and did
+NOT renumber this step, which is the retirement working as intended.) The cron
 monitor is NOT an alert rule; it is configured in §4 of this runbook (slug
-`health-alert-poller`, auto-created on first check-in). Do §4 after the seven
+`health-alert-poller`, auto-created on first check-in). Do §4 after the **nine**
 rules above.
 
 **Verify, do not assume.** Each rule is unproven until you have seen it deliver.
@@ -743,6 +890,63 @@ precondition below.
   procedure (Part B, headroom arm): `docs/runbooks/pool-wedge-burst-drill.md`.
   Run after §1b's poller-resume so the `HealthAlertPoller` is back on its
   designed 5-minute cadence for the drill.
+- [ ] **Refusal vocabulary hole (rules 7 and 8, #1105)** — the drill this
+  section's own rule demands: *each rule is unproven until you have seen it
+  deliver*, and rules 7 and 8 shipped without one. Added when red team asked why
+  §4 had no entry for them.
+
+  **The precondition above is the whole point of this drill.** Both capture
+  titles are CONSTANTS, so a first-seen rule pages on occurrence 1 and is silent
+  for every later distinct code — which is exactly the event the per-code latch
+  exists to surface. **A single page does not pass this drill. Two do.**
+
+  **BLOCKED 2026-09-04 — THIS DRILL CANNOT BE RUN AS WRITTEN, and the fault is
+  in the drill.** It was written without checking that its own step 1 is
+  performable. Two independent blockers, both verified:
+
+  1. **Step 1 is unreachable.** Every member of `blockReasons` is a compiled
+     string literal in `worker/jobs/response-generation/auto-approval.ts`, and
+     `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is total over
+     `AutoApprovalBlockReason` by `satisfies`. No env var, config value or
+     database row can introduce a code outside that union, so
+     `unmappedBlockReasons` returns empty for every reachable input. Producing an
+     unmapped code needs deliberately-instrumented code deployed to staging.
+  2. **There is nothing to page.** Rules 7 and 8 are unchecked §1 boxes and exist
+     in neither Sentry project, and the register above records that staging's
+     `3608329` would not match them even if an event arrived.
+
+  Closing this needs one of two decisions, and both are new work: give the lane a
+  test-only injection seam, or rescope the drill to prove the ROUTE with a
+  synthetic tagged event and drop the claim that it exercises the lane. **Do not
+  tick this box on the strength of a rule merely existing** — that is the
+  substitution this section's own "Verify, do not assume" rule forbids.
+
+  The steps below are kept as the specification of what a runnable drill must
+  cover, not as instructions anyone can follow today.
+
+  On staging, with `REFUSAL_LEDGER_ENABLED=false` and the worker freshly
+  restarted (the latch is per PROCESS, so a restart is part of the setup):
+
+  1. Drive a `policy_gate_held` decision carrying a block reason that is not in
+     `POLICY_GATE_HELD_REFUSAL_CATEGORIES`. Expect ONE Discord page,
+     `auto_approval_unmapped_block_reason`, level `error`, with the code in
+     `extra.codes`.
+  2. Drive a second decision carrying a DIFFERENT unmapped code. **Expect a
+     SECOND page.** No second page means the rule is on first-seen and rules 7
+     and 8 are inert past their first fire — the defect this drill exists to
+     catch.
+  3. Repeat the FIRST code. Expect NO page: the per-code latch suppresses it.
+  4. Optional, and the only way to prove rule 8 delivers: drive more than
+     `UNMAPPED_SIGNAL_CAP` distinct codes and confirm one
+     `auto_approval_unmapped_block_reason_cap_reached` page, then silence.
+
+  **The route half is already answered, by API read-back rather than by this
+  drill (2026-09-04).** Staging's `3608329` filters to four unrelated tags, so it
+  routes these signals NOWHERE; production's `3920752` has no filter and would
+  catch them if Sentry classifies an `error` `captureMessage` as high priority,
+  which no fired event has yet demonstrated. §1a-do's register carries the
+  detail. What remains for a drill is the LANE half — that the signal fires at
+  all, once per distinct code, and stops at the cap.
 
 ## 5. Tunable thresholds (env, all optional — defaults shown)
 

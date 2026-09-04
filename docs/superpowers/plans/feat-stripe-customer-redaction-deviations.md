@@ -266,7 +266,7 @@ over the acked stream. The guard predicate names `purge_scheduled` and scopes to
 > for Stripe's ~3-day retry schedule; this probe fires above 5 per
 > `(source, event_type)` per hour, so the single-orphan case now pages nothing
 > through it. The per-event handle is a separate signal — the
-> `feature:stripe_subscription_out_of_order` alert rule, rule 7 in
+> `feature:stripe_subscription_out_of_order` alert rule, rule 9 in
 > `beta-launch-alerting.md` §1a-do, which R05 found had no rule row at all and
 > was therefore routing to nobody. The two are complements, not substitutes.
 >

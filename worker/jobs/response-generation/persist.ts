@@ -43,6 +43,7 @@ import {
   REFUSAL_LEDGER_FLAG,
   isRefusalLedgerEnabled,
   noteRefusalLedgerDark,
+  noteUnmappedBlockReasons,
   writeRefusalEvent,
 } from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
@@ -751,6 +752,65 @@ function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): b
 }
 
 /**
+ * The members the category map does not hold, in INPUT ORDER (#1105).
+ *
+ * GUARD 4'S OTHER WARNING PREDICATE, and it sits here beside
+ * `wouldRecordRefusal` for the same reason that one does: guard 4 contains a
+ * vocabulary fault by NON-EXECUTION, so every predicate it consults must be
+ * decidable without running `resolvePolicyGateRefusal`. `Object.hasOwn` is the
+ * resolver's own membership test and CANNOT THROW, which is what keeps this
+ * inside the containment guarantee.
+ *
+ * `some`-SHAPED, WHERE `wouldRecordRefusal` IS `every`-SHAPED, and the asymmetry
+ * is correct rather than an oversight. A ledger GAP is a property of the WHOLE
+ * decision — one `null`-mapped member vetoes the entire row (#1003), so every
+ * member must record for a gap to exist. A vocabulary hole is a property of a
+ * SINGLE CODE: one unmapped member is one defect in the map, whatever its
+ * neighbours do. Reading the two predicates as variants of each other is how a
+ * later edit collapses them.
+ *
+ * THE TWO ARE MUTUALLY EXCLUSIVE, AND THAT FALLS OUT OF THESE DEFINITIONS
+ * rather than out of the call site's control flow: a non-empty result here makes
+ * `wouldRecordRefusal`'s `Object.hasOwn` conjunct false, so the two `if`s below
+ * can never both fire. Guard 4 states that and a case asserts it, which is what
+ * lets the `else` stay deleted.
+ *
+ * IT LIVES HERE AND NOT IN `write.ts`, and the eval is why. The first draft put
+ * the membership test inside `noteUnmappedBlockReasons`, so the call site handed
+ * over every decision and let the helper decide. `persist.test.ts` mocks that
+ * module, so its spy recorded a call for a HEALTHY set too and four of its five
+ * cases asserted a count that discriminates nothing. With the test here, the
+ * lane's own suite observes the lane's own decision.
+ *
+ * A NON-EMPTY RESULT NEEDS A VALUE THAT ESCAPED THE UNION — AND CREDIT THE
+ * RIGHT GUARD FOR THAT. A member with no map entry is caught by the map's own
+ * `satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>` clause
+ * (`vocabulary.ts`), which fails `pnpm typecheck` as a TS1360.
+ * `_PrecedenceIsTotal` is a DIFFERENT assertion: it catches a member that is
+ * mapped but left out of `AUTO_APPROVAL_BLOCK_PRECEDENCE`, and it fires on a map
+ * hole only as fallout — `vocabulary.ts` says so at the assertion itself. An
+ * earlier version of this docblock credited `_PrecedenceIsTotal` with both, and
+ * disagreed with this file's own test comment inside one diff.
+ *
+ * So this predicate is defence in depth against a RUN-TIME escapee, not a live
+ * fault. That is the whole of #1105 and the ticket says so itself.
+ *
+ * THE FAULT CLASS IS NOT CLOSED CODEBASE-WIDE, only this shape of it. Five lanes
+ * index a category map directly (`MAP[reason]`) instead of resolving through
+ * `resolvePolicyGateRefusal`; there an unmapped member yields `undefined` rather
+ * than a throw, and with the ledger off they raise the ledger-dark warning —
+ * claiming a gap for a row migration 116's NOT NULL would reject, and naming no
+ * code. Different mechanism, different fix, deliberately a different ticket.
+ * Recorded because red team's sibling sweep found leaving it unrecorded to be
+ * the actual omission.
+ */
+function unmappedBlockReasons(
+  blockReasons: readonly AutoApprovalBlockReason[],
+): readonly AutoApprovalBlockReason[] {
+  return blockReasons.filter((code) => !Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code));
+}
+
+/**
  * Records the `policy_gate_held` **Refusal** for a draft the auto-approval gate
  * held for the owner. Runs on the OPEN transaction `tx`, so the row is atomic
  * with the decision it records (#1013).
@@ -821,7 +881,26 @@ function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): b
  *      already pulled (#1079). Containment here is by NON-EXECUTION: nothing
  *      below this line runs.
  *
- *      IT STILL WARNS, BUT ONLY WHEN A ROW WOULD GENUINELY HAVE BEEN WRITTEN.
+ *      IT RAISES TWO DIFFERENT SIGNALS, AND CONFLATING THEM IS THE BUG #1105
+ *      FIXED. `noteUnmappedBlockReasons` reports that a block reason has no
+ *      category MAPPING; `noteRefusalLedgerDark` reports that a Refusal row
+ *      would have been WRITTEN and was not. Different faults, different
+ *      messages, different Sentry levels (`error` against `warning`), different
+ *      latches with different lifetimes — the vocabulary latch is per PROCESS,
+ *      because a map hole does not end when an operator flips the flag back.
+ *      Before #1105 only the second existed, so an unmapped code produced
+ *      nothing at all here and an operator could not tell a pulled lever from a
+ *      broken map behind one.
+ *
+ *      THEY ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION, WHICH IS WHY THE ARM HAS NO
+ *      `else`. An unmapped member is exactly what makes `wouldRecordRefusal`'s
+ *      `Object.hasOwn` conjunct false, so the two `if`s can never both fire. The
+ *      exclusivity belongs to the predicates; an `else` would move it into the
+ *      control flow, where a later edit that broke it would go unnoticed instead
+ *      of failing the case that asserts it.
+ *
+ *      THE LEDGER-DARK WARNING STILL FIRES ONLY WHEN A ROW WOULD GENUINELY HAVE
+ *      BEEN WRITTEN.
  *      The rule is `writeRefusalEvents`' contract in `src/lib/refusals/write.ts`
  *      (bullet 1, cited BY SYMBOL — a line range here went stale inside its own
  *      commit): a decision that records nothing either way has no ledger GAP,
@@ -881,9 +960,12 @@ async function recordPolicyGateRefusal(
   if (autoDecision.approved) return;
   if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
   // Guard 4 — the kill switch, BEFORE the resolve. Nothing below this line runs.
-  // The warning is raised only when a row would genuinely have been written; see
-  // the docblock and `wouldRecordRefusal`.
+  // Two signals, two independent `if`s and no `else`: they are mutually
+  // exclusive by CONSTRUCTION, and the docblock above states why. Neither call
+  // may throw.
   if (!isRefusalLedgerEnabled()) {
+    const unmapped = unmappedBlockReasons(autoDecision.blockReasons);
+    if (unmapped.length > 0) noteUnmappedBlockReasons(unmapped);
     if (wouldRecordRefusal(autoDecision.blockReasons)) noteRefusalLedgerDark();
     return;
   }
@@ -931,11 +1013,19 @@ async function recordPolicyGateRefusal(
  * nor a writer bug, and unlike one it is genuinely SUPPRESSED by the flag now
  * that guard 4 returns before the resolve. So the Sentry issue this wrapper
  * raises for a vocabulary fault is the record of that fault only for a flag
- * flipped IN RESPONSE to it: a fault arriving into an already-off flag never
- * runs the resolver and raises nothing, and an operator who resolves the issue
- * once the aborts stop removes the record while the hole stays open. Recorded
- * rather than argued away — the `held_draft` invocation still wraps a write and
+ * flipped IN RESPONSE to it. The `held_draft` invocation still wraps a write and
  * nothing else.
+ *
+ * THE GAP THAT USED TO FOLLOW FROM THAT IS CLOSED (#1105), and the sentence
+ * describing it is corrected here rather than left standing. It read: "a fault
+ * arriving into an already-off flag never runs the resolver and raises nothing,
+ * and an operator who resolves the issue once the aborts stop removes the record
+ * while the hole stays open." The first half is still true and is the whole
+ * point of guard 4. The second half no longer holds: guard 4's off-arm now
+ * raises `noteUnmappedBlockReasons` on its own transport, at its own level, with
+ * a PROCESS-lifetime latch that does not re-arm when the flag flips back. So the
+ * hole is signalled whether the fault arrives before or after the flag moved,
+ * and this wrapper is no longer the only record of it.
  *
  * IT CHANGES NO CONTROL FLOW. The error is re-thrown, so the transaction still
  * aborts and no response commits without its required row. This is NOT the

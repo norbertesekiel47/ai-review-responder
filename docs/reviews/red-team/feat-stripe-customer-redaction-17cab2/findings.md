@@ -374,7 +374,7 @@ and both P2s as fix-rather-than-accept on 2026-09-04, so no finding is
 | R02 | P0 | `ecf4c224` — all four `docs/directory.md` rows |
 | R03 | P0 | the R03 commit — predicate keys on `purge_started_at` / `purge_cancelled_at`, **plus** the behavioural live-DB suite |
 | R04 | P1 | `ecf4c224` — bounded pagination, retryable `bounded_pagination_exhausted` |
-| R05 | P1 | `3170d108` — `beta-launch-alerting.md` rule 7 + two §1 bullets |
+| R05 | P1 | `3170d108` — `beta-launch-alerting.md` rule 9 (numbered 7 at the time; #1105 took 7 and 8 first) + two §1 bullets |
 | R06 | P1 | `ecf4c224` — two statements, two counts, two saturation entries |
 | R07 | P1 | `3170d108` — four tests for the outcome log line |
 | R08 | P1 | `3170d108` — a factory that throws, pinning the property M7 broke |

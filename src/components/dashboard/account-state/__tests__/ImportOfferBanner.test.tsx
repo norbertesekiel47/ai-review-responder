@@ -450,4 +450,191 @@ describe('ImportOfferBanner', () => {
     expect(screen.queryByRole('button', { name: /import my reviews/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /no thanks/i })).not.toBeInTheDocument();
   });
+
+  // ---------- #1087: the arrangement ----------
+  //
+  // jsdom applies no stylesheet, so none of these assert a computed position.
+  // They assert the STRUCTURE the stylesheet acts on, which is the half that
+  // regresses silently: a future edit that reinstates an inline style or drops
+  // the slot class would still render the right words and still pass every test
+  // above it.
+
+  it('ImportOfferBanner — the offer state still renders the 7-day disclosure and the reassurance line verbatim', async () => {
+    // The regex assertions above survive a reworded sentence that still contains
+    // the fragment. These do not. The 7-day disclosure and the automatic-handling
+    // reassurance are locked verbatim (owner decision 6) and #1087 was a layout
+    // ticket — the standing temptation is to shorten the copy to fit.
+    mockGetSequence([OFFER]);
+
+    renderBanner();
+
+    expect(
+      await screen.findByText(
+        'We can pull in your 100 most recent Google reviews from the past year so you can generate replies for them. Nothing gets posted — you choose what to reply to.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This is a one-time import, available for the next 7 days. New reviews will still be handled automatically either way.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('ImportOfferBanner — the offer actions sit in the banner action slot rather than inline styles', async () => {
+    // RETITLED FROM "are right-aligned" (#1087 review F4). jsdom applies no
+    // stylesheet, so alignment is not a computed position here and the old title
+    // promised what the body cannot prove — which mattered, because review F2
+    // showed alignment was exactly the half that regressed. Alignment is proven
+    // by measurement instead, in the real `.content--dash` container across
+    // 360–1440px. What this pins is the STRUCTURE that stylesheet acts on: the
+    // element carrying `margin-left: auto` exists, the actions are inside it, and
+    // neither action carries an inline style.
+    mockGetSequence([OFFER]);
+
+    const { container } = renderBanner();
+    await screen.findByRole('button', { name: /import my reviews/i });
+
+    // The slot, not a raw div with an inline flex. `margin-left: auto` belongs to
+    // the group; it is the element the stylesheet positions.
+    const actions = container.querySelector('.banner-actions');
+    expect(actions).not.toBeNull();
+    expect(
+      Array.from(actions!.querySelectorAll('button')).map((b) => b.textContent),
+    ).toEqual(['Import my reviews', 'No thanks']);
+
+    // The banner opts in to top alignment; `.banner` itself keeps centring, so
+    // every other banner in this slot is unaffected.
+    expect(container.querySelector('.banner')?.classList.contains('banner--top')).toBe(true);
+    expect(container.querySelector('.banner-copy')).not.toBeNull();
+
+    // Secondary through a class. An inline `style` on either action is the
+    // regression this asserts against.
+    for (const button of actions!.querySelectorAll('button')) {
+      expect(button.getAttribute('style')).toBeNull();
+    }
+    expect(
+      screen.getByRole('button', { name: /no thanks/i }).classList.contains('banner-cta--ghost'),
+    ).toBe(true);
+  });
+
+  it('ImportOfferBanner — a read-only owner gets the notice in the actions slot, not the buttons', async () => {
+    mockGetSequence([OFFER]);
+
+    const { container } = renderBanner({ readOnly: true });
+    await screen.findByText('Update billing to import your reviews.');
+
+    const actions = container.querySelector('.banner-actions');
+    expect(actions).not.toBeNull();
+    expect(actions!.textContent).toBe('Update billing to import your reviews.');
+  });
+
+  it('ImportOfferBanner — BannerShell occupies the same tree position across importing and imported', async () => {
+    // The intake invariant #1087 could have broken silently: `OfferPrompt`
+    // renders the inner `.banner` ONLY, never its own shell. Wrapping it — the
+    // obvious move when rearranging a layout — would nest a second live region,
+    // and the terminal announcement would be read from a node that is no longer
+    // the outermost one.
+    //
+    // Walks offer → importing → imported and pins the shell's SHAPE at each,
+    // then node identity across importing → imported, which is the transition
+    // the A6c contract is actually about.
+    //
+    // NOT identity across offer → importing: the parent returns `BannerShell`
+    // for `offer` and `ImportStatusBanner` for `importing`, so React replaces
+    // that subtree by design. Benign — the offer state's announcement is the
+    // empty string, so nothing is lost on the way in (deviation D2).
+    const assertShellShape = (container: HTMLElement) => {
+      const shell = container.firstElementChild!;
+      expect(shell.className).toBe('section-enter section-enter-2');
+      // Exactly one region, and it is the shell's own first child — not one
+      // nested inside a banner.
+      expect(container.querySelectorAll('[aria-live]')).toHaveLength(1);
+      expect(shell.firstElementChild!.getAttribute('aria-live')).not.toBeNull();
+      // The banner is the shell's content, never its wrapper.
+      expect(container.querySelectorAll('.section-enter-2')).toHaveLength(1);
+      expect(shell.querySelector('.banner')!.parentElement).toBe(shell);
+    };
+
+    vi.useFakeTimers();
+    try {
+      mockGetSequence([OFFER, { state: 'importing' }, { state: 'imported', count: 12 }]);
+
+      const { container } = renderBanner();
+      await vi.waitFor(() =>
+        expect(screen.getByRole('button', { name: /import my reviews/i })).toBeInTheDocument(),
+      );
+      assertShellShape(container);
+
+      // `userEvent` drives real timers; advance the mutation by hand instead.
+      screen.getByRole('button', { name: /import my reviews/i }).click();
+      await vi.waitFor(() =>
+        expect(
+          screen.getByText('Importing your reviews… this usually takes a minute.', {
+            selector: '.b-title',
+          }),
+        ).toBeInTheDocument(),
+      );
+      assertShellShape(container);
+      const shellDuringImport = container.firstElementChild;
+
+      // `refetchInterval` is 4s while importing.
+      await vi.advanceTimersByTimeAsync(4000);
+      await vi.waitFor(() =>
+        expect(
+          screen.getByText("Imported 12 reviews. They're in your reviews list.", {
+            selector: '.b-title',
+          }),
+        ).toBeInTheDocument(),
+      );
+      assertShellShape(container);
+
+      // Node IDENTITY across the transition the contract is about. A remount
+      // produces a different node that every `querySelector` would still find.
+      expect(container.firstElementChild).toBe(shellDuringImport);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('ImportOfferBanner announces the failed outcome through the live region it was already using', async () => {
+    // Review F3. `failed` used to return `FailedBanner` from an early return
+    // where its sibling returned `BannerShell`, so React saw a type change,
+    // remounted the live region, and the region's FIRST PAINT already carried the
+    // failure text — which announces nothing. This is the ordinary path: the
+    // `importing` poll returns `failed` when the worker gives up, and it is the
+    // message an owner most needs read to them.
+    //
+    // Node identity is the assertion. A DOM-presence check on the terminal state
+    // passes either way, which is how this survived the original suite.
+    vi.useFakeTimers();
+    try {
+      mockGetSequence([{ state: 'importing' }, { state: 'failed' }]);
+      renderBanner();
+
+      await vi.waitFor(() => expect(document.querySelector('[aria-live]')).not.toBeNull());
+      const live = document.querySelector('[aria-live]')!;
+      expect(live.textContent).toBe('');
+
+      // `refetchInterval` is 4s while importing.
+      await vi.advanceTimersByTimeAsync(4000);
+      await vi.waitFor(() =>
+        expect(live.textContent).toBe("We couldn't finish importing your reviews."),
+      );
+
+      // The SAME node carried the message, so it was an update and not a mount.
+      expect(document.querySelector('[aria-live]')).toBe(live);
+      // And there is still exactly ONE region (#1087 round 2, N3). Identity alone
+      // passes for a `FailedBanner` that nests a SECOND shell inside the shared
+      // one: the outer node survives, so the assertion above is satisfied while
+      // the file's stated "renders the inner `.banner` only" contract is broken.
+      expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
+      expect(document.querySelectorAll('.section-enter-2')).toHaveLength(1);
+      // The urgent channel and the visible copy are unchanged by the restructure.
+      expect(document.querySelector('.banner-attn')?.getAttribute('role')).toBe('alert');
+      expect(
+        screen.getByText("We couldn't finish importing your reviews", { selector: '.b-title' }),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

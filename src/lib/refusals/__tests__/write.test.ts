@@ -42,6 +42,7 @@ import {
 // own, naming the missing export. Kept after T2 for the same reason the
 // precedent kept its own: the next slice to add an arm here inherits it.
 import * as refusalWrite from '../write';
+import { POLICY_GATE_HELD_REFUSAL_CATEGORIES } from '../vocabulary';
 
 // `vi.hoisted` rather than a bare `const`: the stub has to exist before the
 // module graph is loaded, and `job-failure-sink.test.ts` is the house form.
@@ -52,6 +53,41 @@ const sentryStub = vi.hoisted(() => ({
 }));
 
 vi.mock('@sentry/node', () => sentryStub);
+
+/**
+ * The vocabulary resolver as a SPY, so `noteUnmappedBlockReasons` can be proven
+ * never to call it (#1105, task T1 case 8).
+ *
+ * IT IS THE ONLY ORACLE FOR THAT CLAIM IN THE WHOLE EVAL. The five persist-side
+ * cases assert a resolver spy at zero too, but that suite MOCKS
+ * `@/lib/refusals/write` wholesale, so the helper under test there is a stub and
+ * the real one could resolve-and-catch behind it and still pass every one of
+ * them. Here the helper is real and the resolver is watched.
+ *
+ * WHY IT MATTERS AND IS NOT DEFENSIVE PADDING: guard 4 contains a vocabulary
+ * fault by NON-EXECUTION (#1079). A signal that reached for the resolver — even
+ * inside a `try` — would put the throwing code back inside the deciding
+ * transaction, which is the exact fault the kill switch exists to contain.
+ *
+ * A PARTIAL mock, on `persist.test.ts`'s `importOriginal` precedent: the module
+ * also owns `REFUSAL_VOCABULARY_VERSION` and the category map, and both are read
+ * elsewhere in this file and by `write.ts` itself.
+ *
+ * NO DELEGATING IMPLEMENTATION, and that is deliberate rather than an omission.
+ * `persist.test.ts`'s copy of this spy delegates to the real resolver because
+ * cases there drive the ON arm and need real behaviour. Here, nothing does:
+ * `write.ts` does not import the resolver, and the only case that names it
+ * asserts it is NEVER CALLED. A delegating body would be code no test can
+ * execute — branch review round 1 measured it as dead.
+ */
+const resolvePolicyGateRefusalSpy = vi.hoisted(() =>
+  vi.fn<(codes: readonly string[]) => unknown>(),
+);
+
+vi.mock('../vocabulary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../vocabulary')>();
+  return { ...actual, resolvePolicyGateRefusal: resolvePolicyGateRefusalSpy };
+});
 
 const MIGRATION_116 = 'supabase/migrations/116_refusal_events.sql';
 
@@ -151,6 +187,40 @@ function ledgerWarnings(): unknown[] {
   return consoleWarn.mock.calls.filter((call) =>
     JSON.stringify(call).includes('refusal ledger disabled'),
   );
+}
+
+/**
+ * The VOCABULARY-HOLE lines only (#1105).
+ *
+ * TWO FILTERS, NOT ONE, and the separation is the point. These are two different
+ * faults with two different lifetimes: "the ledger is off deliberately" is an
+ * episode of the kill switch, and "a block reason has no category mapping" is a
+ * defect behind it. A single filter would let either signal satisfy an assertion
+ * about the other, which is the confusion the whole ticket exists to remove.
+ *
+ * SO THE TWO MESSAGES MUST NOT SHARE A SUBSTRING. `ledgerWarnings` matches
+ * `refusal ledger disabled`; a new line containing that phrase would inflate
+ * every pre-existing count in this file and pass while proving nothing.
+ */
+function unmappedSignals(): unknown[] {
+  return consoleWarn.mock.calls.filter((call) =>
+    JSON.stringify(call).includes('refusal ledger vocabulary hole'),
+  );
+}
+
+/**
+ * A block-reason set every member of which the category map really holds.
+ *
+ * READ OFF THE MAP rather than typed out. A hand-copied literal proves the copy,
+ * and this fixture's whole job is to be genuinely mapped — a stale literal would
+ * turn the negative cases into false passes the day a member is renamed.
+ */
+function mappedBlockReasons(count: number): string[] {
+  const keys = Object.keys(POLICY_GATE_HELD_REFUSAL_CATEGORIES);
+  if (keys.length < count) {
+    throw new Error(`the category map holds ${keys.length} members, fewer than the ${count} asked`);
+  }
+  return keys.slice(0, count);
 }
 
 /**
@@ -779,5 +849,511 @@ describe('isRefusalLedgerEnabled', () => {
     refusalWrite.noteRefusalLedgerDark();
     expect(ledgerWarnings(), 'a new episode warns again').toHaveLength(2);
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * `noteUnmappedBlockReasons` — the vocabulary-hole signal (#1105, task T1, RED).
+ *
+ * THE FAULT THIS BLOCK IS ABOUT. Guard 4 in
+ * `worker/jobs/response-generation/persist.ts` contains a vocabulary fault by
+ * NON-EXECUTION: with `REFUSAL_LEDGER_ENABLED` off it returns before
+ * `resolvePolicyGateRefusal` can throw (#1079). The lane keeps its ledger-dark
+ * warning through `wouldRecordRefusal`, but that predicate is
+ * `every(mapped && non-null)` and an UNMAPPED member makes `Object.hasOwn`
+ * false. So an unmapped code produced no Sentry issue and no ledger-dark line —
+ * the #1080 fault class was entirely unsignalled.
+ *
+ * WHY THE LEDGER-DARK SILENCE IS CORRECT AND STAYS. An unmapped member would
+ * have THROWN rather than written, so no Refusal row was lost, and
+ * `writeRefusalEvents`' contract forbids claiming a gap for a call that would
+ * not have written a row. This is a SECOND signal, never a widening of the
+ * first.
+ *
+ * MOST OF THESE CASES EXIST BECAUSE A REVIEW FOUND AN EARLIER SET
+ * INSUFFICIENT, and each says which. Plan review round 1 added six here: the
+ * original set passed on an implementation that resolves and catches, that
+ * merely reads the wrong latch, that logs unbounded, that signals on an empty
+ * set, that sorts its codes, or that throws when both transports fail at once.
+ * (A seventh, the `Object.hasOwn`-versus-`in` case, moved to `persist.test.ts`
+ * when the membership test moved there — deviations D5.) Branch review round 1
+ * added the per-code latch, cap and grouping cases.
+ *
+ * DO NOT DELETE ONE AS REDUNDANT WITHOUT RE-DERIVING WHY IT WAS ADDED. A count
+ * is deliberately NOT quoted here: an earlier version said "seven of these
+ * thirteen … the other six" and was falsified by the very move it describes.
+ */
+describe('noteUnmappedBlockReasons', () => {
+  beforeEach(() => {
+    // LOCAL, not folded into the file's top-level `beforeEach`. At the RED phase
+    // the export does not exist, and a throwing top-level hook would take this
+    // file's pre-existing cases down with it — the same collapse the namespace
+    // import at the top of this file exists to avoid.
+    refusalWrite.resetUnmappedBlockReasonSignalForTests();
+  });
+
+  afterEach(() => {
+    refusalWrite.resetUnmappedBlockReasonSignalForTests();
+  });
+
+  it('noteUnmappedBlockReasons captures one error-level Sentry event naming every unmapped code', () => {
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', 'phantom_reason']);
+
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+    const [message, options] = sentryStub.captureMessage.mock.calls[0]!;
+    // A CONSTANT MESSAGE. Sentry groups by message, so interpolating the codes
+    // would open a new issue group per distinct set, ordering and duplication —
+    // scattering one fault across many issues and defeating the per-issue
+    // throttling this repo's alerting relies on. (Branch review round 1,
+    // adversarial axis.) The codes ride `extra`.
+    expect(message).toBe(refusalWrite.UNMAPPED_BLOCK_REASON_MESSAGE);
+    // `error`, NOT `warning`. The ledger being off is a deliberate operator act
+    // and warns; a vocabulary hole behind it is a defect, and the level is what
+    // separates the two in the issue stream.
+    expect(options).toMatchObject({
+      level: 'error',
+      tags: { subsystem: 'refusal_ledger', fault: 'unmapped_block_reason' },
+      // BOTH codes, by name, and the FLAG. An operator who cannot read the code
+      // off the event has to go find the map by hand, which is most of the work.
+      extra: { flag: REFUSAL_LEDGER_FLAG, codes: 'ghost_reason, phantom_reason' },
+    });
+  });
+
+  it('noteUnmappedBlockReasons uses one constant Sentry message whatever the codes are', () => {
+    // THE GROUPING PIN. Two calls with completely different code sets must
+    // produce the SAME message, or Sentry files them as two issues. Asserting
+    // the constant in one case is not enough — a message built as
+    // `${CONST}: ${codes}` would satisfy a `toContain` and still fragment.
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+    refusalWrite.noteUnmappedBlockReasons(['a_totally_different_code']);
+
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+    const messages = sentryStub.captureMessage.mock.calls.map((call) => call[0]);
+    expect(new Set(messages).size, 'one group, not two').toBe(1);
+    expect(messages[0]).toBe(refusalWrite.UNMAPPED_BLOCK_REASON_MESSAGE);
+    // …and the codes are still carried, per event.
+    expect(sentryStub.captureMessage.mock.calls[1]![1]).toMatchObject({
+      extra: { codes: 'a_totally_different_code' },
+    });
+  });
+
+  it('noteUnmappedBlockReasons signals for the codes it is given without re-testing membership', () => {
+    // THE CALLER OWNS THE PRECONDITION, on `noteRefusalLedgerDark`'s precedent.
+    // Feeding this helper a genuinely MAPPED code is not a mistake the helper is
+    // meant to catch — it is the fixture that proves the helper does not
+    // classify. `unmappedBlockReasons` in `persist.ts` owns that decision, and
+    // the lane's own cases are its oracle.
+    //
+    // AN EARLIER DRAFT PUT THE MEMBERSHIP TEST IN HERE and this case asserted
+    // the opposite. The eval refuted it: with the test inside the helper, the
+    // lane suite — which mocks this module — recorded a call for a healthy set
+    // too, so four of its five cases discriminated nothing.
+    refusalWrite.noteUnmappedBlockReasons(mappedBlockReasons(1));
+
+    expect(sentryStub.captureMessage, 'it signals what it is handed').toHaveBeenCalledTimes(1);
+    // …and never on the OTHER signal's transport: the ledger-dark counter must
+    // stay clean, or the two faults become one line.
+    expect(ledgerWarnings()).toHaveLength(0);
+  });
+
+  it('noteUnmappedBlockReasons reports each distinct code once and repeats none', () => {
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+
+    // THE SAME code again: silent. This is the per-code latch.
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+    expect(sentryStub.captureMessage, 'a repeat is suppressed').toHaveBeenCalledTimes(1);
+
+    // A DIFFERENT code: reported. THE FIRST VERSION OF THIS BRANCH LATCHED ONE
+    // BOOLEAN AND WENT SILENT HERE, justified as "a map hole is systemic, so
+    // one line is enough". Branch review round 1 refuted the justification, not
+    // the design: since #1080 the compiler rejects the systemic static hole, so
+    // what is left is a value that escaped the union at run time — and that
+    // varies per decision. In a long-lived single-replica worker the boolean
+    // let the first bad value permanently hide a second, from a DIFFERENT
+    // unsafe producer. The two events are not redundant evidence.
+    refusalWrite.noteUnmappedBlockReasons(['second_ghost']);
+    expect(sentryStub.captureMessage, 'a new code is not hidden').toHaveBeenCalledTimes(2);
+    expect(sentryStub.captureMessage.mock.calls[1]![1]).toMatchObject({
+      extra: { codes: 'second_ghost' },
+    });
+
+    // A MIXED set — one seen, one new — reports ONLY the new one. This is what
+    // forces the filter to run BEFORE the emit rather than after: a whole-call
+    // latch would drop the new code, and an unfiltered emit would re-report the
+    // old one.
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', 'third_ghost']);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(3);
+    expect(sentryStub.captureMessage.mock.calls[2]![1]).toMatchObject({
+      extra: { codes: 'third_ghost' },
+    });
+  });
+
+  it('noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker', () => {
+    // THE BOUND. The codes are by definition values the type system did not
+    // vouch for, so an unbounded Set keyed on them is a memory leak with extra
+    // steps. Driven off the exported cap, never a hard-coded 8 — a literal here
+    // would pass while measuring nothing if the cap changed.
+    const cap = refusalWrite.UNMAPPED_SIGNAL_CAP;
+    for (let i = 0; i < cap; i++) refusalWrite.noteUnmappedBlockReasons([`ghost_${i}`]);
+    expect(sentryStub.captureMessage, 'every code up to the cap reports').toHaveBeenCalledTimes(cap);
+
+    // The code PAST the cap: one overflow marker, its own message and its own
+    // tag. It is a different operational fact — "the producer is generating
+    // varied garbage" rather than "this code has no mapping" — so a silently
+    // dropped code would report neither.
+    refusalWrite.noteUnmappedBlockReasons(['one_too_many']);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(cap + 1);
+    const [message, options] = sentryStub.captureMessage.mock.calls[cap]!;
+    expect(message).toBe(refusalWrite.UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE);
+    expect(options).toMatchObject({
+      level: 'error',
+      tags: { subsystem: 'refusal_ledger', fault: 'unmapped_block_reason_overflow' },
+      extra: { cap },
+    });
+    // It names NO code: past the cap the input is unbounded, and not carrying it
+    // is the point of having a cap.
+    expect(JSON.stringify(options)).not.toContain('one_too_many');
+
+    // …and it is emitted ONCE. Everything after the cap is silent.
+    refusalWrite.noteUnmappedBlockReasons(['and_another']);
+    refusalWrite.noteUnmappedBlockReasons(['and_yet_another']);
+    expect(sentryStub.captureMessage, 'one marker, not one per code').toHaveBeenCalledTimes(cap + 1);
+
+    // THE DURABLE TRANSPORT CARRIED THE MARKER TOO. Red-team round 2 found this
+    // log line had no oracle anywhere: deleting it survived the whole suite,
+    // while the module latches on a QUEUED capture on the stated grounds that
+    // the log line is what makes that acceptable. An untested durable transport
+    // cannot carry that argument.
+    const overflowLines = consoleWarn.mock.calls.filter((call) =>
+      JSON.stringify(call).includes(refusalWrite.UNMAPPED_OVERFLOW_LOG_MESSAGE),
+    );
+    expect(overflowLines, 'the marker reached the durable transport').toHaveLength(1);
+
+    // PARSED AND READ BY FIELD, never matched as a substring of the whole line.
+    // The first version of this assertion was `toContain(String(cap))`, and a
+    // fresh red-team pass proved it a FALSE PASS: the line carries an ISO
+    // timestamp, so with `cap` = 8 the digit was satisfied by the clock. The
+    // `cap: 0` mutant died at 07:37 and SURVIVED at another instant — the same
+    // assertion, the same code, a different second.
+    const payload = JSON.parse(String(overflowLines[0]![0])) as {
+      data?: { cap?: unknown; flag?: unknown };
+    };
+    expect(payload.data?.cap, 'the cap is carried as a NUMBER, by name').toBe(cap);
+    expect(payload.data?.flag).toBe(REFUSAL_LEDGER_FLAG);
+  });
+
+  it('noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap', () => {
+    // THE BOUND, AND IT DID NOT EXIST WHEN THIS BRANCH FIRST CLAIMED IT.
+    // Red-team round 2 P0: the implementation tested the Set's SIZE and then
+    // added every fresh code, so one call carrying N new codes grew the Set to
+    // N. Four documents asserted a bound the code did not enforce, and the
+    // correctly-bounded mutant survived 29/29 because every case fed one code
+    // at a time.
+    const cap = refusalWrite.UNMAPPED_SIGNAL_CAP;
+    const codes = Array.from({ length: cap + 3 }, (_, i) => `ghost_${i}`);
+
+    refusalWrite.noteUnmappedBlockReasons(codes);
+
+    // ONE report naming exactly `cap` codes, plus ONE overflow marker — the same
+    // call both reports what it can carry and says there was more.
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+    expect(sentryStub.captureMessage.mock.calls[0]![1]).toMatchObject({
+      extra: { codes: codes.slice(0, cap).join(', ') },
+    });
+    expect(sentryStub.captureMessage.mock.calls[1]![0]).toBe(
+      refusalWrite.UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE,
+    );
+
+    // THE CODES PAST THE CAP WERE NOT MARKED AS REPORTED. Marking them would
+    // record a claim the operator never received.
+    expect(JSON.stringify(sentryStub.captureMessage.mock.calls[0]![1])).not.toContain(
+      codes[cap]!,
+    );
+
+    // THE BOUND ITSELF, READ OFF THE LATCH. Every emission path reads the Set's
+    // size through `room`, which saturates identically at and past the cap — so
+    // marking `fresh` instead of `reportable` is EMISSION-equivalent and no
+    // assertion about captures or log lines can tell them apart. A fresh
+    // red-team pass measured that mutant surviving 31/31. The difference is
+    // unbounded growth, which is the entire reason the cap exists, so the
+    // invariant needs an oracle that can actually see it.
+    expect(
+      refusalWrite.unmappedSignalledCodeCountForTests(),
+      'the latch never exceeds the cap',
+    ).toBe(cap);
+
+    // And a further NEW code gets the marker, never a report.
+    sentryStub.captureMessage.mockClear();
+    refusalWrite.noteUnmappedBlockReasons(['one_more_entirely_new']);
+    expect(sentryStub.captureMessage, 'the cap holds').toHaveBeenCalledTimes(0);
+    expect(refusalWrite.unmappedSignalledCodeCountForTests()).toBe(cap);
+  });
+
+  it('noteUnmappedBlockReasons counts DISTINCT codes, not repeats, against the cap', () => {
+    // REPEATS ARE NOT DISTINCT CODES. Before the de-duplication,
+    // `fresh.length > room` compared array entries against Set slots, so N
+    // repeats of ONE code tripped the cap-reached page, named that code N times,
+    // and burned the once-per-process overflow latch — after which the GENUINE
+    // cap-reached event could never fire. Reproduced by a fresh red-team pass.
+    //
+    // Unreachable from today's only caller, which de-duplicates upstream. Fixed
+    // regardless: this helper's contract must not depend on a property of one
+    // call site.
+    const cap = refusalWrite.UNMAPPED_SIGNAL_CAP;
+    const repeats = Array.from({ length: cap + 1 }, () => 'one_code');
+
+    refusalWrite.noteUnmappedBlockReasons(repeats);
+
+    expect(sentryStub.captureMessage, 'one report, no overflow marker').toHaveBeenCalledTimes(1);
+    expect(sentryStub.captureMessage.mock.calls[0]![0]).toBe(
+      refusalWrite.UNMAPPED_BLOCK_REASON_MESSAGE,
+    );
+    expect(sentryStub.captureMessage.mock.calls[0]![1]).toMatchObject({
+      extra: { codes: 'one_code' },
+    });
+    expect(refusalWrite.unmappedSignalledCodeCountForTests(), 'one distinct code').toBe(1);
+  });
+
+  it('a synchronously throwing Sentry buys a cooldown on the overflow marker too', () => {
+    // THE OVERFLOW CATCH HAD NO ORACLE — red-team round 2 P1: deleting its
+    // cooldown survived the whole suite, so the "shares the SAME cooldown,
+    // deliberately" claim in that catch was prose nothing executed.
+    const cap = refusalWrite.UNMAPPED_SIGNAL_CAP;
+    const nowSpy = vi.spyOn(Date, 'now');
+    try {
+      let clock = 1_800_000_000_000;
+      nowSpy.mockImplementation(() => clock);
+
+      // Fill the cap with a working transport.
+      for (let i = 0; i < cap; i++) refusalWrite.noteUnmappedBlockReasons([`ghost_${i}`]);
+      sentryStub.captureMessage.mockClear();
+
+      // Now break Sentry and trip the overflow.
+      sentryStub.captureMessage.mockImplementation(() => {
+        throw new Error('sentry transport is down');
+      });
+      expect(() => refusalWrite.noteUnmappedBlockReasons(['past_the_cap'])).not.toThrow();
+      expect(sentryStub.captureMessage, 'the marker was attempted').toHaveBeenCalledTimes(1);
+
+      // Inside the window: no second attempt, and the overflow latch is NOT set —
+      // a throw buys time, never the latch.
+      clock += WARN_RETRY_COOLDOWN_MS - 1;
+      refusalWrite.noteUnmappedBlockReasons(['past_the_cap_again']);
+      expect(sentryStub.captureMessage, 'the window suppresses').toHaveBeenCalledTimes(1);
+
+      // Window elapsed and Sentry recovers: the marker still lands.
+      clock += 1;
+      sentryStub.captureMessage.mockImplementation(() => 'event-id');
+      refusalWrite.noteUnmappedBlockReasons(['past_the_cap_once_more']);
+      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+      expect(sentryStub.captureMessage.mock.calls[1]![0]).toBe(
+        refusalWrite.UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE,
+      );
+    } finally {
+      nowSpy.mockRestore();
+      sentryStub.captureMessage.mockImplementation(() => undefined);
+    }
+  });
+
+  it('a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons', () => {
+    // FOUR consecutive failures then a recovery, on the ledger-dark case's
+    // precedent above. One failure cannot tell a time cooldown from a lifetime
+    // attempt ceiling, because one failure is under every plausible ceiling.
+    const failures = 4;
+    const nowSpy = vi.spyOn(Date, 'now');
+    try {
+      let clock = 1_800_000_000_000;
+      nowSpy.mockImplementation(() => clock);
+      sentryStub.captureMessage.mockImplementation(() => {
+        throw new Error('sentry transport is down');
+      });
+
+      for (let attempt = 1; attempt <= failures; attempt++) {
+        refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+        expect(sentryStub.captureMessage, `attempt ${attempt} runs`).toHaveBeenCalledTimes(attempt);
+
+        clock += WARN_RETRY_COOLDOWN_MS - 1;
+        refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+        expect(
+          sentryStub.captureMessage,
+          `attempt ${attempt}: the window still suppresses`,
+        ).toHaveBeenCalledTimes(attempt);
+
+        clock += 1;
+      }
+
+      // The durable log line landed on EVERY attempt — the latch is set when the
+      // capture RETURNS, never before it.
+      expect(unmappedSignals()).toHaveLength(failures);
+
+      sentryStub.captureMessage.mockImplementation(() => 'event-id');
+      refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 1);
+
+      // Now the latch is set, and it is a PROCESS latch, not an episode latch:
+      // no amount of elapsed time re-opens it. That is the difference from
+      // `warnLedgerDisabled`, whose episode ends when the ledger is observed on.
+      clock += WARN_RETRY_COOLDOWN_MS * 10;
+      refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 1);
+    } finally {
+      nowSpy.mockRestore();
+      sentryStub.captureMessage.mockImplementation(() => undefined);
+    }
+  });
+
+  it('a throwing logger does not stop noteUnmappedBlockReasons from capturing', () => {
+    consoleWarn.mockImplementation(() => {
+      throw new Error('console is broken');
+    });
+
+    expect(() => refusalWrite.noteUnmappedBlockReasons(['ghost_reason'])).not.toThrow();
+    // The log guard owns its own `catch`, so a broken console cannot take the
+    // second transport with it.
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('noteUnmappedBlockReasons leaves the ledger-dark episode latch untouched', () => {
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+    expect(unmappedSignals()).toHaveLength(1);
+
+    // The ledger-dark latch was NOT consumed: its own signal still raises its
+    // own line. Two faults, two latches, two lifetimes.
+    refusalWrite.noteRefusalLedgerDark();
+    expect(ledgerWarnings(), 'the ledger-dark line still fires').toHaveLength(1);
+    expect(sentryStub.captureMessage, 'two captures, one per fault').toHaveBeenCalledTimes(2);
+  });
+
+  it('a prior ledger-dark warning does not suppress noteUnmappedBlockReasons', () => {
+    // THE REVERSE ORDER, AND A DIFFERENT DEFECT. The case above catches an
+    // implementation that WRITES the shared latch. This one catches an
+    // implementation that merely READS it: such a helper passes the case above,
+    // then goes silent for the rest of the episode the moment any mapped
+    // decision warns first — which is the common case in production.
+    refusalWrite.noteRefusalLedgerDark();
+    expect(ledgerWarnings()).toHaveLength(1);
+
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+    expect(unmappedSignals(), 'the vocabulary hole still signals').toHaveLength(1);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('noteUnmappedBlockReasons never invokes resolvePolicyGateRefusal', () => {
+    // INVARIANT 1'S ONLY REAL ORACLE. Containment is by NON-EXECUTION, so a
+    // helper that resolves and catches has already lost — the throw would be
+    // inside the deciding transaction, and a `catch` is not what the kill switch
+    // promised.
+    resolvePolicyGateRefusalSpy.mockClear();
+
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', ...mappedBlockReasons(1)]);
+
+    expect(
+      resolvePolicyGateRefusalSpy,
+      'the throwing resolver stays unreached',
+    ).not.toHaveBeenCalled();
+    expect(sentryStub.captureMessage, 'and the signal still landed').toHaveBeenCalledTimes(1);
+  });
+
+  it('noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag', () => {
+    // TWO CALLS, THE SAME SET. A one-call version of this case passes an
+    // implementation that logs on EVERY call and latches only the Sentry side —
+    // a broken map would then write one line per held draft for as long as the
+    // hole stays open, which is the noise the latch exists to prevent.
+    //
+    // THE SETS MUST MATCH now that the latch is per code: two DIFFERENT sets
+    // legitimately produce two lines, so that fixture would assert the opposite
+    // of the contract.
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', 'phantom_reason']);
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', 'phantom_reason']);
+
+    expect(unmappedSignals(), 'exactly one line across both calls').toHaveLength(1);
+    expect(
+      sentryStub.captureMessage,
+      'exactly one capture across both calls',
+    ).toHaveBeenCalledTimes(1);
+
+    const line = JSON.stringify(unmappedSignals()[0]);
+    expect(line).toContain('ghost_reason');
+    expect(line).toContain('phantom_reason');
+    expect(line).toContain(REFUSAL_LEDGER_FLAG);
+  });
+
+  it('an enabled ledger does not re-arm the vocabulary-hole latch', async () => {
+    // PLAN DECISION D3, AND UNTIL BRANCH REVIEW IT HAD NO ORACLE. Adding
+    // `signalledUnmappedCodes.clear()` to `endDisabledEpisode` survived the whole
+    // suite, because no case drove an ENABLED write between two signals.
+    //
+    // The two latches have two lifetimes on purpose. A disabled EPISODE ends
+    // when the ledger is observed on, and the next outage must warn again. A
+    // vocabulary hole is not an episode of the switch: flipping the flag back
+    // does not add the missing map entry, so re-reporting the same code there
+    // would be noise carrying no new information.
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+
+    // An ENABLED write — this is what calls `endDisabledEpisode`.
+    delete process.env[REFUSAL_LEDGER_FLAG];
+    await writeRefusalEvent(tx(), autonomySuspended());
+
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
+    expect(
+      sentryStub.captureMessage,
+      'the enabled write did not re-arm the vocabulary latch',
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it('noteUnmappedBlockReasons ignores an empty block-reason set', () => {
+    // The mapped-set case above uses a real NON-EMPTY set, so a helper that
+    // signals on `[]` passes it. Guard 2 makes the empty set unreachable at the
+    // one call site, which is exactly why the helper's own contract carries it.
+    refusalWrite.noteUnmappedBlockReasons([]);
+
+    expect(sentryStub.captureMessage).not.toHaveBeenCalled();
+    expect(unmappedSignals()).toHaveLength(0);
+  });
+
+  it('noteUnmappedBlockReasons preserves unmapped codes in input order', () => {
+    // ORDER IS PRESERVED; DUPLICATES ARE NOT, and the difference is deliberate
+    // at THIS seam only. The gate's evaluation order is evidence for whoever
+    // debugs it — `vocabulary.ts` says exactly that about `allRefusalCodes`, and
+    // the codes go out in it. But here a code is also a LATCH KEY and the cap
+    // counts DISTINCT codes, so repeats collapse. An earlier version of this
+    // case asserted `'zeta, alpha, zeta'`; a fresh red-team pass showed keeping
+    // repeats let nine copies of one code trip the cap-reached page.
+    //
+    // `zeta` BEFORE `alpha` is what kills a sort: alphabetical output would
+    // reverse them.
+    refusalWrite.noteUnmappedBlockReasons(['zeta', 'alpha', 'zeta']);
+
+    // On `extra`, not the message: the message is a constant so Sentry files
+    // every occurrence of this fault under one issue.
+    expect(sentryStub.captureMessage.mock.calls[0]![1]).toMatchObject({
+      extra: { codes: 'zeta, alpha' },
+    });
+  });
+
+  it('simultaneously throwing logger and Sentry transports do not escape noteUnmappedBlockReasons', () => {
+    // BOTH AT ONCE. The two cases above throw one transport each, and a
+    // combined-failure path could still escape and abort the response persist
+    // while passing both. That is invariant 1 and invariant 6 together, and it
+    // is the precise failure the kill switch exists to prevent: a decision that
+    // failed BECAUSE the ledger was turned off.
+    consoleWarn.mockImplementation(() => {
+      throw new Error('console is broken');
+    });
+    sentryStub.captureMessage.mockImplementation(() => {
+      throw new Error('sentry transport is down');
+    });
+
+    try {
+      expect(() => refusalWrite.noteUnmappedBlockReasons(['ghost_reason'])).not.toThrow();
+      expect(
+        sentryStub.captureMessage,
+        'the second transport was still attempted',
+      ).toHaveBeenCalledTimes(1);
+    } finally {
+      sentryStub.captureMessage.mockImplementation(() => undefined);
+    }
   });
 });

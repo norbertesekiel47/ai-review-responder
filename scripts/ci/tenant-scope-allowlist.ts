@@ -263,7 +263,7 @@ export interface TenantScopeAllowlistEntry {
 //     customer used to page continuously for Stripe's retry schedule, and this
 //     probe fires above 5 per (source, event_type) per hour — the single-orphan
 //     case now pages nothing here. The per-event handle is the
-//     `feature:stripe_subscription_out_of_order` alert rule (rule 7 in
+//     `feature:stripe_subscription_out_of_order` alert rule (rule 9 in
 //     beta-launch-alerting.md §1a-do), not this probe. An earlier version of
 //     this note said the probe made the ack coverage-neutral; corrected by
 //     red-team round 2, R10. 375 -> 376.

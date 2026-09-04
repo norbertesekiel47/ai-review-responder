@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The edited call site is worker/jobs/response-generation/persist.ts, inside the response-persist transaction on the auto-approval path.",
+    "A defect in guard 4's off-arm re-opens #1079: a throw there aborts every generate_response persist while the kill switch is already off."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "While REFUSAL_LEDGER_ENABLED is off, a policy_gate_held decision carrying a block reason absent from POLICY_GATE_HELD_REFUSAL_CATEGORIES raises its own operator signal naming that code, distinct from the ledger-dark warning.",
+  "non_goals": [
+    "Changing the Restraint tab's ledgerRecording disclaimer or any read path.",
+    "Changing wouldRecordRefusal, noteRefusalLedgerDark, warnLedgerDisabled, or the once-per-episode ledger-dark latch.",
+    "Changing the guard 4 on-arm, which already reports a vocabulary fault through withLedgerAttribution.",
+    "Adding a signal to the held_draft lane or to worker/jobs/publisher/auto-policy-downgrade.ts.",
+    "Widening the Refusal ledger kill switch's containment guarantee, or making an unmapped code write a Refusal row."
+  ],
+  "user_visible_behavior": [
+    "An operator sees a Sentry issue at level error, tagged subsystem=refusal_ledger and fault=unmapped_block_reason, naming every unmapped block reason, when the ledger is off and a held draft carries one.",
+    "The same event writes one logger line, so the fault survives a Sentry transport failure.",
+    "An operator can now tell 'the ledger is off deliberately' from 'the ledger is off and a vocabulary hole exists behind it', because the two carry different messages and different levels."
+  ],
+  "invariants": [
+    "Guard 4's containment is by NON-EXECUTION: the new signal must not call resolvePolicyGateRefusal and must not throw.",
+    "Object.hasOwn is the only membership test used, because it cannot throw.",
+    "The new signal owns a separate latch. It never reads, writes, or resets warnedThisEpisode or nextWarnAttemptAt.",
+    "The ledger-dark warning still fires only when a row would genuinely have been written, so wouldRecordRefusal keeps its every-mapped-and-non-null form.",
+    "The two signals are mutually exclusive by construction: an unmapped member makes wouldRecordRefusal false.",
+    "src/lib/refusals/write.ts stays the single owner of every Refusal ledger signal transport; persist.ts stays a call site.",
+    "A throwing logger or a throwing Sentry never rejects the helper and never changes control flow."
+  ],
+  "edge_cases": [
+    "Empty blockReasons: no unmapped member, so no signal. Unreachable at the call site because guard 2 returns first.",
+    "Every member mapped and non-null: no signal here; noteRefusalLedgerDark fires instead.",
+    "Veto-only set (every member maps to null): no signal from either helper.",
+    "Mixed set of one mapped non-null member and one unmapped member: the new signal fires, the ledger-dark warning does not.",
+    "Two or more unmapped members in one decision: one signal naming all of them, in input order.",
+    "A second, different unmapped code later in the same process: silent, because the latch is a single boolean. Accepted, since a map hole is systemic and one line sends the operator to the map.",
+    "Sentry.captureMessage throws synchronously: the latch stays unset and a cooldown of WARN_RETRY_COOLDOWN_MS delays the next attempt, mirroring warnLedgerDisabled.",
+    "logger.warn throws: swallowed, and the Sentry capture below it still runs.",
+    "The ledger is on: the new signal never runs, because guard 4's off-arm is its only call site."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/refusals/write.ts warnLedgerDisabled — the two-try/catch logger-then-Sentry shape, the latch, and the cooldown-on-synchronous-throw rule.",
+    "src/lib/refusals/write.ts noteRefusalLedgerDark — an exported, caller-owns-the-precondition signal wrapping a private transport.",
+    "worker/jobs/response-generation/persist.ts wouldRecordRefusal — a cannot-throw predicate built on Object.hasOwn.",
+    "src/lib/refusals/__tests__/write.test.ts — the existing latch, cooldown and throwing-transport cases."
+  ],
+  "test_seams": [
+    "noteUnmappedBlockReasons exported from src/lib/refusals/write.ts.",
+    "recordPolicyGateRefusal through persistResponseAndNotify, exercised by worker/jobs/response-generation/__tests__/persist.test.ts with the write.ts module mocked."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/refusals/write.ts",
+    "src/lib/refusals/__tests__/write.test.ts",
+    "worker/jobs/response-generation/persist.ts",
+    "worker/jobs/response-generation/__tests__/persist.test.ts",
+    "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-intake.json",
+    "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal.md",
+    "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-handoff.md",
+    "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md",
+    "docs/reviews/fix-1105-unmapped-block-reason-signal",
+    "docs/reviews/red-team",
+    "docs/directory.md",
+    ".claude/reference/arch-review-log.md",
+    "docs/runbooks/beta-launch-alerting.md"
+  ],
+  "tests_to_add": [
+    "noteUnmappedBlockReasons captures one error-level Sentry event naming every unmapped code",
+    "noteUnmappedBlockReasons signals for the codes it is given without re-testing membership",
+    "noteUnmappedBlockReasons reports each distinct code once and repeats none",
+    "a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons",
+    "a throwing logger does not stop noteUnmappedBlockReasons from capturing",
+    "noteUnmappedBlockReasons leaves the ledger-dark episode latch untouched",
+    "a prior ledger-dark warning does not suppress noteUnmappedBlockReasons",
+    "noteUnmappedBlockReasons never invokes resolvePolicyGateRefusal",
+    "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
+    "with the ledger off, an inherited object key is treated as an unmapped block reason",
+    "noteUnmappedBlockReasons ignores an empty block-reason set",
+    "noteUnmappedBlockReasons preserves unmapped codes in input order",
+    "simultaneously throwing logger and Sentry transports do not escape noteUnmappedBlockReasons",
+    "with the ledger off, an unmapped block reason signals the vocabulary hole and raises no ledger-dark warning",
+    "with the ledger off, a fully mapped held decision warns ledger-dark and signals no vocabulary hole",
+    "with the ledger off, a veto-only decision raises neither signal",
+    "with the ledger off, a mixed mapped and unmapped decision signals the vocabulary hole only",
+    "with the ledger on, an unmapped block reason invokes no vocabulary-hole signal",
+    "noteUnmappedBlockReasons uses one constant Sentry message whatever the codes are",
+    "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+    "an enabled ledger does not re-arm the vocabulary-hole latch",
+    "noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap",
+    "a synchronously throwing Sentry buys a cooldown on the overflow marker too",
+    "noteUnmappedBlockReasons counts DISTINCT codes, not repeats, against the cap"
+  ],
+  "verification_commands": [
+    "pnpm vitest run src/lib/refusals/__tests__/write.test.ts worker/jobs/response-generation/__tests__/persist.test.ts"
+  ],
+  "estimated_prod_lines": 540,
+  "estimated_test_lines": 520,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the branch. The change adds one observability signal and no state, no schema and no control-flow branch, so a revert restores the prior behaviour exactly. REFUSAL_LEDGER_ENABLED keeps its meaning either way.",
+  "observability": [
+    "Sentry: level error, tags subsystem=refusal_ledger and fault=unmapped_block_reason, message naming the unmapped codes.",
+    "Worker log: one structured warn line carrying the same codes and the flag name.",
+    "Silence is the success state. The signal firing on staging or production means a block reason escaped the compiled AutoApprovalBlockReason union."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

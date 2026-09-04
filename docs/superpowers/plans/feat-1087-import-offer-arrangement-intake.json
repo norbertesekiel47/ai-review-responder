@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "The Import offer's two actions sit where every other banner puts its action — right-aligned and top-anchored against the copy block — with the locked copy unchanged and every one of the banner's eight states still rendering.",
+  "non_goals": [
+    "Rewording ANY copy — the 7-day disclosure and the automatic-handling reassurance are locked verbatim (owner decision 6, plan T5)",
+    "Moving, wrapping or conditionally rendering BannerShell",
+    "Changing the query key, the refetchInterval, or any decision POST behaviour",
+    "Touching the contacts CSV UploadCard — the owner clarified item 6 means this banner",
+    "Redesigning the shared .banner slot that ConnectGoogleBanner also occupies"
+  ],
+  "user_visible_behavior": [
+    "In the offer state, the Import my reviews / No thanks buttons align right and sit against the top of the copy block rather than floating at its vertical centre.",
+    "The three-paragraph body keeps its full wording at 390px and 1440px.",
+    "The No thanks action reads as secondary through a class rather than inline colour overrides.",
+    "The other seven banner states are visually unchanged."
+  ],
+  "invariants": [
+    "Every string in the offer state is byte-identical to what ships today.",
+    "BannerShell remains the element at the parent component's return position in every state, so the terminal announcement is not lost.",
+    "The banner still self-nulls on state 'none' and still owns its own section wrapper.",
+    "ConnectGoogleBanner, which shares the .banner slot, renders unchanged."
+  ],
+  "edge_cases": [
+    "readOnly past-due owner: ReadOnlyNotice replaces the buttons and must land in the same slot.",
+    "A retryable failure adds a FOURTH b-sub line to an already tall block.",
+    "390px: the actions wrap below the copy rather than being squeezed.",
+    "The three DECISION_REJECTIONS banners carry no actions at all."
+  ],
+  "existing_patterns_to_follow": [
+    "src/components/dashboard/account-state/ConnectGoogleBanner.tsx — the same slot, the canonical b-icon / b-title / b-sub / banner-cta anatomy",
+    "src/app/(authenticated)/_styles/console.css .banner / .banner-cta — the flex row and the margin-left:auto that positions an action"
+  ],
+  "test_seams": ["ImportOfferBanner", "OfferPrompt"],
+  "allowed_edit_surface": [
+    "src/components/dashboard/account-state/ImportOfferBanner.tsx",
+    "src/components/dashboard/account-state/__tests__/ImportOfferBanner.test.tsx",
+    "src/app/(authenticated)/_styles/console.css",
+    ".claude/reference/arch-review-log.md"
+  ],
+  "tests_to_add": [
+    "the offer state still renders the 7-day disclosure and the reassurance line verbatim",
+    "BannerShell occupies the same tree position across importing and imported",
+    "the offer actions sit in the banner action slot rather than inline styles",
+    "a read-only owner gets the notice in the actions slot, not the buttons"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 60,
+  "estimated_test_lines": 90,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the squash commit. Presentation only — no schema, no flag, no external state, and the decision POST path is untouched.",
+  "observability": [],
+  "required_approvals": ["commit", "push", "merge"],
+  "open_questions": []
+}
