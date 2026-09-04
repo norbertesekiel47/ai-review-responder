@@ -165,3 +165,18 @@ Read deviation D7 before you start. The short version:
   stub; round 2's P0 is the fix for round 1's guard finding. There is no round 3,
   so R03's fix will ship unattacked — which is exactly why it needs its
   behavioural test rather than another allowlist string.
+
+## Main drift — read before you start fixing
+
+At handoff the branch is **10 commits behind `origin/main`** (it was 0 when the
+review wave opened; main moved during the session). The phase is `executing`,
+so the resume rules say TAKE MAIN NOW — it costs one gate run, and the review
+wave is already closed so there is no red-team sidecar for a rebase to void.
+
+Do the rebase BEFORE fixing the three P0s, not after: a rebase after the fixes
+would invalidate the gate evidence you just produced, and you would pay for two
+runs instead of one.
+
+I did not rebase at handoff on purpose. Rebasing and then stopping would have
+left the branch with no gate evidence at the new HEAD and no session running to
+produce it — a worse starting position than a clean, stale-but-known one.
