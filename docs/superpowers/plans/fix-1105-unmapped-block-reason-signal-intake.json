@@ -95,8 +95,8 @@
   "verification_commands": [
     "pnpm vitest run src/lib/refusals/__tests__/write.test.ts worker/jobs/response-generation/__tests__/persist.test.ts"
   ],
-  "estimated_prod_lines": 245,
-  "estimated_test_lines": 420,
+  "estimated_prod_lines": 540,
+  "estimated_test_lines": 520,
   "dependencies_added": [],
   "rollback_plan": "Revert the branch. The change adds one observability signal and no state, no schema and no control-flow branch, so a revert restores the prior behaviour exactly. REFUSAL_LEDGER_ENABLED keeps its meaning either way.",
   "observability": [

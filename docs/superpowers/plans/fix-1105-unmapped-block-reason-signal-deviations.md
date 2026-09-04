@@ -357,3 +357,31 @@ production rule `3920752` may already catch them. **Nobody has read Sentry back
 to check.** The runbook now says so explicitly instead of asserting either way.
 
 **Verdict:** ACCEPT.
+
+## D15 — the re-classification trigger fired a SECOND time, and step 0 was re-run again
+
+`verify-gate.sh --review` reported 536 changed production lines against the 245
+this branch had already corrected the estimate to. Step 0 was re-run.
+
+**The lane still does not move.** SIZE stays `small` on the breadth axis: two
+production files, one behaviour, one call site, no new module, no dependency, no
+schema, no SQL. RISK stays `high`, SURFACE stays `backend`.
+
+**What grew is the recorded reasoning, and it grew because the reviews found
+things.** Measured at HEAD: `write.ts` 68 code / 216 comment,
+`persist.ts` 8 code / 88 comment. The code half roughly doubled across three
+adversarial rounds — the per-code latch, the cap, the overflow marker, the
+de-duplication — and each is a defect a round found rather than a feature that
+was planned.
+
+**The honest reading is that the ESTIMATE was never the problem; the PLAN was.**
+An intake written before any review predicted 80 production lines for what three
+rounds turned into a bounded per-code signal with an overflow path. That is not
+an estimating error to correct, it is what an adversarially-reviewed change to a
+kill-switch lane costs in this repository. Recorded so the next intake in this
+area starts from the right number.
+
+Estimates corrected to 540 / 520 in both copies. As with D7, that records the
+measurement; it does not silence the trigger, which fired and is answered here.
+
+**Verdict:** ACCEPT.
