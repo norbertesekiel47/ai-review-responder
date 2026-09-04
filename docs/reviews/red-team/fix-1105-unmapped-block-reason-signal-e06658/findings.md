@@ -416,3 +416,28 @@ distinct unmapped codes must produce two pages, which is the only way to prove
 the alert rule is not silently on first-seen.
 
 Still open, all P2, none blocking: V-F5, V-F6, F-08, R2-08.
+
+## Re-pin after the pre-merge rebase
+
+`head_sha` was moved from `95802ca6` to the post-rebase tip. This is a factual
+re-pin, not a re-measurement, and the justification is mechanical rather than
+asserted.
+
+The merge was refused because the ruleset requires the head branch to be up to
+date. The branch was ONE commit behind `main` — `fix(#1086)` (#1120), the
+tip-coverage guard — with no file overlap. After rebasing, the tree diff between
+the pre-rebase tip and the new tip is exactly two `#1086` dashboard test files:
+
+    git diff --stat 1846fea5 HEAD
+      src/components/dashboard/__tests__/info-tip-coverage.test.tsx  | 128 +++++
+      src/components/dashboard/kpi/__tests__/RepPulseCard.test.tsx   |  40 +-
+
+Restricted to this branch's own paths — `src/lib/refusals`,
+`worker/jobs/response-generation`, the runbook, the architecture log,
+`docs/directory.md`, the plans and the reviews — the diff is EMPTY. Every
+measured claim in this sidecar therefore still describes the tree it was
+measured against.
+
+The gate was re-run at the rebased HEAD and is GREEN across 27 rows.
+`counts` and `status` were recomputed by calling the checker's own
+`recomputeCounts` and `recomputeStatus`, and neither moved.

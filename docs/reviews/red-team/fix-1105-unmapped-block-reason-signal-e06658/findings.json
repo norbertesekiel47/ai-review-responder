@@ -5,7 +5,7 @@
   "branch": "fix/1105-unmapped-block-reason-signal",
   "fork_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
   "merge_base_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
-  "head_sha": "95802ca65daecb3bdc9e6e3cd94dadc102d9c8ba",
+  "head_sha": "178ae7816abbfddcfdb83313e61b156f1d08e577",
   "intake_sha256": "40f2cc8890b4e75c53e85165b57bc6da0b64c59795b377132fcdd7a429ded75a",
   "risk": "high",
   "round": 2,
