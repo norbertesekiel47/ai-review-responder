@@ -5,238 +5,161 @@
   "branch": "fix/1083-ledger-attribution",
   "fork_sha": "91b32506a694954643e9523eae3901d784a348ca",
   "merge_base_sha": "91b32506a694954643e9523eae3901d784a348ca",
-  "head_sha": "c94277bf1fe7fa789bba7bbb7208c7f7210b9188",
-  "intake_sha256": "2e75d18ec1349bca1aeff2324f2834d09fb59acee89c7346ca278cffc7dbf6de",
+  "head_sha": "6a382d1a5a0f175f2db24d00940e369b930e5906",
+  "intake_sha256": "1da0d8d18bc9fbe4dda9c2e2c2f691add4954cca5ebde169240fffc532b22da4",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-04T12:11:30.585633Z",
+  "round": 2,
+  "generated_at": "2026-09-04T12:49:31Z",
   "inventory": [
     {
-      "id": "RT-M1",
-      "test": "attributes a single-row id generation failure and rethrows the same error instance",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: hoist `uuidv7()` to a `const` above the single-row `try` and interpolate the const. KILLED \u2014 expected captureException 1 time, got 0."
-    },
-    {
-      "id": "RT-M2",
-      "test": "attributes a set-arm row materialization failure and rethrows the same error instance",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: set-arm guard opened at the INSERT instead of at the row map (row map hoisted into a bare block). KILLED \u2014 captureException 0 times."
-    },
-    {
-      "id": "RT-M3",
-      "test": "attributes a set-arm row materialization failure and rethrows the same error instance",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: lane string computed in the catch from `rows` instead of `inputs`. KILLED \u2014 ReferenceError: rows is not defined replaced the RangeError the caller must see."
-    },
-    {
-      "id": "RT-M4",
-      "test": "attributes a set-arm write failure with the distinct sources sorted and comma-joined",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: `.sort()` dropped from the set-arm lane string. KILLED \u2014 tags deep-equality failed."
-    },
-    {
-      "id": "RT-M5",
-      "test": "attributes a set-arm write failure with the distinct sources sorted and comma-joined",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: `new Set(...)` de-duplication dropped from the set-arm lane string. KILLED \u2014 tags deep-equality failed."
-    },
-    {
-      "id": "RT-M13",
-      "test": "attributes a set-arm write failure with the distinct sources sorted and comma-joined",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: set-arm catch swallows instead of rethrowing. KILLED \u2014 promise resolved instead of rejecting. NOTE: this is a third mutation against this title, one over the 2-per-test cap; recorded rather than hidden."
-    },
-    {
-      "id": "RT-M6",
-      "test": "lets the original error win when the Sentry capture itself throws",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: inner try/catch removed from `captureLedgerWriteFault`. KILLED \u2014 the reporter's error replaced the writer's."
-    },
-    {
-      "id": "RT-M7",
-      "test": "attributes a single-row write failure to the refusal ledger and rethrows the same error instance",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: single-row catch swallows instead of rethrowing. KILLED \u2014 promise resolved instead of rejecting."
-    },
-    {
-      "id": "RT-M11",
-      "test": "attributes a single-row write failure to the refusal ledger and rethrows the same error instance",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: capture level changed from 'error' to 'warning'. KILLED."
-    },
-    {
-      "id": "RT-M8",
-      "test": "tags the single-row capture with the lane, the subsystem and the kill-switch flag name",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: single-row lane tag hard-coded to 'held_draft' instead of `input.refusalSource`. KILLED on the second lane."
-    },
-    {
-      "id": "RT-M9",
+      "id": "RT2-M1",
       "test": "carries only closed enums and ids in the single-row capture extra",
       "file": "src/lib/refusals/__tests__/write.test.ts",
       "outcome": "killed",
-      "reason": "Mutant: `refusal_code: input.refusalCode` added to the single-row extra (prose leak). KILLED by the pinned key set."
+      "reason": "Mutant: `refusal_codes: input.refusalCode` ADDED to the single-row capture `extra` (round 1's RT-1 smuggle, aimed at the arm the fix also closed). KILLED by the new `Object.keys(extra).sort()` closed-set assertion."
     },
     {
-      "id": "RT-M10",
+      "id": "RT2-M2",
       "test": "carries row_count and never per-row subject ids in the set-arm capture extra",
       "file": "src/lib/refusals/__tests__/write.test.ts",
       "outcome": "killed",
-      "reason": "Mutant: per-row subject ids added to the set-arm extra. KILLED by the not.toContain(subjectId) loop."
+      "reason": "Mutant: RT-M14 re-applied verbatim — `refusal_codes: inputs.map((r) => r.refusalCode).join(',')` ADDED to the set-arm `extra`. It survived all 146 cases in round 1; KILLED here by the closed sorted-key-list assertion. RT-1 is dead."
     },
     {
-      "id": "RT-M12",
-      "test": "does not capture and cannot throw when the kill switch is off on either arm",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: the single-row kill-switch guard condition forced false, so the flag-off path falls through into the guarded region. KILLED \u2014 a statement was issued and a capture raised with the switch off."
-    },
-    {
-      "id": "RT-M14",
+      "id": "RT2-M3",
       "test": "carries row_count and never per-row subject ids in the set-arm capture extra",
       "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "survived-confirmed-P0",
-      "reason": "Mutant: `refusal_codes: inputs.map(r => r.refusalCode).join(',')` added to the set-arm capture extra. SURVIVED. Confirmed meaningful: it is executed by this very case (the case reads `capture.extra`), it changes the payload observably, and it is exactly the intake invariant 'no refusal_code prose, no unbounded per-row id lists' \u2014 up to MAX_DATA_ROWS (5,000) free-ish gate reasons ride one error report. Not equivalent and not on an unexecuted branch.",
-      "finding_id": "RT-1"
+      "outcome": "killed",
+      "reason": "Mutant: `soleAccountId` degraded from `accountIds.length === 1 ? accountIds[0] : null` to `accountIds[0] ?? null` — the exact RT-2 class, a derived value satisfied by a single-valued fixture. KILLED by the new mixed-account arm, which expects `account_id` to be null across two distinct accounts."
     },
     {
-      "id": "RT-M15",
+      "id": "RT2-M4",
       "test": "carries row_count and never per-row subject ids in the set-arm capture extra",
       "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "survived-confirmed-P0",
-      "reason": "Mutant: `refusal_lanes` degraded from the distinct-sorted lane string to `inputs[0].refusalSource`. SURVIVED. Confirmed meaningful: the case's single-lane fixture makes the two values identical, and the only multi-lane case in the eval asserts `tags` and `level` and never touches `extra`, so no case in the repository can see the degradation. Destroys the stated purpose of the key (the durable, untruncated copy of the full lane set).",
-      "finding_id": "RT-2"
-    },
-    {
-      "id": "RT-M16",
-      "test": "ALL cases in write.test.ts, persist.test.ts, write.integration.test.ts and refusal-write.integration.test.ts",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "survived-confirmed-P0",
-      "reason": "Mutant: RT-M14 and RT-M15 applied together. SURVIVED the full four-suite sweep \u2014 146 passed, 0 failed, 0 skipped, live-DB lane awake. This is the decisive evidence for RT-1 and RT-2: no test anywhere in the changed or covering surface constrains the set-arm capture extra beyond `row_count` and a single-lane `refusal_lanes`.",
-      "finding_id": "RT-1"
-    },
-    {
-      "id": "RT-P1",
-      "test": "raises exactly one capture for a held draft write failure",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
       "outcome": "killed",
-      "reason": "Mutant: the removed `held_draft` call-site wrapper re-added around the write. KILLED \u2014 captureException called 2 times."
+      "reason": "Mutant: `account_count` computed from `inputs.length` instead of the DISTINCT account cardinality. KILLED — the mixed arm carries two rows over two accounts and the single-account arm carries three rows over one, so no constant or row-count proxy satisfies both."
     },
     {
-      "id": "RT-P2",
+      "id": "RT2-M9",
+      "test": "carries row_count and never per-row subject ids in the set-arm capture extra",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant: `account_id` hard-wired to `null`. KILLED by the single-account arm, which pins it to `inputs[0].accountId`. With RT2-M3 this constrains both directions of the pair, not merely one."
+    },
+    {
+      "id": "RT2-M14",
+      "test": "carries only closed enums and ids in the single-row capture extra",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant: `business_id` REMOVED from the single-row `extra`. KILLED. The closed-set assertion is exact in both directions — it catches a dropped key as well as an added one, which a `toMatchObject` would not."
+    },
+    {
+      "id": "RT2-M5",
+      "test": "tags the single-row capture with the lane, the subsystem, the fault class and the kill-switch flag name",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant: the `fault` tag REMOVED from `captureLedgerWriteFault`. KILLED — the tag set is asserted with `toEqual`, so a missing member fails."
+    },
+    {
+      "id": "RT2-M6",
+      "test": "tags the single-row capture with the lane, the subsystem, the fault class and the kill-switch flag name",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant: `fault: 'ledger_write'` changed to `'ledger_vocabulary'` — both fault classes set to the SAME constant, the collapse RT-8 was raised against. KILLED."
+    },
+    {
+      "id": "RT2-M13",
       "test": "raises exactly one capture for a policy gate write failure",
       "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
       "outcome": "killed",
-      "reason": "Mutant: the policy-gate write moved back inside a call-site attribution wrapper. KILLED \u2014 captureException called 2 times."
+      "reason": "Mutant RT2-M6 re-run against the persist lane's own write-fault case. KILLED — which also proves persist.test.ts exercises the REAL `src/lib/refusals/write.ts` (it carries no `vi.mock` of that module), so its `fault` assertion is not an assertion about a stub."
     },
     {
-      "id": "RT-P3",
+      "id": "RT2-M7",
+      "test": "tags the policy gate vocabulary fault with its own fault class",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant: the `fault` tag REMOVED from `withLedgerAttribution`'s capture. KILLED by the 17th eval title."
+    },
+    {
+      "id": "RT2-M8",
+      "test": "tags the policy gate vocabulary fault with its own fault class",
+      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "killed",
+      "reason": "Mutant: `fault: 'ledger_vocabulary'` changed to `'ledger_write'` — the two classes collapsed onto one constant from the other side. KILLED. With RT2-M6 this pins the two values as DIFFERENT, not merely both present."
+    },
+    {
+      "id": "RT2-M12",
       "test": "attributes a policy gate vocabulary fault without also attributing a write fault",
       "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
       "outcome": "killed",
-      "reason": "Mutant: `withLedgerAttribution` returns undefined instead of rethrowing. KILLED \u2014 persist resolved instead of rejecting."
+      "reason": "Mutant: the newly INLINED `refusal_lane: 'policy_gate_held'` literal changed to `'held_draft'`. KILLED — removing the `lane` parameter did not remove the oracle on the value it used to carry."
     },
     {
-      "id": "RT-P4",
-      "test": "commits the response persist when the policy gate resolver would throw and the kill switch is off",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "killed",
-      "reason": "Mutant: guard 4's `return` removed so the resolve runs with the kill switch off. KILLED \u2014 the persist aborted with unmapped_auto_approval_block_reason, i.e. #1079 containment broken."
-    },
-    {
-      "id": "RT-C1",
-      "test": "does not capture when the set arm receives an empty input",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Budget. Its control half exercises the same capture path RT-M10 and RT-M9 already killed, and the empty-return hunk is unchanged by this diff."
-    },
-    {
-      "id": "RT-C2",
-      "test": "does not capture when a duplicate Refusal is absorbed by ON CONFLICT DO NOTHING",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Budget. Its control half exercises the same single-row capture path RT-M7/RT-M11 already killed."
-    },
-    {
-      "id": "RT-C3",
-      "test": "preserves the original error when the set-arm Sentry capture throws",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Budget. RT-M6 removed the shared reporter's inner guard and was killed by the single-row twin; the set arm reaches the same private function."
-    },
-    {
-      "id": "RT-X3",
-      "test": "write.integration.test.ts \u2014 7 live-DB cases over both write arms",
-      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Budget: no dedicated mutation was aimed at these. They were swept green under RT-M16 and under the 39/39 live-DB baseline, so they are not silent, only unmutated."
-    },
-    {
-      "id": "RT-X4",
-      "test": "refusal-write.integration.test.ts \u2014 32 live-DB cases over the persist lane",
-      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Budget: no dedicated mutation was aimed at these. Swept green under RT-M16 and under the 39/39 live-DB baseline."
-    },
-    {
-      "id": "RT-X1",
-      "test": "write.test.ts \u2014 the 32 pre-existing cases outside the new describe block",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "excluded",
-      "reason": "The diff's only reach into them is two test-file-local partial module mocks (`uuid`, plus a new import of the pre-existing `mkTaggedResult`), both with delegating defaults; the 44/44 HEAD baseline confirms none changed behaviour. No production hunk of this diff is uniquely covered by them."
-    },
-    {
-      "id": "RT-X2",
-      "test": "persist.test.ts \u2014 the 59 pre-existing cases outside the new describe block",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "excluded",
-      "reason": "Same reason: the diff adds one test-file-local partial mock of `@sentry/node` with a delegating default. The 63/63 HEAD baseline confirms none changed behaviour."
-    },
-    {
-      "id": "RT-X5",
-      "test": "docblock-only hunks in write.ts (lines 24-68, 715-751, 855-866, 1006-1016) and persist.ts (lines 928-948, 1005-1057)",
+      "id": "RT2-X1",
+      "test": "docblock-only hunks: write.ts (captureLedgerWriteFault and writeRefusalEvents contracts), vocabulary.ts resolvePolicyGateRefusal, persist.ts withLedgerAttribution, and three docblocks in refusal-write.integration.test.ts",
       "file": "src/lib/refusals/write.ts",
       "outcome": "excluded",
-      "reason": "Comment-only, non-behavioural: no mutation can change program behaviour, so they are reviewed under Duty 3 instead. Two false/stale claims found there are recorded as RT-5 and RT-6."
+      "reason": "Comment-only and non-behavioural — no mutation can change program behaviour, so they are reviewed under Duty 3 instead. Every claim in them was re-resolved against HEAD this round and all hold."
+    },
+    {
+      "id": "RT2-X2",
+      "test": "withLedgerAttribution signature change — the single-value `lane` parameter removed and the literal inlined",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "outcome": "excluded",
+      "reason": "Signature-only, no behavioural delta. The removed parameter had exactly one call site passing the same constant the inlined literal now spells, so the emitted tag value is byte-identical; RT2-M12 mutates that literal and is killed, so the value keeps its oracle. No separate mutation would be meaningful."
+    },
+    {
+      "id": "RT2-X3",
+      "test": "documentation-only files in the diff — CONTEXT.md, docs/directory.md, docs/runbooks/beta-launch-alerting.md, the plan, handoff, deviations and intake, and docs/reviews/**",
+      "file": "docs/directory.md",
+      "outcome": "excluded",
+      "reason": "Not executable. Handled under Duty 3 (every changed claim re-resolved against HEAD) and Duty 5 (alert-path facets) — which is where RT2-1, RT2-2, RT2-3 and the surviving half of RT-3 come from."
+    },
+    {
+      "id": "RT2-X4",
+      "test": "write.integration.test.ts — 7 live-DB cases over both write arms",
+      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Unchanged by this diff, and no production hunk of it is uniquely covered here — write.test.ts covers every changed line and was mutated twelve times. Re-derived green at HEAD inside the 39/39 live-DB run, so it is not silent."
+    },
+    {
+      "id": "RT2-X5",
+      "test": "refusal-write.integration.test.ts — 32 live-DB cases over the persist lane",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "This diff touches it in three docblocks only; no case body changed. Re-derived green at HEAD (32/32, inside the 39/39 run), so the round-1 oracle for the rethrow is intact."
     }
   ],
   "findings": [
     {
       "id": "RT-1",
       "severity": "P0",
-      "title": "The set-arm capture `extra` has no closed key set, so a prose or unbounded per-row field can be added to a Sentry error report with the whole eval still green",
-      "at": "src/lib/refusals/write.ts:1098",
+      "title": "The set-arm capture `extra` has no closed key set, so a prose or unbounded per-row field can be added to a Sentry event with the whole suite green",
+      "at": "src/lib/refusals/write.ts:1131",
       "duty": 1,
-      "disposition": "open",
-      "arbiter_reasoning": "The single-row arm pins its payload twice \u2014 `Object.keys(extra).sort()` against SINGLE_ROW_EXTRA_KEYS at write.test.ts:1531 and an exhaustive `toEqual` at :1532 \u2014 and RT-M9 proved that pin real by killing a `refusal_code` leak. The set arm has neither. Its only case asserts `extra.row_count === 3`, `extra.refusal_lanes === 'ask_withheld'`, and a `not.toContain(subjectId)` loop; the `not.toContain` proxy catches only values that happen to be the fixture's UUIDs. Adding `refusal_codes: inputs.map(r => r.refusalCode).join(',')` survived that case (RT-M14) and survived the full four-suite sweep including both live-DB suites (RT-M16, 146/146 green). The mutation is executed by the case, is observably different, and violates a named intake invariant ('Sentry extra and tags carry only closed enums and UUIDs. No review text, no response text, no refusal_code prose, no unbounded per-row id lists') and the writer's own docblock at write.ts:743-747. It is neither equivalent nor unexecuted. Concrete scenario: an `ask_withheld` build withholds 5,000 Asks and the set INSERT violates a 116 CHECK; a later maintainer, reasoning from the same 'more context helps triage' impulse the diff itself resisted, adds the codes to `extra`; 5,000 free-ish gate-reason strings ride an error envelope into Sentry, past the redaction discipline CLAUDE.md and ADR 0023 impose, and no test turns red. The fix is one line: pin the set-arm key set the way SINGLE_ROW_EXTRA_KEYS pins the single-row one."
+      "disposition": "fixed",
+      "reason": "Both arms now assert `Object.keys(extra).sort()` against a pinned list. Re-running the exact round-1 mutant (RT2-M2) is KILLED, as is the same smuggle against the single-row arm (RT2-M1) and a key REMOVAL (RT2-M14). The assertion is exact in both directions."
     },
     {
       "id": "RT-2",
       "severity": "P0",
-      "title": "`extra.refusal_lanes` is asserted only against a single-lane fixture, so it can silently degrade to the first input's lane",
-      "at": "src/lib/refusals/write.ts:1100",
+      "title": "`extra.refusal_lanes` is asserted only against a single-lane fixture, so it can silently degrade to the first row's source",
+      "at": "src/lib/refusals/write.ts:1136",
       "duty": 1,
-      "disposition": "open",
-      "arbiter_reasoning": "Two cases touch the set arm. The multi-lane one ('attributes a set-arm write failure with the distinct sources sorted and comma-joined', write.test.ts:1560) deliberately uses an unsorted, duplicated, two-lane fixture and asserts `tags` and `level` \u2014 it never reads `extra`. The extra case ('carries row_count and never per-row subject ids in the set-arm capture extra', write.test.ts:1596) uses a three-row SINGLE-lane fixture, where the distinct-sorted string and `inputs[0].refusalSource` are the same value. Replacing `refusal_lanes: lanes` with `refusal_lanes: inputs[0]!.refusalSource` survived (RT-M15) and survived the four-suite sweep (RT-M16). The mutation is executed and observably different for any mixed cohort. It is not equivalent: `WriteRefusalEventInput[]` permits a mixed array, which is the exact edge case the intake enumerates, and the key exists precisely to be the durable full-set copy. Concrete scenario: a future lane batches two sources; the set INSERT fails; the Sentry event names one lane in `extra` while the tag names two, and an operator triaging a mixed-cohort ledger fault reads a payload that contradicts its own tag. Fix: assert `extra.refusal_lanes` on the MULTI-lane case, not the single-lane one."
+      "disposition": "fixed",
+      "reason": "`refusal_lanes` was removed outright. Its replacement `{ account_id, account_count }` carries the same degradation risk and is now pinned by a genuinely MIXED fixture: RT2-M3 (always the first account), RT2-M9 (always null) and RT2-M4 (count from `inputs.length` rather than the distinct set) are all KILLED. The values are bounded — one UUID and one integer capped by MAX_DATA_ROWS — and the empty distinct set is unreachable behind the `inputs.length === 0` early return, so no arm of the new expression is unconstrained."
     },
     {
       "id": "RT-3",
       "severity": "P1",
       "title": "A fourth error-level `subsystem:refusal_ledger` emitter ships with no rule row in the alerting runbook, and the runbook's own count and description now contradict HEAD",
-      "at": "docs/runbooks/beta-launch-alerting.md:499",
+      "at": "docs/runbooks/beta-launch-alerting.md:467",
       "duty": 5,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "HALF FIXED. The count-and-description half is fixed in both prose sites (:106-121 and :508-517) and both read true at HEAD. The MISSING-RULE half is not. The runbook's own no-rule register at :467-473 still reads 'Four §1 signals have no DEDICATED rule in either project' and lists four, when at HEAD there are six: this diff added `fault:ledger_write` (all seven lanes, level error, no filter, no threshold, no destination action) and `fault:ledger_vocabulary`. Round 1 named that register explicitly ('it is now five'). The register's own text says its defect class is 'the count was two and the two new signals were not listed when they shipped' — which is what happened again, one commit later.",
+      "resolution": "Runbook no-dedicated-rule register corrected from four signals to SIX, naming fault:ledger_write and fault:ledger_vocabulary, both level error with no filter, threshold or destination. The prose half was fixed in 6a382d1a; this closes the register half.",
+      "resolved_at": "2026-09-04T12:57:45.946Z"
     },
     {
       "id": "RT-4",
@@ -244,7 +167,8 @@
       "title": "Every source line the handoff's 'three traps most likely to be re-broken' cites is stale at HEAD, and each points at an unrelated line in the OTHER write arm",
       "at": "docs/superpowers/plans/fix-1083-ledger-attribution-handoff.md:52",
       "duty": 3,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "The section is rewritten to cite symbols (`writeRefusalEvents`, `writeRefusalEvent`, `endDisabledEpisode`) with no line numbers, and gains two traps for this round's fixes. No `write.ts:<digits>` or `persist.ts:<digits>` citation survives anywhere in the handoff. A separate NEW false claim in the same file is filed as RT2-2 rather than reopening this one."
     },
     {
       "id": "RT-5",
@@ -252,7 +176,8 @@
       "title": "Deviations D3 repeats the same four stale citations, and D4's stated rationale for `refusal_lanes` is factually false",
       "at": "docs/superpowers/plans/fix-1083-ledger-attribution-deviations.md:52",
       "duty": 3,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "D3 now names symbols and carries a parenthetical recording that `write.ts:904/925/922` were stale. D4 states the truncation rationale was false, and the arithmetic it asserts is exact: the seven `REFUSAL_SOURCES` sorted and comma-joined is 108 characters, recomputed this round from `vocabulary.ts:106-114`."
     },
     {
       "id": "RT-6",
@@ -260,7 +185,8 @@
       "title": "The false 200-character truncation rationale is repeated in the production comment, the test comment and the CONTEXT.md term",
       "at": "src/lib/refusals/write.ts:1095",
       "duty": 3,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "Removed from all three, and from the plan (under an explicit 'superseded' note) and the deviations. Every surviving mention states it as false and gives 108. Re-derived independently: 108 exactly."
     },
     {
       "id": "RT-7",
@@ -268,7 +194,8 @@
       "title": "D9's closing claim 'the gate is green at 330b938e with a current fingerprint' is not current at the HEAD under review",
       "at": "docs/superpowers/plans/fix-1083-ledger-attribution-deviations.md:253",
       "duty": 3,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "Rewritten to past tense with the SHA named ('green at 330b938e with a fingerprint current as of that commit') plus a correction paragraph explaining the staleness mechanism. At HEAD the fingerprint 9560eea4… names headSha 6a382d1a and re-derives clean."
     },
     {
       "id": "RT-8",
@@ -276,25 +203,59 @@
       "title": "On the policy_gate_held lane the write fault and the vocabulary fault now carry byte-identical tag sets, and a Sentry alert rule cannot filter on the `extra` that separates them",
       "at": "worker/jobs/response-generation/persist.ts:1069",
       "duty": 5,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "`fault: 'ledger_write'` and `fault: 'ledger_vocabulary'` added to the two captures, and the 17th eval title pins the vocabulary side. Both removals (RT2-M5, RT2-M7) and both same-constant collapses (RT2-M6, RT2-M8) are KILLED, so the values are pinned as DIFFERENT rather than merely present. The rule-row half of the operator path remains owed under RT-3."
+    },
+    {
+      "id": "RT2-1",
+      "severity": "P1",
+      "title": "docs/directory.md's persist.ts row carries two claims this same commit falsified — a `lane` parameter that no longer exists, and a five-key `extra` that is now four",
+      "at": "docs/directory.md:1593",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "Both re-resolved against HEAD. (1) 'It is therefore synchronous, and its `lane` parameter is the single literal rather than a two-member union' — at HEAD the signature is `withLedgerAttribution<T>(responseId: string, resolve: () => T)`, with NO lane parameter; this commit removed it and inlined the literal. (2) Trap (b): 'the eval asserts the surviving capture carries the writer's five-key `extra`' — the writer's `extra` is FOUR keys at HEAD (subject_type, subject_id, account_id, business_id), this commit having dropped `refusal_source`, and persist.test.ts asserts exactly four. The same commit updated the `write.ts` row in this file for both facts and left the `persist.ts` row untouched; deviations D10's 'Stale citations, six sites' does not list it. `ci:directory-map` checks row PRESENCE, not row truth, so nothing in the gate can see this.",
+      "resolution": "docs/directory.md persist.ts row corrected: the lane parameter was deleted (signature is withLedgerAttribution<T>(responseId, resolve)), and the eval asserts a FOUR-key extra since refusal_source was dropped. The fault-tag pair is now stated in the same row.",
+      "resolved_at": "2026-09-04T12:57:45.947Z"
+    },
+    {
+      "id": "RT2-2",
+      "severity": "P1",
+      "title": "The handoff still states the eval is sixteen titles split twelve/four; this same commit made it seventeen split twelve/five",
+      "at": "docs/superpowers/plans/fix-1083-ledger-attribution-handoff.md:46",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "Re-derived: `tests_to_add` holds 17 entries at HEAD, all resolving verbatim — 12 in write.test.ts, 5 in persist.test.ts. This commit added 'tags the policy gate vocabulary fault with its own fault class' (16 -> 17, a change deviations D10 itself records) and renamed one, then rewrote the section three lines BELOW this sentence without correcting it. The sentence also tells the next agent how the `promised-tests` gate row is populated, so a wrong count is the kind of claim that gets acted on rather than read past.",
+      "resolution": "Handoff corrected to seventeen titles split twelve/five, naming the seventeenth and why the count moved.",
+      "resolved_at": "2026-09-04T12:57:45.947Z"
+    },
+    {
+      "id": "RT2-3",
+      "severity": "P2",
+      "title": "The plan's empty-input citation `write.ts:891` is stale and resolves into the middle of the set arm's INSERT column list",
+      "at": "docs/superpowers/plans/fix-1083-ledger-attribution.md:232",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "`if (inputs.length === 0) return;` is at write.ts:1017 at HEAD; :891 is `INSERT INTO refusal_events (` inside `writeRefusalEvents`. The sentence is the immediate trailing context of the T3 hunk this commit rewrote, in the same document whose new D4 note says line numbers in a post-implementation artifact are a liability. Graded P2 to match round 1's grading of the identical class. The plan's other pre-fork citations sit outside this round's scope and are recorded in the report appendix instead.",
+      "resolution": "Plan citation converted to a symbol. A sweep resolving EVERY file:line in the branch docs against HEAD then found fifteen more, all in the plan; they are left in place under an explicit header note that every citation in that document resolves at the fork and is stale at HEAD.",
+      "resolved_at": "2026-09-04T12:57:45.947Z"
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 28,
-    "killed": 17,
-    "survived_confirmed_p0": 3,
+    "inventory_total": 17,
+    "killed": 12,
+    "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
-    "skipped_budget": 5,
-    "excluded": 3,
-    "findings_total": 8,
-    "p0_open": 2,
-    "p1_open": 3,
-    "p2_open": 3,
+    "skipped_budget": 0,
+    "excluded": 5,
+    "findings_total": 11,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 11,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }

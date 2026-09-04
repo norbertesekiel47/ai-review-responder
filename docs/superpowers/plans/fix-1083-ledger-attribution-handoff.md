@@ -43,9 +43,12 @@ Six tracers, registered in `.feature/progress.json`. T2 and T3 both edit
 `src/lib/refusals/write.ts`, so they are **serial**, not parallel. T4 follows
 T2. T6 is orchestrator work, not a subagent task.
 
-The eval is sixteen titles in the intake's `tests_to_add`, split twelve
-(`write.test.ts`) / four (`persist.test.ts`). Titles are matched **verbatim** by
-the `promised-tests` gate row, and none contains an apostrophe (#1108).
+The eval is **seventeen** titles in the intake's `tests_to_add`, split **twelve**
+(`write.test.ts`) / **five** (`persist.test.ts`). Titles are matched **verbatim**
+by the `promised-tests` gate row, and none contains an apostrophe (#1108).
+The seventeenth — `tags the policy gate vocabulary fault with its own fault
+class` — was added by review round 1; the count here said sixteen until red-team
+round 2 caught it.
 
 ## The traps most likely to be re-broken
 

@@ -5,6 +5,22 @@ Intake: `docs/superpowers/plans/fix-1083-ledger-attribution-intake.json`
 Base: `2be0c3236d3251682ef7342aca65deed958cc692`
 SIZE `standard` · RISK `high` · SURFACE `backend`
 
+> **EVERY `file:line` CITATION BELOW RESOLVES AT THE FORK POINT AND IS STALE AT
+> HEAD. Read the symbol, never the number.** This document was written before
+> implementation; the branch then wrapped two long tagged SQL templates in
+> `try` blocks and rewrote both `extra` payloads, which moved essentially every
+> line it cites. A sweep at HEAD found sixteen such citations — every one still
+> lands on a real line, and every one lands on the wrong thing, which is worse
+> than a dangling reference because it reads as correct.
+>
+> They are left in place deliberately rather than rewritten: the plan is the
+> record of what was planned, and its citations were true when made. The
+> **handoff** doc is the one a resumed session should read, and its traps were
+> converted to symbols for exactly this reason. Red team found one of these
+> (`write.ts:891`, round 2); the sweep that found the other fifteen is the
+> lesson — a line number in a document that outlives one commit is a liability,
+> and finding them one at a time is how you miss fifteen.
+
 ## The defect, restated against current HEAD
 
 The ticket was filed 2026-09-02. PR #1098 (#1079) merged 2026-09-03 and added
@@ -229,8 +245,10 @@ input being `readonly WriteRefusalEventInput[]`:
   > and without an account a rolled-back set write leaves an operator nothing to
   > join on.
 
-The empty-input return at `write.ts:891` stays **first**, before the flag read
-and before this block, exactly as it is today.
+`writeRefusalEvents`' empty-input return stays **first**, before the flag read
+and before this block, exactly as it is today. (Cited as `write.ts:891` until
+red-team round 2: stale at HEAD, where `:891` lands inside the set arm's INSERT
+column list. Named by symbol for the same reason D4's own note gives.)
 
 **The set arm gets its own reporter-throw test** (round 1, F3). One shared
 `captureLedgerWriteFault` makes a divergent set-arm reporter impossible *if the
@@ -383,12 +401,12 @@ residual items, all verified and all accepted:
 | R2-c | The new "do not hoist `uuidv7()`" instruction had **no test**. All fifteen titles pass after the hoist, leaving an id-generation failure unattributed. | ACCEPT — sixteenth test added |
 
 R2-c is the same defect class as F2 and the reason the round earned its cost: a
-prose rule that no test enforces is not a rule. `write.ts:61` imports
+prose rule that no test enforces is not a rule. `write.ts` imports
 `v7 as uuidv7` from `uuid`, so the case is writable with `vi.mock('uuid')`.
 
 The round also confirmed the F2 fix introduces no behavioural change: the empty
-return at `write.ts:891` and the flag guard at `write.ts:895` still precede the
-guard, `endDisabledEpisode()` at `write.ts:900` still sits outside it, and the
+return and the flag guard still precede the
+guard, `endDisabledEpisode()` still sits outside it, and the
 broadened guard captures only failures while materializing or executing the
 ledger write.
 

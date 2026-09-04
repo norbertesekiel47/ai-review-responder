@@ -467,14 +467,25 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > the failure this section predicts. Not yet harmful, because solicitation sending is off
 > in production; harmful the moment it is on.
 >
-> **Four §1 signals have no DEDICATED rule in either project** and are named here so the
+> **SIX §1 signals have no DEDICATED rule in either project** and are named here so the
 > absence is not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector),
 > `subsystem:autonomy_governor` (a `captureException`, so today it reaches issue owners by
 > **email** — which §1's own premise rules out as an acceptable route), and — added by
 > #1105 — `fault:unmapped_block_reason` and `fault:unmapped_block_reason_overflow`,
-> rules 7 and 8 above. **The count was "two" and the two new signals were not listed
-> when they shipped**; red team caught the omission, which is the same class of defect
-> this whole register exists to prevent.
+> rules 7 and 8 above, and — added by #1083 — **`fault:ledger_write`** (the ledger write
+> fault, all seven lanes, `captureLedgerWriteFault`) and **`fault:ledger_vocabulary`**
+> (the vocabulary fault on `policy_gate_held`, `withLedgerAttribution`). Both are level
+> `error`, and both have no filter, no threshold or cadence, and no destination action.
+>
+> **THE COUNT HAS NOW BEEN WRONG TWICE, THE SAME WAY, AND BOTH TIMES RED TEAM FOUND IT.**
+> It was "two" when #1105's pair shipped unlisted. #1083 then corrected this section's
+> PROSE — four emitters became six, and the wrapper stopped being described as the
+> ledger-failure attribution — while leaving this register at four, so the same change
+> that fixed one half of the omission created the other half. That is worth more than an
+> apology: it says the register is not discoverable from the prose it sits under, and
+> that anyone adding a `subsystem:refusal_ledger` or `fault:` emitter must grep for this
+> COUNT and not only for the emitter's name. The defect class this register exists to
+> prevent is exactly the one it keeps suffering.
 >
 > **"No dedicated rule" is NOT "pages nobody", and the two must not be conflated for the
 > #1105 pair.** The premise that makes this register alarming — CONFIG-1's finding that a

@@ -165,6 +165,24 @@ remaining six of the reported 496 are four single-line doc rows in `CONTEXT.md`,
 exclusion list does not cover because it excludes only
 `docs/superpowers/plans/**` and `docs/reviews/**`.
 
+**After the review round (HEAD `6a382d1a`), the row reads 577** and the code
+buckets are:
+
+| File | Raw | `-w` |
+|---|---|---|
+| `src/lib/refusals/write.ts` | 404 | 216 |
+| `worker/jobs/response-generation/persist.ts` | 133 | 105 |
+| `src/lib/refusals/vocabulary.ts` | 7 | 7 |
+| **Code total** | **544** | **328** |
+
+328 against 180 is **1.82×** — still under the trigger, but it climbed from 1.52×
+and that movement is real rather than reindentation: the `fault` tag, the two
+payload redesigns and the corrected docblocks all landed in production files.
+**A third round of comparable size would genuinely cross 2×, and that would be a
+true signal rather than noise.** Recording the trajectory, not just the number,
+because the trigger fires on a level and the useful information here is the
+slope.
+
 No re-classification is warranted, and the estimate was accurate. The row is not
 wrong — it measures raw changed lines, which is the right default for a scope
 trigger — it simply cannot distinguish a reindent from new logic. Worth noting
@@ -348,3 +366,61 @@ mid-incident. Listed in the PR under rejected findings.
 **Verdict:** ACCEPT — the wave found real defects in the payload design and the
 tag set, both fixed; one finding rejected with reasoning; one surface amendment
 taken with sign-off.
+
+---
+
+## D11 — Red-team round 2: both P0s dead, four doc-truth defects, one of them mine twice over
+
+**When**: step 7.5, red-team round 2 (the round cap; there is no round 3).
+
+**Both P0s confirmed dead**, by re-applying round 1's own surviving mutation
+verbatim rather than by inspection. The closed-key assertion is exact in both
+directions — an added key fails and a removed key fails — and the
+`refusal_lanes` degradation class is gone with the field. All six other round-1
+findings verified fixed.
+
+Four defects the fixes introduced or left half-done. All doc-truth, all fixed:
+
+| ID | Sev | Finding |
+|---|---|---|
+| RT-3 (half) | P1 | The runbook's **"no dedicated rule" register** still said four signals; at HEAD it is six. |
+| RT2-2 | P1 | `docs/directory.md`'s `persist.ts` row still claimed a `lane` parameter that was deleted, and a "five-key `extra`" that is now four. |
+| RT2-3 | P1 | The handoff still said sixteen titles split twelve/four; it is seventeen split twelve/five. |
+| RT2-4 | P2 | `write.ts:891` stale in the plan — it now lands inside the set arm's INSERT column list. |
+
+**RT-3 is the one worth sitting with.** That register's own text reads: *"The
+count was 'two' and the two new signals were not listed when they shipped; red
+team caught the omission, which is the same class of defect this whole register
+exists to prevent."* This branch corrected the runbook's PROSE — four emitters
+became six — and left the register at four. The same commit fixed one half of
+the omission and created the other half, and red team caught it a second time,
+the same way. The register is now at six and carries a note saying the count has
+been wrong twice: anyone adding a `subsystem:refusal_ledger` or `fault:` emitter
+must grep for the COUNT, not only for the emitter's name.
+
+**RT2-4 was the visible tip of a much larger problem.** Red team named one stale
+citation. A sweep resolving *every* `file:line` in the branch's docs against HEAD
+found **sixteen**, all in the plan — each landing on a real line and none on the
+thing it names, which reads as correct and is therefore worse than a dangling
+reference. They are left in place under a header note rather than rewritten: the
+plan records what was planned and its citations were true when made. The handoff
+— the doc a resumed session actually reads — was already converted to symbols.
+The lesson is the sweep, not the four fixes: **finding stale citations one at a
+time is how you miss fifteen.**
+
+**One operational finding from the pass itself**, worth promoting to lab-notes:
+*do not restore a red-team mutation by re-invoking `mutate` with HEAD content.*
+That appends a journal entry whose `original` is the previous mutant, so
+`finalize` correctly re-plants an intermediate mutant. The finalizer's
+foreign-content abort behaved exactly as designed and never overwrote content it
+had not written; the last two entries were resolved by hand with
+`git checkout -- <named paths>`. Restoration verified by blob oid against HEAD,
+not by porcelain alone.
+
+Status at the cap is `OPEN_P1` in the sidecar as round 2 wrote it. All four are
+fixed in this commit; dispositions updated and re-verified, with no round behind
+them — so the verification is recorded here and in `findings.md` rather than
+asserted by a third pass that the protocol does not allow.
+
+**Verdict:** ACCEPT — the P0s are dead, the four residual defects are fixed, and
+the citation sweep found and contained a defect class the round only sampled.
