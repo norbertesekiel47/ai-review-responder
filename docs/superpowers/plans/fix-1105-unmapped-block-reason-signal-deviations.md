@@ -147,6 +147,32 @@ in this repository, and the gate cannot go green without it.
 
 **Verdict:** ACCEPT.
 
+## D9 — the gate's live-DB lane SKIPS on this branch, and was run separately
+
+`db_touching` is `false`, truthfully: this branch adds no migration, no schema
+change and no SQL. The gate's `test` row therefore sanitizes the database URL out
+of its environment, and 96 integration files skip inside it. A green gate on this
+branch is NOT evidence about the live-DB lane.
+
+That matters here, because `refusal-write.integration.test.ts` covers the very
+lane this branch edits.
+
+So the lane was run explicitly, and the whole integration project with it, at the
+SHA the gate measured: **116 files, 1206 tests passed, 5 skipped**, at
+`229c51ba`. The named suite alone is 32 passing cases.
+
+`db_touching` was NOT flipped to `true` to force gate provisioning. The field
+describes the change, not the evidence wanted from it, and flipping it would make
+the intake say something false about the branch. CI's `test` job stands up
+`postgres:16` unconditionally, so the PR run is the authoritative live-DB gate.
+
+**Re-run after the rebase.** The figures above were taken before this branch was
+rebased onto `origin/main` (three #1086 commits, no overlap with these files), so
+they are stale by the project's own rule. The final gate and a fresh integration
+run at the post-rebase HEAD are what step 7 relies on.
+
+**Verdict:** ACCEPT.
+
 ## D4 — round 1's correction to finding 8 was narrowed
 
 Round 1 asked for the new reset to be called in every suite that exercises the
