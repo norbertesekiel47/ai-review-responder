@@ -67,13 +67,22 @@ already pins it by node identity (`renders the imported count and announces the
 terminal transition through LiveRegion`). The `offer` state's announcement is
 the empty string, so nothing is lost by remounting on the way in.
 
-**Adaptation.** The new test asserts the invariant the intake actually locks —
-`BannerShell` is the element at the return position, exactly one live region
-exists, it is the shell's first child, and `OfferPrompt` renders the inner
-`.banner` only rather than nesting a second shell. It runs that assertion in
-both states. Recorded here because a reader of the A6c doc could reasonably
-believe identity holds across every transition. It does not, and it does not
-need to.
+**Adaptation.** No intake retitle. The test keeps the promised title and now
+earns it: it walks `offer → importing → imported`, asserts the shell's SHAPE at
+each — `BannerShell` is the element at the return position, exactly one live
+region exists, it is the shell's first child, and `OfferPrompt` renders the
+inner `.banner` rather than nesting a second shell — and then asserts node
+IDENTITY across `importing → imported`, which is the transition the contract is
+about and which does hold.
+
+Recorded here because a reader of the A6c doc could reasonably believe identity
+holds across every transition. It does not, and it does not need to; the test's
+comment says so at the point where someone would otherwise "fix" it.
+
+**Mutation-checked, not asserted.** Reinstating an inline `style` on the
+secondary action fails the right-aligned/inline-styled test and nothing else.
+Nesting a second `BannerShell` inside `OfferPrompt` fails this test and nothing
+else. Neither test is vacuous.
 
 ## D3 — `console.css` surface overlap with feat/1088-chart-readability
 

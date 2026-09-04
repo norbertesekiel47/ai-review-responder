@@ -459,7 +459,7 @@ describe('ImportOfferBanner', () => {
   // the slot class would still render the right words and still pass every test
   // above it.
 
-  it('ImportOfferBanner renders the locked offer copy byte for byte', async () => {
+  it('ImportOfferBanner — the offer state still renders the 7-day disclosure and the reassurance line verbatim', async () => {
     // The regex assertions above survive a reworded sentence that still contains
     // the fragment. These do not. The 7-day disclosure and the automatic-handling
     // reassurance are locked verbatim (owner decision 6) and #1087 was a layout
@@ -480,7 +480,14 @@ describe('ImportOfferBanner', () => {
     ).toBeInTheDocument();
   });
 
-  it('ImportOfferBanner puts both offer actions in the banner action slot with no inline styling', async () => {
+  it('ImportOfferBanner — the offer actions are right-aligned rather than inline-styled', async () => {
+    // WHAT THIS ASSERTS, PRECISELY: jsdom applies no stylesheet, so "right-
+    // aligned" is not a computed position here. The alignment itself was proven
+    // by measurement at 390px and 1440px (#1087 T1). What this pins is the
+    // STRUCTURE that stylesheet acts on — the element carrying `margin-left:
+    // auto` exists and the actions are inside it — and the whole of "rather than
+    // inline-styled", which IS directly assertable and is the half that
+    // regresses silently.
     mockGetSequence([OFFER]);
 
     const { container } = renderBanner();
@@ -509,7 +516,7 @@ describe('ImportOfferBanner', () => {
     ).toBe(true);
   });
 
-  it('ImportOfferBanner gives a read-only owner the notice in the action slot, not beside the copy', async () => {
+  it('ImportOfferBanner — a read-only owner gets the notice in the actions slot, not the buttons', async () => {
     mockGetSequence([OFFER]);
 
     const { container } = renderBanner({ readOnly: true });
@@ -520,39 +527,71 @@ describe('ImportOfferBanner', () => {
     expect(actions!.textContent).toBe('Update billing to import your reviews.');
   });
 
-  it('ImportOfferBanner keeps BannerShell at the return position in the offer state and after it', async () => {
-    // The intake invariant #1087 could have broken silently: `OfferPrompt` renders
-    // the inner `.banner` ONLY, never its own shell. Wrapping it — the obvious
-    // move when rearranging a layout — would nest a second live region, and the
-    // terminal announcement the suite pins elsewhere would be read from a node
-    // that is no longer the outermost one.
+  it('ImportOfferBanner — BannerShell occupies the same tree position across importing and imported', async () => {
+    // The intake invariant #1087 could have broken silently: `OfferPrompt`
+    // renders the inner `.banner` ONLY, never its own shell. Wrapping it — the
+    // obvious move when rearranging a layout — would nest a second live region,
+    // and the terminal announcement would be read from a node that is no longer
+    // the outermost one.
     //
-    // NOT node identity across this transition: the parent returns `BannerShell`
-    // for `offer` and `ImportStatusBanner` for `importing`, so React replaces the
-    // subtree here by design. The A6c contract is about importing → imported,
-    // which is pinned above through the live region's identity.
-    mockGetSequence([OFFER, { state: 'importing' }]);
-
-    const { container } = renderBanner();
-    await screen.findByRole('button', { name: /import my reviews/i });
-
-    const assertShellShape = () => {
+    // Walks offer → importing → imported and pins the shell's SHAPE at each,
+    // then node identity across importing → imported, which is the transition
+    // the A6c contract is actually about.
+    //
+    // NOT identity across offer → importing: the parent returns `BannerShell`
+    // for `offer` and `ImportStatusBanner` for `importing`, so React replaces
+    // that subtree by design. Benign — the offer state's announcement is the
+    // empty string, so nothing is lost on the way in (deviation D2).
+    const assertShellShape = (container: HTMLElement) => {
       const shell = container.firstElementChild!;
       expect(shell.className).toBe('section-enter section-enter-2');
       // Exactly one region, and it is the shell's own first child — not one
       // nested inside a banner.
       expect(container.querySelectorAll('[aria-live]')).toHaveLength(1);
       expect(shell.firstElementChild!.getAttribute('aria-live')).not.toBeNull();
-      // The banner is the shell's sibling content, never its wrapper.
+      // The banner is the shell's content, never its wrapper.
       expect(container.querySelectorAll('.section-enter-2')).toHaveLength(1);
       expect(shell.querySelector('.banner')!.parentElement).toBe(shell);
     };
 
-    assertShellShape();
+    vi.useFakeTimers();
+    try {
+      mockGetSequence([OFFER, { state: 'importing' }, { state: 'imported', count: 12 }]);
 
-    await userEvent.click(screen.getByRole('button', { name: /import my reviews/i }));
-    await screen.findByText('Importing your reviews… this usually takes a minute.');
+      const { container } = renderBanner();
+      await vi.waitFor(() =>
+        expect(screen.getByRole('button', { name: /import my reviews/i })).toBeInTheDocument(),
+      );
+      assertShellShape(container);
 
-    assertShellShape();
+      // `userEvent` drives real timers; advance the mutation by hand instead.
+      screen.getByRole('button', { name: /import my reviews/i }).click();
+      await vi.waitFor(() =>
+        expect(
+          screen.getByText('Importing your reviews… this usually takes a minute.', {
+            selector: '.b-title',
+          }),
+        ).toBeInTheDocument(),
+      );
+      assertShellShape(container);
+      const shellDuringImport = container.firstElementChild;
+
+      // `refetchInterval` is 4s while importing.
+      await vi.advanceTimersByTimeAsync(4000);
+      await vi.waitFor(() =>
+        expect(
+          screen.getByText("Imported 12 reviews. They're in your reviews list.", {
+            selector: '.b-title',
+          }),
+        ).toBeInTheDocument(),
+      );
+      assertShellShape(container);
+
+      // Node IDENTITY across the transition the contract is about. A remount
+      // produces a different node that every `querySelector` would still find.
+      expect(container.firstElementChild).toBe(shellDuringImport);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
