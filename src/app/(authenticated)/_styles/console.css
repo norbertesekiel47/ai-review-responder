@@ -1301,6 +1301,83 @@
 .banner-blue .banner-cta { background: var(--rw-accent-600); color: var(--rw-on-accent); }
 .banner-blue .banner-cta:hover { background: var(--rw-accent-700); }
 
+/* ---------- Banners with more than one action ---------- */
+/* `.banner-cta`'s own `margin-left: auto` positions the SINGLE-action case. A
+   banner with two actions groups them here instead, and the group is what
+   carries the auto margin — one owner for the placement, at the slot. `flex: 0 0
+   auto` is the load-bearing half: without it a multi-line copy block squeezes
+   the group and the labels wrap (#1087). */
+.banner-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+  /* The group never shrinks, so below ~296px of banner its two nowrap labels are
+     wider than the banner and `overflow: clip` on `.main` swallows the second one
+     with no scroll to recover it (#1087 round 2, N5). These two lines together
+     put the buttons on two rows instead, and BOTH are needed: `flex-wrap` alone
+     is inert, because `flex: 0 0 auto` sizes the group to its own content so its
+     line can never overflow. `max-width` is what makes the group narrower than
+     its content and gives the wrap something to do. Measured: nothing clips at
+     any width down to 260px, and 320px upward is byte-identical without them. */
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+/* Two things the group owns, and both must stay SCOPED to it (#1087 review F1).
+   `margin-left: 0` because two `margin-left: auto` CTAs in one flex row split
+   the free space BETWEEN them and drift apart. `white-space: nowrap` because a
+   CTA is a label, not a paragraph — but only inside the group, where the squeeze
+   happens. The un-scoped form regressed a third call site nobody had enumerated:
+   `AutoApprovalClient`'s "Turn off auto-posting" banner, which is neither an
+   `ImportOfferBanner` state nor `ConnectGoogleBanner`, went 133px to 212px tall
+   at 390px with its copy crushed to a 93px column. */
+.banner-actions .banner-cta { margin-left: 0; white-space: nowrap; }
+/* Secondary action. A class, not two inline overrides on the element. */
+.banner-cta--ghost,
+.banner-blue .banner-cta--ghost {
+  background: transparent;
+  color: var(--rw-app-text-muted);
+}
+.banner-blue .banner-cta--ghost:hover { background: var(--rw-control-hover); }
+/* THE DISABLED GHOST PAINTS NOTHING, AND IT TAKES A RULE OF ITS OWN TO SAY SO.
+   `:hover` matches a disabled button, and the inline `background: transparent`
+   this class replaced outranked every author selector — so the old button had no
+   hover response at all, including while the decision POST held it disabled.
+
+   `:not(:disabled)` on the hover arm above LOOKED like the way to say that and
+   was measurably worse (#1087 round 2, N1): dropping the ghost arm on a disabled
+   button does not fall back to nothing, it falls through to
+   `.banner-blue .banner-cta:hover` — the PRIMARY treatment — so the disabled
+   ghost painted solid `--rw-accent-700` under muted text at 1.45:1 contrast.
+   Worse than the state it was written to restore. An override has to be more
+   specific than what it overrides (0-0-4-0 against 0-0-3-0), not merely absent. */
+.banner-cta--ghost:disabled:hover,
+.banner-blue .banner-cta--ghost:disabled:hover { background: transparent; }
+
+/* A banner whose copy runs to several lines anchors its icon and its actions to
+   the TOP of that copy rather than floating them at its centre. Additive and
+   opt-in: `.banner` keeps `align-items: center`, so every single-line banner —
+   including `ConnectGoogleBanner`, which shares this slot — is untouched. */
+.banner--top { align-items: flex-start; flex-wrap: wrap; }
+/* THE COPY GETS HALF THE BANNER, AND THE ACTIONS WRAP WHEN HALF IS NOT ENOUGH
+   TO SIT BESIDE THEM. That is one rule for every width, and it is deliberately
+   NOT a media query (#1087 review F2). The console's reading column is not
+   monotonic in viewport width: the sidebar is hidden below 769px, so the column
+   is WIDEST at 768px (768px) and NARROWEST one pixel later at 769px (517px),
+   when the 240px rail returns. A `max-width: 640px` wrap gate therefore sat on
+   the wrong side of the worst case and left the banner 447px tall with a 105px
+   copy column at 769px — the exact pathology the modifier exists to remove,
+   reproduced one breakpoint over.
+
+   A percentage `flex-basis` resolves against the CONTAINER, so the rule follows
+   the column instead of the window: the actions take their own row whenever the
+   banner's inner width falls under ~620px, wherever that happens. `min-width: 0`
+   is what lets the copy shrink at all — a flex item's default `min-width: auto`
+   is its min-CONTENT width, which is why the 390px banner grew to 507px instead
+   of wrapping. */
+.banner--top .banner-copy { flex: 1 1 50%; min-width: 0; }
+
 /* ---------- Subscription status banners ---------- */
 .sub-status-banner {
   display: flex;
