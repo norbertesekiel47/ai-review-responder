@@ -53,8 +53,8 @@
     "src/components/dashboard/kpi/chart-headlines.ts",
     "src/components/dashboard/aggregate/AggregateVelocityCard.tsx",
     "src/components/dashboard/aggregate/AggregateRankingCard.tsx",
-    "src/components/dashboard/charts/__tests__",
-    "src/components/dashboard/kpi/__tests__",
+    "src/components/dashboard/charts/__tests__/*",
+    "src/components/dashboard/kpi/__tests__/*",
     "src/app/(authenticated)/_styles/console.css",
     ".claude/reference/arch-review-log.md"
   ],

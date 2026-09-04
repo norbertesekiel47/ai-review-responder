@@ -108,6 +108,115 @@ matches on the title string, and retitling it would trade a real check for a
 green row. Only its target narrows, and a retitle would be a deviations entry
 rather than a surface amendment in any case.
 
+## T1
+
+### BLOCKER: the intake's two test-directory surfaces admit no file
+
+`.feature/intake.json` declares T1's whole edit surface as two bare directory
+paths:
+
+```
+"src/components/dashboard/charts/__tests__",
+"src/components/dashboard/kpi/__tests__",
+```
+
+`edit-surface-guard.sh` matches with bash `[[ "$REL_PATH" == $GLOB ]]`. Those two
+entries carry no wildcard, so they match ONLY the literal directory string and
+can never match a file inside it. Writing
+`src/components/dashboard/kpi/__tests__/chart-readability.test.tsx` is blocked,
+and so would be an edit to the existing `VelocityChart.test.tsx`. **T1 is
+declared as tests-only and its declared surface permits zero test files.**
+
+Reproduced against the committed intake: replaying the guard's own escape +
+match loop over every `allowed_edit_surface` entry yields no match for either a
+new or an existing file under those directories.
+
+This is a spelling bug, not scope drift. `scripts/ci/feature-surface-audit.ts`
+independently fails an entry that "match(es) NO file (tracked at HEAD or changed
+on this branch)" — both entries are in that class today, so the audit would fail
+this branch at merge even if nothing were written. The fix is the trailing glob
+the guard's own comment prescribes (`'*' crosses '/' here`):
+
+```
+"src/components/dashboard/charts/__tests__/*",
+"src/components/dashboard/kpi/__tests__/*",
+```
+
+Narrowing-or-correcting a spelling so an entry matches the files it was always
+meant to match is the amendment the audit text calls for, but it is an intake
+change and needs owner sign-off — T1 did not make it. Both intake copies
+(`.feature/intake.json` and the committed
+`docs/superpowers/plans/feat-1088-chart-readability-intake.json`) need it.
+
+### The five promised tests are written, typechecked, and verified red
+
+The suite was authored in full and run out-of-tree (scratchpad vitest config,
+`root` pinned to the worktree so the `@` alias, `vitest.setup.ts` and the JSX
+transform are the repo's own). No repo file was written.
+
+| Promised title | Result | Why |
+|---|---|---|
+| `every dashboard chart exposes an accessible name` | **FAIL (intended)** | `['RecentRatingBreakdown', 'RecentSentimentMix']` carry no chart-level name — G6 |
+| `every dashboard chart states the window it covers` | **FAIL (intended)** | `['VelocityChart', 'RankingChart', 'StackedVelocityChart']` — G1, G5 |
+| `a chart with an empty series still says what it would plot` | **FAIL (intended)** | the empty state reads "Not enough reviews yet to chart a trend." — names neither unit nor window |
+| `a per-location chart and its aggregate peer describe the same measure identically` | **FAIL (intended)** | stacked row headers are raw ISO `['2026-06-01', '2026-06-08', '2026-06-15']` — G3 |
+| `no chart changes the values it plots` | **PASS** | the regression pin, green today |
+
+`pnpm exec tsc` over the file is clean. The two existing test directories are
+green at 11 files / 55 tests without it.
+
+Draft file, ready to move once the surface is corrected:
+`<scratchpad>/chart-readability.test.tsx` → destination
+`src/components/dashboard/kpi/__tests__/chart-readability.test.tsx`.
+
+### Two decisions recorded inside the suite
+
+1. **Test 2 runs over the four plotted charts, not all six surfaces.** The two
+   `Recent*` charts have no chart-level name at all, so including them would
+   have made test 2 re-fail G6 rather than G1/G5. Their window disagreement is
+   G4 and is pinned by test 4 instead.
+2. **Test 3 uses eight weekly buckets each carrying `starEquivalent: null`,**
+   not `trend={[]}`. That is a real window with an empty series — the chart
+   knows the span it would have covered — whereas `[]` would let the fix
+   satisfy the test with the meaningless "last 0 weeks".
+
+### Surface amendment 1 of 2 — applied 2026-09-04, owner-approved
+
+Both intake copies now read `src/components/dashboard/charts/__tests__/*` and
+`src/components/dashboard/kpi/__tests__/*`. Counted:
+`surfaceAmendments=1`. **One amendment remains before the abort trigger fires,
+so no further surface change may be spent casually.**
+
+Verified after the change: replaying the guard's own escape-and-match loop
+admits both a new file and the existing `VelocityChart.test.tsx`, and no
+`allowed_edit_surface` entry matches zero files any more. The Write into
+`src/components/dashboard/kpi/__tests__/chart-readability.test.tsx` then
+succeeded, which is this run's step-4 enforcement spot check: the guard binds
+for the editor tools, and it bound on a path the amendment had just admitted.
+
+**Replay this under `bash`, never `zsh`.** The guard is `#!/usr/bin/env bash`.
+The Bash tool here runs zsh, whose `[[ ]]` does not treat an unquoted parameter
+as a glob the same way, so a zsh replay reports NO MATCH for a correct
+`.../__tests__/*` entry — a false negative that reads exactly like the real bug
+it is meant to diagnose. Wrap the replay in `bash -c '…'`.
+
+### G4 was overstated. Corrected here.
+
+T1's draft asserted the two `Recent*` charts must state the SAME window phrase.
+That cannot be built: `RecentRatingBreakdown` reads the windowed
+`RatingBreakdown` aggregate (#405) and `RecentSentimentMix` derives from the
+recent-review sample, so a single shared phrase would mean changing what one of
+them computes — forbidden by invariant 1 and by the presentation-only line. A
+later tracer could only have satisfied it by falsifying a label.
+
+The assertion now requires each to state a window and the two to stay visibly
+distinct. **That passes today**, which is the honest finding: both charts
+already state their window, and the two already differ. So G4 drives no change
+— it is a regression pin, guarding against a later tracer collapsing the two
+into one phrase or dropping one. **G3 is the only red in that title.**
+
+The original six-gap list overstated G4 as a gap. G1, G2, G3, G5 and G6 stand.
+
 ## Owner decision on the plan itself
 
 **2026-09-04: revise the plan in place, intake unamended.** Every `goal` line,
@@ -115,3 +224,6 @@ rather than a surface amendment in any case.
 only the plan's prose measurement and its T2 slice were wrong. That makes this a
 deviations entry, NOT a surface amendment, so `incr-amendment` is not called and
 the abort budget is untouched.
+
+(The surface amendment recorded above is a SEPARATE matter — a spelling bug in
+the intake, found by T1, not a consequence of the plan revision.)
