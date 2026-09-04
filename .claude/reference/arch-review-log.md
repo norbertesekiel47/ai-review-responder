@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 16** — last reset to 0 by the
+**Merges since last architecture pass: 17** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -250,6 +250,29 @@ Merges since the 2026-08-26 pass:
   keeps its own `toggle` rather than the core's, because opening through
   `openMenu()` is what resets the focus target; sharing the core's would make a
   menu once opened with ArrowDown keep landing on the first item.
+
+- 2026-09-04 — `feat(#1086 follow-up)`: the AGGREGATE dashboard gets the two
+  tips #1086 deliberately left out. Touches
+  `src/components/dashboard/kpi/ValueKpiGrid.tsx` ·
+  `src/components/dashboard/kpi/__tests__/ValueKpiGrid.test.tsx` ·
+  `src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx`.
+  Takes the counter to **17**. This closes deviation D6, which #1086 recorded as
+  a stated reason rather than a gap: the intake demanded the aggregate card set
+  be covered *or* given a reason, and `AggregateKpiCards` was outside that
+  branch's edit surface. **Why it needed its own change and not a copy-paste:**
+  `ValueKpiGrid`'s "Time saved" is `total_responded_all_time × 7` — LIFETIME and
+  summed across locations — while the per-location hero's identically-named
+  stat is windowed and single-location. Reusing the hero's copy would have
+  shipped a fourth wrong tip of exactly the kind #1086's review caught three
+  times. The wording was written against `aggregate-queries.ts:296-297`, not
+  against the label. **Response rate again gets none**, on the same rule that
+  removed it from the hero (D3): it already carries
+  `RESPONSE_RATE_PERIOD_CONTEXT` as a sentence directly beneath it, and a
+  structural test pins the grid at exactly two tips. One pre-existing assertion
+  in `AnalyticsContent.test.tsx` had to be tightened: a bare
+  `/Reviews handled/i` now matches the tip's screen-reader label as well as the
+  eyebrow and throws on two nodes — the same collision class the three
+  no-tip pins were rewritten to survive.
 
 ---
 
