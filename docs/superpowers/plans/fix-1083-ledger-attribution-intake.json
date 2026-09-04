@@ -30,7 +30,7 @@
   "invariants": [
     "Control flow is unchanged: every capture rethrows the same error instance, so the deciding transaction still aborts and no decision commits without its required Refusal row.",
     "With REFUSAL_LEDGER_ENABLED=false, no ledger code path throws into a caller's transaction. The kill switch containment shipped by #1079 must survive: both write arms return before the new try/catch, and persist.ts guard 4 returns before the resolve.",
-    "A failing reporter never replaces the real error. Every Sentry capture carries its own try/catch, as persist.ts:1046 does.",
+    "A failing reporter never replaces the real error. Every Sentry capture carries its own try/catch, as withLedgerAttribution does at persist.ts:1047-1055 with its capture at persist.ts:1048.",
     "Sentry extra and tags carry only closed enums and UUIDs. No review text, no response text, no refusal_code prose, no unbounded per-row id lists.",
     "src/lib/refusals/write.ts remains the only writer of refusal_events, single-row and set-based.",
     "No production module under src/lib/ imports from worker/.",
@@ -47,7 +47,9 @@
     "resolvePolicyGateRefusal throws with the flag ON. The narrowed wrapper attributes it as a vocabulary fault and rethrows; the writer is never reached.",
     "resolvePolicyGateRefusal throws with the flag OFF. Unreachable: persist.ts guard 4 returns first. A test asserts the persist still commits.",
     "Two lanes write in one transaction. Each capture is independent; the first throw aborts the transaction, so at most one write fault is captured per transaction.",
-    "The set arm fails on a 5,000-row insert. extra carries row_count and the distinct sources only, never the 5,000 subject ids."
+    "The set arm fails on a 5,000-row insert. extra carries row_count and the distinct sources only, never the 5,000 subject ids.",
+    "The set arm fails while MATERIALIZING rows rather than while executing the statement. A type-valid new Date(NaN) makes toISOString() raise RangeError, and uuidv7 can fail the same way. The guard therefore starts at the row map, not at the INSERT, and the lane tag is computed in the catch from inputs rather than from the rows that may not exist. Round 1 finding F2.",
+    "The single-row arm fails while generating its id. uuidv7() is interpolated inside the tagged template, so it evaluates within the guard already. Hoisting it above the try would move it out, and the plan forbids that explicitly."
   ],
   "existing_patterns_to_follow": [
     "worker/jobs/response-generation/persist.ts:1039 withLedgerAttribution — the shipped shape this change generalizes: capture, guard the capture, rethrow the same instance, change no control flow.",
@@ -91,6 +93,10 @@
     "does not capture when a duplicate Refusal is absorbed by ON CONFLICT DO NOTHING",
     "attributes a policy gate vocabulary fault without also attributing a write fault",
     "raises exactly one capture for a held draft write failure",
+    "raises exactly one capture for a policy gate write failure",
+    "attributes a set-arm row materialization failure and rethrows the same error instance",
+    "preserves the original error when the set-arm Sentry capture throws",
+    "attributes a single-row id generation failure and rethrows the same error instance",
     "commits the response persist when the policy gate resolver would throw and the kill switch is off"
   ],
   "verification_commands": [
@@ -98,7 +104,7 @@
     "pnpm ci:tenant-scope"
   ],
   "estimated_prod_lines": 180,
-  "estimated_test_lines": 350,
+  "estimated_test_lines": 450,
   "dependencies_added": [],
   "rollback_plan": "Revert the single squash-merge commit. The change is additive telemetry with no schema, no migration, no contract and no control-flow change, so a revert restores the prior behaviour exactly. If a fault is seen in production before a revert lands, REFUSAL_LEDGER_ENABLED=false remains the operational lever and both write arms still return before any new code, so the kill switch also disables the new captures.",
   "observability": [
