@@ -1,7 +1,8 @@
-import { afterEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, afterAll, beforeAll, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
+import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
@@ -256,150 +257,158 @@ async function runGuard(
   return { updates: spy.updates, outcome: await recordedOutcome(purgingOffboardingId) };
 }
 
-const SUITE = testDatabaseUrl ? describe : describe.skip;
+// SUITE-LEVEL TIMEOUT, not vitest's 5s default. Each case seeds two accounts
+// (each a deferred-constraints transaction), inserts their offboardings, takes a
+// customer-keyed advisory lock and runs the real stage. Under the review gate's
+// coverage instrumentation, with sibling live-DB suites contending on the same
+// local Postgres, the first case measured 5457ms and timed out — a slow suite
+// reported as a failing one. 30s is what its live-DB siblings already use.
+describeWithDb(
+  'the shared-customer redaction guard, against live Postgres',
+  { enabled: Boolean(testDatabaseUrl), timeout: 30_000 },
+  () => {
+    beforeAll(async () => {
+      process.env.DATABASE_POOL_URL = testDatabaseUrl;
+      db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
+      await assertSchemaReady(db, [OFFBOARDING_PURGE_MARKERS]);
+    }, 30_000);
 
-SUITE('the shared-customer redaction guard, against live Postgres', () => {
-  beforeAll(async () => {
-    process.env.DATABASE_POOL_URL = testDatabaseUrl;
-    db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
-    await assertSchemaReady(db, [OFFBOARDING_PURGE_MARKERS]);
-  }, 30_000);
-
-  afterEach(async () => {
-    // `account_offboardings.account_id` is ON DELETE CASCADE, so dropping the
-    // accounts drops their offboardings with them.
-    for (const tenant of seeded.splice(0)) {
-      await cleanupTenantAccount(sql(), tenant);
-    }
-  });
-
-  afterAll(async () => {
-    if (db) await db.end({ timeout: 5 });
-  });
-
-  // ---- R03/W1: the defect this suite was written for -----------------------
-
-  it('leaves a sibling in the purge grace window alone — it can still Keep my data', async () => {
-    // `purge_scheduled` with `purge_started_at IS NULL` is the MODAL state of a
-    // delete_data offboarding between teardown and `purge_after`. It is exactly
-    // keep-my-data.ts's admission set, so this co-tenant can still cancel and
-    // stay a paying customer. Redacting on its behalf destroys a live billing
-    // contact with nothing recorded against that account.
-    const { updates, outcome } = await runGuard({
-      mode: 'delete_data',
-      status: 'purge_scheduled',
-      purgeStarted: false,
+    afterEach(async () => {
+      // `account_offboardings.account_id` is ON DELETE CASCADE, so dropping the
+      // accounts drops their offboardings with them.
+      for (const tenant of seeded.splice(0)) {
+        await cleanupTenantAccount(sql(), tenant);
+      }
     });
 
-    expect(updates).toEqual([]);
-    expect(outcome).toBe('skipped_shared_customer');
-  });
-
-  it('leaves a sibling in the pre-teardown window alone', async () => {
-    const { updates, outcome } = await runGuard({
-      mode: 'delete_data',
-      status: 'tearing_down',
-      purgeStarted: false,
+    afterAll(async () => {
+      if (db) await db.end({ timeout: 5 });
     });
 
-    expect(updates).toEqual([]);
-    expect(outcome).toBe('skipped_shared_customer');
-  });
+    // ---- R03/W1: the defect this suite was written for -----------------------
 
-  // ---- R03/W2: both-siblings-skip, one status over ------------------------
+    it('leaves a sibling in the purge grace window alone — it can still Keep my data', async () => {
+      // `purge_scheduled` with `purge_started_at IS NULL` is the MODAL state of a
+      // delete_data offboarding between teardown and `purge_after`. It is exactly
+      // keep-my-data.ts's admission set, so this co-tenant can still cancel and
+      // stay a paying customer. Redacting on its behalf destroys a live billing
+      // contact with nothing recorded against that account.
+      const { updates, outcome } = await runGuard({
+        mode: 'delete_data',
+        status: 'purge_scheduled',
+        purgeStarted: false,
+      });
 
-  it('redacts past a terminally failed sibling — it is past the point of no return', async () => {
-    // `markPurgeTerminalFailure` leaves status='failed' with purge_started_at
-    // set. Such a sibling can never come back, so counting it as a live
-    // co-tenant is the both-siblings-skip defect: the Stripe PII becomes
-    // permanent with no local id left to retry from.
-    const { updates, outcome } = await runGuard({
-      mode: 'delete_data',
-      status: 'failed',
-      purgeStarted: true,
+      expect(updates).toEqual([]);
+      expect(outcome).toBe('skipped_shared_customer');
     });
 
-    expect(updates).toHaveLength(1);
-    expect(outcome).toBe('redacted');
-  });
+    it('leaves a sibling in the pre-teardown window alone', async () => {
+      const { updates, outcome } = await runGuard({
+        mode: 'delete_data',
+        status: 'tearing_down',
+        purgeStarted: false,
+      });
 
-  // ---- the round-1 case the fix must not regress ---------------------------
-
-  it('redacts when a sibling purge has been claimed concurrently', async () => {
-    // AccountOffboardingPurgePoller stamps `purge_started_at` in the claim
-    // transaction, before the outbox row dispatches — so by the time either
-    // sibling's PurgeWorker runs, the other is already marked. This is what
-    // keeps two concurrent purges from both skipping.
-    const { updates, outcome } = await runGuard({
-      mode: 'delete_data',
-      status: 'purge_scheduled',
-      purgeStarted: true,
+      expect(updates).toEqual([]);
+      expect(outcome).toBe('skipped_shared_customer');
     });
 
-    expect(updates).toHaveLength(1);
-    expect(outcome).toBe('redacted');
-  });
+    // ---- R03/W2: both-siblings-skip, one status over ------------------------
 
-  // ---- the escape hatch re-admits a sibling as live ------------------------
+    it('redacts past a terminally failed sibling — it is past the point of no return', async () => {
+      // `markPurgeTerminalFailure` leaves status='failed' with purge_started_at
+      // set. Such a sibling can never come back, so counting it as a live
+      // co-tenant is the both-siblings-skip defect: the Stripe PII becomes
+      // permanent with no local id left to retry from.
+      const { updates, outcome } = await runGuard({
+        mode: 'delete_data',
+        status: 'failed',
+        purgeStarted: true,
+      });
 
-  it('leaves a sibling alone once its purge is cancelled', async () => {
-    // No writer produces `purge_started_at` and `purge_cancelled_at` together
-    // today — keep-my-data.ts gates on `purge_started_at IS NULL`. The clause is
-    // what keeps the guard correct if a second cancellation path is ever added,
-    // and this pins that intent rather than the current reachability.
-    const { updates, outcome } = await runGuard({
-      mode: 'delete_data',
-      status: 'purge_scheduled',
-      purgeStarted: true,
-      purgeCancelled: true,
+      expect(updates).toHaveLength(1);
+      expect(outcome).toBe('redacted');
     });
 
-    expect(updates).toEqual([]);
-    expect(outcome).toBe('skipped_shared_customer');
-  });
+    // ---- the round-1 case the fix must not regress ---------------------------
 
-  // ---- cancel_only is a live co-tenant however far it has run --------------
+    it('redacts when a sibling purge has been claimed concurrently', async () => {
+      // AccountOffboardingPurgePoller stamps `purge_started_at` in the claim
+      // transaction, before the outbox row dispatches — so by the time either
+      // sibling's PurgeWorker runs, the other is already marked. This is what
+      // keeps two concurrent purges from both skipping.
+      const { updates, outcome } = await runGuard({
+        mode: 'delete_data',
+        status: 'purge_scheduled',
+        purgeStarted: true,
+      });
 
-  it('leaves a cancel_only sibling alone — it retains its data and can reactivate', async () => {
-    const { updates, outcome } = await runGuard({
-      mode: 'cancel_only',
-      status: 'tearing_down',
-      purgeStarted: false,
+      expect(updates).toHaveLength(1);
+      expect(outcome).toBe('redacted');
     });
 
-    expect(updates).toEqual([]);
-    expect(outcome).toBe('skipped_shared_customer');
-  });
+    // ---- the escape hatch re-admits a sibling as live ------------------------
 
-  // ---- the ordinary ends of the range -------------------------------------
+    it('leaves a sibling alone once its purge is cancelled', async () => {
+      // No writer produces `purge_started_at` and `purge_cancelled_at` together
+      // today — keep-my-data.ts gates on `purge_started_at IS NULL`. The clause is
+      // what keeps the guard correct if a second cancellation path is ever added,
+      // and this pins that intent rather than the current reachability.
+      const { updates, outcome } = await runGuard({
+        mode: 'delete_data',
+        status: 'purge_scheduled',
+        purgeStarted: true,
+        purgeCancelled: true,
+      });
 
-  it('leaves a sibling with no offboarding at all alone', async () => {
-    const customerId = `cus_guard_${randomUUID().replaceAll('-', '')}`;
-    const purging = await seedAccountSharingCustomer(customerId);
-    const offboardingId = await insertOffboarding({
-      accountId: purging.accountId,
-      mode: 'delete_data',
-      status: 'purge_scheduled',
-      purgeStarted: true,
+      expect(updates).toEqual([]);
+      expect(outcome).toBe('skipped_shared_customer');
     });
-    await seedAccountSharingCustomer(customerId); // a plain paying co-tenant
 
-    const spy = stripeSpy(customerId);
-    const { runStripeCustomerRedactionPurgeStage } = await import('../purge-stages');
-    await runStripeCustomerRedactionPurgeStage(
-      sql(),
-      () => spy.client,
-      purgeRow(offboardingId, purging.accountId, customerId),
-    );
+    // ---- cancel_only is a live co-tenant however far it has run --------------
 
-    expect(spy.updates).toEqual([]);
-    expect(await recordedOutcome(offboardingId)).toBe('skipped_shared_customer');
-  });
+    it('leaves a cancel_only sibling alone — it retains its data and can reactivate', async () => {
+      const { updates, outcome } = await runGuard({
+        mode: 'cancel_only',
+        status: 'tearing_down',
+        purgeStarted: false,
+      });
 
-  it('redacts when no other account shares the customer', async () => {
-    const { updates, outcome } = await runGuard(null);
+      expect(updates).toEqual([]);
+      expect(outcome).toBe('skipped_shared_customer');
+    });
 
-    expect(updates).toHaveLength(1);
-    expect(outcome).toBe('redacted');
-  });
-});
+    // ---- the ordinary ends of the range -------------------------------------
+
+    it('leaves a sibling with no offboarding at all alone', async () => {
+      const customerId = `cus_guard_${randomUUID().replaceAll('-', '')}`;
+      const purging = await seedAccountSharingCustomer(customerId);
+      const offboardingId = await insertOffboarding({
+        accountId: purging.accountId,
+        mode: 'delete_data',
+        status: 'purge_scheduled',
+        purgeStarted: true,
+      });
+      await seedAccountSharingCustomer(customerId); // a plain paying co-tenant
+
+      const spy = stripeSpy(customerId);
+      const { runStripeCustomerRedactionPurgeStage } = await import('../purge-stages');
+      await runStripeCustomerRedactionPurgeStage(
+        sql(),
+        () => spy.client,
+        purgeRow(offboardingId, purging.accountId, customerId),
+      );
+
+      expect(spy.updates).toEqual([]);
+      expect(await recordedOutcome(offboardingId)).toBe('skipped_shared_customer');
+    });
+
+    it('redacts when no other account shares the customer', async () => {
+      const { updates, outcome } = await runGuard(null);
+
+      expect(updates).toHaveLength(1);
+      expect(outcome).toBe('redacted');
+    });
+  },
+);

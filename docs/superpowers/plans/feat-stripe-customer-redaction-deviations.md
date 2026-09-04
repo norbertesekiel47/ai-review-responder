@@ -392,4 +392,29 @@ mutation that tests it, so it catches a fix that does nothing and cannot catch a
 fix that is confidently wrong in a way its author did not think of. That is
 precisely the failure mode D7 documents three times over on this branch.
 
-**Verdict:** ACCEPT, under the owner's explicit no-third-round decision
+**Owner authorization, 2026-09-04.** Asked to choose between approving the
+branch to move forward and commissioning a third red-team round, the owner
+answered: *"I approve to move forward."* That authorizes the `reviewed`
+transition over a red-team sidecar that refuses it, and nothing more — merge
+was NOT authorized by that answer and is still owed a separate decision.
+
+**How the transition is taken, stated so it is not mistaken for a passing
+check.** `transition-state.mjs` demands two proofs and both were failing when
+the approval landed. Only one of them was a real gap:
+
+- **The gate fingerprint** was missing because the gate had been run as
+  `scripts/verify-gate.sh` rather than through
+  `.agents/skills/feature/scripts/verified-gate.sh`, the wrapper that writes it.
+  That was an execution error in the fix pass, not a finding — corrected by
+  re-running the wrapper in `--review` mode.
+- **The red-team sidecar** refuses for the three true reasons above, and it
+  keeps refusing. It is not overridden, silenced, or re-anchored.
+
+So `reviewed` is set with `scripts/feature-state.sh set-phase` — the
+lower-level tool — rather than through `transition-state.mjs`, and this
+paragraph is the record of that bypass. Anyone reading `state.json` and seeing
+`phase: reviewed` must read this entry: the phase was granted by a person, not
+earned by a check.
+
+**Verdict:** ACCEPT, under the owner's explicit no-third-round decision and the
+2026-09-04 approval recorded above
