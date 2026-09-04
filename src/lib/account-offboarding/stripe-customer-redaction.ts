@@ -170,13 +170,18 @@ interface StripeCustomerRedactionErrorDetails {
  * and Sentry. A bounded message plus structured details tells an operator what
  * failed without re-persisting the handle.
  *
+ * NOT EXPORTED. Nothing outside this module constructs or narrows to it, and
+ * `redactStripeCustomer` is the only entry point — an export with no consumer
+ * is surface the next reader has to reason about for nothing. Export it the day
+ * a caller actually branches on `retryable`, and give that branch a test.
+ *
  * NO CODE READS `retryable`, `operation` or `stripeError` today — `PurgeWorker`
  * takes only `err.message`. They exist for the human reading a stored error,
  * not for a branch. An earlier version of this docblock named the worker's
  * failure sink as their consumer, which was simply untrue; if a future caller
  * does branch on `retryable`, that is the moment to give it a test.
  */
-export class StripeCustomerRedactionError extends Error {
+class StripeCustomerRedactionError extends Error {
   readonly retryable: boolean;
   readonly operation: StripeCustomerRedactionOperation;
   readonly stripeError: StripeCustomerRedactionErrorDetails;
@@ -283,9 +288,6 @@ const PAYMENT_METHOD_MAX_PAGES = 10;
  * `redactStripeCustomer`'s own error mapping exists to prevent. Exhausting the
  * page bound is therefore a RETRYABLE throw, never a success — the same answer
  * `cleanupSubscriptionInvoices` gives, 100 lines away, for the same situation.
- *
- * `resource_missing` on an individual detach is success: another attempt in the
- * same retry sequence already removed it.
  */
 async function detachPaymentMethods(
   stripe: StripeCustomerRedactionClient,
@@ -293,41 +295,13 @@ async function detachPaymentMethods(
   offboardingId: string,
 ): Promise<void> {
   for (let pageIndex = 0; pageIndex < PAYMENT_METHOD_MAX_PAGES; pageIndex += 1) {
-    let page: StripePaymentMethodListResult;
-    try {
-      // Each pass re-reads from the START rather than advancing a
-      // `starting_after` cursor, and that is deliberate. Detaching removes a
-      // method from the customer's list, so the anchor a cursor would point at
-      // no longer exists and paging past it would SKIP the methods behind it.
-      // `has_more` is what terminates the sweep.
-      // sequential by construction: each pass depends on the previous detaches landing
-      // react-doctor-disable-next-line react-doctor/async-await-in-loop
-      page = await stripe.paymentMethods.list({
-        customer: customerId,
-        limit: PAYMENT_METHOD_PAGE_SIZE,
-      });
-    } catch (err) {
-      // Only the FIRST page may treat a missing customer as done. On a later
-      // page the customer existed a moment ago, so `resource_missing` means
-      // something changed mid-sweep and the remaining methods are unaccounted
-      // for — that is a retry, not a success.
-      if (isResourceMissing(err) && pageIndex === 0) return;
-      throw redactionError(err, 'list_payment_methods');
-    }
+    // sequential by construction: each pass depends on the previous detaches landing
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const page = await listAttachedPaymentMethods(stripe, customerId, pageIndex);
+    if (!page) return;
 
-    for (const method of page.data) {
-      try {
-        // rate-limited Stripe provider call: sequential to avoid Stripe rate-limit/429 bursts
-        // react-doctor-disable-next-line react-doctor/async-await-in-loop
-        await stripe.paymentMethods.detach(method.id, undefined, {
-          idempotencyKey: `${stripeCustomerRedactionIdempotencyKey(offboardingId)}:pm:${method.id}`,
-        });
-      } catch (err) {
-        if (isResourceMissing(err)) continue;
-        throw redactionError(err, 'detach_payment_method');
-      }
-    }
-
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    await detachPage(stripe, page.data, offboardingId);
     if (!page.has_more) return;
   }
 
@@ -336,6 +310,58 @@ async function detachPaymentMethods(
     operation: 'list_payment_methods',
     stripeError: { code: 'bounded_pagination_exhausted' },
   });
+}
+
+/**
+ * One page of attached methods, or `null` when the Customer is already gone.
+ *
+ * Each pass re-reads from the START rather than advancing a `starting_after`
+ * cursor, and that is deliberate: detaching removes a method from the
+ * customer's list, so the anchor a cursor would point at no longer exists and
+ * paging past it would SKIP the methods behind it. `has_more` terminates.
+ *
+ * Only the FIRST page may treat a missing customer as done. On a later page the
+ * customer existed a moment ago, so `resource_missing` means something changed
+ * mid-sweep and the remaining methods are unaccounted for — a retry, not a
+ * success.
+ */
+async function listAttachedPaymentMethods(
+  stripe: StripeCustomerRedactionClient,
+  customerId: string,
+  pageIndex: number,
+): Promise<StripePaymentMethodListResult | null> {
+  try {
+    return await stripe.paymentMethods.list({
+      customer: customerId,
+      limit: PAYMENT_METHOD_PAGE_SIZE,
+    });
+  } catch (err) {
+    if (isResourceMissing(err) && pageIndex === 0) return null;
+    throw redactionError(err, 'list_payment_methods');
+  }
+}
+
+/**
+ * Detach one page, sequentially. `resource_missing` on an individual detach is
+ * success: another attempt in the same retry sequence already removed it.
+ */
+async function detachPage(
+  stripe: StripeCustomerRedactionClient,
+  methods: readonly StripePaymentMethodLike[],
+  offboardingId: string,
+): Promise<void> {
+  for (const method of methods) {
+    try {
+      // rate-limited Stripe provider call: sequential to avoid Stripe rate-limit/429 bursts
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      await stripe.paymentMethods.detach(method.id, undefined, {
+        idempotencyKey: `${stripeCustomerRedactionIdempotencyKey(offboardingId)}:pm:${method.id}`,
+      });
+    } catch (err) {
+      if (isResourceMissing(err)) continue;
+      throw redactionError(err, 'detach_payment_method');
+    }
+  }
 }
 
 /**

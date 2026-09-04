@@ -434,7 +434,8 @@ export const PURGE_VERIFICATION_TABLES = Object.freeze(
  * throws `missing_purge_verification_sql` for any inventory entry without a
  * branch, so a provider object must never reach the table inventory (D2).
  */
-export interface ProviderDataRetention {
+/** Not exported: only PROVIDER_DATA_RETENTION below is typed by it. */
+interface ProviderDataRetention {
   provider: 'stripe';
   object: string;
   disposition: AccountOffboardingDisposition;
