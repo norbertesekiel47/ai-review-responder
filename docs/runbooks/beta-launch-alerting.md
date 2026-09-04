@@ -94,6 +94,13 @@ email shares the Resend provider with the product.
   `noteUnmappedBlockReasons` (`src/lib/refusals/write.ts`) from guard 4's
   off-arm in `worker/jobs/response-generation/persist.ts`. Added by #1105.
 
+  **UNCHECKED FOR TWO REASONS, NOT ONE — and neither is "nobody got to it".**
+  The rule does not exist in either Sentry project (read back 2026-09-04), AND
+  §4's acceptance drill for it is BLOCKED because the fault it tests cannot be
+  produced by any reachable input. Building the rule alone does not earn the
+  tick: §4's own standard is that a rule is unproven until it has been seen to
+  deliver. Both entries carry the detail.
+
   **RULE ON THE `fault` TAG, NEVER ON `subsystem:refusal_ledger AND
   level:error`.** An earlier draft of this item called it "the only one above
   `warning`" and that was false when written: `withLedgerAttribution`
@@ -411,11 +418,27 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > `subsystem:autonomy_governor`**, and an earlier version of this paragraph said it did:
 > that signal is a `captureException` with no level override, so it defaults to `error`,
 > exactly as this file already states twice elsewhere. Its problem is the ROUTE (email),
-> not the level. Rules 7 and 8 are `error` too, and rule 6's own
-> reasoning above implies the unfiltered production rule `3920752` may already catch
-> `error` captures. **Whether it does is UNVERIFIED here** — it needs a Sentry read-back,
-> which this branch did not perform. Treat the two new signals as owed until that
-> read-back is done, and do not repeat either claim as settled.
+> not the level.
+>
+> **READ BACK FROM THE SENTRY API 2026-09-04, and the answer SPLITS BY PROJECT.** The
+> previous version of this paragraph said the question was unverified. It is now
+> answered, and the two projects differ:
+>
+> - **`repworth-staging` — NO PATH.** `3608329`'s action filter is four `Tagged event`
+>   equalities (`health_alert`, `limit_exceeded`, `stripe_reconciliation`,
+>   `import_consent_analytics`) plus `Issue category = 10`, under `any-short` logic. None
+>   matches `fault:unmapped_block_reason` or `subsystem:refusal_ledger`. **On staging the
+>   two new signals page nobody**, whatever their level. Its name says "high priority
+>   issues" and its filter says otherwise — read the filter, never the name.
+> - **`repworth-production` — CANDIDATE PATH, STILL UNPROVEN.** `3920752` carries NO
+>   action-filter conditions at all; it triggers on New/Existing **high priority issue**
+>   and routes to Email + Discord. An `error`-level capture is Sentry's default high
+>   priority, so rules 7 and 8 are probably already routed there. **`lastTriggered` is
+>   `null` on all three production rules** — no production rule has ever fired, so the
+>   classification remains observed by nobody.
+>
+> So the two signals stay owed, but for a sharper reason than "unverified": staging has a
+> demonstrable gap, and production has an unproven inference.
 
 _Then_ action for all eight: **Send a notification to the Discord integration** →
 your server → the `#repworth-alerts` channel ID from step 0.
@@ -810,6 +833,30 @@ precondition below.
   for every later distinct code — which is exactly the event the per-code latch
   exists to surface. **A single page does not pass this drill. Two do.**
 
+  **BLOCKED 2026-09-04 — THIS DRILL CANNOT BE RUN AS WRITTEN, and the fault is
+  in the drill.** It was written without checking that its own step 1 is
+  performable. Two independent blockers, both verified:
+
+  1. **Step 1 is unreachable.** Every member of `blockReasons` is a compiled
+     string literal in `worker/jobs/response-generation/auto-approval.ts`, and
+     `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is total over
+     `AutoApprovalBlockReason` by `satisfies`. No env var, config value or
+     database row can introduce a code outside that union, so
+     `unmappedBlockReasons` returns empty for every reachable input. Producing an
+     unmapped code needs deliberately-instrumented code deployed to staging.
+  2. **There is nothing to page.** Rules 7 and 8 are unchecked §1 boxes and exist
+     in neither Sentry project, and the register above records that staging's
+     `3608329` would not match them even if an event arrived.
+
+  Closing this needs one of two decisions, and both are new work: give the lane a
+  test-only injection seam, or rescope the drill to prove the ROUTE with a
+  synthetic tagged event and drop the claim that it exercises the lane. **Do not
+  tick this box on the strength of a rule merely existing** — that is the
+  substitution this section's own "Verify, do not assume" rule forbids.
+
+  The steps below are kept as the specification of what a runnable drill must
+  cover, not as instructions anyone can follow today.
+
   On staging, with `REFUSAL_LEDGER_ENABLED=false` and the worker freshly
   restarted (the latch is per PROCESS, so a restart is part of the setup):
 
@@ -826,10 +873,13 @@ precondition below.
      `UNMAPPED_SIGNAL_CAP` distinct codes and confirm one
      `auto_approval_unmapped_block_reason_cap_reached` page, then silence.
 
-  **Also confirm the route.** These are the first `error`-level
-  `subsystem:refusal_ledger` captures with a dedicated rule, and whether the
-  unfiltered production rule already catches them is UNVERIFIED (§1a-do's
-  register). This drill is where that gets settled.
+  **The route half is already answered, by API read-back rather than by this
+  drill (2026-09-04).** Staging's `3608329` filters to four unrelated tags, so it
+  routes these signals NOWHERE; production's `3920752` has no filter and would
+  catch them if Sentry classifies an `error` `captureMessage` as high priority,
+  which no fired event has yet demonstrated. §1a-do's register carries the
+  detail. What remains for a drill is the LANE half — that the signal fires at
+  all, once per distinct code, and stops at the cap.
 
 ## 5. Tunable thresholds (env, all optional — defaults shown)
 
