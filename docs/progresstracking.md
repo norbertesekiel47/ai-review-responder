@@ -5631,3 +5631,56 @@ parent checkout throughout, mid-§4.8 drill with the staging worker stopped, and
 a force-push to `staging` redeploys the full stack. `origin/staging` is still
 `5358bd82` — 25 ahead of and 2 behind `main`, so `--ff-only` aborts and the
 runbook's reset path applies.
+
+---
+
+## #1105 — an unmapped block reason raises its own operator signal (PR #1122, merged 2026-09-04)
+
+Closes the blind spot #1079 left standing by construction. With
+`REFUSAL_LEDGER_ENABLED` off, guard 4 returns before `resolvePolicyGateRefusal`
+can throw — correct, and unchanged. The cost was that an **unmapped** block
+reason then produced nothing at all: the resolver never ran, and
+`wouldRecordRefusal` is `every(mapped && non-null)`, so an unmapped member made
+it false too. An operator could not tell a deliberately-off ledger from a broken
+category map behind one.
+
+`unmappedBlockReasons` (private, `persist.ts`, beside `wouldRecordRefusal`)
+filters with `Object.hasOwn`; `noteUnmappedBlockReasons` (`write.ts`) is a pure
+transport — one structured log line plus a Sentry event at `error`, tagged
+`fault=unmapped_block_reason`, CONSTANT message with the codes in `extra`,
+latched per code and bounded at `UNMAPPED_SIGNAL_CAP` with one overflow marker.
+Two production files, ~76 executable lines. No schema, no dependency, no module.
+
+**Four adversarial passes, 33 findings, and the code was never the weak part.**
+Every P0 was a test or a document:
+
+- The unfiltered argument survived **59/59** — every lane case fed an
+  all-unmapped set, where filtered and unfiltered are the same array.
+- **The `UNMAPPED_SIGNAL_CAP` bound did not exist.** Four documents asserted it;
+  the code tested the Set's size and then added every code. The
+  correctly-bounded mutant survived **31/31**, because every emission path reads
+  that size through a value that saturates at the cap.
+- **An assertion that passed on the clock**: `toContain(String(cap))` with
+  `cap = 8`, satisfied by the ISO timestamp. The mutant died at 07:37 and
+  survived at 08:07.
+- Alert rules 7 and 8 paired a CONSTANT capture title with a first-seen trigger,
+  which would have made the per-code signal invisible after its first fire.
+
+Two locked intake decisions were reversed by findings, on owner sign-off: the
+process-wide latch became per-code and bounded, and the dynamic Sentry message
+became a constant.
+
+**Seven false self-claims shipped and caught**, one more than #1082 — including
+the twin-mention failure committed inside the fix for a finding about twin
+mentions. Lessons in `.claude/reference/lab-notes.md` (2026-09-04).
+
+**Accepted risk, owner-authorized:** V-F3. Its blocking sites were fixed and
+verified; the third twin and the new §4 acceptance drill that followed were not.
+Residual risk is a stale count in one runbook section, not behaviour.
+
+**Merge order:** landed before PR #1121, which must renumber its own `rule 7`.
+
+**Deferred, not done: realigning `staging`.** `origin/staging` is 54 ahead of
+and 1 behind `main`, so `--ff-only` aborts and the runbook's reset path applies —
+but those 54 carry PR #1121's in-flight ride, and a force-push would destroy that
+branch's staging deployment while it is still open. Owner decision pending.
