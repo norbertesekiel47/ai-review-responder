@@ -1,121 +1,167 @@
 # Handoff — feat/stripe-customer-redaction
 
-Rewritten 2026-09-03 during the execute phase. Resume with
-`/feature-resume feat/stripe-customer-redaction`.
+Rewritten 2026-09-03 at the round-2 → fix boundary.
+Resume with `/feature-resume feat/stripe-customer-redaction`.
 
-The run is **ARMED and live** — the earlier deliberate park is over,
-`.feature/intake.json` is back in place, and `arm-check.sh` reports ARMED.
+**You are picking up a branch that is code-complete, gate-green at the previous
+commit, and blocked by three red-team P0s.** Owner decision 2026-09-03: **fix
+all three, re-run the gate, and do NOT run a third red-team round.** The
+two-round cap is spent by design.
 
 ## Artifacts, by path
-
-Read these; this file never restates them.
 
 | What | Path |
 |---|---|
 | Locked intake (audit copy) | `docs/superpowers/plans/feat-stripe-customer-redaction-intake.json` |
 | Arming copy (byte-identical) | `.feature/intake.json` |
-| Plan | `docs/superpowers/plans/feat-stripe-customer-redaction-plan.md` |
-| Deviations (D1, D2, D3 — all ACCEPT) | `docs/superpowers/plans/feat-stripe-customer-redaction-deviations.md` |
+| Plan, D1–D10 | `docs/superpowers/plans/feat-stripe-customer-redaction-plan.md` |
+| Deviations D1–D7, all ACCEPT | `docs/superpowers/plans/feat-stripe-customer-redaction-deviations.md` |
+| Review wave, 5 axes | `docs/reviews/feat-stripe-customer-redaction/` |
+| Red team round 1 | `docs/reviews/red-team/feat-stripe-customer-redaction-17cab2/findings-round-1.md` |
+| **Red team round 2 — read this first** | `docs/reviews/red-team/feat-stripe-customer-redaction-17cab2/findings.md` |
 | Machine state | `.feature/state.json` |
-| Glossary terms coined | `CONTEXT.md` § "Stripe Customer redaction" |
 
-Worktree root: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-stripe-customer-redaction`
+Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-stripe-customer-redaction`
 
 ## State
 
-- Phase `executing`. Fork point is `origin/main` at `b9fb9601` — the branch was
-  **rebased** on resume when it was 3 commits behind, before the review wave
-  opened. It is 0 behind now. Do not rebase again once the review wave starts.
-- Plan review rounds: **3 of 3, exhausted.** Branch review rounds: 0.
-- Surface amendments: **3 of the budget used**, and all three are now actually
-  written into the intake. A fourth needs owner sign-off.
-- Intake hash `5a5b508c…`, identical across both copies and `state.json`.
+- Phase `gate_green`, recorded at `02bb7700`. HEAD has since moved to the
+  round-2 report commit, so **the gate is stale against HEAD** — expected, and
+  the first thing the stop hook will tell you.
+- 0 behind `origin/main`. Working tree clean.
+- Plan review rounds 3 of 3, exhausted. Red-team rounds **2 of 2, exhausted.**
+- Surface amendment 4, at fourteen files, every addition owner-approved.
+- `red-team-status.mjs` reports `OPEN_P0` and blocks the `reviewed` transition.
 
-## What resume found, and fixed
+## THE THREE P0s TO FIX
 
-Recorded because a later session will otherwise re-derive it wrongly.
+Full evidence is in the round-2 `findings.md`. Summarised so you fix the right
+thing, not a paraphrase of it.
 
-1. **The run was parked, not broken.** `.feature/intake.json` had been renamed
-   to `intake.parked.json` on purpose so the stop gate would not block an
-   unrelated session on a gate that was legitimately red before implementation
-   existed. Renaming it back re-armed cleanly.
-2. **`state.json` carried a stale `headSha`** (`bc2cddf3`, two commits behind).
-   Repaired via `feature-state.sh set-phase`.
-3. **Surface amendment 3 was logged but never applied.** See deviation D3. It
-   named `worker/background/pollers/health-alert/__tests__/checks.test.ts`,
-   which no `allowed_edit_surface` entry matched, so promised test title 43 had
-   no legal home. Owner-approved on resume; applied in `0c4c5b8f`.
+### R03 — the guard predicate reopens the hazard D1 exists to prevent
 
-## Tracers
+`worker/jobs/account-offboarding/purge-stages.ts`, the sharing count in
+`runStripeCustomerRedactionPurgeStage`.
 
-| Tracer | State | Commit |
-|---|---|---|
-| T0 — all 45 promised tests, red | done | `80894a30` |
-| T1 — `redactStripeCustomer` + directory row | done | `d64f6b3a` |
-| T2 — purge stage, D5 ordering, D8 lock | done | `50e0d98a` |
-| T3 — classification and disclosure | done | `52f1dc14` |
-| T4 — webhook retry bound | in flight | — |
+The predicate excludes siblings on `ao.mode = 'delete_data' AND ao.status IN
+('purge_scheduled', 'purged')`. It keys on **status**. The property it actually
+needs is "past the point of no return", which this branch's own D5 argument
+names as **`purge_started_at`**.
 
-T3 and T4 were delegated to subagents with disjoint file leases; T0, T1 and T2
-were implemented in the root context. The T1 first-task enforcement spot check
-passed: every changed file matched `allowed_edit_surface`, zero violations.
+Intersect the guard's exclusion set with `keep-my-data.ts:197`'s admission set
+and what remains is `status = 'purge_scheduled' AND purge_started_at IS NULL` —
+the entire purge grace window. Account A's purge therefore redacts a shared
+Stripe Customer while co-tenant B can still click "Keep my data" and stay a
+paying customer, with B's billing contact destroyed and nothing recorded
+against B.
 
-### Two things worth knowing about the promised tests
+Second defect in the same predicate: a terminally-`failed` sibling IS past the
+point of no return and is NOT excluded, so the both-siblings-skip case survives
+one status over.
 
-- **Titles 38 and 43 were GREEN at T0, by design.** Both are pins on premises
-  the design rests on, not behaviour this branch adds. 38 pins that
-  `buildCheckoutSessionParams` passes `customer_email` and never `customer`,
-  which is the entire reason D10's residual is accepted. 43 pins that
-  `checkFailedInboundEvents` filters `status='failed'` only. A change that
-  breaks either premise now fails loudly.
-- **The T0 meta-check (title 37) initially reported its own comment** as a
-  pending test. Fixed in `d64f6b3a`; it now skips comment lines. A false
-  positive there teaches the next reader to ignore the check.
+**The fix, verified by the reviewer to close both:**
 
-## Next actions, in order
+```
+AND ao.purge_started_at IS NOT NULL
+AND ao.purge_cancelled_at IS NULL
+```
 
-1. **Wait for T4, then review its diff.** Never start the gate while it is in
-   flight — the tree is mid-edit and the result is false in either direction.
-2. **Run `bash scripts/verify-gate.sh` once, against the resulting HEAD**, as
-   the final serialized step. Record the SHA the evidence was produced at.
-   `db_touching` is true, so the gate provisions the test database and runs the
-   two edited integration suites; a `SKIP` row on those makes the gate not
-   review-ready.
-3. Deviations read-back, review wave, red team (RISK is high, so the
-   adversarial pass is required and `red-team-status.mjs` fails its absence).
-4. Staging, then PR. Pause for explicit merge approval.
+**It shipped because the predicate has NO BEHAVIOURAL TEST** — only a
+byte-for-byte `tenant-scope-allowlist.ts` string, which tracks the SQL and
+proves nothing about meaning. **Write that test.** It is the finding under the
+finding, and without it the next predicate change is equally unprotected.
 
-## Gate
+Changing this SQL will invalidate BOTH `tenant-scope-allowlist.ts` snippets
+again (they are text-keyed). Re-pin them; `pnpm ci:tenant-scope` names them.
 
-`.feature/gate-status.json` at the time of writing is **stale** — timestamp
-`1788432111`, produced before any implementation existed. Its single failure,
-`feature-surface`, was CORRECT then: the intake named
-`src/lib/account-offboarding/stripe-customer-redaction.ts` and T1 had not yet
-created it. That file exists now. Treat the recorded result as carrying no
-information about the current tree.
+### R01 — `CONTEXT.md` LOCKED terms still assert the repudiated world
 
-**Do not put per-path `pnpm test <dir>` in `verification_commands`.** That was
-deviation D2: the gate runs its `extra-*` rows in parallel, and concurrent
-vitest processes against one Postgres test database interfere. The gate's own
-`pnpm test` row already covers every suite with the right serialization.
-`verification_commands` is deliberately empty.
+`CONTEXT.md:170-171`, § "Stripe Customer redaction".
 
-## Things earlier sessions got wrong
+The fix pass corrected three false sentences in the CODE docblocks and left the
+identical claims standing in the authoritative domain model. All three are now
+contradicted verbatim by the docblocks this branch wrote:
 
-Kept so they are not repeated.
+1. "It runs LATE (D5) … running first would leave a live account whose billing
+   contact is wiped" — D5 is INVERTED; redaction runs FIRST. See deviation D6.
+2. "the stage takes the binding lock ALONE" — false; the disposition append
+   takes an exclusive `account_offboardings` row lock while it is held.
+3. "the receipt and privacy policy are both written from it" — false; neither
+   imports `PROVIDER_DATA_RETENTION`.
 
-1. An earlier session told the owner an acked webhook event stayed
-   "operator-replayable". It did not. Plan round 2 disproved it and D9 changed
-   as a result — the ack writes `stale_ignored`, never `processed`, because
-   `claimInboundEvent` returns `duplicate` for `processed`.
-2. An earlier session estimated the D8 lock as "two call sites, one file" when
-   six transaction-opening callers existed. Placing the lock in
-   `applyStripeSubscriptionStateInternal` restored the small footprint, but the
-   estimate was wrong when the owner decided on it.
-3. This session claimed T4 had finished when it had not — the completion signal
-   watched a stale transcript path. Verify an agent's state with `ListAgents`,
-   not a file size.
+### R02 — four `docs/directory.md` rows made false by this pass
 
-Codex asserted twice that `worker/jobs/account-offboarding` has a pre-existing
-test failure. It does not: the suite is green when run with
-`TEST_DATABASE_POOL_URL` exported. That red was deviation D2, now removed.
+`:1684` "in one predicate" (now two equality arms under UNION ALL); `:1650` the
+stage order, "runs LATE by D5", and "the worker resolves getStripe()" (now a
+factory); `:1267` "(retrieve + update only)" (now also `paymentMethods`);
+`:1725` omits `checkStaleIgnoredInboundEvents`.
+
+`ci:directory-map` checks row COMPLETENESS, never truth. A green gate says
+nothing here.
+
+## The six P1s — adjudicate, do not assume
+
+`red-team-status.mjs` blocks on each until it is fixed or recorded as
+`accepted-risk` with owner authorization. Two are substantive:
+
+- **R04** — `detachPaymentMethods` declares `has_more` and never reads it, while
+  `stripe-invoices.ts` in the same directory paginates and throws
+  `bounded_pagination_exhausted`. Returning `redacted` finalizes the purge and
+  tombstones the id, and `isAlreadyRedacted` then blocks any retry: silent,
+  permanent partial erasure past 100 attached methods.
+- **R05** — round 1's F04 is NOT closed. `beta-launch-alerting.md` is untouched
+  by this branch, and the acked-for-age warning carries
+  `feature:stripe_subscription_out_of_order` with no `subsystem` tag, matching
+  zero rules. The fix pass answered that finding with a different signal (the
+  health probe) and left the runbook gap open.
+- **R06** — the events arm was split in two but the saturation check
+  (`eventsCount >= 5000`) was not, so it miss-fires across `[5000, 9999]`.
+- **R09** — deviation D6's stated reason for dropping the receipt's erasure
+  clause ("the template has no outcome data to condition on") is FALSE:
+  `retained_suppression_count` is already snapshotted into the same
+  `purge_receipt` payload in the same finalize transaction. **The decision may
+  stand; the recorded reason must not.** Correct D6.
+
+## What survived round 2, so you do not re-verify it
+
+- All six mutations this session claimed died, died again independently:
+  `ackedForAge = false`, `.every → .some`, dropping `event_id`, detach ordering,
+  the `resource_missing` continue, and the stage reorder.
+- The D5 inversion HOLDS. Every writer of `purge_cancelled_at` was checked.
+- The ArchivalPoller index fix verified by the reviewer's own `EXPLAIN`.
+- `processed_at` is the right window column for the new probe.
+- A repo-wide hunt for sibling `IN`-list index bugs found none.
+
+## Order of work
+
+1. Fix R03 **with its behavioural test**, then R01, then R02.
+2. Adjudicate the six P1s: fix, or record `accepted-risk` with owner
+   authorization. R04 and R05 deserve fixing.
+3. `bash scripts/verify-gate.sh` — and **export BOTH URLs first**, or the
+   autopilot integration row fails `ECONNREFUSED`:
+   ```
+   export TEST_DATABASE_POOL_URL="$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2- | tr -d '"')"
+   export DATABASE_POOL_URL="$TEST_DATABASE_POOL_URL"
+   ```
+   That gap is a `verify-gate.sh` defect, recorded as a follow-up, NOT a branch
+   defect.
+4. **No third red-team round** — owner decision. Record in the deviations that
+   the round-2 fixes therefore ship without an adversarial pass, because that
+   gap is real and the next reader deserves to know it.
+5. Then the `reviewed` transition, staging, and PR. RISK is high, so this rides
+   `staging` before `main`. Pause for explicit merge approval.
+
+## What this branch has taught, twice
+
+Read deviation D7 before you start. The short version:
+
+- **Three separate defects came from confident comments.** "ONE predicate, not a
+  second query" cost the archival sweep its index. "Every local destruction has
+  committed" was the false premise under D5. "Requests no other lock" was untrue.
+  Prose that reads like a design rule is where the defects have been hiding.
+- **A green gate proves little about test QUALITY.** 14,805 tests passed over a
+  tree where `ackedForAge = false` killed nothing.
+- **Each round's fixes contained the next round's P0.** Round 1's P0 was a stale
+  stub; round 2's P0 is the fix for round 1's guard finding. There is no round 3,
+  so R03's fix will ship unattacked — which is exactly why it needs its
+  behavioural test rather than another allowlist string.
