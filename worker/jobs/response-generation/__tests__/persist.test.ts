@@ -109,9 +109,32 @@ vi.mock('../../../../src/lib/refusals/vocabulary', async (importOriginal) => {
  */
 const noteRefusalLedgerDarkSpy = vi.hoisted(() => vi.fn<() => void>());
 
+/**
+ * The vocabulary-hole note as a SPY, so guard 4's SECOND signal is observable
+ * (#1105).
+ *
+ * A THIRD ORACLE, and it has to be third. The resolver spy is zero for every
+ * input while the flag is off, and the ledger-dark spy is zero for every input
+ * that would not have recorded a row — an unmapped member is exactly such an
+ * input, so neither existing counter can tell "nothing was refused here" from
+ * "a block reason has no category mapping". Only this count separates them.
+ *
+ * WHAT IT DOES NOT PROVE, and the distinction matters: this file mocks the whole
+ * write module, so a real helper could resolve-and-catch behind this stub and
+ * every case here would still pass. `write.test.ts` owns that claim, against the
+ * REAL helper and a resolver spy.
+ */
+const noteUnmappedBlockReasonsSpy = vi.hoisted(() =>
+  vi.fn<(codes: readonly string[]) => void>(),
+);
+
 vi.mock('../../../../src/lib/refusals/write', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/lib/refusals/write')>();
-  return { ...actual, noteRefusalLedgerDark: noteRefusalLedgerDarkSpy };
+  return {
+    ...actual,
+    noteRefusalLedgerDark: noteRefusalLedgerDarkSpy,
+    noteUnmappedBlockReasons: noteUnmappedBlockReasonsSpy,
+  };
 });
 
 import { hasStaleReviewContent, persistResponseAndNotify } from '../persist';
@@ -1183,5 +1206,160 @@ describe('invariants', () => {
       ),
       { numRuns: 120 },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // #1105 — the SECOND signal. An unmapped block reason with the switch off.
+  //
+  // THE HOLE THE PROPERTIES ABOVE CANNOT REACH. Both generate from
+  // `ALL_BLOCK_REASONS`, which IS the compiled union, so every generated member
+  // is mapped by construction and the unmapped arm is unreachable there. These
+  // five cases inject a value that escaped the union — the only fault class that
+  // can produce an unmapped code now that #1080's `_PrecedenceIsTotal` makes the
+  // mapped-but-unranked case a `pnpm typecheck` failure.
+  // -------------------------------------------------------------------------
+
+  /** A member the map holds with a real category — read off the map, never typed out. */
+  const mappedNonNullReason = (): string => {
+    const found = ALL_BLOCK_REASONS.find(
+      (code) =>
+        POLICY_GATE_HELD_REFUSAL_CATEGORIES[
+          code as keyof typeof POLICY_GATE_HELD_REFUSAL_CATEGORIES
+        ] !== null,
+    );
+    if (found === undefined) throw new Error('the category map holds no non-null member');
+    return found;
+  };
+
+  /** A member the map maps to `null` — the veto. One of these kills the whole row (#1003). */
+  const vetoReason = (): string => {
+    const found = ALL_BLOCK_REASONS.find(
+      (code) =>
+        POLICY_GATE_HELD_REFUSAL_CATEGORIES[
+          code as keyof typeof POLICY_GATE_HELD_REFUSAL_CATEGORIES
+        ] === null,
+    );
+    if (found === undefined) throw new Error('the category map holds no null-mapped member');
+    return found;
+  };
+
+  /** One held-draft persist through the lane, with the gate's verdict dictated. */
+  async function persistWithBlockReasons(blockReasons: readonly string[]): Promise<void> {
+    txQueue.length = 0;
+    queuePersistRows();
+    gateOverride.blockReasons = blockReasons;
+    await persistResponseAndNotify(mockSql, baseInput());
+  }
+
+  it('invariants: with the ledger off, an unmapped block reason signals the vocabulary hole and raises no ledger-dark warning', async () => {
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    await persistWithBlockReasons(['ghost_reason']);
+
+    // THE SIGNAL, receiving the FILTERED subset. The CALL SITE owns the
+    // membership test (`unmappedBlockReasons`) and hands the helper only codes
+    // the map does not hold; the helper is a pure transport and re-tests
+    // nothing. A single all-unmapped fixture cannot tell filtered from
+    // unfiltered — they are equal here — which is exactly what the mixed case
+    // below has to carry.
+    expect(noteUnmappedBlockReasonsSpy).toHaveBeenCalledTimes(1);
+    expect(noteUnmappedBlockReasonsSpy.mock.calls[0]![0]).toEqual(['ghost_reason']);
+    // AND NOT the ledger-dark line. An unmapped member would have THROWN rather
+    // than written, so no Refusal row was lost and there is no ledger GAP to
+    // claim — `writeRefusalEvents`' contract forbids warning there.
+    expect(noteRefusalLedgerDarkSpy, 'no gap, so no ledger-dark line').not.toHaveBeenCalled();
+    // Containment is untouched: the throwing resolver stays unreached.
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+  });
+
+  it('invariants: with the ledger off, a fully mapped held decision warns ledger-dark and signals no vocabulary hole', async () => {
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    await persistWithBlockReasons([mappedNonNullReason()]);
+
+    expect(noteRefusalLedgerDarkSpy, 'a real gap warns').toHaveBeenCalledTimes(1);
+    expect(noteUnmappedBlockReasonsSpy, 'and no vocabulary hole exists').not.toHaveBeenCalled();
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+  });
+
+  it('invariants: with the ledger off, a veto-only decision raises neither signal', async () => {
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    // A `null`-mapped member is MAPPED — so it is not a vocabulary hole — and it
+    // vetoes the row — so it is not a ledger gap either. Silence is the correct
+    // answer, and it is the answer both predicates must agree on.
+    await persistWithBlockReasons([vetoReason()]);
+
+    expect(noteRefusalLedgerDarkSpy).not.toHaveBeenCalled();
+    expect(noteUnmappedBlockReasonsSpy).not.toHaveBeenCalled();
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+  });
+
+  it('invariants: with the ledger off, a mixed mapped and unmapped decision signals the vocabulary hole only', async () => {
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    // THE MUTUAL EXCLUSIVITY, and it is the reason guard 4's off-arm uses two
+    // independent `if`s rather than an `if`/`else`. An unmapped member makes
+    // `wouldRecordRefusal` false on its own, so the exclusivity is a property of
+    // the predicates and not of the control flow. This case is what asserts it,
+    // which is what lets the `else` stay deleted.
+    //
+    // IT IS ALSO THE ONLY DISCRIMINATING INPUT FOR THE FILTER, AND ASSERTING
+    // THE CALL COUNT ALONE LEFT THAT UNTESTED — red team's round 1 P0. Passing
+    // `autoDecision.blockReasons` verbatim instead of the filtered subset
+    // survived 59/59 cases: every OTHER case here feeds an all-unmapped set,
+    // where filtered and unfiltered are the same array. Only a fixture that
+    // MIXES a mapped member with an unmapped one can tell them apart, and only
+    // an assertion on the ARGUMENT can read the difference.
+    //
+    // The consequence of that regression is not cosmetic: the operator's Sentry
+    // event and the log line would name a healthy, mapped code as a vocabulary
+    // hole, and `write.ts`'s "already-unmapped codes" contract would be a
+    // comment nothing enforced.
+    const mapped = mappedNonNullReason();
+    await persistWithBlockReasons([mapped, 'ghost_reason']);
+
+    expect(noteUnmappedBlockReasonsSpy).toHaveBeenCalledTimes(1);
+    const handed = noteUnmappedBlockReasonsSpy.mock.calls[0]![0];
+    expect(handed, 'the mapped member is filtered OUT').toEqual(['ghost_reason']);
+    expect(handed, 'and specifically does not carry the healthy code').not.toContain(mapped);
+    expect(noteRefusalLedgerDarkSpy).not.toHaveBeenCalled();
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+  });
+
+  it('invariants: with the ledger off, an inherited object key is treated as an unmapped block reason', async () => {
+    // `Object.hasOwn`, NOT `in`. `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is an
+    // ordinary object, so `'toString'` resolves through `Object.prototype` — an
+    // `in` test, or a bare truthiness check on the lookup, calls it MAPPED and
+    // stays silent on a genuine escapee. An ordinary unknown string cannot tell
+    // those implementations from the correct one; this is the only case that
+    // can, and it belongs here because `unmappedBlockReasons` lives here.
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    await persistWithBlockReasons(['toString']);
+
+    expect(noteUnmappedBlockReasonsSpy, 'an inherited key is not a mapping').toHaveBeenCalledTimes(
+      1,
+    );
+    expect(noteUnmappedBlockReasonsSpy.mock.calls[0]![0]).toEqual(['toString']);
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+  });
+
+  it('invariants: with the ledger on, an unmapped block reason invokes no vocabulary-hole signal', async () => {
+    // THE ON ARM IS ALREADY COVERED, and this branch may not soften it. With the
+    // switch on, `resolvePolicyGateRefusal` runs, throws
+    // `unmapped_auto_approval_block_reason`, and `withLedgerAttribution` raises
+    // the Sentry issue and RETHROWS — aborting the response persist. That is
+    // #1079's contract. The new signal belongs to the off-arm only, and a
+    // version of it that also fired here would double-report the same fault.
+    delete process.env[REFUSAL_LEDGER_FLAG];
+
+    await expect(persistWithBlockReasons(['ghost_reason'])).rejects.toThrow(
+      /unmapped_auto_approval_block_reason/,
+    );
+
+    expect(resolvePolicyGateRefusalSpy, 'the resolver runs on the on-arm').toHaveBeenCalledTimes(1);
+    expect(noteUnmappedBlockReasonsSpy, 'the off-arm signal stays off').not.toHaveBeenCalled();
+    expect(noteRefusalLedgerDarkSpy).not.toHaveBeenCalled();
   });
 });

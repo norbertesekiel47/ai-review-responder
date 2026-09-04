@@ -1,0 +1,266 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1105-unmapped-block-reason-signal-fresh-f12f6b",
+  "branch": "fix-1105-unmapped-block-reason-signal",
+  "fork_sha": "42078f3913ef0fa3fcaca70d62a8eee6684bf4c9",
+  "merge_base_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
+  "head_sha": "eb2b51de8ce633ac262ea535419890d0e8daa7d2",
+  "intake_sha256": "66e88227241c8f2672977d0d221afe9c8ad870cce7713c3cd7854deddbd3b326",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-04T07:45:06.348295Z",
+  "inventory": [
+    {
+      "id": "M1",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:577",
+      "outcome": "killed"
+    },
+    {
+      "id": "M2",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:579",
+      "outcome": "killed"
+    },
+    {
+      "id": "M3",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:578",
+      "outcome": "killed"
+    },
+    {
+      "id": "M4",
+      "test": "noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap",
+      "file": "src/lib/refusals/write.ts:618",
+      "outcome": "killed"
+    },
+    {
+      "id": "M5",
+      "test": "noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap",
+      "file": "src/lib/refusals/write.ts:615",
+      "outcome": "inconclusive",
+      "reason": "for (const code of reportable) add -> of fresh survived 31/31 in write.test.ts and there is no other covering test. Proven emission-equivalent for duplicate-free input (after any overflowing call the correct code sits at size==CAP so room==0 forever and both paths are silent), so no Sentry or logger assertion can observe it; NOT proven behaviour-preserving, since it changes the realised Set bound from CAP to CAP-1+|call|. Plausibly-equivalent, therefore inconclusive/oracle rather than equivalent. Raised as F4.",
+      "inconclusive_class": "oracle"
+    },
+    {
+      "id": "M6",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:581",
+      "outcome": "killed"
+    },
+    {
+      "id": "M7",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:577",
+      "outcome": "equivalent",
+      "reason": "Proof the mutant preserves behaviour: the only writer to signalledUnmappedCodes is the loop over reportable, whose length is at most room = CAP - size, so each call raises size to at most size + (CAP - size) = CAP. With size starting at 0 this gives size <= CAP by induction, hence CAP - size >= 0 always and Math.max(0, ...) can never clamp. Removing it changes no reachable value."
+    },
+    {
+      "id": "M8",
+      "test": "a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons",
+      "file": "src/lib/refusals/write.ts:564",
+      "outcome": "killed"
+    },
+    {
+      "id": "M9",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:641",
+      "outcome": "killed"
+    },
+    {
+      "id": "M12",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:658",
+      "outcome": "killed"
+    },
+    {
+      "id": "M13",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:644",
+      "outcome": "killed"
+    },
+    {
+      "id": "M16",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:655",
+      "outcome": "killed"
+    },
+    {
+      "id": "M17",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:654",
+      "outcome": "killed"
+    },
+    {
+      "id": "M18",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:646",
+      "outcome": "survived-confirmed-P0",
+      "reason": "cap: UNMAPPED_SIGNAL_CAP -> cap: 0 in the overflow logger.warn payload. Killed on the first run (clock at 2026-09-04T07:37:0x, a timestamp containing no digit 8) and SURVIVED on a -t-scoped re-run of the same single case at a later instant. The only assertion on that payload is toContain(String(cap)) over the JSON-stringified call, which the logger own ISO timestamp satisfies. Semantically meaningful, executed, and not equivalent.",
+      "finding_id": "F1"
+    },
+    {
+      "id": "M19",
+      "test": "noteUnmappedBlockReasons reports each distinct code once and repeats none",
+      "file": "src/lib/refusals/write.ts:569",
+      "outcome": "killed"
+    },
+    {
+      "id": "M20",
+      "test": "noteUnmappedBlockReasons reports each distinct code once and repeats none",
+      "file": "src/lib/refusals/write.ts:568",
+      "outcome": "killed"
+    },
+    {
+      "id": "M21",
+      "test": "noteUnmappedBlockReasons captures one error-level Sentry event naming every unmapped code",
+      "file": "src/lib/refusals/write.ts:608",
+      "outcome": "killed"
+    },
+    {
+      "id": "M23",
+      "test": "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
+      "file": "src/lib/refusals/write.ts:594",
+      "outcome": "killed"
+    },
+    {
+      "id": "M10",
+      "test": "invariants: with the ledger off, an inherited object key is treated as an unmapped block reason",
+      "file": "worker/jobs/response-generation/persist.ts:809",
+      "outcome": "killed"
+    },
+    {
+      "id": "M11",
+      "test": "invariants: with the ledger off, a mixed mapped and unmapped decision signals the vocabulary hole only",
+      "file": "worker/jobs/response-generation/persist.ts:965",
+      "outcome": "killed"
+    },
+    {
+      "id": "M25",
+      "test": "invariants: with the ledger off, a fully mapped held decision warns ledger-dark and signals no vocabulary hole",
+      "file": "worker/jobs/response-generation/persist.ts:965",
+      "outcome": "killed"
+    },
+    {
+      "id": "S1",
+      "test": "a throwing logger does not stop noteUnmappedBlockReasons from capturing",
+      "file": "src/lib/refusals/write.ts:593",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "S2",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:643",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "X1",
+      "test": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "A live-DB covering suite of write.ts by import, but it exercises no #1105 symbol (noteUnmappedBlockReasons, UNMAPPED_SIGNAL_CAP and the two latches appear in four files repo-wide and this is not one of them) and the branch diff does not touch it."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P0",
+      "title": "A proven-fake assertion: the overflow log line cap value is asserted by the wall clock",
+      "at": "src/lib/refusals/__tests__/write.test.ts:1032",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "toContain(String(cap)) over the JSON-stringified console.warn call is satisfied by the logger own ISO timestamp. The identical mutant (cap: 0) was killed at 07:37:0x and survived on a re-run at another instant, so the oracle is the system clock. The log line EXISTENCE has a real oracle (toHaveLength(1) kills M13); its payload has none. Replacement: JSON.parse the line and toMatchObject({ cap, flag })."
+    },
+    {
+      "id": "F2",
+      "severity": "P0",
+      "title": "Runbook: \"Rule 6 is the one still genuinely owed\" is false at HEAD and contradicted eleven lines below by the same commit",
+      "at": "docs/runbooks/beta-launch-alerting.md:371",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "This branch added rules 7 and 8 and, at line 383 of the same file in the same commit, recorded that both also have no rule in either project. Three rules are owed at HEAD, not one. The edit that changed the register left the ownership sentence stale."
+    },
+    {
+      "id": "F3",
+      "severity": "P1",
+      "title": "The overflow marker fires on ONE distinct code when a call carries duplicates, and permanently burns the paging latch",
+      "at": "src/lib/refusals/write.ts:579",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "overflowed = fresh.length > room compares ARRAY ENTRIES against SET SLOTS, and fresh is deliberately not de-duplicated. Reproduced with a journaled probe: nine copies of one unmapped code emit both the report (naming the code eight times) and auto_approval_unmapped_block_reason_cap_reached (runbook rule 8, a first-seen error page documented as \">CAP DISTINCT codes\"), and the once-per-process latch then suppresses the genuine cap-reached page (probe measured 0 captures at the real cap). Not reachable from the sole production caller today because compactBlockReasons de-duplicates, which is why this is P1; the module docblock and docs/directory.md both declare duplicate input supported and meaningful. One-line fix: de-duplicate fresh, or compare new Set(fresh).size > room."
+    },
+    {
+      "id": "F4",
+      "severity": "P1",
+      "title": "The Set-bound half of the round-2 fix has no oracle",
+      "at": "src/lib/refusals/write.ts:615",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "Mutant M5 restores exactly the round-2 P0 (add every fresh code rather than only the reported ones) and survives 31/31 with no other covering test. Four documents assert the bound; the branch own new test comment concedes the gap (\"If the Set had grown past cap this would still pass\"). Minimal fix: a test-only size reader beside resetUnmappedBlockReasonSignalForTests, asserted toBe(cap) after the cap+3 call."
+    },
+    {
+      "id": "F5",
+      "severity": "P1",
+      "title": "The un-ruled-signal register applies a warning-level premise to two error-level signals",
+      "at": "docs/runbooks/beta-launch-alerting.md:383",
+      "duty": 5,
+      "disposition": "open",
+      "reason": "The register lists both new error-level fault signals as having no rule in either project, but its own rule-6 reasoning six lines above is that a WARNING captureMessage does not classify as high priority and therefore escapes the unfiltered production rule 3920752 - which implies an ERROR capture does not escape it. Either the two new signals are already routed by 3920752 or the rule-6 premise is wrong. Needs a Sentry read-back, not a guess."
+    },
+    {
+      "id": "F6",
+      "severity": "P2",
+      "title": "Operator instruction omits the cap-boundary reason a code can be missing from extra.codes",
+      "at": "docs/runbooks/beta-launch-alerting.md:116",
+      "duty": 5,
+      "disposition": "open",
+      "reason": "A code can also be dropped by the cap in the SAME call and named nowhere, since the overflow marker names no code."
+    },
+    {
+      "id": "F7",
+      "severity": "P2",
+      "title": "Deviations D13 asserts these fixes carry no adversarial round behind them",
+      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:266",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "False once this pass lands. The two-round cap is a property of a gitignored per-pass journal, not of the branch."
+    },
+    {
+      "id": "F8",
+      "severity": "P2",
+      "title": "The overflow LOG message is a copied literal where its Sentry twin is an exported constant",
+      "at": "src/lib/refusals/__tests__/write.test.ts:1029",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "Contrary to the module own stated discipline at write.ts:376-383. Fails loud rather than silently, hence P2."
+    },
+    {
+      "id": "F9",
+      "severity": "P2",
+      "title": "\"Rules 1-3 fire on a new issue / rules 4,5,6 are the odd ones\" is no longer exhaustive",
+      "at": "docs/runbooks/beta-launch-alerting.md:393",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "Rules 7 and 8 also fire on a new issue. Incomplete, not false."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 24,
+    "killed": 18,
+    "survived_confirmed_p0": 1,
+    "equivalent": 1,
+    "inconclusive": 1,
+    "skipped_budget": 2,
+    "excluded": 1,
+    "findings_total": 9,
+    "p0_open": 2,
+    "p1_open": 3,
+    "p2_open": 4,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

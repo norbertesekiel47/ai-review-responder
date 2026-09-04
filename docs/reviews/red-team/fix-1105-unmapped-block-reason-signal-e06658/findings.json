@@ -1,0 +1,447 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1105-unmapped-block-reason-signal-e06658",
+  "branch": "fix/1105-unmapped-block-reason-signal",
+  "fork_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
+  "merge_base_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
+  "head_sha": "178ae7816abbfddcfdb83313e61b156f1d08e577",
+  "intake_sha256": "40f2cc8890b4e75c53e85165b57bc6da0b64c59795b377132fcdd7a429ded75a",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-04T08:39:06Z",
+  "inventory": [
+    {
+      "id": "V-01",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:682",
+      "outcome": "killed",
+      "reason": "The fresh pass's P0 mutant re-applied: `cap: UNMAPPED_SIGNAL_CAP` -> `cap: 0` in noteUnmappedOverflow's logger.warn payload. Run THREE times at 08:06:45Z, 08:06:46Z and 08:06:46Z: FAILED all three, every time on `AssertionError: the cap is carried as a NUMBER, by name: expected +0 to be 8` at write.test.ts:1042. Deterministic - the assertion now JSON.parses the line and reads data.cap as a number, so no other field of the serialized line can stand in for the value. See X-01 for the same-instant control that proves the OLD assertion still survives this mutant."
+    },
+    {
+      "id": "V-02",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:681",
+      "outcome": "killed",
+      "reason": "`flag: REFUSAL_LEDGER_FLAG` -> `flag: 'NOT_THE_FLAG'` in the same overflow log payload. FAILED on `expected 'NOT_THE_FLAG' to be 'REFUSAL_LEDGER_ENABLED'`. The second field the rewritten assertion added is load-bearing too, not decoration."
+    },
+    {
+      "id": "V-03",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/write.ts:679-687",
+      "outcome": "killed",
+      "reason": "Round 2's P0 mutant re-applied: the whole `try { logger.warn(...) } catch {}` block deleted from noteUnmappedOverflow. Round 2: survived 29/29. Now FAILS on `the marker reached the durable transport: expected [] to have a length of 1`. R2-03 verified fixed."
+    },
+    {
+      "id": "V-04",
+      "test": "noteUnmappedBlockReasons counts DISTINCT codes, not repeats, against the cap",
+      "file": "src/lib/refusals/write.ts:604",
+      "outcome": "killed",
+      "reason": "The de-duplication removed: `[...new Set(unmapped.filter(...))]` -> `unmapped.filter(...)`, the exact pre-fix form. FAILS on `one report, no overflow marker: expected \"vi.fn()\" to be called 1 times, but got 2 times` - under the mutant, cap+1 repeats of ONE code again trip the overflow page, and the new case sees it. FP-3 verified fixed and pinned."
+    },
+    {
+      "id": "V-05",
+      "test": "noteUnmappedBlockReasons counts DISTINCT codes, not repeats, against the cap",
+      "file": "src/lib/refusals/write.ts:412",
+      "outcome": "killed",
+      "reason": "THE ORACLE ITSELF UNDER TEST: `unmappedSignalledCodeCountForTests()` made to `return UNMAPPED_SIGNAL_CAP` instead of the Set's size. FAILS on `one distinct code: expected 8 to be 1`. The new test-only accessor is pinned by TWO different expected values (cap in the bounds case, 1 here), so it cannot be a constant that satisfies its own assertion."
+    },
+    {
+      "id": "V-06",
+      "test": "noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap",
+      "file": "src/lib/refusals/write.ts:651",
+      "outcome": "killed",
+      "reason": "The fresh pass's 31/31 survivor re-applied: `for (const code of reportable)` -> `for (const code of fresh)`. FAILS on `the latch never exceeds the cap: expected 11 to be 8` at write.test.ts:1084 - killed by the new boundedness assertion and by nothing else in the case. FP-4 verified fixed."
+    },
+    {
+      "id": "V-07",
+      "test": "noteUnmappedBlockReasons preserves unmapped codes in input order",
+      "file": "src/lib/refusals/write.ts:629",
+      "outcome": "killed",
+      "reason": "`reportable.join(', ')` -> `[...reportable].sort().join(', ')`. FAILS on `expected { Object (level, tags, ...) } to match object { extra: { codes: 'zeta, alpha' } }`. Shortening the expectation from 'zeta, alpha, zeta' to 'zeta, alpha' did NOT cost the sort-killing power: zeta precedes alpha, so alphabetical output still reverses them."
+    },
+    {
+      "id": "V-08",
+      "test": "a synchronously throwing Sentry buys a cooldown on the overflow marker too",
+      "file": "src/lib/refusals/write.ts:699",
+      "outcome": "killed",
+      "reason": "Round 2's inconclusive/oracle row resolved: `nextUnmappedAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS` deleted from noteUnmappedOverflow's Sentry catch. Round 2: survived 29/29 on a branch no case executed. Now FAILS on `the window suppresses: expected \"vi.fn()\" to be called 1 times, but got 2 times`. R2-04 verified fixed; the branch is now both executed and asserted."
+    },
+    {
+      "id": "X-01",
+      "test": "CONTROL: the SUPERSEDED assertion against the V-01 mutant",
+      "file": "src/lib/refusals/__tests__/write.test.ts:1039-1043",
+      "outcome": "excluded",
+      "reason": "Not a HEAD candidate and deliberately not scored as a survivor. With the V-01 `cap: 0` mutant STILL APPLIED, the assertion block was rewound to the superseded `expect(JSON.stringify(overflowLines[0])).toContain(String(cap))` and re-run at 08:07:29Z: PASSED. Same mutant, same minute as the three runs that killed it under HEAD's assertion. Every run in this pass fell inside UTC hour 08, so the ISO timestamp carried the digit 8 throughout - precisely the instants the old assertion was blind at, and the ones the new assertion kills at. That is the strongest available demonstration that the ASSERTION, not the clock, is what changed."
+    },
+    {
+      "id": "X-02",
+      "test": "the VALUE of UNMAPPED_OVERFLOW_LOG_MESSAGE",
+      "file": "src/lib/refusals/write.ts:395",
+      "outcome": "excluded",
+      "reason": "Not mutation-testable by construction: write.test.ts:1029 filters console lines by the same exported symbol write.ts:680 emits, so any change to the constant's value moves both sides together and no run can discriminate. Recorded as finding V-F5 (P2, duty 2) rather than scored, because scoring it would manufacture an inconclusive for a repository convention that is deliberate and already applied to UNMAPPED_BLOCK_REASON_MESSAGE."
+    },
+    {
+      "id": "X-03",
+      "test": "not.toHaveBeenCalled() -> toHaveBeenCalledTimes(0)",
+      "file": "src/lib/refusals/__tests__/write.test.ts:1089",
+      "outcome": "excluded",
+      "reason": "A test-side matcher rewrite with no production line behind it; the two Vitest matchers are exactly equivalent for a mock with zero calls. Nothing to mutate."
+    },
+    {
+      "id": "X-04",
+      "test": "the surface cleared by rounds 1 and 2 and by the fresh pass at eb2b51de (persist.ts, persist.test.ts, and the pre-existing write.ts / write.test.ts cases)",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "outcome": "excluded",
+      "reason": "Out of scope by instruction: this is a VERIFICATION round scoped to `git diff eb2b51de..e88eaaec`. Those hunks are unchanged since the fresh pass measured them, their findings are recorded fixed below, and re-mutating cleared negative results would be over-reviewing."
+    },
+    {
+      "id": "X-05",
+      "test": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts (live-DB)",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Unchanged in eb2b51de..e88eaaec and excluded on the same grounds every prior round recorded: it exercises the ledger write path for real but asserts none of the Sentry or logger transports the changed hunks touch."
+    },
+    {
+      "id": "X-06",
+      "test": "resolvePolicyGateRefusal's duplicates-kept contract",
+      "file": "src/lib/refusals/vocabulary.ts:769",
+      "outcome": "excluded",
+      "reason": "VERIFIED STATICALLY, NOT MUTATED. vocabulary.ts is untouched by 313a3e01..e88eaaec and round 2 forbids opening a front against unchanged code. Static verification: `allRefusalCodes: [first, ...rest]` returns the input verbatim with no sort and no Set, so the contrast write.ts:596-603 now relies on ('the rest of the lane keeps them on purpose') is TRUE at HEAD. Its ORACLE gap is recorded as V-F6 (P2, duty 4)."
+    },
+    {
+      "id": "X-07",
+      "test": "the doc hunks in eb2b51de..e88eaaec (beta-launch-alerting.md, the deviations log, both intake copies)",
+      "file": "docs/runbooks/beta-launch-alerting.md",
+      "outcome": "excluded",
+      "reason": "Prose with no executable line to mutate. Audited under duty 3 (claim re-resolution against HEAD) and duty 5 (six-facet alert-path comparison) instead; that audit produced V-F1, V-F2, V-F3 and V-F4."
+    }
+  ],
+  "findings": [
+    {
+      "id": "V-F1",
+      "severity": "P0",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:410",
+      "disposition": "fixed",
+      "title": "The new register qualification calls subsystem:autonomy_governor a warning signal; it is a captureException at error, and the same runbook says so twice elsewhere",
+      "reason": "Fixed, and verified at 36ecc67c by the close-out pass. The register qualification (beta-launch-alerting.md:407-418) now names `subsystem:refusal_ledger` as the `warning` case and states explicitly that the premise does NOT apply to `subsystem:autonomy_governor`, which is a `captureException` with no level override and so defaults to `error`; its problem is the email ROUTE. Independently re-derived: `worker/background/schedulers/AutonomyGovernorScheduler.ts:116` is `Sentry.captureException(error, { tags: { subsystem: 'autonomy_governor' } })` with no `level` key, and the same runbook says `error` at :162 (\"Unlike the row above this one is a `captureException`, so it defaults to level `error`\") and at :400 (\"a `captureException`, so today it reaches issue owners by email\"). The paragraph now agrees with both. The `at` line is re-resolved from :401 at e88eaaec to :410 at HEAD."
+    },
+    {
+      "id": "V-F2",
+      "severity": "P1",
+      "duty": 3,
+      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:322",
+      "disposition": "fixed",
+      "title": "D14's 'Promoted to lab notes.' is false at HEAD - the identical claim this branch caught and corrected one commit earlier",
+      "reason": "Fixed, and verified at 36ecc67c by the close-out pass. D14:322 now reads \"It is queued for lab notes at step 8, along with the other durable lessons\", and :324-332 records that the present-tense claim was itself the next defect and that the step 8 checklist is the single owner. Independently re-derived at HEAD: `git diff --stat 313a3e01..36ecc67c -- .claude/reference/lab-notes.md` is EMPTY, so the branch has not touched lab-notes. Whole-branch-diff sweep for surviving twins (`git diff 313a3e01..HEAD | grep '^+' | grep -i \"lab.notes\"`) returns, outside the red-team sidecar itself, only: deviations D6:112 \"it is promoted to lab notes at step 8\" (names step 8, asserts nothing done), deviations D14:322 \"queued ... at step 8\", deviations :325 quoting the defect it corrects, `arch-review-log.md:1663` \"Promotion to lab notes happens at step 8, and this row claimed it had already happened\", and `docs/reviews/fix-1105-.../triage.md:31`, a triage row recording the finding. No live claim asserts the promotion is done."
+    },
+    {
+      "id": "V-F3",
+      "severity": "P1",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:427",
+      "disposition": "accepted-risk",
+      "title": "Rules 7 and 8 pair a CONSTANT capture title with a first-seen trigger - the combination the same runbook says fires once, ever, then stays silent through the repetition that is the signal",
+      "reason": "REOPENED by the close-out verification at 36ecc67c: the disposition `fixed` was not sustained by the tree. Only the TABLE moved. Rows 7 and 8 (beta-launch-alerting.md:307-308) now read \"**every event**\", and the §1a-do cadence item (:129-138) carries the corrected reasoning — that half is genuinely done. But the line V-F3 was RECORDED AT was never touched. At e88eaaec that line was :414; the identical text sits at :427 at HEAD and still reads \"They are **first seen**, unlike rules 4-6: the per-code latch and the distinct-code cap already bound them to a handful of events per worker process, so a repeat trigger would delay a page for a fault that fires at most once per code\" — verbatim the reasoning the fix commit itself declared backwards. Worse, :433 now reads \"Rules 1-3 and 7-8 fire on a new issue\", which was TRUE of the table at e88eaaec and the table edit made FALSE: it is a live, operator-actionable contradiction inside one runbook section, and it is the sentence FP-9's fix produced. Verified by `sed -n '416,440p'` at HEAD and by `git show e88eaaec:docs/runbooks/beta-launch-alerting.md | sed -n '405,425p'`, which places the untouched paragraph at the finding's own recorded line. This is the same twin-mention failure V-F2 records, committed inside the fix for V-F3. To close it, :427 and :433 must be brought into agreement with rows 7 and 8.\n\nOWNER-AUTHORIZED ACCEPTED RISK. The two blocking sites were fixed at 5c8498b1 and INDEPENDENTLY VERIFIED by the close-out pass (rows 7/8, the :427 paragraph, the :437 enumeration, and the reverse-direction \"other five\" catch). That pass then found a THIRD twin - \"Do §4 after the six rules above\", where eight exist - plus a stale \"step and rule numbers must not collide\" invariant this branch broke. Both were fixed at 95802ca6, together with the §4 acceptance drill rules 7 and 8 shipped without. Those last fixes are NOT independently verified, which is why this is accepted-risk rather than fixed: three consecutive attempts at this one finding each left a twin, so an unverified fourth claim of completeness would repeat the pattern the finding is about. The residual risk is a stale COUNT or cross-reference in one runbook section. No production code is implicated - it has been unchanged since f0e44312 and is covered by 91 tests, a green 27-row gate and a verified live-DB lane.",
+      "authorization": "AUTH-1"
+    },
+    {
+      "id": "V-F4",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:383",
+      "disposition": "fixed",
+      "title": "'the register eleven lines below' resolves to 10-15 source lines depending on the anchor",
+      "reason": "Fixed, and verified at 36ecc67c by the close-out pass. The cross-reference (beta-launch-alerting.md:382-385) no longer cites a line offset: it reads \"against the register further down this section (cited by name, not by line offset — the first version said 'eleven lines below' and was already wrong)\". `grep -n \"lines below\" docs/runbooks/beta-launch-alerting.md` at HEAD returns only that self-describing quotation of the retired form. The section contains exactly one register (the \"Four §1 signals have no DEDICATED rule in either project\" block at :398-418), so the descriptive reference resolves unambiguously. Noted, not raised: the reference is descriptive rather than a quoted heading, and :156 (\"the cap paragraph four lines above it\") is a separate pre-existing offset citation outside this finding."
+    },
+    {
+      "id": "V-F5",
+      "severity": "P2",
+      "duty": 2,
+      "at": "src/lib/refusals/__tests__/write.test.ts:1029",
+      "disposition": "open",
+      "title": "The overflow log line is matched through the same exported constant the production line emits, so the message VALUE has no oracle",
+      "reason": "FP-8 asked for the copied literal to become an exported constant, and it did (write.ts:395). The cost is that write.test.ts:1029 now filters consoleWarn calls by `refusalWrite.UNMAPPED_OVERFLOW_LOG_MESSAGE` while write.ts:680 emits that same symbol - a change to the constant's value moves both sides together and no run in this suite can see it. Recorded, NOT fixed: it is the module's stated discipline (write.ts:376-386), the identical shape already applies to UNMAPPED_BLOCK_REASON_MESSAGE which rounds 1 and 2 both cleared, and pinning the literal would break the assertion on every legitimate retune. What is genuinely unasserted is only the human-readable prose of one log line; its behavioural contract - the line EXISTS and carries cap and flag - is pinned by V-01, V-02 and V-03."
+    },
+    {
+      "id": "V-F6",
+      "severity": "P2",
+      "duty": 4,
+      "at": "src/lib/refusals/__tests__/vocabulary.test.ts:592",
+      "disposition": "open",
+      "title": "Sibling sweep: the 'resolvePolicyGateRefusal still keeps duplicates' half of the new de-duplication contrast has no oracle",
+      "reason": "write.ts:596-603 and deviations D14:334-336 both now rest on a contrast - duplicates collapse at the noteUnmappedBlockReasons latch seam and ONLY there, because resolvePolicyGateRefusal treats them as evidence. The claim is TRUE at HEAD (vocabulary.ts:769 returns `[first, ...rest]`, the input verbatim, with no sort and no Set). It is also unasserted: the only order/identity case, vocabulary.test.ts:585-604, feeds three DISTINCT codes and asserts toEqual(input), which a de-duplicating resolver would satisfy unchanged. Searched: every `resolve([` call site in vocabulary.test.ts (12 sites, lines 565-827) - none passes a repeated code. Unchanged code on this branch, so recorded rather than fixed; adding a repeat to that input would close it in one line."
+    },
+    {
+      "id": "F-01",
+      "severity": "P0",
+      "duty": 1,
+      "at": "worker/jobs/response-generation/persist.ts:968",
+      "disposition": "fixed",
+      "title": "[round 1] The filtered argument to noteUnmappedBlockReasons was unasserted",
+      "reason": "Fixed at 05f94055 and unchanged since; persist.test.ts asserts the ARGUMENT and round 2 measured the mutant killing. Outside this round's mutation scope (X-04)."
+    },
+    {
+      "id": "F-02",
+      "severity": "P1",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:77-83",
+      "disposition": "fixed",
+      "title": "[round 1] The alerting runbook said an unmapped block reason raises nothing, and recorded only three warning-level emitters",
+      "reason": "Fixed; re-verified at HEAD - lines 77-83 carry the corrected blind-spot sentence and lines 92-153 the new checklist item."
+    },
+    {
+      "id": "F-03",
+      "severity": "P1",
+      "duty": 3,
+      "at": ".claude/reference/arch-review-log.md:1663",
+      "disposition": "fixed",
+      "title": "[round 1] 'Promoted to lab notes' was false",
+      "reason": "Fixed in the arch-review-log row and re-verified at HEAD. The SAME claim has since reappeared in the deviations log - raised separately as V-F2."
+    },
+    {
+      "id": "F-04",
+      "severity": "P1",
+      "duty": 3,
+      "at": "worker/jobs/response-generation/__tests__/persist.test.ts:1259",
+      "disposition": "fixed",
+      "title": "[round 1] A test comment asserted the opposite of the implementation",
+      "reason": "Fixed at 05f94055; the file is unchanged since eb2b51de."
+    },
+    {
+      "id": "F-05",
+      "severity": "P1",
+      "duty": 3,
+      "at": "src/lib/refusals/__tests__/write.test.ts:871",
+      "disposition": "fixed",
+      "title": "[round 1] A quoted case count did not match the block it described",
+      "reason": "Fixed by unquoting the count; still unquoted at HEAD."
+    },
+    {
+      "id": "F-06",
+      "severity": "P1",
+      "duty": 3,
+      "at": "worker/jobs/response-generation/persist.ts:785-793",
+      "disposition": "fixed",
+      "title": "[round 1] _PrecedenceIsTotal was credited with a guarantee it does not carry",
+      "reason": "Fixed at 05f94055; persist.ts is unchanged since eb2b51de."
+    },
+    {
+      "id": "F-07",
+      "severity": "P2",
+      "duty": 4,
+      "at": "worker/jobs/publisher/auto-policy-downgrade.ts:218",
+      "disposition": "fixed",
+      "title": "[round 1] The open fault class in the other lanes was unrecorded",
+      "reason": "Fixed; recorded at persist.ts:795-801 and in docs/directory.md."
+    },
+    {
+      "id": "F-08",
+      "severity": "P2",
+      "duty": 1,
+      "at": "src/lib/refusals/__tests__/write.test.ts:1336",
+      "disposition": "open",
+      "title": "[round 1] The both-transports-throw case may be redundant with the cooldown case",
+      "reason": "Carried forward UNMEASURED for the third pass running. Untouched by eb2b51de..e88eaaec and outside this round's scope; the line reference is re-resolved to HEAD, where the case begins at write.test.ts:1336."
+    },
+    {
+      "id": "F-09",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-handoff.md:48-58",
+      "disposition": "fixed",
+      "title": "[round 1] The handoff's 'State at handoff' was stale",
+      "reason": "Fixed at 05f94055."
+    },
+    {
+      "id": "F-10",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:196",
+      "disposition": "fixed",
+      "title": "[round 1] D9's live-DB figures were recorded at the pre-rebase SHA",
+      "reason": "Fixed; D9 now names the SHA its figures were taken at."
+    },
+    {
+      "id": "R2-01",
+      "severity": "P0",
+      "duty": 3,
+      "at": "src/lib/refusals/write.ts:613",
+      "disposition": "fixed",
+      "title": "[round 2] The UNMAPPED_SIGNAL_CAP bound was not enforced while four documents claimed it was",
+      "reason": "Fixed at eb2b51de by room/reportable, and VERIFIED THIS PASS: V-06 kills the mutant that survived 29/29 in round 2 and 31/31 in the fresh pass."
+    },
+    {
+      "id": "R2-02",
+      "severity": "P0",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:97-103",
+      "disposition": "fixed",
+      "title": "[round 2] 'the only one above warning' was false - three faults carry subsystem:refusal_ledger at error",
+      "reason": "Fixed and re-verified at HEAD: lines 97-103 now say RULE ON THE fault TAG, NEVER ON subsystem:refusal_ledger AND level:error, and lines 410-413 repeat it for the click-path. The replacement text is where V-F1 was found; that is a new defect, not a failure to fix this one."
+    },
+    {
+      "id": "R2-03",
+      "severity": "P0",
+      "duty": 1,
+      "at": "src/lib/refusals/write.ts:679-687",
+      "disposition": "fixed",
+      "title": "[round 2] The overflow marker's durable log transport had no oracle anywhere in the codebase",
+      "reason": "Fixed at eb2b51de and VERIFIED THIS PASS: V-03 kills the whole-block deletion that survived 29/29."
+    },
+    {
+      "id": "R2-04",
+      "severity": "P1",
+      "duty": 1,
+      "at": "src/lib/refusals/write.ts:699",
+      "disposition": "fixed",
+      "title": "[round 2] noteUnmappedOverflow's Sentry catch was on a branch no case executed",
+      "reason": "Fixed at eb2b51de by the added cooldown case, and VERIFIED THIS PASS: V-08 kills the cooldown deletion, so the branch is now both executed and asserted. This resolves round 2's only inconclusive/oracle inventory row."
+    },
+    {
+      "id": "R2-05",
+      "severity": "P1",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:147-153",
+      "disposition": "fixed",
+      "title": "[round 2] 'a new code is always reported' was false past the cap",
+      "reason": "Fixed and re-verified: the paragraph now reads 'A new code is reported UNTIL the cap, and silent after it', names the contradiction it replaced, and matches write.ts:613-621."
+    },
+    {
+      "id": "R2-06",
+      "severity": "P1",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:300-301",
+      "disposition": "fixed",
+      "title": "[round 2] Two newly emitted signals had no rule row in the 1a-do click-path and no cadence anywhere",
+      "reason": "Fixed and re-verified: rows 7 and 8 exist with filter, trigger and level; the _Then_ line reads 'for all eight'; §1 lines 129-132 state the cadence. Five of the six facets agree with the code. The sixth - cadence against a constant grouping title - is raised as V-F3."
+    },
+    {
+      "id": "R2-07",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:112-118",
+      "disposition": "fixed",
+      "title": "[round 2] 'The event carries the offending codes' omitted that it carries only the not-yet-signalled subset",
+      "reason": "Fixed and re-verified: the three-states paragraph names all three ways a code can be absent, and each is TRUE at HEAD - already reported (the per-code latch, write.ts:604), a repeat inside one decision (the Set, write.ts:604), or held back by the cap and named nowhere (write.ts:613-621)."
+    },
+    {
+      "id": "R2-08",
+      "severity": "P2",
+      "duty": 4,
+      "at": "worker/jobs/response-generation/generate-draft.ts:77",
+      "disposition": "open",
+      "title": "[round 2] One live unbounded-cardinality Sentry capture message remains, in unchanged code",
+      "reason": "Carried forward. Unchanged by this branch and a separate ticket; re-verified present at HEAD."
+    },
+    {
+      "id": "FP-1",
+      "severity": "P0",
+      "duty": 2,
+      "at": "src/lib/refusals/__tests__/write.test.ts:1042",
+      "disposition": "fixed",
+      "title": "[fresh pass] A proven-fake assertion: the overflow log cap value was asserted by the wall clock",
+      "reason": "Fixed at f0e44312 and VERIFIED THIS PASS with a same-instant control. V-01 kills the cap:0 mutant on three runs; X-01 shows the superseded assertion still PASSING against the same mutant at the same minute. The oracle is now the parsed payload, not the timestamp."
+    },
+    {
+      "id": "FP-2",
+      "severity": "P0",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:374-379",
+      "disposition": "fixed",
+      "title": "[fresh pass] 'Rule 6 is the one still genuinely owed' was false at HEAD",
+      "reason": "Fixed and re-verified: the paragraph now says rule 6 is not the only one owed, names rules 7 and 8, and narrows its own scope to PRODUCTION. The register below agrees. The residual imprecision in the replacement text is V-F4."
+    },
+    {
+      "id": "FP-3",
+      "severity": "P1",
+      "duty": 1,
+      "at": "src/lib/refusals/write.ts:604",
+      "disposition": "fixed",
+      "title": "[fresh pass] The overflow marker fired on ONE distinct code when a call carried duplicates, and burned the paging latch",
+      "reason": "Fixed at f0e44312 by de-duplicating fresh, and VERIFIED THIS PASS: V-04 kills the pre-fix form. The contrast with resolvePolicyGateRefusal that the fix comment relies on is TRUE at HEAD (X-06); its oracle gap is V-F6."
+    },
+    {
+      "id": "FP-4",
+      "severity": "P1",
+      "duty": 1,
+      "at": "src/lib/refusals/write.ts:651",
+      "disposition": "fixed",
+      "title": "[fresh pass] The Set-bound half of the round-2 fix had no oracle",
+      "reason": "Fixed at f0e44312 by unmappedSignalledCodeCountForTests(), and VERIFIED THIS PASS: V-06 kills the 31/31 survivor, and V-05 shows the new accessor is not a constant that satisfies its own assertion."
+    },
+    {
+      "id": "FP-5",
+      "severity": "P1",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:398-405",
+      "disposition": "fixed",
+      "title": "[fresh pass] The un-ruled-signal register applied a warning-level premise to two error-level signals",
+      "reason": "Fixed at e88eaaec: the register now says 'no DEDICATED rule', separates the level classes, and states explicitly that whether 3920752 catches an error capture is UNVERIFIED because no Sentry read-back was performed. The replacement paragraph mis-classifies one of the other two signals - raised as V-F1, a new defect rather than a failure to fix this one."
+    },
+    {
+      "id": "FP-6",
+      "severity": "P2",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:115-118",
+      "disposition": "fixed",
+      "title": "[fresh pass] The operator instruction omitted the cap-boundary reason a code can be missing",
+      "reason": "Fixed and re-verified: the cap-boundary case is now the third of three named states and correctly says such a code is named NOWHERE."
+    },
+    {
+      "id": "FP-7",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:266-269",
+      "disposition": "fixed",
+      "title": "[fresh pass] D13 asserted these fixes carry no adversarial round behind them",
+      "reason": "Fixed and re-verified: D13 now scopes the claim to the moment it was written and points forward to D14."
+    },
+    {
+      "id": "FP-8",
+      "severity": "P2",
+      "duty": 2,
+      "at": "src/lib/refusals/write.ts:395",
+      "disposition": "fixed",
+      "title": "[fresh pass] The overflow LOG message was a copied literal where its Sentry twin is an exported constant",
+      "reason": "Fixed at f0e44312 by exporting UNMAPPED_OVERFLOW_LOG_MESSAGE. The consequence for the assertion's discriminating power is recorded as V-F5 (P2)."
+    },
+    {
+      "id": "FP-9",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:420",
+      "disposition": "fixed",
+      "title": "[fresh pass] 'Rules 1-3 fire on a new issue' was no longer exhaustive",
+      "reason": "The recorded defect — the sentence enumerated only rules 1-3 — is fixed: beta-launch-alerting.md:433 now names \"Rules 1-3 and 7-8\". Its original reason claimed the sentence \"matches the _When_ column of rows 1-3 and 7-8 exactly\"; the close-out pass verified that at 36ecc67c that claim is FALSE, because the V-F3 fix changed rows 7 and 8 to \"every event\". The now-false cadence half of that sentence is owned by V-F3 (reopened), not double-counted here."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "AUTH-1",
+      "date": "2026-09-04",
+      "finding_ids": [
+        "V-F3"
+      ],
+      "text": "Authorize and ship now. code: stable, 91 tests, gate green / runbook: may hold a stale count / sidecar: accepted-risk, authorized."
+    }
+  ],
+  "counts": {
+    "inventory_total": 15,
+    "killed": 8,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 7,
+    "findings_total": 33,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 4,
+    "accepted_risk": 1,
+    "fixed": 28,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}
