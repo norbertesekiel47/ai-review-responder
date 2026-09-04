@@ -364,3 +364,43 @@ figures. So: the harness definition is now stated wherever numbers are cited —
 Gabarito/Figtree faces, Tailwind preflight's button reset — and the claims that
 carry weight are **comparisons** (fork vs branch, equal or not), which held
 across both harnesses, rather than absolutes, which did not.
+
+---
+
+# CI — the gate the local gate does not run
+
+`fallow` failed on PR #1123. Every other check passed, and the local verify gate
+was green at the same SHA, because **`verify-gate.sh` excludes `ci:fallow*` by
+design** — it runs in ci.yml's own job against the `test` job's coverage
+artifact. This is the trap CLAUDE.md names: *"a bare `fallow audit` does NOT
+predict it in either direction."* It bit in the other direction here — local
+green, CI red.
+
+## D13 — the F3 fix pushed `ImportStatusBanner` over the complexity gate
+
+Two findings, and only one was mine:
+
+- **`ImportStatusBanner`, cognitive complexity 16 — mine.** Adding the `failed`
+  arm in review F3 turned a three-arm ternary into four and added a JSX
+  conditional. Measured: the function went 37 → 50 lines span, 29 → 34 code
+  lines. The irony is on the record — this component was extracted from
+  `ImportOfferBanner` in the first place *to stay under this same gate*, and its
+  own docstring says so.
+- **`ImportOfferBanner`, 78 lines — not mine.** Byte-identical at the fork point
+  and at HEAD (78 span / 53 code lines at both). Flagged because the file is in
+  the changed set, not because this branch grew it. Left alone.
+
+**Fix.** Two extractions out of `ImportStatusBanner`, both of things that never
+belonged in a render: `statusMessage(view)` (four branches depending on nothing
+but `view`) and `StatusNotice` (the banner body shared by `importing` and the two
+success outcomes, renders the inner `.banner` only — the same contract
+`OfferPrompt` and `FailedBanner` keep). `ImportStatusBanner` is now 36 span / 24
+code lines, **smaller than the fork point's 37/29**, and a local
+`fallow audit --gate new-only` reports complexity 0 across all 11 changed files.
+
+**The lesson.** A local gate that green-lights a branch is not the CI gate when
+it deliberately omits a job. `verify-gate.sh` says so in its own header, and I
+read the WARN row it does print (`reclassify`) while never running the row it
+does not. Reproduce `fallow` the only way that predicts it —
+`pnpm test:coverage && pnpm ci:fallow:coverage` — before pushing a branch that
+adds branches to a render.

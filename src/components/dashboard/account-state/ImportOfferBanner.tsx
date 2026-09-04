@@ -417,18 +417,7 @@ function ImportStatusBanner({
   view: Extract<ImportOfferView, { state: 'importing' | 'imported' | 'empty' | 'failed' }>;
   noticePhase: NoticePhase;
 }) {
-  // ONE interpolated string per state, never `Imported {count} reviews.` in JSX.
-  // The JSX form renders three sibling text nodes, which no exact-text query can
-  // match and which a screen reader may read with odd pauses.
-  const message =
-    view.state === 'failed'
-      ? "We couldn't finish importing your reviews."
-      : view.state === 'importing'
-        ? 'Importing your reviews… this usually takes a minute.'
-        : view.state === 'empty'
-          ? 'No recent reviews found — nothing to import.'
-          : `Imported ${view.count} reviews. They're in your reviews list.`;
-
+  const message = statusMessage(view);
   // `empty` is a distinct OUTCOME, not a count of zero — "Imported 0 reviews"
   // reads as a bug to an owner (owner decision 4). `failed` is not a notice and
   // never retires, so it is named here rather than derived from "not importing".
@@ -448,16 +437,68 @@ function ImportStatusBanner({
       {view.state === 'failed' ? (
         <FailedBanner />
       ) : (
-        <div className={`banner banner-blue${retires && noticePhase === 'leaving' ? ' banner--leaving' : ''}`}>
-          <div className="b-icon">
-            <Icon name={view.state === 'importing' ? 'refresh' : 'check'} size={18} />
-          </div>
-          <div>
-            <div className="b-title">{message}</div>
-          </div>
-        </div>
+        <StatusNotice
+          message={message}
+          icon={view.state === 'importing' ? 'refresh' : 'check'}
+          leaving={retires && noticePhase === 'leaving'}
+        />
       )}
     </BannerShell>
+  );
+}
+
+/**
+ * The one sentence each post-offer state says.
+ *
+ * A module-level function rather than a ternary chain inside the component
+ * (#1087, fallow `css`/complexity gate): adding the `failed` arm in review F3
+ * took `ImportStatusBanner` to cognitive complexity 16, and this component was
+ * extracted in the first place to stay under that gate. Four branches that
+ * depend on nothing but `view` do not need to live inside a render.
+ *
+ * ONE interpolated string per state, never `Imported {count} reviews.` in JSX.
+ * The JSX form renders three sibling text nodes, which no exact-text query can
+ * match and which a screen reader may read with odd pauses.
+ */
+function statusMessage(
+  view: Extract<ImportOfferView, { state: 'importing' | 'imported' | 'empty' | 'failed' }>,
+): string {
+  switch (view.state) {
+    case 'failed':
+      return "We couldn't finish importing your reviews.";
+    case 'importing':
+      return 'Importing your reviews… this usually takes a minute.';
+    case 'empty':
+      return 'No recent reviews found — nothing to import.';
+    default:
+      return `Imported ${view.count} reviews. They're in your reviews list.`;
+  }
+}
+
+/**
+ * The banner body shared by `importing` and the two success outcomes.
+ *
+ * Renders the inner `.banner` ONLY, never its own `BannerShell` — the same
+ * contract `OfferPrompt` and `FailedBanner` keep.
+ */
+function StatusNotice({
+  message,
+  icon,
+  leaving,
+}: {
+  message: string;
+  icon: IconName;
+  leaving: boolean;
+}) {
+  return (
+    <div className={`banner banner-blue${leaving ? ' banner--leaving' : ''}`}>
+      <div className="b-icon">
+        <Icon name={icon} size={18} />
+      </div>
+      <div>
+        <div className="b-title">{message}</div>
+      </div>
+    </div>
   );
 }
 
