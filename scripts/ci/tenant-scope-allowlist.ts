@@ -2838,16 +2838,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/jobs/account-offboarding/purge-stages.ts",
     table: "accounts",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.status IN ('purge_scheduled', 'purged') )",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.purge_started_at IS NOT NULL AND ao.purge_cancelled_at IS NULL )",
     category: 'background-global-scan',
     reason: "The Stripe Customer redaction guard (D1) counts OTHER accounts sharing this Stripe customer, so it is cross-account by construction — scoping it to the purging account would always return zero and defeat the guard. accounts.stripe_customer_id carries no unique constraint and subscription-deleted.ts states the rule outright, so blind redaction would erase a live co-tenant's billing contact. Read-only count inside the purge transaction, serialized by acquireStripeCustomerBindingLock; returns a number only, never a row.",
   },
   {
     file: "worker/jobs/account-offboarding/purge-stages.ts",
     table: "account_offboardings",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.status IN ('purge_scheduled', 'purged') )",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.purge_started_at IS NOT NULL AND ao.purge_cancelled_at IS NULL )",
     category: 'background-global-scan',
-    reason: "The NOT EXISTS arm of the same redaction guard: a sibling account whose own purge already completed is not a live co-tenant and must not block redaction. Correlated to the outer accounts row (ao.account_id = a.id), and cross-account for the same reason the outer count is.",
+    reason: "The NOT EXISTS arm of the same redaction guard: a sibling account past the point of no return (purge claimed, never cancelled) is not a live co-tenant and must not block redaction. It keys on the purge MARKERS, not on status — a status list excluded the whole purge grace window, where a sibling can still cancel. Correlated to the outer accounts row (ao.account_id = a.id), and cross-account for the same reason the outer count is.",
   },
   {
     file: "worker/ingress/shared.ts",

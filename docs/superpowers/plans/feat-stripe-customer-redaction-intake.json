@@ -129,7 +129,9 @@
     "worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts",
     "src/lib/accounts/__tests__/billing-locks.integration.test.ts",
     "docs/directory.md",
-    "CONTEXT.md"
+    "CONTEXT.md",
+    "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts",
+    "docs/runbooks/beta-launch-alerting.md"
   ],
   "tests_to_add": [
     "redactStripeCustomer clears name, email, phone, description, address, shipping, business_name and individual_name in one update call",

@@ -786,25 +786,38 @@ export async function runStripeCustomerRedactionPurgeStage(
     // The guard counts LIVE co-tenants — accounts sharing this Stripe Customer
     // whose billing contact redaction would destroy while they still need it.
     //
-    // The NOT EXISTS arm excludes siblings that are themselves past the point
-    // of no return. It names TWO statuses, and the second one is the fix:
+    // The NOT EXISTS arm excludes siblings that are themselves PAST THE POINT
+    // OF NO RETURN. That is a property of the purge markers, not of `status`,
+    // and an earlier version of this predicate got it wrong in both directions
+    // by naming statuses instead:
     //
-    //   'purged'          — kept for completeness, but effectively unreachable.
-    //                       The tombstone NULLs accounts.stripe_customer_id
-    //                       before this status is ever written (purge-verification
-    //                       asserts exactly that), so such a row cannot satisfy
-    //                       the outer stripe_customer_id predicate anyway.
-    //   'purge_scheduled' — the arm that actually does work, and the one the
-    //                       first version missed. Two siblings sharing a Customer
-    //                       and purging concurrently each saw the other as live,
-    //                       so BOTH skipped and the Stripe PII became permanent
-    //                       with no local id left to retry from. Both are being
-    //                       deleted, so redacting the shared Customer harms
-    //                       neither — skipping was the wrong answer in both.
+    //   It excluded 'purge_scheduled' unconditionally. Intersect that with
+    //   keep-my-data's admission set (`status IN ('pending','tearing_down',
+    //   'purge_scheduled') AND purge_started_at IS NULL AND purge_cancelled_at
+    //   IS NULL`) and what remained was the ENTIRE purge grace window — the
+    //   modal state of every delete_data offboarding between teardown and
+    //   `purge_after`. A co-tenant sitting there can still click "Keep my
+    //   data" and stay a paying customer, so redacting on its behalf destroys
+    //   a live billing contact with nothing recorded against that account.
     //
-    // `mode = 'delete_data'` is required: a cancel_only offboarding retains the
-    // account's data by design and can still reactivate, so it IS a live
-    // co-tenant no matter how far its own lifecycle has run.
+    //   It did NOT exclude 'failed'. `markPurgeTerminalFailure` leaves
+    //   `status='failed'` with `purge_started_at` set — unambiguously past the
+    //   point of no return — so two siblings sharing a Customer could still
+    //   BOTH skip, one status over from the case the status list was added to
+    //   close.
+    //
+    // Both directions collapse into the marker pair below. `purge_started_at`
+    // is stamped by AccountOffboardingPurgePoller's claim UPDATE, in the same
+    // transaction that selects the row and before the outbox row dispatches,
+    // so it is always set by the time either sibling's PurgeWorker runs — which
+    // is what still closes the concurrent-purge case. `purge_cancelled_at` is
+    // written only by keep-my-data.ts, the one escape hatch, and it re-admits
+    // the sibling as live.
+    //
+    // `mode = 'delete_data'` is implied by `purge_started_at IS NOT NULL` (the
+    // claim UPDATE requires it) and kept explicit: a cancel_only offboarding
+    // retains the account's data by design and can still reactivate, so it IS a
+    // live co-tenant no matter how far its own lifecycle has run.
     const [sharing] = await tx<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM accounts a
@@ -815,7 +828,8 @@ export async function runStripeCustomerRedactionPurgeStage(
           FROM account_offboardings ao
           WHERE ao.account_id = a.id
             AND ao.mode = 'delete_data'
-            AND ao.status IN ('purge_scheduled', 'purged')
+            AND ao.purge_started_at IS NOT NULL
+            AND ao.purge_cancelled_at IS NULL
         )
     `;
 
