@@ -478,11 +478,14 @@ when the trip opens and roughly one per hour after that — Sentry's default act
 interval is 60 minutes per issue, so a 5-minute poll interval does not mean a
 5-minute page.
 
-**Step 7 — the dead-man switch.** (Numbered 7, not 6, since #967 added a sixth
-rule — the step number and the rule number must not collide. It was 6 while
-#907's rule 5 was the last one.) The cron monitor is NOT an alert rule; it is
+**Step 7 — the dead-man switch.** (**Its number is a STEP number and it now
+collides with a rule number — the old "must not collide" rule is retired, not
+satisfied.** It was numbered 7 when #967 made rule 6 the last one; #1105 then
+added rules 7 and 8, so the collision the parenthetical existed to avoid has
+happened and renumbering the step would only chase the next rule. Read "Step 7"
+as a step throughout this section.) The cron monitor is NOT an alert rule; it is
 configured in §4 of this runbook (slug `health-alert-poller`, auto-created on
-first check-in). Do §4 after the six rules above.
+first check-in). Do §4 after the **eight** rules above.
 
 **Verify, do not assume.** Each rule is unproven until you have seen it deliver.
 §4's acceptance drills are how — do not tick a §1 box on the strength of a saved
@@ -797,6 +800,36 @@ precondition below.
   procedure (Part B, headroom arm): `docs/runbooks/pool-wedge-burst-drill.md`.
   Run after §1b's poller-resume so the `HealthAlertPoller` is back on its
   designed 5-minute cadence for the drill.
+- [ ] **Refusal vocabulary hole (rules 7 and 8, #1105)** — the drill this
+  section's own rule demands: *each rule is unproven until you have seen it
+  deliver*, and rules 7 and 8 shipped without one. Added when red team asked why
+  §4 had no entry for them.
+
+  **The precondition above is the whole point of this drill.** Both capture
+  titles are CONSTANTS, so a first-seen rule pages on occurrence 1 and is silent
+  for every later distinct code — which is exactly the event the per-code latch
+  exists to surface. **A single page does not pass this drill. Two do.**
+
+  On staging, with `REFUSAL_LEDGER_ENABLED=false` and the worker freshly
+  restarted (the latch is per PROCESS, so a restart is part of the setup):
+
+  1. Drive a `policy_gate_held` decision carrying a block reason that is not in
+     `POLICY_GATE_HELD_REFUSAL_CATEGORIES`. Expect ONE Discord page,
+     `auto_approval_unmapped_block_reason`, level `error`, with the code in
+     `extra.codes`.
+  2. Drive a second decision carrying a DIFFERENT unmapped code. **Expect a
+     SECOND page.** No second page means the rule is on first-seen and rules 7
+     and 8 are inert past their first fire — the defect this drill exists to
+     catch.
+  3. Repeat the FIRST code. Expect NO page: the per-code latch suppresses it.
+  4. Optional, and the only way to prove rule 8 delivers: drive more than
+     `UNMAPPED_SIGNAL_CAP` distinct codes and confirm one
+     `auto_approval_unmapped_block_reason_cap_reached` page, then silence.
+
+  **Also confirm the route.** These are the first `error`-level
+  `subsystem:refusal_ledger` captures with a dedicated rule, and whether the
+  unfiltered production rule already catches them is UNVERIFIED (§1a-do's
+  register). This drill is where that gets settled.
 
 ## 5. Tunable thresholds (env, all optional — defaults shown)
 

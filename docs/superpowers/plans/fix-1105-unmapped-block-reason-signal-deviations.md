@@ -428,3 +428,36 @@ together, and then re-grepped to prove no residual claim survived. That is what
 Promoted with the other lessons at step 8.
 
 **Verdict:** ACCEPT.
+
+## D17 — the enumerate-first procedure failed, and the diagnosis is the lesson
+
+D16 claimed the twin-mention failure was solved by enumerating every mention
+before editing. The very next verification found a THIRD twin: `Do §4 after the
+six rules above` — eight rules exist — plus a stale parenthetical asserting "the
+step number and the rule number must not collide", an invariant #1105 broke by
+adding rules 7 and 8.
+
+**Why the sweep missed it, and this is the transferable part.** D16's greps were
+keyed on `first seen`, `Every event`, `rule 7`, `7 and 8`. Line 485 contains
+NONE of those tokens. It states the same fact as a COUNT.
+
+**A change has as many token-shapes as the facts it moves, and the sweep must
+cover each shape, not each fact.** Adding two rules moved three shapes:
+- the trigger (`first seen` / `Every event`),
+- the identity (`rule 7`, `rules 7 and 8`),
+- and the COUNT (`six` → `eight`, `the other five`, `all six`).
+
+Only the first two were swept. The count sweep that would have caught it is
+`grep -nE "\b(five|six|seven|eight|nine)\b"`, and it is now part of the record.
+
+The step-number parenthetical is RETIRED rather than satisfied: renumbering the
+step to dodge rule 8 would only chase rule 9.
+
+**Also added: the §4 acceptance drill for rules 7 and 8.** Red team raised it as
+an adjacent observation rather than a finding. The runbook's own rule is that a
+rule is unproven until a drill has seen it deliver, and rules 7 and 8 shipped
+without one. The drill is written so that a SINGLE page fails it — two distinct
+unmapped codes must produce two pages, which is the only way to prove the rule is
+not silently on first-seen.
+
+**Verdict:** ACCEPT.
