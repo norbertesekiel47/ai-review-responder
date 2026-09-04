@@ -50,6 +50,11 @@ vi.mock('@sentry/node', () => ({
 }));
 
 import { processSubscriptionUpdated } from '../stripe/subscription-updated';
+import {
+  AccountNotProvisionedYetError,
+  OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+  outOfOrderRetryWindowOpen,
+} from '../stripe/shared';
 import { resetServerConfigForTests } from '../../../src/lib/config/server';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
@@ -108,6 +113,11 @@ function subscription(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as unknown as Stripe.Subscription;
 }
+
+// D6 makes the event context a REQUIRED argument. Every pre-existing case
+// passes a fresh, in-window context so its behaviour is unchanged; the bound
+// itself is proven in the dedicated suite at the bottom of this file.
+const FRESH_EVENT_CONTEXT = { id: 'evt_test', created: Math.floor(Date.now() / 1000) };
 
 function queueProjection(options: {
   account?: ReturnType<typeof account>;
@@ -213,7 +223,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
 
     const outcome = await processSubscriptionUpdated(subscription({
       items: { data: [] }, // stale event snapshot must be ignored
-    }));
+    }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'updated',
@@ -235,7 +245,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
   it('changed-false replay repairs the deferred status and activation mirror', async () => {
     queueProjection({ snapshotChanged: false });
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'updated',
@@ -272,7 +282,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       },
     }));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', variant: 'founding' });
     expect(snapshotUpdates()[0]!.values).toEqual(
@@ -303,7 +313,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       },
     }));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'updated', tier: 'autopilot', variant: 'founding', snapshotChanged: true,
@@ -328,7 +338,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     }));
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'status_only', reason: 'unmapped_base_price',
@@ -356,7 +366,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     mockRetrieveSubscription.mockResolvedValue(subscription());
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'variant_mismatch',
@@ -410,7 +420,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     });
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await processSubscriptionUpdated(subscription());
+    await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(order).toEqual(['status', 'commit', 'alert']);
     expect(mockEnqueueStripeSubscriptionMirrorSync).not.toHaveBeenCalled();
@@ -432,7 +442,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       primaryBusinessId: null,
     });
 
-    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }));
+    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', tier: 'copilot' });
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
@@ -484,7 +494,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     });
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }));
+    const outcome = await processSubscriptionUpdated(subscription({ status: 'trialing' }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'status_only', reason: 'unmapped_base_price' });
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
@@ -582,7 +592,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       });
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const outcome = await processSubscriptionUpdated(subscription());
+      const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
       expect(outcome).toMatchObject({ kind: 'status_only', reason });
       expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
@@ -611,8 +621,8 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     queueProjection({ snapshotChanged: true });
     queueProjection({ snapshotChanged: false });
 
-    const first = await processSubscriptionUpdated(subscription());
-    const second = await processSubscriptionUpdated(subscription());
+    const first = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
+    const second = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(first).toMatchObject({ kind: 'updated', snapshotChanged: true });
     expect(second).toMatchObject({ kind: 'updated', snapshotChanged: false });
@@ -641,7 +651,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
           price: { id: 'price_copilot_list', unit_amount: 2900 },
         }],
       },
-    }));
+    }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', tier: 'autopilot' });
     expect(snapshotUpdates()[0]!.values).toEqual(
@@ -661,7 +671,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
           price: { id: 'price_copilot_overage', unit_amount: 1500 },
         }],
       },
-    }));
+    }), FRESH_EVENT_CONTEXT);
 
     const update = snapshotUpdates()[0]!;
     expect(update.values).toContain(2);
@@ -689,7 +699,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     }));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', tier: 'autopilot' });
     expect(outcome.alerts).toEqual([
@@ -713,7 +723,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     harness.sqlReturnQueue.push(mkTaggedResult([]));
     mockRetrieveSubscription.mockRejectedValueOnce(new Error('Stripe unavailable'));
 
-    await expect(processSubscriptionUpdated(subscription())).rejects.toThrow('Stripe unavailable');
+    await expect(processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT)).rejects.toThrow('Stripe unavailable');
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
     expect(snapshotUpdates()).toEqual([]);
@@ -733,7 +743,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       mkTaggedResult([]),
     );
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'ignored', reason: 'account_disappeared' });
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
@@ -755,7 +765,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     );
     mockRetrieveSubscription.mockResolvedValueOnce(subscription({ customer: 'cus_other' }));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'ignored', reason: 'provider_customer_mismatch' });
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
@@ -771,7 +781,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       active_offboarding_subscription_id: null,
     }]));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'ignored', reason: 'stale_subscription' });
     expect(mockRetrieveSubscription).not.toHaveBeenCalled();
@@ -787,7 +797,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       active_offboarding_subscription_id: null,
     }]));
 
-    const outcome = await processSubscriptionUpdated(subscription({ status: 'active' }));
+    const outcome = await processSubscriptionUpdated(subscription({ status: 'active' }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'ignored',
@@ -805,7 +815,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
   it('multi-account customer resolution prioritizes the exact current subscription', async () => {
     queueProjection();
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', accountId: ACCOUNT_ID });
     const resolutionSql = harness.sqlCalls[0]!.text;
@@ -827,7 +837,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       active_offboarding_subscription_id: SUBSCRIPTION_ID,
     }]));
 
-    const outcome = await processSubscriptionUpdated(subscription());
+    const outcome = await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({
       kind: 'ignored',
@@ -847,7 +857,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
   it('takes entitlement then billing before the account row and drains the exact SQL queue', async () => {
     queueProjection();
 
-    await processSubscriptionUpdated(subscription());
+    await processSubscriptionUpdated(subscription(), FRESH_EVENT_CONTEXT);
 
     const entitlementIndex = harness.sqlCalls.findIndex((call) =>
       call.values.includes(`${ACCOUNT_ID}:tier_entitlement`),
@@ -862,5 +872,92 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(billingIndex).toBeGreaterThan(entitlementIndex);
     expect(accountRowIndex).toBeGreaterThan(billingIndex);
     expectExactSqlCalls(9);
+  });
+});
+
+// ── D4/D6/D7: the out-of-order retry bound ─────────────────────────────
+//
+// Every case here freezes the clock. An unfrozen clock can cross a second
+// between building the event context and evaluating the predicate, which stops
+// the test from testing the stated boundary at all (plan round 1 finding 6).
+// The two handlers are proven SEPARATELY for the same reason: one shared
+// boundary test could exercise processSubscriptionUpdated while
+// processSubscriptionDeleted quietly used >= 900.
+describe('processSubscriptionUpdated out-of-order retry bound', () => {
+  const NOW_SECONDS = 1_800_000_000;
+
+  function eventContext(ageSeconds: number) {
+    return { id: 'evt_boundary', created: NOW_SECONDS - ageSeconds };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_SECONDS * 1000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('processSubscriptionUpdated throws AccountNotProvisionedYetError when the event is 60 seconds old and no account exists', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([])); // resolveAccountReference: no rows
+
+    await expect(
+      processSubscriptionUpdated(subscription(), eventContext(60)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+  });
+
+  it('processSubscriptionUpdated logs and returns without throwing when the event is older than 15 minutes and no account exists', async () => {
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    const outcome = await processSubscriptionUpdated(
+      subscription(),
+      eventContext(OUT_OF_ORDER_RETRY_WINDOW_SECONDS + 60),
+    );
+
+    expect(outcome).toMatchObject({ kind: 'ignored', reason: 'stale_no_account' });
+    // D9: the warning carries the operator's handle for the retained
+    // inbound_events row — the customer id AND the event id. A bare "an event
+    // was acked" line would not replace the rejected reconciliation worker.
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockCaptureMessage.mock.calls[0]!;
+    expect(options).toMatchObject({ level: 'warning' });
+  });
+
+  it('processSubscriptionUpdated throws at an event age of exactly 900 seconds and acks at 901 under a frozen clock', async () => {
+    expect(OUT_OF_ORDER_RETRY_WINDOW_SECONDS).toBe(900);
+
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    await expect(
+      processSubscriptionUpdated(subscription(), eventContext(900)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    const outcome = await processSubscriptionUpdated(
+      subscription(),
+      eventContext(901),
+    );
+    expect(outcome).toMatchObject({ kind: 'ignored', reason: 'stale_no_account' });
+  });
+
+  it('outOfOrderRetryWindowOpen leaves the window OPEN for a non-finite created', () => {
+    // F07: the guard had no covering test — deleting it survived. It is not
+    // defensive padding. stripe-out-of-order.test.ts builds events with NO
+    // `created`, so the arithmetic yields NaN, and `NaN <= 900` is FALSE: the
+    // window read as CLOSED and the handler acked with 200 where it should
+    // have signalled 500. Non-finite fails toward RETRY, like a negative age.
+    expect(outOfOrderRetryWindowOpen(Number.NaN)).toBe(true);
+    expect(outOfOrderRetryWindowOpen(Number.POSITIVE_INFINITY)).toBe(true);
+    expect(outOfOrderRetryWindowOpen(undefined as unknown as number)).toBe(true);
+  });
+
+  it('processSubscriptionUpdated throws rather than acking for a future event timestamp', async () => {
+    // Clock skew produces a negative age. It must leave the window OPEN, so
+    // skew fails toward today's retry behaviour instead of silently acking.
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    await expect(
+      processSubscriptionUpdated(subscription(), eventContext(-3600)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
   });
 });

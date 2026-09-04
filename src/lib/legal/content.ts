@@ -241,6 +241,7 @@ export const legalDocs: Record<LegalDoc['slug'], LegalDoc> = {
         heading: 'Retention',
         body: [
           'Account and review data is retained while your subscription is active and then deleted or anonymized according to product workflows and legal requirements. Opt-out and audit records may be retained as needed to honor compliance and security obligations.',
+          'When we delete your data we also redact your customer record at our payment processor, but some billing records are outside what any deletion can reach: paid invoices are immutable and keep the billing name and address they were issued with, and tax identifiers stay attached to the billing record. Our payment processor retains those for financial record-keeping and tax compliance.',
         ],
       },
       {

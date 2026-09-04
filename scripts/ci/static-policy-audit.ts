@@ -248,7 +248,11 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   // its dedup was unserialized), then when round-1 O3 replaced the copied
   // payload/enqueue block with the shared `enqueueInitialImport`. A line-keyed
   // allowlist shifts whenever anything is inserted above the entry.
-  'worker/ingress/stripe/shared.ts:147',
+  // :147 → :280 → :256 (feat/stripe-customer-redaction): the out-of-order retry
+  // bound added constants and a predicate above it, then removing an
+  // AsyncLocalStorage ack channel shifted it partway back. Twice in one branch,
+  // which is the clearest demonstration yet of what "line-keyed" costs.
+  'worker/ingress/stripe/shared.ts:256',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
   // :167 → :168, :176 → :177, :283 unchanged (admin-invite-funnel T5 + D-11).

@@ -4,12 +4,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { TENANT_TABLES } from '../../../../scripts/ci/tenant-tables';
+import { verificationQuery } from '../purge-verification';
 import {
   ACCOUNT_OFFBOARDING_DISPOSITIONS,
   ACCOUNT_OFFBOARDING_SCOPE_EVIDENCE,
   ACCOUNT_OFFBOARDING_TABLES,
   ALLOWED_PURGE_VERIFICATION_BY_DISPOSITION,
   EXPLICIT_ACCOUNT_OFFBOARDING_TABLES,
+  PROVIDER_DATA_RETENTION,
   PURGE_VERIFICATION_MODES,
   PURGE_VERIFICATION_TABLES,
   SPEC_ONLY_ACCOUNT_OFFBOARDING_TABLES,
@@ -213,5 +215,62 @@ describe('account offboarding table disposition inventory', () => {
         (entry) => entry.purgeVerification === 'not_checked',
       ),
     ).toEqual([]);
+  });
+});
+
+describe('provider data retention inventory', () => {
+  it('PROVIDER_DATA_RETENTION classifies the Stripe Customer object as retain_compliance_limited_pii', () => {
+    const stripeCustomer = PROVIDER_DATA_RETENTION.find(
+      (entry) => entry.provider === 'stripe' && entry.object === 'customer',
+    );
+
+    expect(stripeCustomer).toBeDefined();
+    expect(stripeCustomer!.disposition).toBe('retain_compliance_limited_pii');
+    // The reason must name what SURVIVES, because the deletion receipt and the
+    // privacy policy are written from this sentence. Paid invoices keep a
+    // snapshotted billing name and address, and tax_ids is unreachable from a
+    // customers.update.
+    expect(stripeCustomer!.reason).toMatch(/invoice/i);
+    expect(stripeCustomer!.reason).toMatch(/tax_ids/);
+  });
+
+  it('PROVIDER_DATA_RETENTION entries never appear in ACCOUNT_OFFBOARDING_TABLES or PURGE_VERIFICATION_TABLES', () => {
+    // D2. A Stripe object has no SQL, and purge-verification throws
+    // missing_purge_verification_sql for any inventory entry with no branch.
+    // Keeping the two inventories separate is what makes that safe.
+    const retentionKeys = PROVIDER_DATA_RETENTION.map(
+      (entry) => `${entry.provider}.${entry.object}`,
+    );
+    const verificationTables = PURGE_VERIFICATION_TABLES.map((entry) => entry.table);
+
+    for (const entry of PROVIDER_DATA_RETENTION) {
+      expect(ACCOUNT_OFFBOARDING_TABLES).not.toContain(entry.object);
+      expect(verificationTables).not.toContain(entry.object);
+      expect(entry).not.toHaveProperty('purgeVerification');
+    }
+    expect(unique(retentionKeys)).toEqual(retentionKeys.slice().sort());
+  });
+
+  it('verificationQuery still throws missing_purge_verification_sql for an unknown table name', () => {
+    // The fail-closed guard must survive the addition of a second inventory:
+    // a provider object must not become a silently-passing verification table.
+    const noopExec = Object.assign(() => Promise.resolve([]), {
+      json: (value: unknown) => value,
+    }) as unknown as Parameters<typeof verificationQuery>[2];
+
+    expect(() => verificationQuery(
+      'customer',
+      {
+        accountId: 'acct-1',
+        offboardingId: 'off-1',
+        currentOutboxId: null,
+        authUserId: null,
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        zernioAccountIds: null,
+        zernioProfileIds: null,
+      } as unknown as Parameters<typeof verificationQuery>[1],
+      noopExec,
+    )).toThrow('missing_purge_verification_sql:customer');
   });
 });

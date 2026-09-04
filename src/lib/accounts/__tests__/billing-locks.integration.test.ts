@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
   acquireBillingLock,
+  acquireStripeCustomerBindingLock,
   acquireTierEntitlementLock,
   acquireTierAndBillingLocks,
   acquireTierBillingActivationLocks,
@@ -685,4 +686,57 @@ describeWithDb('WS8 billing advisory lock graph against live Postgres', { timeou
       }
     },
   );
+
+  // D8, against real Postgres. The unit tests pin the SQL text and the call
+  // order; only two independent connections can prove the lock actually
+  // BLOCKS — which is the whole claim, because the guard's count and the
+  // writer's binding must not interleave.
+  it('a concurrent stripe_customer_id binding cannot interleave with the redaction guard', async () => {
+    const customerId = `cus_live_${randomUUID().slice(0, 8)}`;
+    const guardLockHeld = deferred();
+    const releaseGuard = deferred();
+
+    // The purge stage: takes ONLY the binding lock, then holds it across what
+    // would be the sharing count and the Stripe call.
+    const redactionGuard = sqlA().begin(async (tx) => {
+      await tx`SET LOCAL lock_timeout = '4s'`;
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await acquireStripeCustomerBindingLock(tx, customerId);
+      guardLockHeld.resolve();
+      await releaseGuard.promise;
+    });
+    await guardLockHeld.promise;
+
+    // The webhook writer, in its production lock order: account-scoped
+    // entitlement first, customer-keyed binding second.
+    let bindingAcquired = false;
+    const bindingWriter = sqlB().begin(async (tx) => {
+      await tx`SET LOCAL lock_timeout = '4s'`;
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await acquireTierEntitlementLock(tx, randomUUID());
+      await acquireStripeCustomerBindingLock(tx, customerId);
+      bindingAcquired = true;
+    });
+
+    await assertStillBlocked(bindingWriter);
+    expect(bindingAcquired).toBe(false);
+
+    // Keyed on the CUSTOMER, not a constant: a writer binding a different
+    // customer must pass straight through while the guard still holds its
+    // lock. Without this, a lock accidentally keyed on a constant would
+    // serialize every purge in the fleet and still satisfy the block above.
+    let otherCustomerAcquired = false;
+    await sqlD().begin(async (tx) => {
+      await tx`SET LOCAL lock_timeout = '4s'`;
+      await tx`SET LOCAL statement_timeout = '5s'`;
+      await acquireStripeCustomerBindingLock(tx, `cus_live_${randomUUID().slice(0, 8)}`);
+      otherCustomerAcquired = true;
+    });
+    expect(otherCustomerAcquired).toBe(true);
+
+    releaseGuard.resolve();
+    await redactionGuard;
+    await bindingWriter;
+    expect(bindingAcquired).toBe(true);
+  });
 });

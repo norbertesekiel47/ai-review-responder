@@ -186,6 +186,9 @@ function queueHappyPath(
     sqlReturnQueue.push([{ id: TEST_BIZ_DEFAULT }]);
     // Canonical lease + active-offboarding projection.
     sqlReturnQueue.push([checkoutAccount]);
+    // Applier's customer-keyed binding lock (D8), taken inside
+    // applyStripeSubscriptionStateInternal before it locks the account row.
+    sqlReturnQueue.push([]);
     // Applier resolveAccount.
     sqlReturnQueue.push([{
       id: '019dc366-29ce-7000-a000-000000000000',
@@ -312,7 +315,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // ZERNIO_PUBLISHING_ENABLED is unset in beforeEach, so the post-activation
     // backfill-resume hook short-circuits BEFORE any SQL fires.
     expect(getInsertOutboxCall()).toBeUndefined();
-    expectExactSqlCalls(20);
+    expectExactSqlCalls(21);
   });
 
   it('rejects checkout completion after canonical status already became past_due', async () => {
@@ -373,7 +376,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     )!;
     expect(lockCall.text).toContain('hashtext');
     expect(lockCall.values).toContain('019dc366-29ce-7000-a000-000000000000:activation');
-    expectExactSqlCalls(20);
+    expectExactSqlCalls(21);
   });
 
   it('biz-row-deleted race: still completes the outer flow with no enqueue', async () => {
@@ -520,7 +523,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // (+3, consent gate), then round-1 O3's +1 — enqueueInitialImport resolves
     // the payload from the database under the row lock instead of trusting this
     // caller's snapshot.
-    expectExactSqlCalls(26);
+    expectExactSqlCalls(27);
   });
 
   it('flag=ON + predicate miss (no active connection OR completed run exists) → NO outbox INSERT', async () => {
@@ -538,7 +541,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     await handleStripeWebhook(makeRequest(), makeReply());
 
     expect(getBackfillInsertCalls()).toHaveLength(0);
-    expectExactSqlCalls(22);
+    expectExactSqlCalls(23);
   });
 
   it('flag=ON + no zernio_backfill_runs row at all (admin connected Zernio pre-checkout) → enqueues backfill', async () => {
@@ -565,7 +568,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(guard).toBeDefined();
     expect(guard!.text).toContain("br.run_reason = 'initial'");
     // 22 → 25 → 26 (#677): consent gate (+3), then O3's payload re-read (+1).
-    expectExactSqlCalls(26);
+    expectExactSqlCalls(27);
   });
 
   it('rejects an unsupported backfill tier before the child outbox INSERT', async () => {
@@ -592,7 +595,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     // guard throws right after the ELIGIBILITY SELECT, so createImportOffer,
     // readImportConsent and enqueueInitialImport never run — the +1 vs +4
     // asymmetry IS the assertion that "before the child outbox INSERT" holds.
-    expectExactSqlCalls(22);
+    expectExactSqlCalls(23);
   });
 
   it('flag=ON + in-flight outbox row exists → INSERT … SELECT WHERE NOT EXISTS skips (count=0)', async () => {
@@ -635,7 +638,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insertSql!.text).toContain('NOT EXISTS');
     expect(insertSql!.text).toMatch(/status\s+IN/);
     // 22 → 25 → 26 (#677): consent gate (+3), then O3's payload re-read (+1).
-    expectExactSqlCalls(26);
+    expectExactSqlCalls(27);
   });
 
   // ── D3: overage outbox enqueue on recovery ────────────────────────────
@@ -654,7 +657,7 @@ describe('Stripe webhook — status flip + post-activation backfill resume', () 
     expect(insert.values).toContain('pending');   // status — bound by enqueueStripeOverageRecompute
     // The account id resolved by queueHappyPath account lookup
     expect(insert.values).toContain('019dc366-29ce-7000-a000-000000000000'); // aggregate_id
-    expectExactSqlCalls(20);
+    expectExactSqlCalls(21);
   });
 
   it('VAL-BILLING-D3d: active → active no-op (updateAcct.count === 0) does NOT insert overage outbox row', async () => {

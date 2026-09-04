@@ -877,7 +877,12 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
       return providerCurrent;
     });
 
-    const webhook = processSubscriptionUpdated(providerCurrent as never);
+    // D6: the event context is a required argument. Fresh + in-window, so the
+    // out-of-order retry window is open and behaviour is unchanged.
+    const webhook = processSubscriptionUpdated(
+      providerCurrent as never,
+      { id: 'evt_test', created: Math.floor(Date.now() / 1000) },
+    );
     await retrieveEntered.promise;
 
     let publisherFinished = false;

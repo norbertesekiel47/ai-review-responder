@@ -7,6 +7,7 @@ import {
 } from '../../../../worker/__tests__/helpers/mock-sql';
 import {
   acquireBillingLock,
+  acquireStripeCustomerBindingLock,
   acquireTierEntitlementLock,
   acquireTierAndBillingLocks,
   acquireTierBillingActivationLocks,
@@ -14,6 +15,7 @@ import {
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const BUSINESS_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+const STRIPE_CUSTOMER_ID = 'cus_binding_lock_1';
 
 let harness: MockSqlHarness;
 let tx: TransactionSql;
@@ -63,6 +65,22 @@ describe('billing advisory lock graph', () => {
       `${BUSINESS_ID}:activation`,
     ]);
     expect(harness.sqlCalls).toHaveLength(3);
+    expect(harness.sqlReturnQueue).toHaveLength(0);
+  });
+
+  it('acquireStripeCustomerBindingLock hashes the customer id with its own dedicated suffix', async () => {
+    // D8. The lock is keyed on the STRIPE CUSTOMER, not the account, because
+    // one customer id may map to several accounts. A suffix shared with any
+    // account-keyed lock above would collide two different lock domains onto
+    // one hashtext input.
+    harness.sqlReturnQueue.push(mkTaggedResult([{}]));
+
+    await acquireStripeCustomerBindingLock(tx, STRIPE_CUSTOMER_ID);
+
+    expect(harness.sqlCalls.map((call) => call.values[0])).toEqual([
+      `${STRIPE_CUSTOMER_ID}:stripe_customer_binding`,
+    ]);
+    expect(harness.sqlCalls[0]!.text).toContain('pg_advisory_xact_lock');
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 });

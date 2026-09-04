@@ -44,7 +44,21 @@ export interface HealthAlertConfig {
   backlogDepthThreshold: number;
   ownerUnreachableAgeS: number;
   ownerUnreachableThreshold: number;
+  staleIgnoredWindowS: number;
+  staleIgnoredThreshold: number;
 }
+
+/** One hour, matching the failed-inbound probe's window. */
+const STALE_IGNORED_WINDOW_S = 3600;
+
+/**
+ * Five, not zero. One orphaned customer inside an hour is an ordinary
+ * out-of-order delivery that outlived its window. A STREAM of them is a
+ * systemic checkout break. The failed-inbound probe next door uses 0 because a
+ * FAILED event is never normal — an ACKED one sometimes is, which is the whole
+ * premise of the 15-minute bound.
+ */
+const STALE_IGNORED_THRESHOLD = 5;
 
 export function num(value: string | undefined, fallback: number): number {
   const parsed = parseInt(value ?? '', 10);
@@ -65,6 +79,13 @@ export function resolveHealthAlertConfig(): HealthAlertConfig {
     backlogDepthThreshold: num(cfg.HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD, 1500),
     ownerUnreachableAgeS: num(cfg.HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S, OWNER_UNREACHABLE_AGE_FLOOR_SECONDS),
     ownerUnreachableThreshold: num(cfg.HEALTH_ALERT_OWNER_UNREACHABLE_THRESHOLD, 0),
+    // CONSTANTS, not env vars, unlike every threshold above. Two new
+    // HEALTH_ALERT_* vars would pull in three registries (worker config,
+    // eservices-variables.md, env-vars.md) for a probe whose useful value is
+    // not yet known from production data. Promote them to env when someone
+    // needs to tune this without a deploy.
+    staleIgnoredWindowS: STALE_IGNORED_WINDOW_S,
+    staleIgnoredThreshold: STALE_IGNORED_THRESHOLD,
   };
 }
 
@@ -288,6 +309,47 @@ export async function checkFailedInboundEvents(sql: postgres.Sql, cfg: HealthAle
     }));
 }
 
+// Inbound events ACKED FOR AGE (status='stale_ignored'): a Stripe subscription
+// event whose account never appeared before the 15-minute out-of-order window
+// closed. This probe exists because acking them REMOVED them from
+// checkFailedInboundEvents' failed-only alert set.
+//
+// Without it the change is a net LOSS of detection, and the loss is the
+// dangerous kind: today one orphaned customer pages continuously for Stripe's
+// ~3-day retry schedule, because reclaim resets received_at and the failed
+// threshold is 0. After the ack that signal decays to zero about 15 minutes in.
+// A systemic checkout.session.completed break would therefore page briefly, go
+// green, and keep dropping every new paying customer in silence.
+//
+// Grouped by event_type for the same reason the failed probe is: the type says
+// WHICH provider operation is orphaning accounts. Read-only, cross-tenant by
+// design like every other platform health probe.
+export async function checkStaleIgnoredInboundEvents(
+  sql: postgres.Sql,
+  cfg: HealthAlertConfig,
+): Promise<HealthFinding[]> {
+  const rows = await sql<{ source: string; event_type: string; count: number }[]>`
+    SELECT source, event_type, COUNT(*)::int AS count
+    FROM inbound_events
+    WHERE status = 'stale_ignored'
+      AND processed_at > NOW() - make_interval(secs => ${cfg.staleIgnoredWindowS})
+    GROUP BY source, event_type
+  `;
+  return rows
+    .filter((r) => r.count > cfg.staleIgnoredThreshold)
+    .map((r) => ({
+      key: `inbound_events_stale_ignored:${r.source}:${r.event_type}`,
+      level: 'error' as const,
+      title: `${r.count} inbound ${r.source} ${r.event_type} event(s) acked for age in the last ${cfg.staleIgnoredWindowS}s — accounts are not being provisioned`,
+      detail: {
+        source: r.source,
+        event_type: r.event_type,
+        count: r.count,
+        window_s: cfg.staleIgnoredWindowS,
+      },
+    }));
+}
+
 // The send-batch parent kind this probe watches, typed against AGENT_RUN_KINDS so
 // renaming the kind fails the build here rather than silently matching zero rows.
 const SEND_BATCH_RUN_KIND: (typeof AGENT_RUN_KINDS)[number] = 'solicitation_send_batch';
@@ -447,6 +509,10 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   collect(await checkZeroDeliveryNotifications(sql, cfg));
   collect(await checkOwnerUnreachable(sql, cfg));
   collect(await checkFailedInboundEvents(sql, cfg));
+  // Beside its failed-only sibling on purpose: the two together are the whole
+  // inbound-event signal. Acking for age moves rows OUT of the failed set, so
+  // omitting this one would make the ack a net loss of detection.
+  collect(await checkStaleIgnoredInboundEvents(sql, cfg));
   collect(await checkStalledSendBatches(sql));
 
   // Isolate the send-breaker check — STILL SEQUENTIAL, still in position, never

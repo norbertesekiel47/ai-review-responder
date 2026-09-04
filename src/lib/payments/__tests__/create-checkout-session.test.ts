@@ -758,3 +758,27 @@ describe('createCheckoutSession beta comp coupon', () => {
     expect(reportCaughtErrorMock).not.toHaveBeenCalled();
   });
 });
+
+describe('createCheckoutSession Customer minting (D10 pin)', () => {
+  it('buildCheckoutSessionParams never sets a customer field, so Stripe always mints a new Customer', async () => {
+    // D10 rests entirely on this premise. Passing customer_email and never
+    // customer means every Session mints a FRESH Stripe Customer, so no code
+    // path can bind an already-redacted Customer to a second live account —
+    // which is the residual the D8 lock excludes simultaneously but not in
+    // sequence. A future change that starts reusing Customers must fail here,
+    // loudly, rather than silently re-opening that race.
+    queueCreate(attemptRow());
+
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+
+    const params = createMock.mock.calls[0]![0];
+    expect(params).not.toHaveProperty('customer');
+    expect(params.customer_email).toBe('owner@example.com');
+  });
+});

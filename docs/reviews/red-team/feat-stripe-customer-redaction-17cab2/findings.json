@@ -1,0 +1,265 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-stripe-customer-redaction-17cab2",
+  "branch": "feat/stripe-customer-redaction",
+  "fork_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
+  "merge_base_sha": "b9fb96016cc025c151f17db4b39baf165cb80a13",
+  "head_sha": "02bb77002b0258240ba5abb0f0cbf9d49fd10917",
+  "intake_sha256": "64a2c507794a841539388d1deaf9cabe5cf182bd47532b1e69b84d4832e33611",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-04T00:30:00Z",
+  "inventory": [
+    {
+      "id": "M1",
+      "test": "handleStripeWebhook - subscription event context and stale ack > the delete handler acking for age closes the row stale_ignored, not processed",
+      "file": "worker/ingress/__tests__/stripe.test.ts",
+      "outcome": "killed",
+      "reason": "Round 1 F02's exact mutation, re-run at HEAD: worker/ingress/stripe.ts:112 'ackedForAge = ack.ackedForAge' replaced with 'ackedForAge = false'. Baseline green, mutant FAILED (exit 1), exactly one test executed both times. The delete arm of D9 is now defended."
+    },
+    {
+      "id": "M2",
+      "test": "redactStripeCustomer > redactStripeCustomer re-clears a customer carrying the marker but dirty fields",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "killed",
+      "reason": "F08's mutation re-run: isAlreadyRedacted's REDACTED_CUSTOMER_FIELDS.every replaced with .some (stripe-customer-redaction.ts:328). Baseline green, mutant FAILED. A marker-present, field-dirty customer is now pinned."
+    },
+    {
+      "id": "M3",
+      "test": "handleStripeWebhook - subscription event context and stale ack > the acked-for-age Sentry warning is raised from an event context carrying both id and created",
+      "file": "worker/ingress/__tests__/stripe.test.ts",
+      "outcome": "killed",
+      "reason": "Deleted 'event_id: input.eventContext.id' from the production warning's extra block (worker/ingress/stripe/shared.ts:114). Baseline green, mutant FAILED. The rewritten test calls the real exported function rather than asserting its own stub, so the extra block is now genuinely pinned."
+    },
+    {
+      "id": "M4",
+      "test": "redactStripeCustomer > redactStripeCustomer detaches before it clears the customer fields",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "killed",
+      "reason": "Moved the detachPaymentMethods call from before the customers.update block to after it (stripe-customer-redaction.ts:237 -> after :248). Baseline green, mutant FAILED. The detach-first retry-consistency claim is pinned by order, not merely by presence."
+    },
+    {
+      "id": "M5",
+      "test": "redactStripeCustomer > redactStripeCustomer treats a resource_missing detach as success and continues",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "killed",
+      "reason": "Deleted 'if (isResourceMissing(err)) continue;' from the detach loop (stripe-customer-redaction.ts:293), so a missing method rethrows and strands the remaining ones attached. Baseline green, mutant FAILED."
+    },
+    {
+      "id": "M6",
+      "test": "AccountOffboarding PurgeWorker > Stripe Customer redaction ordering > handleAccountOffboardingPurge runs the redaction stage before any local destruction and before runParentTombstonePurgeStage",
+      "file": "worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Reverted the D5 inversion: moved runStripeCustomerRedactionPurgeStage from first back to immediately before runParentTombstonePurgeStage (PurgeWorker.ts:100). Baseline green, mutant FAILED. The full-subsequence assertion catches redaction drifting later, which is the dangerous direction now."
+    },
+    {
+      "id": "M7",
+      "test": "runStripeCustomerRedactionPurgeStage > runStripeCustomerRedactionPurgeStage is a no-op when the offboarding row carries no stripe_customer_id",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R08",
+      "reason": "SURVIVED. Hoisted 'const stripe = resolveStripe();' above the 'if (!customerId)' early return (purge-stages.ts:769-775), reverting the fix to eager resolution. Baseline green, mutant PASSED. Arbiter: the test's named contract is 'no-op when there is no stripe_customer_id', justified in its comment as 'issuing a Stripe call here would spend a network round trip'; both still hold under the mutant, which issues no Stripe call and no SQL. The property the mutant breaks - that getStripe(), which throws without STRIPE_SECRET_KEY, is resolved only once a customer id is present - is asserted by no test. A survivor on a property the test never asserts is inconclusive/oracle, not a confirmed P0. Raised as R08."
+    },
+    {
+      "id": "U01",
+      "test": "(no covering test) shared-customer guard predicate semantics: ao.mode = 'delete_data' AND ao.status IN ('purge_scheduled','purged')",
+      "file": "worker/jobs/account-offboarding/purge-stages.ts:808-819",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R03",
+      "reason": "Uncovered change. Every stage test mocks sql and pushes {count:0}/{count:1}, so none executes the predicate; worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts never exercises it; the only pin is the byte-for-byte snippet in scripts/ci/tenant-scope-allowlist.ts:2841, a string comparison that asserts nothing about meaning. No mutation is meaningful without an executing oracle. The predicate is wrong in two reachable states - see R03."
+    },
+    {
+      "id": "U02",
+      "test": "(no covering test) per-arm saturation and count reporting for the split inbound_events arm",
+      "file": "worker/background/pollers/ArchivalPoller.ts:456, worker/background/pollers/ArchivalPoller.ts:472",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R06",
+      "reason": "Uncovered change. ArchivalPoller.test.ts's rewritten test asserts query TEXT only (two equality arms, no IN, UNION ALL, two intervals, two LIMIT 5000). No test drives the split arm through the saturation branch, so the combined-count comparison against BATCH_LIMIT = 5000 - whose true cap for this arm is now 10000 - is unexercised in either direction."
+    },
+    {
+      "id": "U03",
+      "test": "(no covering test) logStripeCustomerRedactionOutcome, all four call sites",
+      "file": "worker/jobs/account-offboarding/purge-stages.ts:847-865",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R07",
+      "reason": "Uncovered change. rg over stripe-customer-redaction-stage.test.ts for not_applicable / the log message / createWorkerLogger returns no matches, and no other suite imports the stage. The fix for round 1's F05 is delivered in code and asserted nowhere."
+    },
+    {
+      "id": "U04",
+      "test": "(no covering test) detachPaymentMethods pagination - page.has_more is declared and never read",
+      "file": "src/lib/account-offboarding/stripe-customer-redaction.ts:105, src/lib/account-offboarding/stripe-customer-redaction.ts:277-285",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R04",
+      "reason": "Uncovered change. Every fixture in the suite returns has_more: false, so no test can distinguish the shipped one-page behaviour from a paginating implementation. There is no branch to mutate because the field is never read - the gap is the missing code, not a weak assertion. See R04 for the sibling module that paginates and throws."
+    },
+    {
+      "id": "T01",
+      "test": "processSubscriptionUpdated out-of-order retry bound > outOfOrderRetryWindowOpen leaves the window OPEN for a non-finite created",
+      "file": "worker/ingress/__tests__/stripe-subscription-updated.test.ts",
+      "outcome": "excluded",
+      "reason": "Excluded: round 1's F07 named this hunk (worker/ingress/stripe/shared.ts:82) and round 1 already mutation-tested the guard. The new test is the fix for that finding; re-mutating the same guard would re-derive round 1's result rather than test this pass. Read for fragile assertions instead - it asserts the three non-finite inputs behaviourally, not by token absence."
+    },
+    {
+      "id": "T02",
+      "test": "ArchivalPoller > inbound_events query sweeps both terminal statuses on one 30-day clock (query shape assertion)",
+      "file": "worker/background/pollers/__tests__/ArchivalPoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Excluded from mutation as a pure query-TEXT assertion: every mutation it can catch is a string edit, and its real subject - which index each arm plans - is unreachable from a mocked sql. Verified instead by EXPLAIN against the local test DB (see S2 in findings.md), which confirms Index Scan on idx_ie_archival and idx_ie_status per arm and Seq Scan at cost 1e10 for the old IN spelling. Reviewed for fragility: it replaced token-absence proxies with two-arm equality assertions plus counted intervals and LIMITs, which is the behavioural direction round 1's F09 asked for."
+    },
+    {
+      "id": "T03",
+      "test": "health-alert checks > checkFailedInboundEvents > (rewritten) excludes acked-for-age rows behaviourally rather than by token absence",
+      "file": "worker/background/pollers/health-alert/__tests__/checks.test.ts",
+      "outcome": "excluded",
+      "reason": "Excluded: this is the fix for round 1's F09 and was reviewed under Duty 2 rather than mutated. It now feeds the probe a stale_ignored-shaped row and proves the production predicate excludes it, replacing not.toContain('IN (') and not.toContain('!=') - the absence-of-token proxy class F09 named. No new fragile assertion found."
+    },
+    {
+      "id": "T04",
+      "test": "runStripeCustomerRedactionPurgeStage > the redaction guard still skips when the writer wins the binding lock first",
+      "file": "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts",
+      "outcome": "excluded",
+      "reason": "Excluded from mutation: reviewed under Duty 2 as the fix for round 1's F10. It is no longer a byte-duplicate of the shared-customer test - it now asserts lockIndex() === 0, lockIndex() < sharingCountIndex(), and inTransaction on both calls, which is the order-dependent property its title claims. Note the residual gap recorded in R03: it still asserts call ORDER against a mocked sql and never the predicate's meaning."
+    },
+    {
+      "id": "T05",
+      "test": "redactStripeCustomer > redactStripeCustomer records a deterministic idempotency key derived from the offboarding id",
+      "file": "src/lib/account-offboarding/__tests__/stripe-customer-redaction.test.ts",
+      "outcome": "excluded",
+      "reason": "Excluded from mutation: reviewed under Duty 2 as the fix for round 1's F11. The tautological f(x) === f(x) assertion is gone, replaced by toContain(OFFBOARDING_ID), a not.toBe against a different offboarding id, and the 255-character Stripe cap. Sound. Related gap recorded elsewhere: the per-PaymentMethod key suffix (:pm:<id>) introduced by this pass is not covered by these assertions, but it inherits the same derivation and the 255 bound holds for a pm_ id."
+    },
+    {
+      "id": "T06",
+      "test": "health-alert checks > checkStaleIgnoredInboundEvents > pages when a stream of events is acked for age / stays quiet for an ordinary out-of-order delivery",
+      "file": "worker/background/pollers/health-alert/__tests__/checks.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "R11",
+      "reason": "The two new tests pin the status filter, the grouping and the two count directions (40 fires, 3 quiet), but neither the window COLUMN nor the threshold BOUNDARY is asserted: substituting received_at for processed_at passes both, and count > threshold changed to >= passes both. The window column is correct (markInboundEventStaleIgnored stamps processed_at) but unpinned, and diverges from the sibling probe's received_at without explanation. Not executed as mutations - the budget was directed at the six claims the round was convened for - so the oracle's strength on these two axes is unresolved rather than measured."
+    }
+  ],
+  "findings": [
+    {
+      "id": "R01",
+      "severity": "P0",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "CONTEXT.md's LOCKED Stripe-redaction terms still assert the ordering, the lock claim and the receipt coupling this pass repudiated",
+      "at": "CONTEXT.md:170, CONTEXT.md:171",
+      "reason": "CONTEXT.md:168-171 is the authoritative domain model. Three claims are FALSE at 02bb7700, two of them the exact sentences this pass corrected in the code docblocks and left standing here. (1) :170 'It runs LATE (D5), after runAuditAndCostPayloadPurgeStage and immediately before runParentTombstonePurgeStage ... running first would fail fast with nothing destroyed, but a later local failure would then leave a LIVE account whose Stripe billing contact is already wiped' - at HEAD the stage runs FIRST (PurgeWorker.ts:100, before runAuthBindingPurgeStage), and PurgeWorker.ts:93-99 records that hazard as unreachable. The locked term does not merely carry a stale ordering, it argues against the ordering that shipped. (2) :170 'acquireStripeCustomerBindingLock (D8) which the stage takes ALONE' - purge-stages.ts:757-762 at HEAD: 'It does take a second lock: the disposition append below takes an exclusive account_offboardings row lock while the binding lock is still held ... requests no other lock was simply false.' (3) :171 'the purge receipt and the privacy policy Retention paragraph are both written from it' - table-disposition.ts:446-455 at HEAD: 'neither imports this array ... An earlier version of this comment said they are written from these reasons, which implied a coupling that does not exist.' A fourth, weaker defect: :170 defines the operation as clearing eight fields plus metadata and omits PaymentMethod detachment, a new irreversible provider-side effect. Verified by reading each cited symbol at HEAD. Fix: re-resolve CONTEXT.md:168-171 in the same change as the code docblocks.\n\nFIXED 2026-09-04 (ecf4c224). CONTEXT.md:170-171 re-resolved against HEAD: the stage runs FIRST with D5's false premise stated (D6); it does NOT take the binding lock ALONE (the disposition append holds an exclusive account_offboardings row lock inside it, binding-then-row, never inverted); the receipt and privacy policy state the same categories but are NOT written from PROVIDER_DATA_RETENTION (neither imports it). PaymentMethod detachment added to the term's definition. Both provenance lines record the correction."
+    },
+    {
+      "id": "R02",
+      "severity": "P0",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "Four docs/directory.md rows are false at HEAD, and this pass's own code changes made them so",
+      "at": "docs/directory.md:1267, docs/directory.md:1650, docs/directory.md:1684, docs/directory.md:1725",
+      "reason": "Round 1's F01 fixed the two rows it named and predicted a further self-description defect. ci:directory-map checks completeness (a row per file), never truth, so the green gate says nothing here. :1684 ArchivalPoller 'sweeps BOTH terminal statuses ... in one predicate' - at HEAD it is two equality arms under UNION ALL (ArchivalPoller.ts:113-131), and 'one predicate' is verbatim the reasoning ArchivalPoller.ts:96-99 now records as the cause of the defect. :1650 PurgeWorker 'auth binding -> ... -> audit/cost payloads -> Stripe Customer redaction -> parent tombstone; the redaction runs LATE by D5, and the worker resolves getStripe() at its own boundary' - redaction is FIRST, and the worker passes the getStripe FACTORY (PurgeWorker.ts:100) which the stage resolves after its null check (purge-stages.ts:775); both halves false. :1267 stripe-customer-redaction.ts 'Takes an injected StripeCustomerRedactionClient (retrieve + update only)' - the client also declares paymentMethods.list + detach (stripe-customer-redaction.ts:134-144) and the function detaches every attached method (:237). :1725 checks.ts 'one query each against env-tunable HEALTH_ALERT_* thresholds ... runs them SEQUENTIALLY: ... failed inbound events, stalled send batches' - the enumeration omits checkStaleIgnoredInboundEvents (checks.ts:512) and its two thresholds are deliberately not env-tunable (checks.ts:82-88); stale rather than affirmatively false. Fix: re-resolve all four.\n\nFIXED 2026-09-04 (ecf4c224). All four rows re-resolved: ArchivalPoller no longer says \"in one predicate\" (two arms, two statements, each through its own index); PurgeWorker names the real stage order, the D5 inversion and the getStripe FACTORY; the redaction client is no longer \"retrieve + update only\"; checks.ts enumerates checkStaleIgnoredInboundEvents and says its thresholds are constants, not env-tunable."
+    },
+    {
+      "id": "R03",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "The new shared-customer guard erases a co-tenant who has not passed the point of no return, and still both-siblings-skips one status over",
+      "at": "worker/jobs/account-offboarding/purge-stages.ts:808-819",
+      "reason": "The fix replaced ao.status = 'purged' with ao.mode = 'delete_data' AND ao.status IN ('purge_scheduled','purged'). It keys on status; the property it needs is 'this sibling can no longer come back', and the branch's own D5-inversion argument (PurgeWorker.ts:96-99) names purge_started_at as that marker. The sets differ in BOTH directions. W1: keep-my-data.ts:192-199 admits a cancellation when mode='delete_data' AND status IN ('pending','tearing_down','purge_scheduled') AND terminal_at IS NULL AND purge_started_at IS NULL AND purge_cancelled_at IS NULL. Intersecting that with the guard's exclusion set yields status='purge_scheduled' with purge_started_at IS NULL - the ENTIRE purge grace window, the modal state of every delete_data offboarding between teardown and purge_after. So when account A purges while co-tenant B sits anywhere in its own grace window, A's guard excludes B, counts zero live co-tenants and redacts the shared Customer; B can still click Keep my data, whose entire purpose is do not destroy my data, and B's Stripe billing contact has already been destroyed irreversibly by another tenant's purge with nothing recorded against B. The docblock premise 'Both are being deleted, so redacting the shared Customer harms neither' is false for a purge_scheduled sibling: it is SCHEDULED for deletion, not committed to it. W2: markPurgeTerminalFailure leaves status='failed' with purge_started_at set (PurgeWorker.ts:131), and 'failed' is outside the exclusion set, so a sibling unambiguously past the point of no return is counted as a live co-tenant and A skips - the both-siblings-skip class the fix set out to remove, one status over, reachable whenever a sibling's purge exhausts its BullMQ attempts. Both vanish with AND ao.purge_started_at IS NOT NULL AND ao.purge_cancelled_at IS NULL, which still closes the concurrent-purge case because AccountOffboardingPurgePoller.ts:126 stamps purge_started_at in the claim transaction before either job runs. Why it shipped: the predicate has no behavioural test - every stage test mocks sql and pushes {count:0}/{count:1}, the offboarding live-DB suite never exercises it, and the only pin is the byte-for-byte string in scripts/ci/tenant-scope-allowlist.ts:2841, a string comparison that asserts nothing about meaning (inventory U01).\n\nFIXED 2026-09-04 (896312c9..). The predicate is now `ao.purge_started_at IS NOT NULL AND ao.purge_cancelled_at IS NULL`, closing W1 (the purge grace window, where a co-tenant can still cancel) and W2 (a terminally failed sibling, which is past the point of no return). The finding-under-the-finding is closed too: worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts drives the real stage against real Postgres with real co-tenant rows, 8 cases. Verified as an oracle by reinstating the old status-keyed predicate: 3 of the 8 fail."
+    },
+    {
+      "id": "R04",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "detachPaymentMethods declares has_more and never reads it; the sibling module in the same directory paginates and throws",
+      "at": "src/lib/account-offboarding/stripe-customer-redaction.ts:105, src/lib/account-offboarding/stripe-customer-redaction.ts:274-296",
+      "reason": "StripePaymentMethodListResult declares has_more: boolean (:105) and nothing reads it. One page of 100 is fetched, the loop detaches what it got, and redactStripeCustomer returns 'redacted'. The justification is a one-line assumption at :253 ('a customer with more attached methods than this is not real'); Stripe caps attached PaymentMethods at no number, and the Billing Portal does not detach the old card when a new one is added. Three things make this more than hypothetical. (1) stripe-invoices.ts - the other Stripe-facing offboarding module, whose isRetryableStripeError this pass's own new docblock calls BYTE-IDENTICAL - declares the same has_more shape (:30), implements bounded cursor pagination (:143-176) and throws a retryable bounded_pagination_exhausted rather than reporting success when the bound is exhausted. (2) The failure is silent and then unrecoverable: 'redacted' lets the purge finalize and runParentTombstonePurgeStage NULLs accounts.stripe_customer_id, leaving no handle to finish - verbatim the outcome stripe-customer-redaction.ts:336-339 gives as the reason not to map permanent errors to success. (3) A retry cannot recover it either: the marker is written on the same run, so isAlreadyRedacted (:228) short-circuits before detachPaymentMethods is reached. Fix: loop on has_more with starting_after as stripe-invoices.ts does, or minimally throw when page.has_more is true. Graded P1 only because the trigger needs >100 attached PaymentMethods on one Customer; the failure class is P0-shaped.\n\nFIXED 2026-09-04 (ecf4c224). detachPaymentMethods now reads has_more, paginates, and throws retryable `bounded_pagination_exhausted` at ten pages rather than returning `redacted` over an unfinished sweep. It re-lists from the START rather than advancing a cursor, because detaching removes the anchor a cursor would point at. Mutation-verified: reinstating the one-page sweep fails 4 tests."
+    },
+    {
+      "id": "R05",
+      "severity": "P1",
+      "duty": 5,
+      "disposition": "fixed",
+      "title": "Round 1's F04 is not closed - the acked-for-age warning still matches no alert rule, and the new probe has no runbook row either",
+      "at": "worker/ingress/stripe/shared.ts:106-121 vs docs/runbooks/beta-launch-alerting.md:223-229",
+      "reason": "docs/runbooks/beta-launch-alerting.md is untouched by the entire branch (git diff --name-only b9fb9601..HEAD -- docs/runbooks/ is empty). warnStripeSubscriptionEventAckedForAge emits captureMessage('stripe_subscription_event_acked_for_age') at level warning with tags {feature: 'stripe_subscription_out_of_order', event_type} and NO subsystem tag. Facet comparison against the runbook's rule table: filter - the five live filters are subsystem=health_alert, cost_event=limit_exceeded, feature=stripe_reconciliation, subsystem=import_consent_analytics, feature=solicitation_lane; none matches. Level - runbook section 1 records that a warning captureMessage 'does not reliably classify as high priority' (CONFIG-1), so Sentry's default high-priority rule does not catch it either. Destination - none. That is an emitted operator signal with no rule row, Duty 5's exact definition, and it is the signal D9 leans on: the shared docblock calls it 'the operator's only handle on the acked event'. The pass answered F04 with a DIFFERENT signal - checkStaleIgnoredInboundEvents, which does route via rule 1's subsystem:health_alert and is fine - covering the aggregate stream but not the per-event handle. Second half: the new probe has no section 1 checklist bullet, despite section 1 carrying the explicit precedent 'Rule 6 is a REPLACEMENT, not an addition (#967)', written because an ack took events out of checkFailedInboundEvents' set and a replacement rule was therefore mandatory - the same move this branch makes on the Stripe lane. Fix: add a section 1 bullet plus a frequency-conditioned rule row for feature:stripe_subscription_out_of_order (the capture title is a constant, so a first-seen rule fires once ever), and a section 1 bullet recording the new probe as a replacement.\n\nFIXED 2026-09-04 (3170d108). docs/runbooks/beta-launch-alerting.md gains rule 7 (`feature` equals `stripe_subscription_out_of_order`, frequency-conditioned, warning) plus two section-1 checklist bullets — one for the per-event handle, one recording checkStaleIgnoredInboundEvents as a REPLACEMENT on rule 6's precedent. The dead-man switch step renumbers 7 -> 8, per the runbook's own rule that step and rule numbers must not collide."
+    },
+    {
+      "id": "R06",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "The events arm was split in two and its saturation reporting was not - the warning now miss-fires and the count hides which arm is backed up",
+      "at": "worker/background/pollers/ArchivalPoller.ts:109-112, worker/background/pollers/ArchivalPoller.ts:456, worker/background/pollers/ArchivalPoller.ts:472",
+      "reason": "ArchivalPoller.ts:109-112 claims 'each arm saturates and reports independently, and the low-volume arm cannot starve behind the high-volume one'. The first half is false: the query returns ONE combined count (:132) and :472 compares it against a single BATCH_LIMIT = 5000 whose true cap for this arm is now 10000. False positive: processed deletes 3000 (arm exhausted, nothing remains) and stale_ignored deletes 2000 (arm exhausted) gives eventsCount = 5000, so the poller warns 'Batch limit reached - more rows may remain' when neither arm saturated and nothing remains; reachable across the whole [5000, 9999] band. ArchivalPoller.ts:212 already names this class by hand ('saturation warnings could miss-fire'). Lost attribution: the Archived log's events: key (:456) is now the sum of two different retention arms, so an operator cannot see a growing acked-for-age backlog at all. This diverges from an idiom the same file established for the same situation - arms 9 and 10 are one table split into two arms for the same index reason and carry TWO counts and TWO saturation entries, with ArchivalPoller.test.ts:420-422 stating why: 'Two arms, two saturation signals: arm 9 draining while arm 10 is pinned at the cap has to be visible.' Fix: return two counts (GROUP BY status in the deleted CTE, or two statements) and report events_processed / events_stale_ignored separately. No test covers the current semantics (inventory U02).\n\nFIXED 2026-09-04 (ecf4c224). The inbound_events sweep is now TWO statements with two counts and two saturation entries (`events_processed` / `events_stale_ignored`), following arms 9 and 10 in the same file. Closes the [5000, 9999] false positive and the lost attribution. Mutation-verified: summing the two saturation counts fails 2 tests."
+    },
+    {
+      "id": "R07",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "The observability fix for round 1's F05 has zero covering tests, including the not_applicable line that is a no-customer purge's only trace",
+      "at": "worker/jobs/account-offboarding/purge-stages.ts:847-865",
+      "reason": "logStripeCustomerRedactionOutcome is called at four sites (:772 not_applicable, :823 skipped_shared_customer, :838 the redaction outcome). Nothing asserts any of them: rg 'not_applicable|Stripe customer redaction|createWorkerLogger' over worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-stage.test.ts returns no matches, and no other suite imports the stage. F05 was raised because the intake's first observability promise was undelivered; it is now delivered in code and pinned by nothing, so it can regress silently. The not_applicable line matters most - it is the only trace a purge of an account that never had a Stripe Customer leaves anywhere (inventory U03).\n\nFIXED 2026-09-04 (3170d108). Four tests for logStripeCustomerRedactionOutcome in stripe-customer-redaction-stage.test.ts, including not_applicable (the only trace a no-Stripe-Customer purge leaves anywhere), the outcome being read from redactStripeCustomer rather than hardcoded, and the raw cus_ handle never reaching a log line."
+    },
+    {
+      "id": "R08",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "The factory / lazy-getStripe fix is unpinned - hoisting the resolve above the null check passes its covering test",
+      "at": "worker/jobs/account-offboarding/purge-stages.ts:769-775",
+      "reason": "Mutation M7: hoist 'const stripe = resolveStripe();' above the 'if (!customerId)' early return, reverting the change to eager resolution. Baseline green, mutant PASSED. Arbiter reasoning is recorded on inventory row M7 and reproduced here: the covering test's named contract is 'is a no-op when the offboarding row carries no stripe_customer_id' and its comment justifies it as 'issuing a Stripe call here would spend a network round trip'; both still hold under the mutant, which issues no Stripe call and no SQL. The mutant breaks a different property, the one purge-stages.ts:764-768 states - 'getStripe() throws when STRIPE_SECRET_KEY is unset, and resolving it eagerly made every delete_data purge depend on the key, including accounts that never had a Stripe Customer at all'. No test asserts that property, so the survivor is on a property this test never asserts and is classified inconclusive/oracle rather than a P0. The PurgeWorker test's expect.any(Function) pins that a function is passed, not that resolution is deferred; the stage tests pass () => fakeStripe(), which never throws. Fix: one test passing a factory that throws, asserting the stage returns without calling it when stripe_customer_id is null.\n\nFIXED 2026-09-04 (3170d108). A test passing a factory that throws pins the property the code states — getStripe() throws without STRIPE_SECRET_KEY — which is what mutation M7 actually broke and what the old contract (\"no Stripe call and no SQL\") could not see. Re-running M7 now fails that test."
+    },
+    {
+      "id": "R09",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "D6's recorded reason for not delivering the receipt's erasure clause is false - the conditioning mechanism ships in the same payload",
+      "at": "docs/superpowers/plans/feat-stripe-customer-redaction-deviations.md (D6, 'One promise NOT delivered')",
+      "reason": "D6 records: 'The promised clause would be FALSE in the skipped_shared_customer outcome, and the template has no outcome data to condition on.' The first half is a sound reason not to ship the clause unconditionally. The second half is false. src/lib/shared/worker-types.ts:386-391 carries retained_suppression_count on the purge_receipt payload, with the docblock 'Snapshotted inside the finalize transaction rather than queried at send time ... a retried send has to render the SAME number, and it keeps the email worker ignorant of the solicitation domain'; src/lib/account-offboarding/outbox.ts:45-50 carries the matching enqueue field. The redaction outcome is written into account_offboardings.provider_dispositions by an earlier transaction of the same job (purge-stages.ts:838, appendStripeCustomerRedactionRecord) and finalizePurgeInTransaction, which enqueues the receipt, runs last - so the outcome is committed and readable at exactly the moment retained_suppression_count is snapshotted, by exactly the same mechanism, for exactly the same reason. This is not a demand to ship the clause; the owner may still prefer a retention-only receipt. The finding is that the durable record gives an infeasibility reason that is not true, so a future session reading D6 will conclude the option was closed when it is one snapshotted field away - the 'confident prose that is in fact the defect' pattern D7 itself names. Fix: amend D6 to state the actual reason, or condition the clause on a snapshotted outcome.\n\nFIXED 2026-09-04 (3170d108). D6's recorded reason is corrected. retained_suppression_count is snapshotted onto the same purge_receipt payload in the same finalize transaction, so the option is one field away rather than infeasible. The DECISION stands and is now recorded on its real grounds — a conditional erasure sentence on a compliance email is a scope and legal-review question this branch did not open."
+    },
+    {
+      "id": "R10",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "'A stale_ignored rate probe restores the pager the ack removed' overstates what the probe restores - single-orphan coverage is gone",
+      "at": "docs/superpowers/plans/feat-stripe-customer-redaction-deviations.md (D6, 'The other three decisions'), scripts/ci/tenant-scope-allowlist.ts:258-261",
+      "reason": "Partially true. Before the ack a SINGLE orphaned customer paged continuously for Stripe's roughly 3-day retry schedule, because reclaim resets received_at (worker/ingress/shared.ts:62-70) and checkFailedInboundEvents' threshold is 0 (checks.ts:302-303). After the ack that row leaves the failed set, and the new probe's threshold is 5 per hour per (source, event_type), so the single-orphan case now pages nothing; only a stream is restored. checks.ts:52-58 is honest about the threshold and why it is 5 - the two durable records above are the ones that overstate. Small, but it is the sentence a future operator will read when one customer silently fails to provision.\n\nFIXED 2026-09-04 (3170d108). Both overstating records corrected — deviation D6 and the tenant-scope allowlist note now say the probe restores the AGGREGATE stream only, that the single-orphan case pages nothing through it (threshold 5/hour vs the failed probe's 0), and that the per-event handle is rule 7, a separate signal. The runbook states the same limit so an operator is not surprised by it."
+    },
+    {
+      "id": "R11",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "The new probe's window column and threshold boundary are unasserted, and the window column silently diverges from its sibling probe",
+      "at": "worker/background/pollers/health-alert/__tests__/checks.test.ts:255-290, worker/background/pollers/health-alert/checks.ts:325-330",
+      "reason": "checks.test.ts asserts status = 'stale_ignored' and GROUP BY source, event_type in the query text and exercises counts 40 (fires) and 3 (quiet). Neither the window column nor the boundary is pinned. Substituting received_at for processed_at passes both tests - the choice is correct (markInboundEventStaleIgnored stamps processed_at, worker/ingress/shared.ts:96-101) but unpinned, and it diverges from the sibling probe next door which windows on received_at (checks.ts:300) with no comment explaining why the two differ. count > threshold changed to count >= threshold also passes both tests, silently moving the effective threshold from 6 to 5. Not executed as mutations: the budget was better spent on the six claims the round was convened for, and neither gap changes behaviour at HEAD.\n\nFIXED 2026-09-04 (3170d108). Both substitutions are now pinned, with the reason processed_at is right (the ack stamps it; reclaim resets received_at) so the two sibling probes' different spellings read as deliberate. Mutation-verified: swapping to received_at and flipping > to >= each fail their test."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 17,
+    "killed": 6,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 6,
+    "skipped_budget": 0,
+    "excluded": 5,
+    "findings_total": 11,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 11,
+    "rejected": 0
+  },
+  "status": "INCOMPLETE_ORACLE"
+}

@@ -25,9 +25,11 @@ import {
   runParentTombstonePurgeStage,
   runProviderIdentifierPurgeStage,
   runRawPayloadPurgeStage,
+  runStripeCustomerRedactionPurgeStage,
   validatePurgeableOffboarding,
 } from './purge-stages';
 import { scrubOffboardingErrorForStorage } from '../../../src/lib/account-offboarding/scrub-error';
+import { getStripe } from '../../../src/lib/payments/stripe-client';
 
 export async function handleAccountOffboardingPurge(
   sql: postgres.Sql,
@@ -74,6 +76,31 @@ export async function handleAccountOffboardingPurge(
     // finalize); each is its own transaction taking FOR UPDATE locks on the shared accounts row,
     // so running them in parallel would deadlock and violate the dependency ordering.
     // react-doctor-disable-next-line react-doctor/async-parallel
+    //
+    // THE STRIPE CALL RUNS FIRST — this INVERTS the original D5 and the reason
+    // is worth stating, because D5's own rationale was false.
+    //
+    // D5 placed redaction immediately before the tombstone, arguing that by
+    // then "every local destruction has committed, so the point of no return
+    // has passed". The async and database review axes both showed that is
+    // untrue: runParentTombstonePurgeStage — the stage that actually replaces
+    // names, emails, phones and addresses with sentinels — runs AFTER. So a
+    // Stripe outage that exhausted retries left auth deleted and content
+    // destroyed while users/businesses/accounts still held live PII, with the
+    // offboarding terminal, no receipt, and no automatic re-run.
+    //
+    // Running first restores fail-fast: a Stripe failure aborts with NOTHING
+    // destroyed, and BullMQ retries the whole job cleanly.
+    //
+    // The hazard D5 feared — a LIVE account left with a wiped billing contact —
+    // is not reachable here. An offboarding at this point has `purge_started_at`
+    // set, and cancellation is gated on `purge_started_at IS NULL`
+    // (`keep-my-data.ts`), so the account cannot return to service. The
+    // shared-customer guard, not the ordering, is what protects a co-tenant.
+    //
+    // The worker resolves the client at its own boundary and passes it down —
+    // the domain module never imports the singleton (invariant #15).
+    await runStripeCustomerRedactionPurgeStage(sql, getStripe, offboarding);
     await runAuthBindingPurgeStage(sql, supabaseServer, offboarding);
     await runDependentReferencePurgeStage(sql, offboarding);
     await runRawPayloadPurgeStage(sql, offboarding, outboxId);

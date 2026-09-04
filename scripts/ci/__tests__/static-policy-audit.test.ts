@@ -434,8 +434,13 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
     // :176 → :186 → :177 across admin-invite-funnel: T5 deleted
     // `DashboardDataPendingAdminHandoff` and documented `funnelUrl` above it
     // (pushing it down), then D-11 removed the `paymentUrl` tombstone that
-    // deletion had stranded (pulling it back up).
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:147')).toBe(true);
+    // deletion had stranded (pulling it back up). It moved TWICE MORE inside
+    // feat/stripe-customer-redaction — :147 → :280 → :256 — first when the
+    // out-of-order retry bound added its constant, event-context type and
+    // window predicate above the cited line, then partway back when an
+    // AsyncLocalStorage ack channel was replaced by a typed return value. Two
+    // moves in one branch, from edits that never touched the cited statement.
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:256')).toBe(true);
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:177')).toBe(true);
   });
 });

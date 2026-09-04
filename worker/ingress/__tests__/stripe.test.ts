@@ -7,6 +7,11 @@ const {
   mockSql,
   mockClaimInboundEvent,
   mockConstructEvent,
+  mockCaptureMessage,
+  mockProcessSubscriptionUpdated,
+  mockProcessSubscriptionDeleted,
+  mockMarkInboundEventProcessed,
+  mockMarkInboundEventStaleIgnored,
 } = vi.hoisted(() => {
   const sqlFn: any = vi.fn();
   sqlFn.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(sqlFn));
@@ -18,8 +23,18 @@ const {
     mockSql: sqlFn,
     mockClaimInboundEvent: vi.fn(),
     mockConstructEvent: vi.fn(),
+    mockCaptureMessage: vi.fn(),
+    mockProcessSubscriptionUpdated: vi.fn(),
+    mockProcessSubscriptionDeleted: vi.fn(),
+    mockMarkInboundEventProcessed: vi.fn(),
+    mockMarkInboundEventStaleIgnored: vi.fn(),
   };
 });
+
+vi.mock('@sentry/node', () => ({
+  captureMessage: mockCaptureMessage,
+  captureException: vi.fn(),
+}));
 
 vi.mock('../../../src/lib/db/server', () => ({
   sql: mockSql,
@@ -28,6 +43,8 @@ vi.mock('../../../src/lib/db/server', () => ({
 
 vi.mock('../shared', () => ({
   claimInboundEvent: mockClaimInboundEvent,
+  markInboundEventProcessed: mockMarkInboundEventProcessed,
+  markInboundEventStaleIgnored: mockMarkInboundEventStaleIgnored,
 }));
 
 // Mock Stripe SDK so we don't pull in the real one. The handler grabs a
@@ -97,6 +114,7 @@ process.env.STRIPE_WEBHOOK_SECRET = 'whsec_dummy';
 process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list_test';
 
 import { handleStripeWebhook } from '../stripe';
+import { warnStripeSubscriptionEventAckedForAge } from '../stripe/shared';
 
 afterAll(() => {
   if (_origStripeSecretKey === undefined) delete process.env.STRIPE_SECRET_KEY;
@@ -141,6 +159,9 @@ function sqlTexts(): string[] {
 beforeEach(() => {
   mockSql.mockReset();
   mockSql.mockResolvedValue([]);
+  mockCaptureMessage.mockReset();
+  mockMarkInboundEventProcessed.mockReset();
+  mockMarkInboundEventStaleIgnored.mockReset();
   mockSql.begin = vi.fn(async (cb: (tx: any) => Promise<unknown>) => cb(mockSql));
 
   mockClaimInboundEvent.mockReset();
@@ -176,13 +197,13 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     );
     expect(businessTouches).toEqual([]);
 
-    // The inbound_events row is closed out as 'processed'.
-    expect(
-      sqlTexts().some((t) =>
-        /UPDATE\s+inbound_events[\s\S]*processed/i.test(t),
-      ),
-    ).toBe(true);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    // The inbound_events row is closed out as 'processed'. Asserted at the
+    // marker seam, not in SQL text: the dispatcher now closes every row through
+    // worker/ingress/shared.ts, which this suite mocks, so the statement never
+    // reaches mockSql.
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(0);
 
     consoleSpy.mockRestore();
   });
@@ -202,7 +223,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+businesses|DELETE\s+FROM\s+businesses|INSERT\s+INTO\s+businesses/i.test(t),
     );
     expect(businessTouches).toEqual([]);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
   });
 
   it('payment_intent.created — same no-op behavior', async () => {
@@ -220,7 +242,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+businesses|DELETE\s+FROM\s+businesses|INSERT\s+INTO\s+businesses/i.test(t),
     );
     expect(businessTouches).toEqual([]);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
   });
 
   // B23 — malformed client_reference_id used to trigger the
@@ -271,13 +294,11 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     expect(warnedText).toMatch(/"not-a-uuid"/);
 
     // inbound_events still gets marked processed at the tail of the
-    // handler (so future replays of the same event id are deduped).
-    expect(
-      sqlTexts().some((t) =>
-        /UPDATE\s+inbound_events[\s\S]*processed/i.test(t),
-      ),
-    ).toBe(true);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    // handler (so future replays of the same event id are deduped). Asserted
+    // at the marker seam — see the charge.updated case for why.
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(0);
 
     consoleSpy.mockRestore();
   });
@@ -307,7 +328,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
       /UPDATE\s+(accounts|businesses)|SELECT\s+subscription_status[\s\S]*FROM\s+(accounts|businesses)/i.test(t),
     );
     expect(dataTouches).toEqual([]);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
     consoleSpy.mockRestore();
   });
 
@@ -472,7 +494,8 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
     expect(status).toHaveBeenCalledWith(200);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
   });
 
   it('processes a legitimately-retried event within the retry window (~2 days old)', async () => {
@@ -481,6 +504,188 @@ describe('handleStripeWebhook — unhandled event types are safely ignored', () 
     const { reply } = mkReply();
     await handleStripeWebhook(mkRequest('charge.updated'), reply);
     expect(mockClaimInboundEvent).toHaveBeenCalledTimes(1);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(mockSql).toHaveBeenCalledTimes(0);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── D6/D9: the dispatcher threads the event context and records the ack ──
+
+// The context mocks live in their own suite so the rest of this file keeps
+// exercising the real handlers.
+vi.mock('../stripe/subscription-updated', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../stripe/subscription-updated')>();
+  return { ...actual, processSubscriptionUpdated: mockProcessSubscriptionUpdated };
+});
+vi.mock('../stripe/subscription-deleted', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../stripe/subscription-deleted')>();
+  return { ...actual, processSubscriptionDeleted: mockProcessSubscriptionDeleted };
+});
+
+describe('handleStripeWebhook — subscription event context and stale ack', () => {
+  const CREATED = Math.floor(Date.now() / 1000) - 30;
+
+  beforeEach(() => {
+    mockProcessSubscriptionUpdated.mockReset();
+    mockProcessSubscriptionUpdated.mockResolvedValue({ kind: 'ignored' });
+    mockProcessSubscriptionDeleted.mockReset();
+    // MUST be an ack object, never undefined. This stub said `undefined` from
+    // T0, when the handler still returned void; the signature later became
+    // Promise<StripeSubscriptionAck> and the stub was never updated. The
+    // dispatcher then read `.ackedForAge` off undefined, threw a TypeError into
+    // its own catch arm, and every assertion below still passed because it had
+    // already fired — so this arm was silently exercising the 500 path.
+    // Red team found it by mutation (F02/F03): forcing `ackedForAge = false` in
+    // the delete arm passed all 426 ingress tests.
+    mockProcessSubscriptionDeleted.mockResolvedValue({ ackedForAge: false });
+  });
+
+  it('handleStripeWebhook passes the event context to both subscription handlers', async () => {
+    // D6 makes the argument REQUIRED, and round 2 finding 4 made it an object:
+    // a Stripe.Subscription does not carry its enclosing event's id, so a bare
+    // timestamp would make D9's promised warning unbuildable.
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_ctx_updated',
+      type: 'customer.subscription.updated',
+      created: CREATED,
+      data: { object: { id: 'sub_ctx', customer: 'cus_ctx' } },
+    });
+    await handleStripeWebhook(mkRequest('customer.subscription.updated'), mkReply().reply);
+
+    expect(mockProcessSubscriptionUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'sub_ctx' }),
+      { id: 'evt_ctx_updated', created: CREATED },
+    );
+
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_ctx_deleted',
+      type: 'customer.subscription.deleted',
+      created: CREATED,
+      data: { object: { id: 'sub_ctx', customer: 'cus_ctx' } },
+    });
+    await handleStripeWebhook(mkRequest('customer.subscription.deleted'), mkReply().reply);
+
+    expect(mockProcessSubscriptionDeleted).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'sub_ctx' }),
+      { id: 'evt_ctx_deleted', created: CREATED },
+    );
+  });
+
+  it('the stripe webhook replies 200 when a stale no-account subscription event is acked', async () => {
+    // The handler returns instead of throwing, so the dispatcher must NOT take
+    // its catch arm. 200 is what stops Stripe's ~3-day retry schedule.
+    mockProcessSubscriptionUpdated.mockResolvedValue({
+      kind: 'ignored',
+      reason: 'stale_no_account',
+      accountId: null,
+      subscriptionId: 'sub_stale',
+      transition: null,
+      alerts: [],
+    });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_stale_no_account',
+      type: 'customer.subscription.updated',
+      created: CREATED,
+      data: { object: { id: 'sub_stale', customer: 'cus_stale' } },
+    });
+
+    const { reply, status, send } = mkReply();
+    await handleStripeWebhook(mkRequest('customer.subscription.updated'), reply);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ received: true }));
+    // D9: the row is closed as stale_ignored, NEVER processed — 'processed'
+    // is the one status claimInboundEvent refuses to reclaim.
+    //
+    // Asserted through the marker seam rather than the SQL text: the
+    // dispatcher now closes every row via worker/ingress/shared.ts, which this
+    // suite mocks, so no statement reaches mockSql. The claim is the same one
+    // and is now pinned at the seam that owns it.
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledWith('evt_stale_no_account');
+    expect(mockMarkInboundEventProcessed).not.toHaveBeenCalled();
+    expect(sqlTexts().filter((t) => /UPDATE\s+inbound_events/i.test(t))).toEqual([]);
+  });
+
+  // The DELETE arm's half of D9, which had no test at all until red team's F02
+  // proved it: forcing `ackedForAge = false` in that arm of the dispatcher
+  // passed all 426 ingress tests. The updated arm was pinned; this one was not,
+  // so half of "the ack writes stale_ignored, never processed" was unproven.
+  //
+  // The two arms reach `ackedForAge` differently — the updated handler reports
+  // through its ignored-outcome reason, the deleted handler through a typed
+  // ack — so ONE test cannot cover both. That asymmetry is exactly why the
+  // gap existed.
+  it('the delete handler acking for age closes the row stale_ignored, not processed', async () => {
+    mockProcessSubscriptionDeleted.mockResolvedValue({ ackedForAge: true });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_deleted_stale_no_account',
+      type: 'customer.subscription.deleted',
+      created: CREATED,
+      data: { object: { id: 'sub_stale', customer: 'cus_stale' } },
+    });
+
+    const { reply, status } = mkReply();
+    await handleStripeWebhook(mkRequest('customer.subscription.deleted'), reply);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventStaleIgnored).toHaveBeenCalledWith('evt_deleted_stale_no_account');
+    expect(mockMarkInboundEventProcessed).not.toHaveBeenCalled();
+  });
+
+  it('the delete handler NOT acking closes the row processed', async () => {
+    // The other half of the same mutation. Without this, `ackedForAge = true`
+    // hard-coded in the delete arm would also survive.
+    mockProcessSubscriptionDeleted.mockResolvedValue({ ackedForAge: false });
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_deleted_normal',
+      type: 'customer.subscription.deleted',
+      created: CREATED,
+      data: { object: { id: 'sub_normal', customer: 'cus_normal' } },
+    });
+
+    const { reply, status } = mkReply();
+    await handleStripeWebhook(mkRequest('customer.subscription.deleted'), reply);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledTimes(1);
+    expect(mockMarkInboundEventProcessed).toHaveBeenCalledWith('evt_deleted_normal');
+    expect(mockMarkInboundEventStaleIgnored).not.toHaveBeenCalled();
+  });
+
+  it('the acked-for-age Sentry warning is raised from an event context carrying both id and created', () => {
+    // This test used to mock processSubscriptionUpdated with an implementation
+    // that CALLED captureMessage itself, then asserted that payload — it
+    // asserted its own stub. The production warning's `extra` block was pinned
+    // nowhere, so deleting event_id and stripe_customer_id from it left the
+    // suite green, and those two fields are the entire operator handle that D9
+    // used to justify rejecting a reconciliation worker.
+    //
+    // It now calls the REAL exported function. No stub stands between the
+    // assertion and the code it claims to protect.
+    warnStripeSubscriptionEventAckedForAge({
+      eventContext: { id: 'evt_warning_context', created: CREATED },
+      eventType: 'customer.subscription.updated',
+      customerId: 'cus_stale',
+      subscriptionId: 'sub_stale',
+    });
+
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [message, options] = mockCaptureMessage.mock.calls[0]!;
+    expect(message).toBe('stripe_subscription_event_acked_for_age');
+    expect(options).toMatchObject({
+      level: 'warning',
+      extra: {
+        // The id finds the retained inbound_events row; the customer id
+        // correlates it to the account that never got provisioned. Neither is
+        // reconstructable from the other.
+        event_id: 'evt_warning_context',
+        event_created: CREATED,
+        stripe_customer_id: 'cus_stale',
+      },
+    });
   });
 });

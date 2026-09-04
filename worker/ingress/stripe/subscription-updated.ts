@@ -32,7 +32,11 @@ import {
   LOG_PREFIX,
   extractCustomerId,
   AccountNotProvisionedYetError,
+  warnStripeSubscriptionEventAckedForAge,
   getStripe,
+  outOfOrderRetryWindowOpen,
+  OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+  type StripeEventContext,
 } from './shared';
 import {
   applyStripeSubscriptionStateUnderEntitlementLock,
@@ -117,7 +121,12 @@ export type SubscriptionUpdatedOutcome =
         | 'stale_subscription'
         | 'active_offboarding_subscription'
         | 'account_disappeared'
-        | 'provider_customer_mismatch';
+        | 'provider_customer_mismatch'
+        // D7: no account resolved AND the out-of-order retry window has closed.
+        // The event is acked (200) instead of retried, and the dispatcher closes
+        // the inbound_events row as `stale_ignored` — never `processed`, which
+        // is the one status claimInboundEvent refuses to reclaim.
+        | 'stale_no_account';
     });
 
 function ignoredOutcome(
@@ -570,6 +579,7 @@ async function projectProviderCurrentSubscription(
 
 export async function processSubscriptionUpdated(
   eventSnapshot: Stripe.Subscription,
+  eventContext: StripeEventContext,
 ): Promise<SubscriptionUpdatedOutcome> {
   const subscriptionId = eventSnapshot.id;
   if (!subscriptionId) {
@@ -587,10 +597,35 @@ export async function processSubscriptionUpdated(
 
   const reference = await resolveAccountReference(customerId, subscriptionId);
   if (!reference) {
-    console.warn(
-      `${LOG_PREFIX} customer.subscription.updated no account found for customer=${customerId} — signaling retry`,
+    // D7: the throw is BOUNDED. While the out-of-order retry window is open this
+    // is the pre-existing behaviour — 500 → Stripe redelivers → the redelivery
+    // finds the account checkout-completed has since written. Once it closes,
+    // the account is not late, it is absent, and three more days of retries buy
+    // nothing; ack instead and leave the operator a replayable row + a warning.
+    if (outOfOrderRetryWindowOpen(eventContext.created)) {
+      console.warn(
+        `${LOG_PREFIX} customer.subscription.updated no account found for customer=${customerId} — signaling retry`,
+      );
+      throw new AccountNotProvisionedYetError(customerId);
+    }
+    logger.warn(
+      'Stripe subscription event acked for age — no account resolved inside the out-of-order retry window',
+      {
+        event_id: eventContext.id,
+        event_created: eventContext.created,
+        subscription_id: subscriptionId,
+        retry_window_seconds: OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+      },
     );
-    throw new AccountNotProvisionedYetError(customerId);
+    warnStripeSubscriptionEventAckedForAge({
+      eventContext,
+      eventType: 'customer.subscription.updated',
+      customerId,
+      subscriptionId,
+    });
+    // The typed outcome IS the report: the dispatcher reads this reason to
+    // decide the closing inbound_events status.
+    return ignoredOutcome(subscriptionId, 'stale_no_account');
   }
   if (reference.stripe_subscription_id !== subscriptionId) {
     if (reference.active_offboarding_subscription_id === subscriptionId) {

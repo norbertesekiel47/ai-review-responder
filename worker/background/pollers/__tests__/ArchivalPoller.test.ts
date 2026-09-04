@@ -40,7 +40,10 @@ async function runOneCycle(): Promise<void> {
 
 function queueArchivalResults(counts: {
   outbox: number;
+  /** Arm 2a, `status = 'processed'`. */
   events: number;
+  /** Arm 2b, `status = 'stale_ignored'` — its OWN count and its own cap. */
+  eventsStaleIgnored?: number;
   demos: number;
   costs: number;
   notifications: number;
@@ -54,6 +57,7 @@ function queueArchivalResults(counts: {
   sqlReturnQueue.length = 0;
   sqlReturnQueue.push([{ count: String(counts.outbox) }]);
   sqlReturnQueue.push([{ count: String(counts.events) }]);
+  sqlReturnQueue.push([{ count: String(counts.eventsStaleIgnored ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.demos) }]);
   sqlReturnQueue.push([{ count: String(counts.costs) }]);
   sqlReturnQueue.push([{ count: String(counts.notifications) }]);
@@ -109,16 +113,16 @@ describe('ArchivalPoller', () => {
     warnSpy.mockRestore();
   });
 
-  it('issues 11 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach sent + unsent, refusal_events)', async () => {
+  it('issues 12 SQL queries in order (outbox, events processed + stale_ignored, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach sent + unsent, refusal_events)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    expect(mockSql).toHaveBeenCalledTimes(11);
+    expect(mockSql).toHaveBeenCalledTimes(12);
   });
 
-  it('logs all 11 target counts when any archival happened', async () => {
-    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11, unsentOutreachBodies: 13, refusalEvents: 17 });
+  it('logs all 12 target counts when any archival happened', async () => {
+    queueArchivalResults({ outbox: 10, events: 20, eventsStaleIgnored: 21, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11, unsentOutreachBodies: 13, refusalEvents: 17 });
 
     await runOneCycle();
 
@@ -128,7 +132,8 @@ describe('ArchivalPoller', () => {
     expect(archivedLog).toBeDefined();
     const msg = archivedLog![0] as string;
     expect(msg).toContain('"outbox":10');
-    expect(msg).toContain('"events":20');
+    expect(msg).toContain('"events_processed":20');
+    expect(msg).toContain('"events_stale_ignored":21');
     expect(msg).toContain('"demos":5');
     expect(msg).toContain('"api_costs":100');
     expect(msg).toContain('"notifications":50');
@@ -137,12 +142,12 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"agent_runs":9');
     expect(msg).toContain('"solicitation_outreach_bodies":11');
     expect(msg).toContain('"solicitation_outreach_unsent_bodies":13');
-    // Eleven targets, eleven assertions. Every count above is distinct, so a
+    // Twelve targets, twelve assertions. Every count above is distinct, so a
     // key dropped from the log object cannot be masked by another key's value.
     expect(msg).toContain('"refusal_events":17');
   });
 
-  it('logs "Nothing to archive" when all 11 targets return 0', async () => {
+  it('logs "Nothing to archive" when all 12 targets return 0', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
@@ -162,7 +167,8 @@ describe('ArchivalPoller', () => {
     const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
     expect(warnMsg).toContain('outbox');
     expect(warnMsg).toContain('api_costs');
-    expect(warnMsg).not.toContain('events');
+    expect(warnMsg).not.toContain('events_processed');
+    expect(warnMsg).not.toContain('events_stale_ignored');
     expect(warnMsg).not.toContain('notifications');
   });
 
@@ -182,7 +188,7 @@ describe('ArchivalPoller', () => {
     await runOneCycle();
 
     // The 6th sql() call (index 5) is the analytics_events block.
-    const analyticsCall = mockSql.mock.calls[5];
+    const analyticsCall = mockSql.mock.calls[6];
     expect(analyticsCall).toBeDefined();
     const templateStrings = analyticsCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
@@ -193,13 +199,105 @@ describe('ArchivalPoller', () => {
     expect(fullSql).toContain('FOR UPDATE SKIP LOCKED');
   });
 
+  it('ArchivalPoller sweeps stale_ignored rows on the same 30-day clock as processed rows', async () => {
+    // D9 leaves a second terminal status behind. Without a second arm those
+    // rows are never swept and inbound_events grows without bound — the cost
+    // of keeping the operator's replay path open must not be a leak.
+    queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
+
+    await runOneCycle();
+
+    // Arms 2a and 2b are the 2nd and 3rd sql() calls (indices 1 and 2).
+    const processedSql = (mockSql.mock.calls[1]![0] as TemplateStringsArray).join(' ');
+    const staleIgnoredSql = (mockSql.mock.calls[2]![0] as TemplateStringsArray).join(' ');
+    expect(processedSql).toContain('inbound_events');
+    expect(staleIgnoredSql).toContain('inbound_events');
+
+    // TWO EQUALITY ARMS, NEVER AN `IN` LIST. This is the assertion that would
+    // have caught the original defect. Each status has a different partial
+    // index — idx_ie_archival is `WHERE status = 'processed'`, idx_ie_status is
+    // `WHERE status != 'processed'` — and Postgres does not decompose a
+    // ScalarArrayOp to match either. The IN spelling seq-scans the
+    // fastest-growing table in the schema; measured on the test DB with
+    // enable_seqscan=off it has no index path at all (cost 1e10), while each
+    // equality arm plans an Index Scan.
+    expect(processedSql).toContain("status = 'processed'");
+    expect(staleIgnoredSql).toContain("status = 'stale_ignored'");
+    expect(processedSql).not.toMatch(/status\s+IN\s*\(/);
+    expect(staleIgnoredSql).not.toMatch(/status\s+IN\s*\(/);
+
+    // Each arm is now its OWN statement rather than two branches of one
+    // `UNION ALL` — that is what lets each carry its own count and its own
+    // saturation signal, which the combined form could not.
+    expect(processedSql).not.toContain('UNION ALL');
+    expect(staleIgnoredSql).not.toContain('UNION ALL');
+
+    // ONE retention clock, written once per arm. Two arms is not two policies:
+    // both carry the same interval, and the assertions below pin that they
+    // agree rather than merely that the string appears.
+    const clock = /processed_at < NOW\(\) - INTERVAL '30 days'/g;
+    expect(processedSql.match(clock)).toHaveLength(1);
+    expect(staleIgnoredSql.match(clock)).toHaveLength(1);
+    // Per-arm cap, so the low-volume stale_ignored arm cannot starve behind
+    // the high-volume processed one.
+    expect(processedSql.match(/LIMIT 5000/g)).toHaveLength(1);
+    expect(staleIgnoredSql.match(/LIMIT 5000/g)).toHaveLength(1);
+  });
+
+  // ---- R06: the arm was split in two; its reporting had not been -----------
+
+  it('logs the two events arms under separate keys, never as one summed count', async () => {
+    // The combined `events:` key was the sum of two unrelated retention arms,
+    // so a growing acked-for-age backlog was invisible behind processed volume.
+    queueArchivalResults({
+      outbox: 0, events: 4000, eventsStaleIgnored: 7, demos: 0, costs: 0, notifications: 0,
+    });
+
+    await runOneCycle();
+
+    const archivedLog = logSpy.mock.calls.find((call: unknown[]) =>
+      typeof call[0] === 'string' && (call[0] as string).includes('"message":"Archived"'),
+    );
+    const msg = archivedLog![0] as string;
+    expect(msg).toContain('"events_processed":4000');
+    expect(msg).toContain('"events_stale_ignored":7');
+    // The summed key must be gone, not merely joined by the new pair.
+    expect(msg).not.toContain('"events":');
+  });
+
+  it('does not warn when both events arms are exhausted below their own caps', async () => {
+    // THE FALSE POSITIVE THIS CLOSES. 3000 + 2000 = exactly 5000 under one
+    // combined count, so the poller warned "more rows may remain" when both
+    // arms had drained. Reachable anywhere in [5000, 9999].
+    queueArchivalResults({
+      outbox: 0, events: 3000, eventsStaleIgnored: 2000, demos: 0, costs: 0, notifications: 0,
+    });
+
+    await runOneCycle();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('saturates each events arm independently', async () => {
+    queueArchivalResults({
+      outbox: 0, events: 0, eventsStaleIgnored: 5000, demos: 0, costs: 0, notifications: 0,
+    });
+
+    await runOneCycle();
+
+    const warnMsg = warnSpy.mock.calls[0]?.[0] as string;
+    expect(warnMsg).toContain('events_stale_ignored');
+    expect(warnMsg).not.toContain('events_processed');
+  });
+
   it('agent_outcomes query enforces the 180-day spine retention window (query shape assertion)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    // The 7th sql() call (index 6) is the agent_outcomes spine-retention block.
-    const agentOutcomesCall = mockSql.mock.calls[6];
+    // The 8th sql() call (index 7) is the agent_outcomes spine-retention block
+    // (arm 2 became 2a + 2b, so every later index moved up one).
+    const agentOutcomesCall = mockSql.mock.calls[7];
     expect(agentOutcomesCall).toBeDefined();
     const templateStrings = agentOutcomesCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
@@ -237,7 +335,7 @@ describe('ArchivalPoller', () => {
     await runOneCycle();
 
     // The 8th sql() call (index 7) is the agent_runs spine-retention block.
-    const agentRunsCall = mockSql.mock.calls[7];
+    const agentRunsCall = mockSql.mock.calls[8];
     expect(agentRunsCall).toBeDefined();
     const templateStrings = agentRunsCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
@@ -285,7 +383,7 @@ describe('ArchivalPoller', () => {
     await runOneCycle();
 
     // The 9th sql() call (index 8) is the body-redaction block.
-    const redactionCall = mockSql.mock.calls[8];
+    const redactionCall = mockSql.mock.calls[9];
     expect(redactionCall).toBeDefined();
     const templateStrings = redactionCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
@@ -309,7 +407,7 @@ describe('ArchivalPoller', () => {
     await runOneCycle();
 
     expect(BODY_RETENTION_DAYS).toBe(90);
-    const redactionCall = mockSql.mock.calls[8];
+    const redactionCall = mockSql.mock.calls[9];
     expect(redactionCall!.slice(1)).toContain(BODY_RETENTION_DAYS);
   });
 
@@ -328,7 +426,7 @@ describe('ArchivalPoller', () => {
     await runOneCycle();
 
     // The 10th sql() call (index 9) is the never-sent redaction block.
-    const unsentCall = mockSql.mock.calls[9];
+    const unsentCall = mockSql.mock.calls[10];
     expect(unsentCall).toBeDefined();
     const fullSql = (unsentCall![0] as TemplateStringsArray).join(' ');
     // rendered_at, NOT sent_at: sent_at is NULL on every row this arm is for,
@@ -351,7 +449,7 @@ describe('ArchivalPoller', () => {
 
     await runOneCycle();
 
-    const fullSql = (mockSql.mock.calls[9]![0] as TemplateStringsArray).join(' ');
+    const fullSql = (mockSql.mock.calls[10]![0] as TemplateStringsArray).join(' ');
     // Literal, not bound: a bind parameter here would stop the planner proving
     // this predicate implies idx_solicitation_outreach_unsent_terminal_redaction_sweep's
     // own literal predicate, and the sweep would degrade to a full scan every
@@ -423,7 +521,7 @@ describe('ArchivalPoller', () => {
     await runOneCycle();
 
     // The 4th sql() call (index 3) is the api_costs CTE.
-    const apiCostsCall = mockSql.mock.calls[3];
+    const apiCostsCall = mockSql.mock.calls[4];
     expect(apiCostsCall).toBeDefined();
     const templateStrings = apiCostsCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
@@ -437,7 +535,7 @@ describe('ArchivalPoller', () => {
 
     await runOneCycle();
 
-    const apiCostsCall = mockSql.mock.calls[3];
+    const apiCostsCall = mockSql.mock.calls[4];
     const templateStrings = apiCostsCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
     expect(fullSql).toContain("NOW() - INTERVAL '90 days'");
@@ -453,7 +551,7 @@ describe('ArchivalPoller', () => {
 
     await runOneCycle();
 
-    const apiCostsCall = mockSql.mock.calls[3];
+    const apiCostsCall = mockSql.mock.calls[4];
     const templateStrings = apiCostsCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
     // Candidates use FOR UPDATE SKIP LOCKED to claim rows exclusively
@@ -470,7 +568,7 @@ describe('ArchivalPoller', () => {
 
     await runOneCycle();
 
-    const ndCall = mockSql.mock.calls[4];
+    const ndCall = mockSql.mock.calls[5];
     const templateStrings = ndCall![0] as TemplateStringsArray;
     const fullSql = templateStrings.join(' ');
     expect(fullSql).toContain('notification_deliveries');

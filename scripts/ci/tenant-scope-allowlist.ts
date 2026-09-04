@@ -243,7 +243,39 @@ export interface TenantScopeAllowlistEntry {
 //     failed page now LEFT JOINs `businesses` on the payload's guarded
 //     `businessId` — one new entry. Net +2; every statement is an
 //     admin-after-require-role cross-tenant read by design.
-export const ALLOWLIST_BASELINE = 373;
+//   - feat/stripe-customer-redaction: net +2. The Stripe Customer redaction
+//     guard (D1) counts OTHER accounts sharing a Stripe customer, so it is
+//     cross-account BY CONSTRUCTION — scoping it to the purging account would
+//     always return zero and defeat the guard entirely. Two entries because the
+//     one statement reads two tables: `accounts` for the sharing count and
+//     `account_offboardings` for its already-purged NOT EXISTS arm. The other
+//     three inbound_events edits are net zero: two existing snippets were
+//     rewritten in place (the reclaim predicate and the ArchivalPoller sweep
+//     both learned `stale_ignored`), one entry was ADDED for the new
+//     markInboundEventStaleIgnored helper, and one was REMOVED because the
+//     Stripe dispatcher's inline `processed` write moved behind that same
+//     marker seam.
+//   - feat/stripe-customer-redaction, review-fix pass: +1. The acked-for-age
+//     health probe (checkStaleIgnoredInboundEvents) is a new cross-tenant
+//     read. It exists BECAUSE the 15-minute ack moved those rows out of the
+//     failed-only probe's set. It restores watching over the AGGREGATE STREAM
+//     and no more: the failed-only probe tolerates zero, so one orphaned
+//     customer used to page continuously for Stripe's retry schedule, and this
+//     probe fires above 5 per (source, event_type) per hour — the single-orphan
+//     case now pages nothing here. The per-event handle is the
+//     `feature:stripe_subscription_out_of_order` alert rule (rule 9 in
+//     beta-launch-alerting.md §1a-do), not this probe. An earlier version of
+//     this note said the probe made the ack coverage-neutral; corrected by
+//     red-team round 2, R10. 375 -> 376.
+//   - feat/stripe-customer-redaction, red-team round-2 fix pass: +1. The
+//     ArchivalPoller inbound_events sweep became TWO statements instead of one
+//     `UNION ALL` (red-team R06): the combined form returned ONE count against
+//     a 5000 threshold whose true cap was 10000, so both arms draining to
+//     3000 + 2000 warned "more rows may remain" when nothing remained, and the
+//     `events:` log key hid an acked-for-age backlog behind processed volume.
+//     Same table, same cross-tenant justification, one entry became two.
+//     376 -> 377.
+export const ALLOWLIST_BASELINE = 377;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -954,6 +986,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: HEALTH_FAILED_INBOUND_EVENTS_SQL,
     category: 'background-global-scan',
     reason: "HealthAlertPoller failed-inbound-events probe: counts inbound_events rows stuck in status='failed' grouped by (source, event_type) to surface webhook processing bugs otherwise masked by provider retries. Read-only platform health probe, intentionally cross-tenant (prod-hardening P7).",
+  },
+  {
+    file: "worker/background/pollers/health-alert/checks.ts",
+    table: "inbound_events",
+    sqlSnippet: "SELECT source, event_type, COUNT(*)::int AS count FROM inbound_events WHERE status = 'stale_ignored' AND processed_at > NOW() - make_interval(secs => ${cfg.staleIgnoredWindowS}) GROUP BY source, event_type",
+    category: 'background-global-scan',
+    reason: "HealthAlertPoller acked-for-age probe: counts inbound_events rows closed as stale_ignored, grouped by (source, event_type), so a STREAM of unprovisionable customers still pages after the 15-minute out-of-order bound removed them from the failed-only probe next door. Same scope story as that sibling — inbound_events holds raw provider payloads and no tenant column (deny-all RLS, migration 066). Read-only platform health probe, intentionally cross-tenant.",
   },
   {
     file: "worker/background/pollers/health-alert/checks.ts",
@@ -2788,7 +2827,14 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "inbound_events",
     sqlSnippet: "WITH candidates AS ( SELECT id FROM inbound_events WHERE status = 'processed' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
     category: 'background-global-scan',
-    reason: "Global retention poller deletes processed webhook rows independent of tenant request scope; inbound_events has no account/business column (deny-all RLS, migration 066).",
+    reason: "Global retention poller, arm 2a: deletes processed webhook rows independent of tenant request scope; inbound_events has no account/business column (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "inbound_events",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM inbound_events WHERE status = 'stale_ignored' AND processed_at < NOW() - INTERVAL '30 days' LIMIT 5000 ), deleted AS ( DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global retention poller, arm 2b: the same 30-day sweep for acked-for-age rows (D9). A SEPARATE statement from arm 2a, not a UNION ALL branch, so each arm carries its own count and its own saturation signal.",
   },
   {
     file: "worker/background/pollers/ArchivalPoller.ts",
@@ -2812,9 +2858,23 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Webhook ingress reads the dedup row by provider event id (external_event_key) before tenant scope is available; inbound_events holds raw provider payloads (deny-all RLS, migration 066).",
   },
   {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.purge_started_at IS NOT NULL AND ao.purge_cancelled_at IS NULL )",
+    category: 'background-global-scan',
+    reason: "The Stripe Customer redaction guard (D1) counts OTHER accounts sharing this Stripe customer, so it is cross-account by construction — scoping it to the purging account would always return zero and defeat the guard. accounts.stripe_customer_id carries no unique constraint and subscription-deleted.ts states the rule outright, so blind redaction would erase a live co-tenant's billing contact. Read-only count inside the purge transaction, serialized by acquireStripeCustomerBindingLock; returns a number only, never a row.",
+  },
+  {
+    file: "worker/jobs/account-offboarding/purge-stages.ts",
+    table: "account_offboardings",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM accounts a WHERE a.stripe_customer_id = ${customerId} AND a.id <> ${row.account_id}::uuid AND NOT EXISTS ( SELECT 1 FROM account_offboardings ao WHERE ao.account_id = a.id AND ao.mode = 'delete_data' AND ao.purge_started_at IS NOT NULL AND ao.purge_cancelled_at IS NULL )",
+    category: 'background-global-scan',
+    reason: "The NOT EXISTS arm of the same redaction guard: a sibling account past the point of no return (purge claimed, never cancelled) is not a live co-tenant and must not block redaction. It keys on the purge MARKERS, not on status — a status list excluded the whole purge grace window, where a sibling can still cancel. Correlated to the outer accounts row (ao.account_id = a.id), and cross-account for the same reason the outer count is.",
+  },
+  {
     file: "worker/ingress/shared.ts",
     table: "inbound_events",
-    sqlSnippet: "UPDATE inbound_events SET received_at = NOW(), status = 'received', error_message = NULL WHERE external_event_key = ${dedupKey} AND (status = 'failed' OR (status = 'received' AND received_at < NOW() - make_interval(mins => ${RECLAIM_AFTER_MINUTES}))) RETURNING id",
+    sqlSnippet: "UPDATE inbound_events SET received_at = NOW(), status = 'received', error_message = NULL WHERE external_event_key = ${dedupKey} AND (status = 'failed' OR status = 'stale_ignored' OR (status = 'received' AND received_at < NOW() - make_interval(mins => ${RECLAIM_AFTER_MINUTES}))) RETURNING id",
     category: 'provider-ingress',
     reason: "Webhook ingress claims/reclaims the dedup row by provider event id (external_event_key) before tenant scope is available; inbound_events holds raw provider payloads (deny-all RLS, migration 066).",
   },
@@ -2828,16 +2888,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/shared.ts",
     table: "inbound_events",
+    sqlSnippet: "UPDATE inbound_events SET status = 'stale_ignored', processed_at = NOW() WHERE external_event_key = ${dedupKey}",
+    category: 'provider-ingress',
+    reason: "Webhook ingress marks the dedup row stale_ignored by provider event id (external_event_key) when a subscription event's out-of-order retry window has closed. Same scope story as the processed marker beside it: inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
+  },
+  {
+    file: "worker/ingress/shared.ts",
+    table: "inbound_events",
     sqlSnippet: "UPDATE inbound_events SET status = 'failed', error_message = ${reason} WHERE external_event_key = ${dedupKey}",
     category: 'provider-ingress',
     reason: "Webhook ingress marks the dedup row failed by provider event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
-  },
-  {
-    file: "worker/ingress/stripe.ts",
-    table: "inbound_events",
-    sqlSnippet: "UPDATE inbound_events SET status = 'processed', processed_at = NOW() WHERE external_event_key = ${event.id}",
-    category: 'provider-ingress',
-    reason: "Stripe ingress marks the dedup row processed by Stripe event id (external_event_key); inbound_events holds raw provider payloads, not a tenant id (deny-all RLS, migration 066).",
   },
   {
     file: "worker/ingress/stripe.ts",

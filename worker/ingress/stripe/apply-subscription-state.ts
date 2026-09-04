@@ -31,7 +31,10 @@ import {
   enqueueTrialCancelled,
 } from '../../../src/lib/analytics/trial-events';
 import { SubscriptionStatus, subscriptionGrantsFullAccess, type SubscriptionStatusValue } from '../../../src/lib/shared/subscription-status';
-import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
+import {
+  acquireStripeCustomerBindingLock,
+  acquireTierEntitlementLock,
+} from '../../../src/lib/accounts/billing-locks';
 
 // The applier is ALWAYS invoked inside sql.begin() (transactional-outbox
 // invariant), so the transaction handle is a postgres.TransactionSql. This also
@@ -301,6 +304,27 @@ async function applyStripeSubscriptionStateInternal(
   ref: ApplyStripeRef,
   stripeSub: StripeSubscriptionState,
 ): Promise<TransitionResult> {
+  // The writer half of the Stripe-customer binding lock. It belongs HERE and
+  // not in the applyStripeSubscriptionStateUnderEntitlementLock wrapper:
+  // both exported entry points funnel through this function, so locking in the
+  // wrapper would leave applyStripeSubscriptionState outside the lock and make
+  // the declared invariant false. It also keeps the footprint at one file
+  // rather than the six transaction-opening call sites.
+  //
+  // The reader half is the offboarding purge's redaction guard, which counts
+  // the accounts sharing a customer before clearing that customer's
+  // identifying fields at Stripe. Every non-null binding assignment below is
+  // COALESCE(stripe_customer_id, $1) — write-once — so a binding only ever
+  // lands on an account whose column is NULL; the lock is what stops that
+  // landing between the guard's count and its Stripe call.
+  //
+  // Order: the caller's account-scoped entitlement lock is already held, and
+  // this customer-keyed lock is taken second. Never invert them.
+  const bindingCustomerId = extractStripeCustomerId(stripeSub.customer, ref);
+  if (bindingCustomerId) {
+    await acquireStripeCustomerBindingLock(tx, bindingCustomerId);
+  }
+
   const account = await resolveLockedAccount(tx, accountId, ref);
   if (!account) return NO_CHANGE(null);
 

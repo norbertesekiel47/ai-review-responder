@@ -179,6 +179,7 @@ function buildPurgeReceiptEmailHtml(params: {
         <tr><td style="padding:32px 24px 8px;">
           <h2 style="margin:0 0 12px;font-size:18px;color:#111;">Your RepWorth data has been deleted</h2>
           <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">RepWorth completed the account deletion process on <strong>${escapeHtml(purgedAtLabel)}</strong>.</p>${retentionSentence}
+          <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">${escapeHtml(PAYMENT_PROCESSOR_RETENTION_SENTENCE)}</p>
           <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.5;">If you have questions about this deletion, contact RepWorth support.</p>
         </td></tr>
         <tr><td style="padding:24px;">
@@ -273,6 +274,16 @@ function formatRetainedSuppressions(count: number): string {
   return `
           <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.5;">${escapeHtml(sentence)}</p>`;
 }
+
+/**
+ * The purge receipt's payment-processor disclosure. CATEGORIES only, written
+ * like the retained-opt-out sentence beside it: no counts, no invoice numbers,
+ * no customer or subscription handle. Unconditional on the receipt — what
+ * survives at the processor is a property of its API, not of any local count,
+ * so a zero-suppression purge discloses exactly the same thing.
+ */
+const PAYMENT_PROCESSOR_RETENTION_SENTENCE =
+  'Our payment processor keeps paid invoices, including the billing name and address on them, and tax identifiers, for financial record-keeping.';
 
 function formatPurgedAt(value: Date | string | null): string {
   if (!value) return 'the scheduled deletion date';

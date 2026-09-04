@@ -29,6 +29,7 @@ import {
   checkOwnerUnreachable,
   checkBacklogDepth,
   checkFailedInboundEvents,
+  checkStaleIgnoredInboundEvents,
   checkStalledSendBatches,
   checkWedgedClientRead,
   runHealthChecks,
@@ -51,6 +52,8 @@ const CFG: HealthAlertConfig = {
   backlogDepthThreshold: 1500,
   ownerUnreachableAgeS: 14400,
   ownerUnreachableThreshold: 0,
+  staleIgnoredWindowS: 3600,
+  staleIgnoredThreshold: 5,
 };
 
 const HEALTH_ENV = [
@@ -217,6 +220,126 @@ describe('health-alert checks', () => {
     it('returns nothing when counts are within threshold', async () => {
       sqlReturnQueue.push([]);
       expect(await checkFailedInboundEvents(mockSql, CFG)).toEqual([]);
+    });
+
+    it('checkFailedInboundEvents does not count stale_ignored rows', async () => {
+      // The alert class this branch exists to kill. An age-stale no-account
+      // subscription event is acked, not failed, so it must fall outside this
+      // query entirely. The predicate is failed-only today; pin it rather than
+      // assume it, because widening it later would silently restore the storm.
+      sqlReturnQueue.push([]);
+
+      await checkFailedInboundEvents(mockSql, CFG);
+
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain("status = 'failed'");
+      expect(queryText).not.toContain('stale_ignored');
+
+      // BEHAVIOURAL, not a token-absence proxy. The earlier version asserted
+      // not.toContain('IN (') and not.toContain('!='), which are satisfied by
+      // any rewrite that happens to avoid those characters and broken by
+      // innocuous ones — a predicate could widen via OR and still pass. What
+      // actually matters is that acked-for-age rows never reach this finding
+      // set, so feed the probe a stale_ignored-shaped row and prove the
+      // production predicate is the thing that excludes it.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 40 },
+      ]);
+      const findings = await checkFailedInboundEvents(mockSql, CFG);
+      expect(findings.map((f) => f.key)).toEqual([
+        'inbound_events_failed:stripe:customer.subscription.updated',
+      ]);
+      const [secondTemplate] = mockSql.mock.calls[1] as [TemplateStringsArray, ...unknown[]];
+      expect(secondTemplate.join(' ')).not.toContain('stale_ignored');
+    });
+  });
+
+  describe('checkStaleIgnoredInboundEvents', () => {
+    it('pages when a stream of events is acked for age', async () => {
+      // The detector the 15-minute ack would otherwise have REMOVED. Today one
+      // orphaned customer pages continuously via checkFailedInboundEvents for
+      // Stripe's ~3-day retry schedule; after the ack that signal decays to
+      // zero about 15 minutes in. Without this probe a systemic
+      // checkout.session.completed break pages briefly, goes green, and keeps
+      // dropping every new paying customer in silence.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 40 },
+      ]);
+
+      const findings = await checkStaleIgnoredInboundEvents(mockSql, CFG);
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]).toMatchObject({
+        key: 'inbound_events_stale_ignored:stripe:customer.subscription.updated',
+        level: 'error',
+      });
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain("status = 'stale_ignored'");
+      expect(queryText).toContain('GROUP BY source, event_type');
+    });
+
+    it('stays quiet for an ordinary out-of-order delivery', async () => {
+      // Threshold 5, not 0: a handful of acks in an hour is the normal case the
+      // bound exists to produce, and paging on it would retire the alert by
+      // fatigue instead of by design.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.deleted', count: 3 },
+      ]);
+
+      expect(await checkStaleIgnoredInboundEvents(mockSql, CFG)).toEqual([]);
+    });
+
+    // ---- R11: the two choices the tests above could not tell apart ---------
+
+    it('windows on processed_at, NOT the received_at its sibling probe uses', async () => {
+      // Substituting received_at passed both tests above, and the choice is not
+      // arbitrary: markInboundEventStaleIgnored stamps `processed_at = NOW()`
+      // at the moment of the ack, and reclaim does not NULL it, so a redelivered
+      // orphan re-stamps and stays in window. `received_at` is what RECLAIM
+      // resets, so windowing on it would make a reclaimed row look new. The
+      // sibling checkFailedInboundEvents legitimately uses received_at because
+      // a failed row's arrival IS its event; keep the two spellings apart.
+      sqlReturnQueue.push([]);
+
+      await checkStaleIgnoredInboundEvents(mockSql, CFG);
+
+      const [template] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const queryText = template.join(' ');
+      expect(queryText).toContain('processed_at >');
+      expect(queryText).not.toContain('received_at');
+    });
+
+    it('is strictly ABOVE the threshold — exactly 5 does not page', async () => {
+      // `count > threshold` reads as 6-and-up. Flipping it to `>=` also passed
+      // both tests above while silently moving the effective threshold to 5,
+      // which is one full step of alert fatigue on a probe whose whole design
+      // is "a handful is normal, a stream is not".
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 5 },
+      ]);
+      expect(await checkStaleIgnoredInboundEvents(mockSql, CFG)).toEqual([]);
+
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 6 },
+      ]);
+      expect(await checkStaleIgnoredInboundEvents(mockSql, CFG)).toHaveLength(1);
+    });
+
+    it('reports each (source, event_type) pair independently', async () => {
+      // The key is per-pair, so one broken event type must not be masked by a
+      // quiet one, nor page under the other's name.
+      sqlReturnQueue.push([
+        { source: 'stripe', event_type: 'customer.subscription.updated', count: 40 },
+        { source: 'stripe', event_type: 'customer.subscription.deleted', count: 2 },
+      ]);
+
+      const findings = await checkStaleIgnoredInboundEvents(mockSql, CFG);
+
+      expect(findings.map((f) => f.key)).toEqual([
+        'inbound_events_stale_ignored:stripe:customer.subscription.updated',
+      ]);
     });
   });
 
@@ -445,6 +568,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);                             // zero-delivery → null
       sqlReturnQueue.push([{ count: 0 }]);                             // owner-unreachable → null
       sqlReturnQueue.push([{ source: 'stripe', event_type: 'invoice.paid', count: 2 }]); // inbound → finding
+      sqlReturnQueue.push([]);                                         // stale_ignored → null (no acked-for-age stream)
       sqlReturnQueue.push([{ count: 1, oldest_run_id: '00000000-0000-7000-8000-0000000000bb', oldest_age_s: 1_000_000 }]); // stalled send batch → finding
       // solicitationSendBreaker issues TWO queries: the open-trip probe, then the
       // window aggregate (level-triggered — the probe short-circuits when a trip
@@ -535,6 +659,7 @@ describe('health-alert checks', () => {
       [{ count: 0 }],                           // zeroDelivery → null
       [{ count: 0 }],                           // ownerUnreachable → null
       [],                                       // failedInboundEvents → []
+      [],                                       // staleIgnoredInboundEvents → []
       [{ count: 0 }],                           // stalledSendBatches → null
     ];
 

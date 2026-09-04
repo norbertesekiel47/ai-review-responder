@@ -254,6 +254,57 @@ email shares the Resend provider with the product.
   Keyed on `feature:solicitation_lane`, which is unique to this capture across
   the whole codebase, so the rule is narrow by construction like rule 5.
 
+- [ ] **Stripe out-of-order ack routed to Discord (red-team R05)** — issues tagged
+  `feature:stripe_subscription_out_of_order` at level `warning`, title
+  `stripe_subscription_event_acked_for_age`, emitted by
+  `warnStripeSubscriptionEventAckedForAge` (`worker/ingress/stripe/shared.ts`).
+  **This is the SAME defect shape as the bullet above, one provider over.**
+  Before the out-of-order bound, a subscription event whose account did not yet
+  exist threw for Stripe's full ~3-day retry schedule, leaving
+  `inbound_events.status='failed'` — which `checkFailedInboundEvents` (rule 1)
+  pages on. Bounding the retry at 15 minutes and acking is right for the
+  operator's replay path and right for payload retention, but it takes the event
+  out of that alert set. **Until this rule exists the capture lands in Sentry and
+  routes to nobody:** the five live filters are `subsystem=health_alert`,
+  `cost_event=limit_exceeded`, `feature=stripe_reconciliation`,
+  `subsystem=import_consent_analytics` and `feature=solicitation_lane`, and this
+  capture matches none of them.
+  **It is CONFIG-1's shape** — a `warning`-level `captureMessage` does not
+  reliably classify as high priority, so it is captured-but-not-paged without a
+  tag rule. Raising the level is wrong here: an ack inside the bound is a
+  deliberate, correct outcome, not an error.
+  **Use an event-FREQUENCY condition, not "a new issue is created"** — same
+  reasoning as the bullets above. The capture title is a **constant string**, so
+  every acked event across every customer and event type groups into ONE issue
+  and a first-seen rule fires once, ever. The benign cause is expected: a
+  checkout whose webhook beat its own account row by more than the window. The
+  alarming cause is a *stream* of them, which means checkout is broken.
+  Suggested: _The issue is seen more than 3 times in one hour_ — matching rules
+  4 and 6.
+  **Response:** the acked event is still replayable — it sits in
+  `inbound_events` at `status='stale_ignored'` with its raw payload, and
+  `claimInboundEvent` reclaims that status. Find it by the `event_id` on the
+  capture. Detail is aggregate-safe: the capture carries the Stripe customer and
+  subscription ids and never a card, an address or an email.
+- [ ] **Acked-for-age backlog probe (red-team R05, second half)** — finding key
+  from `checkStaleIgnoredInboundEvents`
+  (`worker/background/pollers/health-alert/checks.ts`), routed by **rule 1**
+  because it carries `subsystem:health_alert` like every other poller finding.
+  No new rule is needed; this box exists so the probe is inventoried rather than
+  invisible.
+  **It is a REPLACEMENT, not an addition — the same precedent as rule 6 (#967).**
+  The 15-minute ack moved these rows out of `checkFailedInboundEvents`' set, so
+  the probe restores watching over the aggregate stream.
+  **What it does NOT restore, stated so nobody assumes otherwise.** Before the
+  ack, ONE orphaned customer paged continuously for Stripe's retry schedule
+  (`failedThreshold` is `0`, and reclaim resets `received_at`). This probe fires
+  at more than **5** per `(source, event_type)` per hour, so the single-orphan
+  case now pages **nothing**. Only a stream is restored. The per-event handle is
+  the bullet above; the two are complements, not substitutes.
+  **Its window and threshold are CONSTANTS, not `HEALTH_ALERT_*` env vars** —
+  deliberately, until production says what to tune them to, so they are absent
+  from §5's table by design rather than by omission.
+
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 
 > **CONFIG-1 (billing reconcile drift routing) — verified 2026-06-24.**
@@ -313,6 +364,7 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 6 | `solicitation-unattributed-suppression → discord` | `feature` equals `solicitation_lane` | **seen more than 3 times in one hour** | `warning` |
 | 7 | `refusal-vocabulary-hole → discord` | `fault` equals `unmapped_block_reason` | **every event** | `error` |
 | 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
+| 9 | `stripe-out-of-order-ack → discord` | `feature` equals `stripe_subscription_out_of_order` | **seen more than 3 times in one hour** | `warning` |
 
 > **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
 > This table is the design; these are the rules. Re-read them before assuming a signal
@@ -457,14 +509,16 @@ here: a SECOND DISTINCT unmapped code, which the per-code latch exists to make
 visible. The bound is what makes `Every event` safe, not what makes first-seen
 sufficient.
 
-**Rules 4-8 are the odd ones, and the difference is not cosmetic.** Rules 1-3
-fire on a new issue. Rules 4, 5, 6, 7 and 8 must not. Each capture title is a
+**Rules 4-9 are the odd ones, and the difference is not cosmetic.** Rules 1-3
+fire on a new issue. Rules 4, 5, 6, 7, 8 and 9 must not. Each capture title is a
 **constant string**, so every occurrence groups into ONE Sentry issue — for rule
 4, both **Import offer** event names across every location and both lanes; for
 rule 5, every re-page of one open breaker trip; for rule 6, every unattributed
 suppression across every account, event type and source; for rules 7 and 8,
 every unmapped block reason and every cap-reached marker across every worker
-process. A first-seen trigger fires once, ever, and then stays silent through
+process; for rule 9, every acked-for-age Stripe subscription event across every
+customer and event type. A first-seen trigger fires once, ever, and then stays
+silent through
 exactly the repetition that is the signal. See #697 and
 `.claude/reference/lab-notes.md` (2026-08-08).
 
@@ -478,6 +532,17 @@ lands in Sentry and pages nobody.** Its benign cause — the seconds-wide window
 before #630 commits `provider_message_id` — is why the trigger is frequency and
 not first-seen; its alarming cause is #965, an unexplained loss of Outreach rows
 that is still open. §1's bullet carries the response procedure.
+
+**Rule 9 is a REPLACEMENT too, and it is the narrower half of one (red-team
+R05).** Bounding the Stripe out-of-order retry at 15 minutes and acking takes
+the event out of `inbound_events.status='failed'`, exactly as #967 did for the
+Resend lane — the same removal, one provider over. Two signals replace it, not
+one, and neither is sufficient alone: `checkStaleIgnoredInboundEvents` watches
+the aggregate stream and routes through rule 1, while this rule carries the
+PER-EVENT handle with the `event_id` an operator replays from. The probe's
+threshold is 5/hour, so a single orphaned customer — which used to page
+continuously for three days — reaches only this rule. Frequency-conditioned for
+the same constant-title reason as rules 4 and 6.
 
 **Rule 5 does not replace rule 1, and the overlap is intended (#907).**
 > ⚠️ **Superseded 2026-08-31 — kept because the reasoning below is still the correct
@@ -506,9 +571,11 @@ collides with a rule number — the old "must not collide" rule is retired, not
 satisfied.** It was numbered 7 when #967 made rule 6 the last one; #1105 then
 added rules 7 and 8, so the collision the parenthetical existed to avoid has
 happened and renumbering the step would only chase the next rule. Read "Step 7"
-as a step throughout this section.) The cron monitor is NOT an alert rule; it is
-configured in §4 of this runbook (slug `health-alert-poller`, auto-created on
-first check-in). Do §4 after the **eight** rules above.
+as a step throughout this section. Rule 9 arrived after that retirement and did
+NOT renumber this step, which is the retirement working as intended.) The cron
+monitor is NOT an alert rule; it is configured in §4 of this runbook (slug
+`health-alert-poller`, auto-created on first check-in). Do §4 after the **nine**
+rules above.
 
 **Verify, do not assume.** Each rule is unproven until you have seen it deliver.
 §4's acceptance drills are how — do not tick a §1 box on the strength of a saved

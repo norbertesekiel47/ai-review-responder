@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
  * customer.subscription.deleted — ALL cancellations route through the applier.
@@ -15,6 +15,7 @@ const {
   sqlReturnQueue,
   sqlCalls,
   mockApplyStripeSubscriptionState,
+  mockCaptureMessage,
 } = vi.hoisted(() => {
   const sqlReturnQueue: unknown[] = [];
   const sqlCalls: { text: string; values: unknown[] }[] = [];
@@ -33,6 +34,7 @@ const {
       accountResolved: true, fromStatus: 'trialing', toStatus: 'cancelled',
       changed: true, activated: false, primaryBusinessId: null,
     }),
+    mockCaptureMessage: vi.fn(),
   };
 });
 
@@ -42,8 +44,16 @@ vi.mock('../apply-subscription-state', () => ({
   applyStripeSubscriptionStateUnderEntitlementLock: mockApplyStripeSubscriptionState,
 }));
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'test-uuid-v7') }));
+vi.mock('@sentry/node', () => ({
+  captureMessage: mockCaptureMessage,
+  captureException: vi.fn(),
+}));
 
 import { processSubscriptionDeleted } from '../subscription-deleted';
+import {
+  AccountNotProvisionedYetError,
+  OUT_OF_ORDER_RETRY_WINDOW_SECONDS,
+} from '../shared';
 
 const ACCOUNT_ID = '019dc366-29ce-7000-a000-000000000001';
 const CUSTOMER_ID = 'cus_test_123';
@@ -52,6 +62,11 @@ const SUB_ID = 'sub_test_456';
 function deletedSub(): any {
   return { id: SUB_ID, customer: CUSTOMER_ID, status: 'canceled' };
 }
+
+// A fresh, in-window event context for the pre-existing cases: D6 makes the
+// argument required, and an in-window context preserves today's behaviour
+// exactly (the out-of-order retry window is still open).
+const FRESH_EVENT_CONTEXT = { id: 'evt_test', created: Math.floor(Date.now() / 1000) };
 
 function queueAccount(status: string) {
   sqlReturnQueue.push([{
@@ -66,12 +81,13 @@ beforeEach(() => {
   sqlReturnQueue.length = 0;
   sqlCalls.length = 0;
   mockApplyStripeSubscriptionState.mockClear();
+  mockCaptureMessage.mockClear();
 });
 
 describe('subscription.deleted — cancel during trial', () => {
   it('trialing account → applier cancels (emits trial_cancelled)', async () => {
     queueAccount('trialing');
-    await processSubscriptionDeleted(deletedSub());
+    await processSubscriptionDeleted(deletedSub(), FRESH_EVENT_CONTEXT);
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
     const [, lockedAccountId, ref, sub] = mockApplyStripeSubscriptionState.mock.calls[0]!;
@@ -96,7 +112,10 @@ describe('subscription.deleted — cancel during trial', () => {
       changed: true, activated: false, primaryBusinessId: null,
     });
 
-    await processSubscriptionDeleted({ id: 'sub_1', customer: 'cus_1', status: 'canceled' } as any);
+    await processSubscriptionDeleted(
+      { id: 'sub_1', customer: 'cus_1', status: 'canceled' } as any,
+      FRESH_EVENT_CONTEXT,
+    );
 
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledWith(
       expect.anything(),
@@ -122,7 +141,7 @@ describe('subscription.deleted — cancel during trial', () => {
       changed: true, activated: false, primaryBusinessId: null,
     });
 
-    await processSubscriptionDeleted(deletedSub());
+    await processSubscriptionDeleted(deletedSub(), FRESH_EVENT_CONTEXT);
 
     // The old `const [acctRow]` took A1 (mismatched) and skipped; the fix resolves A2.
     expect(mockApplyStripeSubscriptionState).toHaveBeenCalledTimes(1);
@@ -137,8 +156,83 @@ describe('subscription.deleted — cancel during trial', () => {
       { id: 'acct-y', subscription_status: 'active', stripe_subscription_id: 'sub_y', active_offboarding_subscription_id: null },
     ]);
 
-    await processSubscriptionDeleted(deletedSub()); // deletes SUB_ID, owned by neither account
+    await processSubscriptionDeleted(deletedSub(), FRESH_EVENT_CONTEXT); // deletes SUB_ID, owned by neither account
 
     expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+  });
+});
+
+// ── D4/D6/D7: the out-of-order retry bound, proven for THIS handler ─────
+//
+// Deliberately duplicated from the subscription-updated suite rather than
+// shared. Plan round 1 finding 6: one shared boundary case could exercise a
+// single handler while the other silently used the wrong comparison. The
+// clock is frozen so the boundary under test is the stated one.
+describe('processSubscriptionDeleted out-of-order retry bound', () => {
+  const NOW_SECONDS = 1_800_000_000;
+
+  function eventContext(ageSeconds: number) {
+    return { id: 'evt_deleted_boundary', created: NOW_SECONDS - ageSeconds };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_SECONDS * 1000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('processSubscriptionDeleted throws AccountNotProvisionedYetError when the event is 60 seconds old and no account exists', async () => {
+    sqlReturnQueue.push([]); // customer-scoped SELECT: no accounts
+
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(60)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
+  it('processSubscriptionDeleted logs and returns without throwing when the event is older than 15 minutes and no account exists', async () => {
+    sqlReturnQueue.push([]);
+
+    // The handler reports the ack through its RETURN VALUE, which is how the
+    // dispatcher decides to close the inbound_events row as stale_ignored
+    // rather than processed. An earlier draft of this test pinned
+    // `resolves.toBeUndefined()`, which pinned an accident of the signature
+    // before the reporting mechanism existed.
+    await expect(
+      processSubscriptionDeleted(
+        deletedSub(),
+        eventContext(OUT_OF_ORDER_RETRY_WINDOW_SECONDS + 60),
+      ),
+    ).resolves.toEqual({ ackedForAge: true });
+
+    expect(mockApplyStripeSubscriptionState).not.toHaveBeenCalled();
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    const [, options] = mockCaptureMessage.mock.calls[0]!;
+    expect(options).toMatchObject({ level: 'warning' });
+  });
+
+  it('processSubscriptionDeleted throws at an event age of exactly 900 seconds and acks at 901 under a frozen clock', async () => {
+    expect(OUT_OF_ORDER_RETRY_WINDOW_SECONDS).toBe(900);
+
+    sqlReturnQueue.push([]);
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(900)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
+
+    sqlReturnQueue.push([]);
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(901)),
+    ).resolves.toEqual({ ackedForAge: true });
+  });
+
+  it('processSubscriptionDeleted throws rather than acking for a future event timestamp', async () => {
+    sqlReturnQueue.push([]);
+
+    await expect(
+      processSubscriptionDeleted(deletedSub(), eventContext(-3600)),
+    ).rejects.toBeInstanceOf(AccountNotProvisionedYetError);
   });
 });

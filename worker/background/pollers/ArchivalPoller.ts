@@ -85,11 +85,63 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM deleted
     `;
 
-    // 2. Processed inbound events older than 30 days
-    const [eventsResult] = await sql<{ count: string }[]>`
+    // 2. Terminally-closed inbound events older than 30 days. TWO statuses,
+    // ONE clock, but deliberately TWO equality arms rather than one IN list.
+    //
+    // The IN list is the obvious spelling and it is WRONG here. Each status has
+    // a DIFFERENT partial index and an `IN` list implies neither:
+    // `idx_ie_archival` (migration 065) is `WHERE status = 'processed'`, and
+    // `idx_ie_status` (001) is `WHERE status != 'processed'`. Postgres does not
+    // decompose a ScalarArrayOp to match a partial index predicate, so the IN
+    // spelling seq-scans the fastest-growing table in the schema — verbatim the
+    // regression migration 065 exists to fix, proven on the test DB with
+    // `enable_seqscan=off` (no index path, cost 1e10). An earlier version of
+    // this comment argued for "one predicate" on the grounds that a second
+    // query would be a second retention policy; that reasoning caused the
+    // defect. The retention policy is the 30-day interval, and it is still
+    // written exactly once per arm with no second constant to drift.
+    //
+    // 'processed' is the high-volume arm and uses idx_ie_archival.
+    // 'stale_ignored' is the low-volume arm (only no-account subscription
+    // events acked for age, D9) and uses idx_ie_status, which covers it because
+    // the value satisfies that index's `!= 'processed'` predicate.
+    //
+    // The cap is per-arm, so a saturated cycle can delete up to 10000 rows
+    // rather than 5000, and the low-volume arm cannot starve behind the
+    // high-volume one as a shared cap would have allowed.
+    //
+    // TWO QUERIES, TWO COUNTS. An earlier version ran both arms under one
+    // `UNION ALL` and returned ONE combined count, while claiming in this very
+    // comment that "each arm saturates and reports independently". It did not.
+    // A cycle deleting 3000 processed + 2000 stale_ignored — both arms
+    // exhausted, nothing left behind — summed to exactly the 5000 saturation
+    // threshold and warned "more rows may remain" when none did, reachable
+    // anywhere in [5000, 9999]; and the `events:` log key became the sum of two
+    // unrelated retention arms, so a growing acked-for-age backlog was
+    // invisible. Arms 9 and 10 below are the same situation — one table split
+    // for the same index reason — and they carry two counts and two saturation
+    // entries. This follows them.
+    // 2a. 'processed' — the high-volume arm, on idx_ie_archival.
+    const [eventsProcessedResult] = await sql<{ count: string }[]>`
       WITH candidates AS (
         SELECT id FROM inbound_events
         WHERE status = 'processed'
+          AND processed_at < NOW() - INTERVAL '30 days'
+        LIMIT 5000
+      ),
+      deleted AS (
+        DELETE FROM inbound_events WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
+    // 2b. 'stale_ignored' — the low-volume arm (no-account subscription events
+    // acked for age, D9), on idx_ie_status.
+    const [eventsStaleIgnoredResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM inbound_events
+        WHERE status = 'stale_ignored'
           AND processed_at < NOW() - INTERVAL '30 days'
         LIMIT 5000
       ),
@@ -393,7 +445,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     `;
 
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
-    const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
+    const eventsProcessedCount = parseInt(eventsProcessedResult?.count ?? '0', 10);
+    const eventsStaleIgnoredCount = parseInt(eventsStaleIgnoredResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
     const costsCount = parseInt(costsResult?.count ?? '0', 10);
     const notificationsCount = parseInt(notificationsResult?.count ?? '0', 10);
@@ -406,7 +459,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
 
     const totalArchived =
       outboxCount +
-      eventsCount +
+      eventsProcessedCount +
+      eventsStaleIgnoredCount +
       demosCount +
       costsCount +
       notificationsCount +
@@ -420,7 +474,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     if (totalArchived > 0) {
       logger.log('Archived', {
         outbox: outboxCount,
-        events: eventsCount,
+        events_processed: eventsProcessedCount,
+        events_stale_ignored: eventsStaleIgnoredCount,
         demos: demosCount,
         api_costs: costsCount,
         notifications: notificationsCount,
@@ -436,7 +491,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       const BATCH_LIMIT = 5000;
       const saturated: string[] = [];
       if (outboxCount >= BATCH_LIMIT) saturated.push('outbox');
-      if (eventsCount >= BATCH_LIMIT) saturated.push('events');
+      if (eventsProcessedCount >= BATCH_LIMIT) saturated.push('events_processed');
+      if (eventsStaleIgnoredCount >= BATCH_LIMIT) saturated.push('events_stale_ignored');
       if (demosCount >= BATCH_LIMIT) saturated.push('demos');
       if (costsCount >= BATCH_LIMIT) saturated.push('api_costs');
       if (notificationsCount >= BATCH_LIMIT) saturated.push('notifications');

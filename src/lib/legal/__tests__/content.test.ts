@@ -141,3 +141,26 @@ describe('legal content — owner offboarding launch gate (PR7 Task 7.3)', () =>
     expect(terminationText).toContain('does not promise absolute deletion');
   });
 });
+
+describe('legal content — Stripe Customer redaction disclosure', () => {
+  it('the privacy policy deletion paragraph names retained paid invoices and their billing name and address', () => {
+    // A purge redacts the Stripe Customer but cannot reach a paid invoice: the
+    // invoice snapshots the billing name and address at the moment it was
+    // issued, and tax_ids is not a field customers.update can clear. The policy
+    // has to say so, because the deletion receipt says so.
+    const retention = legalDocs.privacy.sections.find(
+      (section) => section.heading === 'Retention',
+    );
+    expect(retention).toBeDefined();
+
+    const retentionText = retention?.body.join(' ') ?? '';
+    expect(retentionText).toContain('payment processor');
+    expect(retentionText).toContain('paid invoices');
+    expect(retentionText).toContain('billing name and address');
+    // No new section: the disclosure sharpens the paragraph that already
+    // exists rather than adding a heading a reader has to find.
+    expect(
+      legalDocs.privacy.sections.filter((section) => section.heading === 'Retention'),
+    ).toHaveLength(1);
+  });
+});

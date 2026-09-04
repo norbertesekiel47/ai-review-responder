@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { verifyAccountOffboardingPurge } from '../../../src/lib/account-offboarding/purge-verification';
@@ -9,8 +10,15 @@ import {
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
 import { PURGE_TOMBSTONE_SENTINELS as SENTINELS } from '../../../src/lib/account-offboarding/purge-sentinels';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
+import {
+  redactStripeCustomer,
+  type StripeCustomerRedactionClient,
+  type StripeCustomerRedactionOutcome,
+} from '../../../src/lib/account-offboarding/stripe-customer-redaction';
+import { acquireStripeCustomerBindingLock } from '../../../src/lib/accounts/billing-locks';
 import { acquireSolicitationBatchLock } from '../../../src/lib/solicitation/batch-builder';
 import { acquireCsvIngestLock } from '../../../src/lib/solicitation/ingest';
+import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import {
   deleteByBusiness,
   impersonationSessionScrubScopeRecord,
@@ -680,6 +688,209 @@ export async function runAuditAndCostPayloadPurgeStage(sql: postgres.Sql, row: A
       `;
     }
   });
+}
+
+/**
+ * What the redaction stage appends to `account_offboardings.provider_dispositions`.
+ *
+ * The `type` discriminator is deliberately NOT `admin_provider_disposition`.
+ * That value is a purge-ELIGIBILITY marker an admin records by hand, and
+ * `extractConcreteAdminProviderDispositions` filters on it; a record the purge
+ * writes for itself must never satisfy the teardown resolution gate. The
+ * mismatch makes that safe by construction rather than by convention.
+ *
+ * The customer id appears ONLY as a hash. The stage exists to erase that
+ * identifier, and `scrubOffboardingErrorForStorage` does not redact a `cus_…`
+ * handle, so writing the raw value here would keep the exact thing the
+ * tombstone is about to destroy.
+ */
+interface StripeCustomerRedactionRecord {
+  type: 'stripe_customer_redaction';
+  provider: 'stripe';
+  outcome: StripeCustomerRedactionOutcome | 'skipped_shared_customer';
+  stripe_customer_id_hash: string;
+  recorded_at: string;
+}
+
+function stripeCustomerRedactionRecord(
+  customerId: string,
+  outcome: StripeCustomerRedactionRecord['outcome'],
+): StripeCustomerRedactionRecord {
+  return {
+    type: 'stripe_customer_redaction',
+    provider: 'stripe',
+    outcome,
+    stripe_customer_id_hash: `sha256:${createHash('sha256').update(customerId).digest('hex')}`,
+    recorded_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Clears the identifying fields on the account's Stripe Customer, immediately
+ * before the tombstone destroys the last local copy of the customer id.
+ *
+ * ORDERING (D5). This runs LATE — after `runAuditAndCostPayloadPurgeStage` and
+ * before `runParentTombstonePurgeStage` — and that is a deliberate tradeoff,
+ * not an oversight. Running FIRST would fail fast with nothing destroyed, but a
+ * later local failure would then leave a LIVE account whose Stripe billing
+ * contact is already wiped. Running late means every local destruction has
+ * committed, the point of no return has passed, and redaction is the last
+ * irreversible act.
+ *
+ * RETRY SAFETY. `account_offboardings.stripe_customer_id` survives until
+ * finalize and `loadPurgeOffboarding` re-reads it, so a retry after a failed
+ * redaction still has the id to work with.
+ *
+ * THE SHARED-CUSTOMER GUARD (D1). One Stripe customer can map to MULTIPLE
+ * accounts — `accounts.stripe_customer_id` carries no unique constraint. Blind
+ * redaction would erase a live co-tenant's billing contact, so a sharing count
+ * skips the Stripe call entirely.
+ *
+ * THE LOCK (D8). The count alone does not serialize against a writer binding
+ * the same customer to another account a moment later. The customer-keyed
+ * advisory lock is taken BEFORE the count and held for the whole transaction,
+ * including the Stripe call; `applyStripeSubscriptionStateInternal` takes the
+ * same lock on the writer side.
+ *
+ * LOCK ORDER, stated precisely because an earlier version of this comment was
+ * wrong. It said the stage "requests no other lock, so it cannot participate in
+ * a deadlock cycle". It does take a second lock: the disposition append below
+ * takes an exclusive `account_offboardings` row lock while the binding lock is
+ * still held. The ordering is binding-then-row and it is never inverted, which
+ * is the property that matters; "requests no other lock" was simply false.
+ *
+ * The client arrives as a FACTORY, not an instance, so `getStripe()` is only
+ * resolved once a customer id is present. It throws when STRIPE_SECRET_KEY is
+ * unset, and resolving it eagerly made every delete_data purge depend on the
+ * key — including accounts that never had a Stripe Customer at all.
+ */
+export async function runStripeCustomerRedactionPurgeStage(
+  sql: postgres.Sql,
+  resolveStripe: () => StripeCustomerRedactionClient,
+  row: AccountOffboardingPurgeRow,
+): Promise<void> {
+  const customerId = row.stripe_customer_id?.trim();
+  if (!customerId) {
+    logStripeCustomerRedactionOutcome(row, 'not_applicable');
+    return;
+  }
+
+  const stripe = resolveStripe();
+
+  await sql.begin(async (tx) => {
+    // Sequential awaits share one Postgres.js transaction connection; the lock
+    // must precede the count and outlive the Stripe call.
+    // react-doctor-disable-next-line react-doctor/async-parallel
+    await acquireStripeCustomerBindingLock(tx, customerId);
+
+    // The guard counts LIVE co-tenants — accounts sharing this Stripe Customer
+    // whose billing contact redaction would destroy while they still need it.
+    //
+    // The NOT EXISTS arm excludes siblings that are themselves PAST THE POINT
+    // OF NO RETURN. That is a property of the purge markers, not of `status`,
+    // and an earlier version of this predicate got it wrong in both directions
+    // by naming statuses instead:
+    //
+    //   It excluded 'purge_scheduled' unconditionally. Intersect that with
+    //   keep-my-data's admission set (`status IN ('pending','tearing_down',
+    //   'purge_scheduled') AND purge_started_at IS NULL AND purge_cancelled_at
+    //   IS NULL`) and what remained was the ENTIRE purge grace window — the
+    //   modal state of every delete_data offboarding between teardown and
+    //   `purge_after`. A co-tenant sitting there can still click "Keep my
+    //   data" and stay a paying customer, so redacting on its behalf destroys
+    //   a live billing contact with nothing recorded against that account.
+    //
+    //   It did NOT exclude 'failed'. `markPurgeTerminalFailure` leaves
+    //   `status='failed'` with `purge_started_at` set — unambiguously past the
+    //   point of no return — so two siblings sharing a Customer could still
+    //   BOTH skip, one status over from the case the status list was added to
+    //   close.
+    //
+    // Both directions collapse into the marker pair below. `purge_started_at`
+    // is stamped by AccountOffboardingPurgePoller's claim UPDATE, in the same
+    // transaction that selects the row and before the outbox row dispatches,
+    // so it is always set by the time either sibling's PurgeWorker runs — which
+    // is what still closes the concurrent-purge case. `purge_cancelled_at` is
+    // written only by keep-my-data.ts, the one escape hatch, and it re-admits
+    // the sibling as live.
+    //
+    // `mode = 'delete_data'` is implied by `purge_started_at IS NOT NULL` (the
+    // claim UPDATE requires it) and kept explicit: a cancel_only offboarding
+    // retains the account's data by design and can still reactivate, so it IS a
+    // live co-tenant no matter how far its own lifecycle has run.
+    const [sharing] = await tx<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM accounts a
+      WHERE a.stripe_customer_id = ${customerId}
+        AND a.id <> ${row.account_id}::uuid
+        AND NOT EXISTS (
+          SELECT 1
+          FROM account_offboardings ao
+          WHERE ao.account_id = a.id
+            AND ao.mode = 'delete_data'
+            AND ao.purge_started_at IS NOT NULL
+            AND ao.purge_cancelled_at IS NULL
+        )
+    `;
+
+    if ((sharing?.count ?? 0) > 0) {
+      logStripeCustomerRedactionOutcome(row, 'skipped_shared_customer');
+      await appendStripeCustomerRedactionRecord(
+        tx,
+        row,
+        stripeCustomerRedactionRecord(customerId, 'skipped_shared_customer'),
+      );
+      return;
+    }
+
+    const { outcome } = await redactStripeCustomer({
+      stripe,
+      customerId,
+      offboardingId: row.id,
+    });
+
+    logStripeCustomerRedactionOutcome(row, outcome);
+    await appendStripeCustomerRedactionRecord(
+      tx,
+      row,
+      stripeCustomerRedactionRecord(customerId, outcome),
+    );
+  });
+}
+
+/**
+ * The intake's first observability promise: one structured line per redaction
+ * outcome. The stage is the only purge stage that makes a live provider call,
+ * so it is the one whose silence costs an operator the most — a skipped
+ * shared-customer purge previously left nothing but a JSONB element, and the
+ * no-customer case left nothing anywhere.
+ *
+ * Identifiers only. The customer id is the value this stage exists to erase and
+ * never appears; `scrubOffboardingErrorForStorage` does not redact a `cus_`
+ * handle, so logging one would defeat the stage inside its own audit trail.
+ */
+function logStripeCustomerRedactionOutcome(
+  row: AccountOffboardingPurgeRow,
+  outcome: StripeCustomerRedactionRecord['outcome'] | 'not_applicable',
+): void {
+  createWorkerLogger('[AccountOffboardingPurgeWorker]').log(
+    `Stripe customer redaction ${outcome} for offboarding ${row.id} account ${row.account_id}`,
+  );
+}
+
+async function appendStripeCustomerRedactionRecord(
+  tx: postgres.TransactionSql,
+  row: AccountOffboardingPurgeRow,
+  record: StripeCustomerRedactionRecord,
+): Promise<void> {
+  await tx`
+    UPDATE account_offboardings
+    SET provider_dispositions = provider_dispositions || ${tx.json([record] as never)},
+        updated_at = NOW()
+    WHERE id = ${row.id}::uuid
+      AND account_id = ${row.account_id}::uuid
+      AND terminal_at IS NULL
+  `;
 }
 
 export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: AccountOffboardingPurgeRow): Promise<void> {
