@@ -1,8 +1,10 @@
 'use client';
 
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { InfoTip } from '@/components/ui/InfoTip';
 import { useCountUp } from '@/hooks/useCountUp';
 import { cn } from '@/lib/ui/cn';
+import { MINUTES_SAVED_PER_RESPONSE } from '@/lib/dashboard/constants';
 import type { ValueSummary } from '@/lib/dashboard/types';
 import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
 
@@ -32,8 +34,15 @@ export function ValueKpiGrid({
   return (
     <div className="kpi-grid">
       <div className="kpi">
+        {/* These two numbers are LIFETIME (`total_responded_all_time`), while
+            the per-location hero's same-named "Time saved" is windowed. Same
+            word, different metric — which is exactly why they need saying. */}
         <div className="kpi-eyebrow">
           <Icon name="inbox" size={14} /> Reviews handled
+          <InfoTip subject="Reviews handled">
+            Every review RepWorth has replied to for you since you joined, not
+            only this period.
+          </InfoTip>
         </div>
         <div className="kpi-value">{Math.round(v1).toLocaleString()}</div>
         <div className="kpi-foot">{reviewsHandledFoot}</div>
@@ -42,6 +51,10 @@ export function ValueKpiGrid({
       <div className="kpi">
         <div className="kpi-eyebrow">
           <Icon name="clock" size={14} /> Time saved
+          <InfoTip subject="Time saved">
+            An estimate. RepWorth counts {MINUTES_SAVED_PER_RESPONSE} minutes
+            for every reply it has handled for you since you joined.
+          </InfoTip>
         </div>
         <div className="kpi-value">
           {(v2 / 10).toFixed(1)}

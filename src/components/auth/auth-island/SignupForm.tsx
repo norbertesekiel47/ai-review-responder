@@ -1,22 +1,18 @@
 'use client';
 
-import { useEffect, useId, useMemo, useReducer, useState } from 'react';
+import { useEffect, useId, useReducer, useState } from 'react';
 import Link from 'next/link';
 import { PREFILL_EMAIL_KEY } from '@/components/auth/shared/prefillEmail';
 import { useSignupSubmit } from '@/components/auth/hooks/useSignupSubmit';
 import { useGoogleOAuth } from '@/components/auth/hooks/useGoogleOAuth';
-import {
-  passwordRequirements,
-  strengthOf,
-  STRENGTH_LABELS,
-} from '@/components/auth/shared/strength';
+import { firstUnmetPasswordRule } from '@/lib/shared/password-rules';
 import { fireConfetti } from './fireConfetti';
 import { Field } from './Field';
+import { PasswordFieldGroup } from './PasswordFieldGroup';
 import {
   ArrowIcon,
   CheckIcon,
   GoogleIcon,
-  LockIcon,
   MailIcon,
   PhoneIcon,
   SparkleIcon,
@@ -67,9 +63,12 @@ export function SignupForm() {
   // Hint shown only after the owner tries to submit without accepting Terms,
   // so the disabled CTA isn't a silent dead end.
   const [termsHint, setTermsHint] = useState(false);
+  // Same idea for the password rules (#1090): the requirements list above the
+  // button already marks the unmet rule, but a click deserves a reason. The
+  // server enforces the same list, so this only saves a round trip — it is not
+  // the gate.
+  const [passwordHint, setPasswordHint] = useState('');
 
-  const reqListId = useId();
-  const strengthMsgId = useId();
   const termsHintId = useId();
 
   // Carry an email typed on the sibling (login) screen across the tab switch,
@@ -85,21 +84,8 @@ export function SignupForm() {
 
   const { submit, loading, error, errorKind } = useSignupSubmit();
   const oauth = useGoogleOAuth({ flow: 'owner', next: '/signup/finish' });
-  const displayError = error || oauth.error;
+  const displayError = passwordHint || error || oauth.error;
 
-  const strength = useMemo(() => strengthOf(pwd), [pwd]);
-  const requirements = useMemo(() => passwordRequirements(pwd), [pwd]);
-
-  // De-noise the screen-reader strength announcement: instead of firing on every
-  // keystroke, settle on the latest label after the owner pauses typing. The
-  // setState lives inside the (async) timeout callback, never the effect body.
-  const [announcedStrength, setAnnouncedStrength] = useState('');
-  useEffect(() => {
-    const id = setTimeout(() => {
-      setAnnouncedStrength(pwd ? STRENGTH_LABELS[Math.min(strength, 4)] ?? '' : '');
-    }, 600);
-    return () => clearTimeout(id);
-  }, [pwd, strength]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -108,6 +94,15 @@ export function SignupForm() {
       setTermsHint(true);
       return;
     }
+    // Block on the SAME rules `passwordSchema` enforces (#1090). Before this
+    // the form displayed a "A number" requirement, submitted regardless, and
+    // the server accepted the result.
+    const unmetRule = firstUnmetPasswordRule(pwd);
+    if (unmetRule) {
+      setPasswordHint(unmetRule.failureMessage);
+      return;
+    }
+    setPasswordHint('');
     void captureSignupStarted('email');
     const result = await submit({
       ownerEmail: email,
@@ -178,45 +173,10 @@ export function SignupForm() {
         required
       />
 
-      <Field
-        label="Create a password"
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        placeholder="At least 8 characters"
-        icon={<LockIcon />}
+      <PasswordFieldGroup
         value={pwd}
-        onChange={(e) => dispatch({ type: 'setPwd', pwd: e.target.value })}
-        required
-        minLength={8}
-        describedById={`${reqListId} ${strengthMsgId}`}
+        onChange={(next) => dispatch({ type: 'setPwd', pwd: next })}
       />
-
-      <ul className="rw-req-list" id={reqListId} aria-label="Password requirements">
-        {requirements.map((req) => (
-          <li key={req.label} className={req.met ? 'met' : ''}>
-            {req.label}
-            <span className="rw-sr-only">{req.met ? ' (met)' : ' (not yet met)'}</span>
-          </li>
-        ))}
-      </ul>
-
-      <div className="rw-strength" aria-hidden="true">
-        {[1, 2, 3, 4].map((i) => (
-          <div
-            key={i}
-            className={`rw-strength-bar ${strength >= i ? `lit-${Math.min(strength, 4)}` : ''}`}
-          />
-        ))}
-      </div>
-      <div className="rw-strength-label" aria-hidden="true">
-        {pwd ? STRENGTH_LABELS[Math.min(strength, 4)] : 'Pick something memorable but tough.'}
-      </div>
-      {/* Single debounced live region so SRs hear strength once typing settles,
-          not on every keystroke. The visible label above is decorative. */}
-      <div id={strengthMsgId} className="rw-sr-only" aria-live="polite">
-        {announcedStrength ? `Password strength: ${announcedStrength}` : ''}
-      </div>
 
       {displayError && (
         <p className="rw-alert" role="alert">

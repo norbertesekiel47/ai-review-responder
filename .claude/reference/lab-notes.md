@@ -4821,3 +4821,47 @@ inside a transaction silently evaporates outside one. Seed helpers in this repo 
 
 ### [2026-09-02] OutboxPoller dispatch was one Redis + one SQL round trip per row → bulk per topic group
 - [2026-09-02] Outbox drain topped out at ~10 rows/s (the ~600/min Capacity-burst drill figure) → the poller did `queue.add` + `UPDATE` per row and never re-claimed after a full batch → dispatch is now `queue.addBulk` per topic group + one `unnest`-paired UPDATE, looping under `OUTBOX_DRAIN_BUDGET_MS`; the drill number predates this and must be re-measured before it is cited as a ceiling.
+
+## 2026-09-03 — /feature #1082: a local Postgres timing is not evidence about production
+
+### [2026-09-03] A round trip costs ~70 ms to Supabase and ~0.4 ms to a local Docker Postgres — so a local benchmark understates a batching win by two orders of magnitude
+- [2026-09-03] #1082 replaced a per-row `writeRefusalEvent` loop with one
+  `writeRefusalEvents` set insert, inside a transaction holding the per-Business
+  advisory lock and the batch row lock. Branch review derived the row count
+  correctly — `holes` is capped at `BATCH_CAP` (25), not the `MAX_DATA_ROWS`
+  (5,000) the ticket claimed — and then **nearly retired the ticket on that
+  number**, reasoning that saving 24 round trips was marginal. → **A ROW COUNT
+  IS NOT A COST.** Measured on the staging database, same 25 rows, both arms
+  rolled back: the looped arm is more than 10x the set arm, and the saving is
+  well over a second of lock-held time. The same measurement on a local Docker
+  Postgres shows single-digit milliseconds, because a container on loopback has
+  effectively no network. → **Never conclude "this optimisation is too small to
+  bother with" from a local timing, and never quote an integration suite's own
+  wall time as the production cost.** Measure against a database behind the same
+  pooler and the same network as production, or say the number is unmeasured.
+  Numbers and method:
+  `docs/runbooks/evidence/2026-09-03-1082-exhaustion-refusal-batch-drill.md`
+  (single owner — do not restate the figures here, they move with the hardware).
+
+### [2026-09-03] Three prose failure modes that CI cannot see, from six false self-claims on one branch
+- [2026-09-03] #1082's code passed every round — 9 of 11 mutations killed, the
+  bound chain re-derived twice by independent parties, 440 clean suite runs. Its
+  PROSE failed six times, and every one was cheap to check. → Three rules, each
+  earned:
+  **(1) Run the mutation before writing the adjective.** "Load-bearing" was
+  written twice about test helpers without running the one-line mutation that
+  settles it; both were false, and the second was written in the commit fixing
+  the first.
+  **(2) Cite by symbol, always.** Not "by symbol for files this branch edits" —
+  that qualified form passed a full review round and was then falsified when
+  taking `main` moved a cited line in a file the branch never touched. **A line
+  number is a fact about a TREE, not about a codebase.** Note also that
+  `prevalidate-plan.py` resolves FILES rather than lines, so it passes stale line
+  citations, and reports "0 citations checked" on a symbol-only document — its
+  PASS is vacuous in both directions.
+  **(3) A figure that moves under prose edits needs ONE owner**, and every other
+  mention points at it. The comment-line count in #1082's arch-review row moved
+  40 → 66 → 68; correcting the row and missing its twin in the deviations file is
+  what a later red-team round found. The repair is not "fix both" — it is "let
+  one own it". The #1080 row one entry earlier records the identical residual,
+  which is why this is a rule and not an anecdote.

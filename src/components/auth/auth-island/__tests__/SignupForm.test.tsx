@@ -64,9 +64,11 @@ describe('SignupForm', () => {
   it('renders the password requirements list before submit', () => {
     const html = renderToStaticMarkup(createElement(SignupForm));
     expect(html).toContain('rw-req-list');
+    // #1090: exactly the ENFORCED rules. Mixed case left the list because
+    // `passwordSchema` never applied it; `strengthOf` still scores it.
     expect(html).toContain('At least 8 characters');
-    expect(html).toContain('Upper &amp; lowercase letters');
     expect(html).toContain('A number');
+    expect(html).not.toContain('Upper &amp; lowercase letters');
   });
   it('labels the CTA with the verb "Create account", not a claim (A21)', () => {
     const html = renderToStaticMarkup(createElement(SignupForm));

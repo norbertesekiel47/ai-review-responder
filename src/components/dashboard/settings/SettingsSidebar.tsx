@@ -9,12 +9,16 @@ import { ConfirmDialog } from '@/components/dashboard/settings/ConfirmDialog';
 import { useHasUnsavedChanges } from '@/hooks/useUnsavedChangesGuard';
 
 /**
- * The QR glyph is rendered locally: the shared `Icon` set has no QR mark and
- * that file belongs to the dashboard shell, so the sidebar carries its own
- * (same 24-box, stroke and `ni-icon` class, so it sits in the rail like the
- * rest). Promote it to `IconName` when a second surface needs it.
+ * Every glyph in this nav comes from the shared `Icon`.
+ *
+ * It used to carry its own inline QR mark, on the reasoning that `Icon` had no
+ * QR glyph and belonged to the dashboard shell. #1092 moved the **Review QR**
+ * row out of Settings, which took the only caller with it — and the second
+ * surface that old note said to promote for is exactly what appeared, so the
+ * glyph now lives in `Icon` (`Icon.tsx`, `case 'qr'`) and the widening here is
+ * gone.
  */
-type NavIcon = IconName | 'qr';
+type NavIcon = IconName;
 
 interface NavItem {
   label: string;
@@ -42,7 +46,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Account',
     items: [
       { label: 'Locations', href: LOCATIONS_HREF, icon: 'location' },
-      { label: 'Review QR', href: '/settings/review-qr', icon: 'qr' },
       // These three are also the account menu's destinations. One destination,
       // one icon: `user` / `card` / `shield` in both places, or the same page
       // wears two marks depending on how the owner reached it.
@@ -81,28 +84,7 @@ function visibleGroups(showLocations: boolean): NavGroup[] {
 }
 
 function NavGlyph({ icon }: { icon: NavIcon }) {
-  if (icon !== 'qr') return <Icon name={icon} size={16} />;
-  return (
-    <svg
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      focusable={false}
-      className="ni-icon"
-      data-icon="qr"
-    >
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <path d="M14 14h3v3h-3zM20 14h1M14 20h1M20 20h1M17.5 20v1" />
-    </svg>
-  );
+  return <Icon name={icon} size={16} />;
 }
 
 interface Props {

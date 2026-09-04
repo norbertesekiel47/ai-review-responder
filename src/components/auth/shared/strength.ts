@@ -1,3 +1,5 @@
+import { PASSWORD_RULES } from '@/lib/shared/password-rules';
+
 export const STRENGTH_LABELS = [
   'Too short',
   'Getting there',
@@ -21,11 +23,15 @@ export interface PasswordRequirement {
   met: boolean;
 }
 
-/** The minimum + scoring criteria, surfaced to the user BEFORE submit. */
+/**
+ * The ENFORCED rules, surfaced to the user BEFORE submit — derived from
+ * `PASSWORD_RULES` rather than re-spelled (#1090).
+ *
+ * The old hand-written list carried "Upper & lowercase letters" and "A number"
+ * as requirements while `passwordSchema` enforced neither. It has one job now:
+ * show the rules the server will apply. Mixed case and symbols stay in
+ * `strengthOf` above, where they are advice that never rejects anything.
+ */
 export function passwordRequirements(pwd: string): PasswordRequirement[] {
-  return [
-    { label: 'At least 8 characters', met: pwd.length >= 8 },
-    { label: 'Upper & lowercase letters', met: /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) },
-    { label: 'A number', met: /\d/.test(pwd) },
-  ];
+  return PASSWORD_RULES.map((rule) => ({ label: rule.label, met: rule.test(pwd) }));
 }

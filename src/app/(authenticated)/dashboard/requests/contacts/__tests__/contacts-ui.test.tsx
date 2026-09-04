@@ -28,6 +28,12 @@ vi.mock('next/navigation', async (importOriginal) => ({
 import { UploadCard } from '../UploadCard';
 import { ContactList } from '../ContactList';
 import { ContactsClient } from '../ContactsClient';
+import { TemplateCard } from '../TemplateCard';
+import {
+  CONTACTS_CSV_TEMPLATE_FILENAME,
+  buildContactsCsvTemplate,
+} from '@/lib/solicitation/contacts-csv-template';
+import { parseContactsCsv } from '@/lib/solicitation/contacts-csv';
 
 const ATTESTATION = {
   attestationText: 'I confirm these customers are mine.',
@@ -521,5 +527,73 @@ describe('ContactsClient — the Requests ↔ Contacts tab bar (D28)', () => {
     // The subtitle no longer asserts watch-mode, which this page cannot know.
     expect(screen.queryByText(/watch-mode only/i)).toBeNull();
     expect(screen.getByText(/nothing sends without your approval/i)).toBeInTheDocument();
+  });
+});
+
+
+// #1091. The template is a download, so the assertions that matter are: it is
+// reachable from the page, and the bytes it hands the browser are bytes
+// `parseContactsCsv` accepts.
+describe('CSV template download', () => {
+  it('the contacts page offers a downloadable CSV template', () => {
+    render(<ContactsClient {...ATTESTATION} />);
+    expect(screen.getByRole('button', { name: /download csv template/i })).toBeTruthy();
+  });
+
+  it('hands over a named CSV file the parser accepts', async () => {
+    // Spy on the anchor PROTOTYPE rather than mocking document.createElement:
+    // a createElement mock has to answer for every tag React asks for, and
+    // getting that wrong breaks rendering itself.
+    const downloads: Array<{ download: string; href: string }> = [];
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function mockClick(this: HTMLAnchorElement) {
+        downloads.push({ download: this.download, href: this.href });
+      });
+
+    // jsdom implements neither of these; the component calls both.
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: () => 'blob:template',
+      revokeObjectURL,
+    });
+
+    let capturedText = '';
+    vi.stubGlobal(
+      'Blob',
+      class {
+        constructor(parts: string[]) {
+          capturedText = parts.join('');
+        }
+      },
+    );
+
+    render(<TemplateCard />);
+    await userEvent.click(screen.getByRole('button', { name: /download csv template/i }));
+
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]!.download).toBe(CONTACTS_CSV_TEMPLATE_FILENAME);
+
+    // The bytes actually handed to the browser go back through the parser —
+    // the one assertion that makes the template worth shipping.
+    const today = new Date().toISOString().slice(0, 10);
+    const parsed = parseContactsCsv(capturedText, today);
+    expect('structuralFailure' in parsed).toBe(false);
+    if (!('structuralFailure' in parsed)) {
+      expect(parsed.rejected).toEqual([]);
+      expect(parsed.candidates).toHaveLength(3);
+    }
+    // The object URL is released rather than leaked.
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:template');
+
+    click.mockRestore();
+  });
+
+  it('offers the template on the aggregate scope too, where no upload is possible', () => {
+    // The template describes the file FORMAT, which does not vary by location.
+    expect(buildContactsCsvTemplate('2026-09-03')).toContain(
+      'name,email,phone,last_visit_date,note',
+    );
   });
 });

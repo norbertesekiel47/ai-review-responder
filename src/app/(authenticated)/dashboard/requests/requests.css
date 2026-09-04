@@ -23,9 +23,14 @@
 /* The same row geometry as the Reviews sub-nav (`.reviews-subnav`, console.css)
    so the two routed tab bars in the console sit at the same height; the
    `.tabs` pill inside comes from console.css unchanged. */
+/* Hidden above the sidebar breakpoint (#1092): on desktop the sidebar children
+   carry navigation, and leaving the row visible with its pills hidden left an
+   unexplained 20px band. The rule lives HERE, not in console.css, because this
+   file owns `.rq-subnav` and loads later — an equal-specificity `display: none`
+   over there is silently overridden. Same 768px boundary as `.sidebar`. */
 .rq-subnav {
   padding: 20px 32px 0;
-  display: flex;
+  display: none;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
@@ -41,7 +46,9 @@
   outline-offset: 2px;
 }
 @media (max-width: 768px) {
-  .rq-subnav { padding: 14px 16px 0; }
+  /* Where the sidebar disappears, this row is the only way to the sibling
+     Requests surfaces. */
+  .rq-subnav { display: flex; padding: 14px 16px 0; }
 }
 
 /* ---------- Funnel hero ---------- */

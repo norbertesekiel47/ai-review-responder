@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
+import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
+import { MINUTES_SAVED_PER_RESPONSE } from '@/lib/dashboard/constants';
 import type { ReputationSummary } from '@/lib/dashboard/types';
 
 const baseSummary: ReputationSummary = {
@@ -105,5 +107,53 @@ describe('ReputationHeroBand footer grammar', () => {
 
     expect(screen.getByText(/1 reply handled for you since joining/)).toBeInTheDocument();
     expect(screen.getByText(/about 1 hour back in your day/)).toBeInTheDocument();
+  });
+});
+
+describe('ReputationHeroBand info tips (#1086)', () => {
+  function renderHero() {
+    return render(
+      <ReputationHeroBand
+        summary={baseSummary}
+        lifetimeReviewsHandled={1284}
+        lifetimeTimeSavedMinutes={3120}
+        connected
+      />,
+    );
+  }
+
+  function panelFor(name: string) {
+    const trigger = screen.getByRole('button', { name });
+    return document.getElementById(trigger.getAttribute('aria-controls') as string);
+  }
+
+  // Average rating: the window, not the all-time Google score.
+  // Time saved: an estimate, and the tip names the constant behind it, so the
+  // figure is not mistaken for a measurement.
+  it('every covered surface names what its number means', () => {
+    renderHero();
+
+    const rating = panelFor('What Average rating means');
+    // WRITTEN, not received: the star query buckets on the Review-time anchor.
+    expect(rating).toHaveTextContent('written in this period');
+    expect(rating).toHaveTextContent('not the day RepWorth found it');
+    expect(rating).toHaveTextContent('not your all-time Google rating');
+    // No fixed window may be named — this band also renders on
+    // /dashboard/analytics under a 7d/30d/90d/12w selector.
+    expect(rating).not.toHaveTextContent('30 days');
+
+    const saved = panelFor('What Time saved means');
+    expect(saved).toHaveTextContent('An estimate');
+    expect(saved).toHaveTextContent(String(MINUTES_SAVED_PER_RESPONSE));
+  });
+
+  // Assumption 4: a tip is warranted only where a better label or an existing
+  // sentence will not do. Response rate already carries one, right below.
+  it('gives response rate no tip, because a sentence already explains it', () => {
+    renderHero();
+
+    expect(screen.queryByRole('button', { name: 'What Response rate means' })).toBeNull();
+    expect(screen.getByText(RESPONSE_RATE_PERIOD_CONTEXT)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^What .* means$/ })).toHaveLength(2);
   });
 });

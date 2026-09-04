@@ -3,7 +3,7 @@ import './requests.css';
 
 interface Props {
   /** Which routed sibling is the current page. */
-  active: 'requests' | 'contacts';
+  active: 'requests' | 'contacts' | 'qr';
 }
 
 /**
@@ -17,7 +17,7 @@ interface Props {
 export function RequestsTabs({ active }: Props) {
   return (
     <div className="rq-subnav">
-      <nav className="tabs" aria-label="Requests views">
+      <nav className="tabs tabs--routed" aria-label="Requests views">
         <Link
           href="/dashboard/requests"
           className={`tab ${active === 'requests' ? 'active' : ''}`}
@@ -31,6 +31,17 @@ export function RequestsTabs({ active }: Props) {
           aria-current={active === 'contacts' ? 'page' : undefined}
         >
           Contacts
+        </Link>
+        {/* The **Review QR** surface, moved out of Settings by #1092. It needs a
+            pill as well as a sidebar child: below the breakpoint the sidebar is
+            hidden, and a sidebar-only entry would be unreachable on a phone —
+            the exact defect #1089 exists to prevent. */}
+        <Link
+          href="/dashboard/requests/qr"
+          className={`tab ${active === 'qr' ? 'active' : ''}`}
+          aria-current={active === 'qr' ? 'page' : undefined}
+        >
+          Review QR
         </Link>
       </nav>
     </div>

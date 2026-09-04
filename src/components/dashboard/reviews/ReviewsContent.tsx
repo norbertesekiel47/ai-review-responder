@@ -73,7 +73,7 @@ function ReviewsQueue() {
           refresh={refresh}
           refreshing={refreshing}
         />
-        <div className="reviews-subnav">
+        <div className="reviews-subnav reviews-subnav--tabs-only">
           <ReviewsTabs active="needs" />
         </div>
         <div className="content content--reviews">
@@ -119,7 +119,7 @@ function ReviewsQueue() {
         refresh={refresh}
         refreshing={refreshing}
       />
-      <div className="reviews-subnav">
+      <div className="reviews-subnav reviews-subnav--tabs-only">
         <ReviewsTabs active="needs" />
       </div>
       <div className="content content--reviews">

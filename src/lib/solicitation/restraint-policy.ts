@@ -24,6 +24,10 @@
  * `suppressed` still has no v-watch source and stays contract-tested for
  * enum stability until send-mode lands.
  */
+import {
+  isBusinessSubcategory,
+  type BusinessSubcategory,
+} from '@/lib/shared/business-categories';
 
 /**
  * Bump when the constants table or gate logic changes (prompt-policy.ts pattern).
@@ -239,8 +243,143 @@ const VERTICAL_KEYWORD_MATCHERS: ReadonlyArray<
     ] as const,
 );
 
-/** Resolve the owner-typed category text to a Vertical; `other` when unmapped. */
+/**
+ * The chosen onboarding subcategory → its Vertical. TOTAL over the 92 by
+ * construction: `BusinessSubcategory` is a union of literals, so a 93rd
+ * subcategory added to `business-categories.ts` without an entry here is a
+ * COMPILE error (#1093).
+ *
+ * This table exists because keyword matching was the wrong mechanism the moment
+ * the vocabulary became closed. Measured before it landed: **48 of the 92 fell
+ * to `other`**, and two resolved WRONG — `Bakeries` missed the `bakery` stem
+ * because the vocabulary is plural, and `Grocery / Specialty Food Stores`
+ * matched `food` under `food_and_drink` before `retail` was ever reached. A
+ * vertical picks a freshness window, so both were wrong send/withhold
+ * decisions, not mislabels.
+ *
+ * **The 38 `other` entries are DELIBERATE, not leftovers.** Hospitality,
+ * Professional Services, Education, Entertainment and Financial & Legal have no
+ * vertical in `VERTICALS`, and #1085 ruled adding one out of scope: a new
+ * vertical needs a researched freshness window, which is a policy change with
+ * real send consequences. They take `other`'s window until that effort happens.
+ */
+const SUBCATEGORY_VERTICALS: Record<BusinessSubcategory, Vertical> = {
+  ['Restaurants']: 'food_and_drink',
+  ['Cafes & Coffee Shops']: 'food_and_drink',
+  ['Bars & Nightclubs']: 'food_and_drink',
+  ['Bakeries']: 'food_and_drink',
+  ['Food Trucks']: 'food_and_drink',
+  ['Catering Services']: 'food_and_drink',
+  ['Breweries / Wineries / Distilleries']: 'food_and_drink',
+  ['Hotels & Resorts']: 'other',
+  ['Bed & Breakfasts / Vacation Rentals']: 'other',
+  ['Travel Agencies']: 'other',
+  ['Tour Operators']: 'other',
+  ['Event Venues']: 'other',
+  ['Medical Practices (General / Specialist)']: 'medical_dental',
+  ['Dental Practices']: 'medical_dental',
+  ['Chiropractic Clinics']: 'medical_dental',
+  ['Physical Therapy Clinics']: 'medical_dental',
+  ['Mental Health / Counseling Services']: 'medical_dental',
+  ['Optometry / Vision Care']: 'medical_dental',
+  ['Veterinary Clinics']: 'medical_dental',
+  ['Urgent Care / Walk-in Clinics']: 'medical_dental',
+  ['Med Spas & Aesthetics']: 'personal_care',
+  ['Fitness Centers & Gyms']: 'fitness',
+  ['Yoga / Pilates Studios']: 'fitness',
+  ['Nutrition / Wellness Coaching']: 'fitness',
+  ['Hair Salons & Barbershops']: 'personal_care',
+  ['Nail Salons']: 'personal_care',
+  ['Spas']: 'personal_care',
+  ['Tattoo & Piercing Studios']: 'personal_care',
+  ['Skincare / Esthetics']: 'personal_care',
+  ['Plumbing']: 'home_services',
+  ['Electrical']: 'home_services',
+  ['HVAC']: 'home_services',
+  ['Landscaping & Lawn Care']: 'home_services',
+  ['Cleaning Services (Residential / Commercial)']: 'home_services',
+  ['Pest Control']: 'home_services',
+  ['Roofing']: 'home_services',
+  ['General Contracting / Remodeling']: 'home_services',
+  ['Painting']: 'home_services',
+  ['Moving & Storage']: 'home_services',
+  ['Handyman Services']: 'home_services',
+  ['Pool Services']: 'home_services',
+  ['Auto Repair & Maintenance']: 'automotive',
+  ['Car Dealerships (New / Used)']: 'automotive',
+  ['Auto Detailing']: 'automotive',
+  ['Auto Body Shops']: 'automotive',
+  ['Tire Shops']: 'automotive',
+  ['Car Rental']: 'automotive',
+  ['Law Firms']: 'other',
+  ['Accounting / Tax Services']: 'other',
+  ['Financial Advisory / Wealth Management']: 'other',
+  ['Insurance Agencies']: 'other',
+  ['Real Estate Agencies']: 'other',
+  ['Property Management']: 'other',
+  ['Marketing / Advertising Agencies']: 'other',
+  ['IT Services / Consulting']: 'other',
+  ['Staffing / Recruiting Agencies']: 'other',
+  ['Clothing & Apparel']: 'retail',
+  ['Furniture & Home Goods']: 'retail',
+  ['Electronics']: 'retail',
+  ['Grocery / Specialty Food Stores']: 'retail',
+  ['Jewelry Stores']: 'retail',
+  ['Pet Stores']: 'retail',
+  ['Sporting Goods']: 'retail',
+  ['Bookstores']: 'retail',
+  ['General / Department Stores']: 'retail',
+  ['Daycare / Preschool']: 'other',
+  ['Tutoring Services']: 'other',
+  ['Music / Art Lessons']: 'other',
+  ['Driving Schools']: 'other',
+  ['Vocational / Trade Schools']: 'other',
+  ['Higher Education']: 'other',
+  ['Movie Theaters']: 'other',
+  ['Amusement / Family Entertainment Centers']: 'other',
+  ['Bowling Alleys']: 'other',
+  ['Escape Rooms']: 'other',
+  ['Golf Courses / Country Clubs']: 'other',
+  ['Museums / Attractions']: 'other',
+  ['General Contractors']: 'home_services',
+  ['Specialty Trades (Concrete, Masonry, etc.)']: 'home_services',
+  ['Equipment Rental']: 'other',
+  ['Manufacturing']: 'other',
+  ['Banks / Credit Unions']: 'other',
+  ['Mortgage Brokers']: 'other',
+  ['Online Retailers']: 'retail',
+  ['SaaS / Software Companies']: 'other',
+  ['App-based Services']: 'other',
+  ['Photography / Videography']: 'other',
+  ['Wedding / Event Planning']: 'other',
+  ['Funeral Homes']: 'other',
+  ['Storage Facilities']: 'other',
+  ['Non-Profit Organizations']: 'other',
+  ['Not Listed (please specify)']: 'other',
+};
+
+/**
+ * Resolve a stored `businesses.category` to a Vertical.
+ *
+ * TWO mechanisms, tried in this order, and the order is the contract:
+ *
+ *  1. **The vocabulary table**, on an EXACT match. Every value written since
+ *     #1093 is one of the 92, so this is the path an onboarded business takes.
+ *  2. **The keyword matcher**, unchanged, for everything else. #1085 chose a
+ *     fallback over a migration, so a legacy free-text category — "Bella's
+ *     Cafe", whatever an owner typed years ago — keeps resolving exactly as it
+ *     did before. That is why the matcher is retained rather than deleted.
+ *
+ * `matchedKeyword` is `null` on a table hit, and that is accurate rather than
+ * lossy: no keyword matched, the vocabulary decided. It is a diagnostic field
+ * on the withhold evidence envelope; the `vertical` it accompanies carries the
+ * outcome.
+ */
 export function resolveVertical(businessCategory: string | null): VerticalResolution {
+  if (businessCategory !== null && isBusinessSubcategory(businessCategory)) {
+    return { vertical: SUBCATEGORY_VERTICALS[businessCategory], matchedKeyword: null };
+  }
+
   const normalized = (businessCategory ?? '').toLowerCase();
   if (normalized.length > 0) {
     for (const [vertical, matchers] of VERTICAL_KEYWORD_MATCHERS) {

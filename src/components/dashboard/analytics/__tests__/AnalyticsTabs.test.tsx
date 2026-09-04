@@ -35,3 +35,15 @@ describe('AnalyticsTabs', () => {
     expect(screen.queryAllByRole('tablist')).toHaveLength(0);
   });
 });
+
+// #1092. The `tabs--routed` marker is a hand-typed string at three call sites
+// and was asserted at only one of them (standards review, 2026-09-03). Dropping
+// it here would leave the suite green while restoring the desktop double-nav
+// that #1089 forbids.
+describe('AnalyticsTabs — the routed breakpoint marker', () => {
+  it('carries tabs--routed so the breakpoint rule can reach it', () => {
+    const { container } = render(<AnalyticsTabs active="metrics" />);
+    expect(container.querySelector('.tabs--routed')).not.toBeNull();
+  });
+});
+

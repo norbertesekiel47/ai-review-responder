@@ -23,7 +23,7 @@ interface Props {
  */
 export function AnalyticsTabs({ active }: Props) {
   return (
-    <nav className="tabs" aria-label="Analytics views">
+    <nav className="tabs tabs--routed" aria-label="Analytics views">
       <Link
         href="/dashboard/analytics"
         className={`tab ${active === 'metrics' ? 'active' : ''}`}

@@ -15,6 +15,11 @@ export const fieldClass =
 
 export const textareaClass = `${fieldClass} resize-y min-h-[64px]`;
 
+// Native `<select>`: the same box as an input so the two sit on one grid.
+// `appearance` is deliberately NOT reset — the platform chevron is the only
+// affordance telling an owner the control opens rather than accepts typing.
+export const selectClass = `${fieldClass} cursor-pointer`;
+
 export const labelClass = 'block text-sm font-medium text-rw-ink mb-1.5';
 
 export const errorBannerClass =

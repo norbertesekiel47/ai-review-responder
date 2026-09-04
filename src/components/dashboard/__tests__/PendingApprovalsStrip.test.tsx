@@ -36,3 +36,20 @@ describe('PendingApprovalsStrip', () => {
     );
   });
 });
+
+// #1086 assumption 4: a tip is warranted only when a better label will not do.
+// This strip already says what to do and roughly how long it takes, in its own
+// sub-line. A tip would repeat it.
+describe('PendingApprovalsStrip — deliberately carries no info tip (#1086)', () => {
+  it.each([0, 3])('adds no tip at count %i, because the sub-line explains it', (count) => {
+    const { container } = render(<PendingApprovalsStrip count={count} />);
+
+    // Structural: a name-only assertion cannot fail if InfoTip's sr-only label
+    // is reworded, so the pin would stop pinning silently.
+    expect(container.querySelectorAll('.info-tip')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /^What .* means$/ })).toBeNull();
+    expect(
+      screen.getByText(count === 0 ? /No drafts waiting/ : /Approve or edit/),
+    ).toBeInTheDocument();
+  });
+});

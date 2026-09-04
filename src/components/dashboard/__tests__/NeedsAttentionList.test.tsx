@@ -266,3 +266,58 @@ describe('NeedsAttentionList', () => {
     },
   );
 });
+
+describe('NeedsAttentionList info tip (#1086)', () => {
+  function stubOneEscalation() {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      totalOpen: 1,
+      items: [{
+        id: 'escalation-tip',
+        status: ESCALATION_STATUS.ESCALATED,
+        severity: 'high',
+        suggestedAction: 'escalate',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        reviewId: 'review-tip',
+        businessName: 'Bristol Bay Coffee',
+        reviewRating: 1,
+      }],
+    })));
+  }
+
+  // Guardian triages and escalates; it never acts publicly. Nothing on the
+  // card said so, and no label can carry it.
+  it('every covered surface names what its number means', async () => {
+    stubOneEscalation();
+    renderList();
+
+    const trigger = await screen.findByRole('button', { name: 'What Needs attention means' });
+    const panel = document.getElementById(trigger.getAttribute('aria-controls') as string);
+
+    // "every review that is not a clear positive" — runTriage returns early on
+    // positive sentiment, and 4★/5★ are positive. The unqualified claim was
+    // false.
+    expect(panel).toHaveTextContent('every review that is not a clear positive');
+    expect(panel).toHaveTextContent('never replies and never posts anything');
+  });
+
+  it('keeps the tip out of the heading, so the queue is still named "Needs attention"', async () => {
+    stubOneEscalation();
+    const { container } = renderList();
+
+    expect(await screen.findByRole('region', { name: 'Needs attention' })).toBeInTheDocument();
+    expect(container.querySelector('#needs-attention-heading .info-tip')).toBeNull();
+    expect(container.querySelector('.needs-attention-title .info-tip')).not.toBeNull();
+  });
+
+  // The error arm is a bare fallback heading. A tip there would explain a
+  // queue the owner cannot see.
+  it('adds no tip to the error state', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ nope: true })));
+    renderList();
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    // Structural, so a reworded sr-only label cannot silently unpin this.
+    expect(document.querySelectorAll('.info-tip')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /^What .* means$/ })).toBeNull();
+  });
+});

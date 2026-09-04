@@ -119,3 +119,32 @@ describe('MobileTabBar', () => {
     expect(linkByName(/settings/i)).not.toHaveAttribute('aria-current');
   });
 });
+
+// Spec review, 2026-09-03. Below 768px the sidebar is hidden, so this bar is
+// the only nav. With watch-mode off the Requests tab is gone and #1092 had
+// removed the Settings entry, leaving **Review QR** unreachable on a phone.
+describe('MobileTabBar — Review QR reachability', () => {
+  it('offers Review QR in the Requests slot when solicitation is disabled', () => {
+    render(<MobileTabBar solicitationEnabled={false} />);
+    expect(screen.getByRole('link', { name: /review qr/i })).toHaveAttribute(
+      'href',
+      '/dashboard/requests/qr',
+    );
+    expect(screen.queryByRole('link', { name: /^requests$/i })).not.toBeInTheDocument();
+  });
+
+  it('offers Requests, not Review QR, when solicitation is enabled', () => {
+    render(<MobileTabBar solicitationEnabled />);
+    expect(screen.getByRole('link', { name: /^requests$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /review qr/i })).not.toBeInTheDocument();
+  });
+
+  it('stays five tabs wide either way', () => {
+    for (const enabled of [true, false]) {
+      const { container, unmount } = render(<MobileTabBar solicitationEnabled={enabled} />);
+      expect(container.querySelectorAll('.mtab')).toHaveLength(5);
+      unmount();
+    }
+  });
+});
+

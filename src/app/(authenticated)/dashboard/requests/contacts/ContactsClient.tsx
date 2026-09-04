@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { RequestsTabs } from '../RequestsTabs';
+import { TemplateCard } from './TemplateCard';
 import { UploadCard } from './UploadCard';
 import { ContactList } from './ContactList';
 
@@ -50,6 +51,10 @@ export function ContactsClient({
               upload a CSV or browse its contacts.
             </p>
           </div>
+          {/* The template describes the FILE FORMAT, which is the same for every
+              location, so it is offered here too — an owner can prepare the CSV
+              before deciding which location it belongs to. */}
+          <TemplateCard />
         </div>
       </>
     );
@@ -67,6 +72,7 @@ export function ContactsClient({
       />
       <RequestsTabs active="contacts" />
       <div className="content">
+        <TemplateCard />
         <UploadCard
           attestationText={attestationText}
           attestationVersion={attestationVersion}

@@ -33,7 +33,7 @@ describe('ReviewQrClient', () => {
     expect(download).toHaveAttribute('download', 'review-qr-acme.png');
     expect(download).toHaveAttribute('href', ELIGIBLE.qrDataUrl);
     const print = screen.getByRole('link', { name: /^print$/i });
-    expect(print).toHaveAttribute('href', `/settings/review-qr/print/${ELIGIBLE.businessId}`);
+    expect(print).toHaveAttribute('href', `/dashboard/requests/qr/print/${ELIGIBLE.businessId}`);
 
     // Ineligible card: plain-language copy + a Reconnect Google action, and NO
     // QR, download, or print (S24 — never "canonical Google Place ID").

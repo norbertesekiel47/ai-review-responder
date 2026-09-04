@@ -145,8 +145,11 @@ describe('AnalyticsContent', () => {
     useDashboardDataMock.mockReturnValue({ data: baseAggregate, error: null, loading: false, refresh: vi.fn() });
     render(<AnalyticsContent />);
 
-    // KPI strip (slot 1) — AggregateKpiCards → ValueKpiGrid
-    expect(screen.getByText(/Reviews handled/i)).toBeInTheDocument();
+    // KPI strip (slot 1) — AggregateKpiCards → ValueKpiGrid.
+    // Scoped to the eyebrow rather than a loose /Reviews handled/i: the KPI now
+    // carries an InfoTip whose screen-reader label is "What Reviews handled
+    // means", so the bare regex matches two nodes and throws.
+    expect(document.querySelector('.kpi-eyebrow')).toHaveTextContent('Reviews handled');
 
     expect(screen.getByText('Review Velocity')).toBeInTheDocument();
     expect(screen.getByText('Search Ranking')).toBeInTheDocument();

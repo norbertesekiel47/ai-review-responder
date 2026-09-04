@@ -141,7 +141,7 @@ describe('POST /api/auth/reset-password', () => {
   it('returns 403 when Origin header mismatches NEXT_PUBLIC_APP_URL', async () => {
     const res = await POST(
       mkReq(
-        { password: 'a-new-strong-password' },
+        { password: 'a-new-strong-password1' },
         { origin: 'https://evil.example.com' },
       ),
     );
@@ -154,7 +154,7 @@ describe('POST /api/auth/reset-password', () => {
 
   it('returns 401 when no session cookie (getUser returns { user: null })', async () => {
     mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(401);
     expect(mockSql).not.toHaveBeenCalled();
     expect(mockUpdateUser).not.toHaveBeenCalled();
@@ -162,7 +162,7 @@ describe('POST /api/auth/reset-password', () => {
 
   it('returns 500 account_incomplete when session exists but no users row for auth_id', async () => {
     mockSql.mockResolvedValueOnce([]); // no row
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toBe('account_incomplete');
@@ -179,11 +179,11 @@ describe('POST /api/auth/reset-password', () => {
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
     mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(200);
     expect(mockUpdateUser).toHaveBeenCalledWith({
-      password: 'a-new-strong-password',
+      password: 'a-new-strong-password1',
     });
     // The deliberate posture around the write is unchanged by the flag removal:
     // the recovery session is destroyed and the owner is routed through /login.
@@ -196,10 +196,10 @@ describe('POST /api/auth/reset-password', () => {
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
     mockSql.mockResolvedValueOnce([{ role: 'admin' }]);
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(200);
     expect(mockUpdateUser).toHaveBeenCalledWith({
-      password: 'a-new-strong-password',
+      password: 'a-new-strong-password1',
     });
     const json = await res.json();
     expect(json.redirectTo).toBe('/admin/login');
@@ -209,10 +209,10 @@ describe('POST /api/auth/reset-password', () => {
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
     mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(200);
     expect(mockUpdateUser).toHaveBeenCalledWith({
-      password: 'a-new-strong-password',
+      password: 'a-new-strong-password1',
     });
     const json = await res.json();
     expect(json.redirectTo).toBe('/login');
@@ -226,13 +226,24 @@ describe('POST /api/auth/reset-password', () => {
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
+  // #1090. The form has always DISPLAYED "A number" as a requirement; until
+  // this the route accepted a password without one, so an owner who ignored the
+  // unmet marker got the password set anyway. The server is the gate the client
+  // guard cannot substitute for — a direct POST bypasses the form entirely.
+  it('returns 400 invalid_body on a long password with no digit', async () => {
+    const res = await POST(mkReq({ password: 'a-long-password-with-no-digit' }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'invalid_body' });
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when Supabase updateUser returns error', async () => {
     mockUpdateUser.mockResolvedValueOnce({
       data: { user: null },
       error: { message: 'New password should be different from the old one.' },
     });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('New password should be different from the old one.');
@@ -243,7 +254,7 @@ describe('POST /api/auth/reset-password', () => {
   // ── Recovery-session termination ─────────────────────────────────
 
   it('calls signOut after updateUser succeeds (ends recovery session)', async () => {
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(200);
     expect(mockUpdateUser).toHaveBeenCalledTimes(1);
     expect(mockSignOut).toHaveBeenCalledTimes(1);
@@ -260,7 +271,7 @@ describe('POST /api/auth/reset-password', () => {
   it('returns 200 + { redirectTo: "/login" } for owner role', async () => {
     mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.redirectTo).toBe('/login');
@@ -269,7 +280,7 @@ describe('POST /api/auth/reset-password', () => {
   it('returns 200 + { redirectTo: "/admin/login" } for admin role', async () => {
     mockSql.mockResolvedValueOnce([{ role: 'admin' }]);
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.redirectTo).toBe('/admin/login');
@@ -278,7 +289,7 @@ describe('POST /api/auth/reset-password', () => {
   it('returns 403 unsupported_role and signs out for sales_partner role', async () => {
     mockSql.mockResolvedValueOnce([{ role: 'sales_partner' }]);
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(403);
     const json = await res.json();
     expect(json.error).toBe('unsupported_role');
@@ -294,13 +305,13 @@ describe('POST /api/auth/reset-password', () => {
   it('returns 429 on rate-limit exceeded (per-authId 5/hr)', async () => {
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(429);
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
   it('uses strict:true with key reset-pw:auth:<authId> at 5/hr', async () => {
-    await POST(mkReq({ password: 'a-new-strong-password' }));
+    await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(mockCheckRateLimit).toHaveBeenCalledTimes(1);
     const call = mockCheckRateLimit.mock.calls[0]!;
@@ -313,7 +324,7 @@ describe('POST /api/auth/reset-password', () => {
   it('returns 503 on strict rate-limit failure (Redis down)', async () => {
     mockCheckRateLimit.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(503);
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
@@ -326,7 +337,7 @@ describe('POST /api/auth/reset-password', () => {
       error: null,
     });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(403);
     const json = await res.json();
@@ -343,18 +354,18 @@ describe('POST /api/auth/reset-password', () => {
       error: null,
     });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(200);
     expect(mockUpdateUser).toHaveBeenCalledWith({
-      password: 'a-new-strong-password',
+      password: 'a-new-strong-password1',
     });
   });
 
   it('fails CLOSED with 403 mfa_check_failed when the AAL probe errors', async () => {
     mockGetAal.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(403);
     const json = await res.json();
@@ -365,7 +376,7 @@ describe('POST /api/auth/reset-password', () => {
 
   it('fails CLOSED with 403 mfa_check_failed when the AAL probe throws', async () => {
     mockGetAal.mockRejectedValueOnce(new Error('decodeJWT boom'));
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe('mfa_check_failed');
     expect(mockUpdateUser).not.toHaveBeenCalled();
@@ -374,7 +385,7 @@ describe('POST /api/auth/reset-password', () => {
   it('runs the rate limit BEFORE the AAL probe so a prober spends its own budget', async () => {
     mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0 });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(429);
     expect(mockGetAal).not.toHaveBeenCalled();
@@ -407,7 +418,7 @@ describe('POST /api/auth/reset-password', () => {
       },
     });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(403);
     const json = await res.json();
@@ -420,7 +431,7 @@ describe('POST /api/auth/reset-password', () => {
       error: { status: 422, message: 'New password should be different from the old one.' },
     });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(422);
     const json = await res.json();
@@ -441,7 +452,7 @@ describe('POST /api/auth/reset-password', () => {
     const error = Object.assign(new Error('Failed to fetch'), { status: 0 });
     mockUpdateUser.mockResolvedValueOnce({ data: { user: null }, error });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(400);
     expect(mockReportCaughtError).toHaveBeenCalledTimes(1);
@@ -456,7 +467,7 @@ describe('POST /api/auth/reset-password', () => {
     const error = Object.assign(new Error('Invalid session'), { status: 401 });
     mockUpdateUser.mockResolvedValueOnce({ data: { user: null }, error });
 
-    const res = await POST(mkReq({ password: 'a-new-strong-password' }));
+    const res = await POST(mkReq({ password: 'a-new-strong-password1' }));
 
     expect(res.status).toBe(401);
     expect(mockReportCaughtError).toHaveBeenCalledTimes(1);

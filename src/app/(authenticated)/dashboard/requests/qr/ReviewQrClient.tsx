@@ -122,7 +122,7 @@ export function ReviewQrClient({ locations }: Props) {
                   </a>
                   <Link
                     className="btn btn-secondary"
-                    href={`/settings/review-qr/print/${location.businessId}`}
+                    href={`/dashboard/requests/qr/print/${location.businessId}`}
                   >
                     Print
                   </Link>
