@@ -479,3 +479,46 @@ follow the same order or it will invalidate itself.
 **Verdict:** ACCEPT — the code evidence is intact and proven so, the doc gap is
 disclosed rather than papered over, and the compensating verification is
 recorded.
+
+---
+
+## D13 — Main moved during shipping; the rebase repointed the sidecar a second time
+
+**When**: step 8, immediately before the staging ride.
+
+`origin/main` advanced to `dd883b1a` (#1126, an offboarding Stripe-retry
+refactor) while this branch sat at fork `91b32506`. The repo requires branches up
+to date, so the branch was rebased. #1126 touched three of the same documents —
+`.claude/reference/arch-review-log.md`, `docs/directory.md`,
+`docs/runbooks/beta-launch-alerting.md` — and **no code this branch touches**.
+
+One conflict, in the entropy counter, and it is the expected shape: two features
+appending a row. Both rows kept, theirs first. All five of this branch's doc
+edits verified present after the auto-merge rather than assumed.
+
+**The rebase invalidated the gate and the red-team `head_sha` again. The code did
+not change, and this time that is proven rather than argued:**
+
+```
+git diff 91b32506..cbe40ed7 -- src worker | git hash-object --stdin
+git diff dd883b1a..HEAD     -- src worker | git hash-object --stdin
+→ 65880ba74b7d45cb9d3fab5c299f91237ba89161   (identical)
+```
+
+The production diff is byte-identical before and after the rebase, so the GREEN
+gate at `cbe40ed7` and red team's two rounds describe exactly this code. D12's
+reasoning and its disclosure carry over unchanged; the sidecar was repointed a
+second time, in the same order D12 prescribes.
+
+**One operational lesson, and it is the one that cost the most wall clock in this
+whole run.** The local gate flaked on **eight** separate runs — always a foreign
+test file, always vitest's 5000 ms default, never an assertion, with 13,889 tests
+passing each time. Load averages sat between 12 and 26. `chroma-mcp` (claude-mem's
+vector store) held ~95% of a core and restarts itself, but killing it was not
+sufficient. What finally worked was **`VITEST_WORKERS=1`** — the gate exposes the
+knob, and on a contended machine one worker is not slower overall, because it
+stops losing whole runs. Promote to lab-notes: *on a loaded machine, prefer
+`VITEST_WORKERS=1` for the gate over repeated full-parallel retries.*
+
+**Verdict:** ACCEPT — main taken, conflict resolved correctly, code proven
+unchanged, evidence re-established.
