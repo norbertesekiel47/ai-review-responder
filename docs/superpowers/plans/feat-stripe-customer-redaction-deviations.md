@@ -537,6 +537,25 @@ already says the Mac "shares its cores with local agents"; this is that,
 observed. Review mode is the heaviest run available: all 14,986 tests WITH
 coverage instrumentation.
 
+> **CORRECTION, and it is against this session.** The paragraph above named
+> only the other session. That was incomplete. **NINE abandoned poller loops
+> were mine.** Every foreground `until ! verify-gate.sh --status; do sleep 30;
+> done` wait that hit its 590s harness timeout was moved to the BACKGROUND and
+> kept running — each waking every 30 seconds to spawn another Node process. I
+> did that nine times across four gate attempts and cleaned up none of them,
+> while reporting to the owner that the machine was too busy because of someone
+> else.
+>
+> Measured before and after killing them: load `39.95 → 35.31`, node processes
+> `394 → 393`. So the pollers were REAL but MINOR — roughly a tenth of the
+> load, not the cause. The largest single consumer is `fseventsd` at 444% CPU,
+> saturating on file churn across several agent worktrees.
+>
+> The finding stands; the attribution did not. **A session that measures a
+> shared resource must count its own processes before it names someone else's.**
+> Recorded here rather than quietly fixed, because a deviations file that only
+> blames outward is the same defect class D7 names.
+
 **CI is green where it counts.** At this exact commit, on dedicated runners:
 `test` (all 14,986), `lint`, `build`, `e2e`, `changes` and `react-doctor` all
 pass. `test` is a required check and it passed the very suites that timed out
