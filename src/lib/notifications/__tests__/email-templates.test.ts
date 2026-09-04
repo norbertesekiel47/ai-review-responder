@@ -194,6 +194,8 @@ describe('buildAccountOffboardingEmailHtml', () => {
 
     expect(html).toContain('payment processor');
     expect(html).toContain('invoice');
+    // Second PROVIDER_DATA_RETENTION entry: the detached PaymentMethod.
+    expect(html).toContain('last four card digits');
     // Categories, never a handle: no customer id, no subscription id, no email.
     expect(html).not.toContain('cus_');
     expect(html).not.toContain('sub_');

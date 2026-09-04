@@ -226,12 +226,31 @@ describe('provider data retention inventory', () => {
 
     expect(stripeCustomer).toBeDefined();
     expect(stripeCustomer!.disposition).toBe('retain_compliance_limited_pii');
-    // The reason must name what SURVIVES, because the deletion receipt and the
-    // privacy policy are written from this sentence. Paid invoices keep a
-    // snapshotted billing name and address, and tax_ids is unreachable from a
-    // customers.update.
+    // The reason must name what SURVIVES. The deletion receipt and the privacy
+    // policy state the same categories but are NOT written from this sentence —
+    // neither imports the array, so the three are kept in step by review. Paid
+    // invoices keep a snapshotted billing name and address, and tax_ids is
+    // unreachable from a customers.update.
     expect(stripeCustomer!.reason).toMatch(/invoice/i);
     expect(stripeCustomer!.reason).toMatch(/tax_ids/);
+  });
+
+  it('PROVIDER_DATA_RETENTION carries the detached Stripe PaymentMethod as its own entry', () => {
+    // Detaching is the most the API allows, not an erasure: Stripe exposes
+    // detach and no delete, so billing_details and card last4/fingerprint
+    // outlive the purge. The redaction module once claimed that data was
+    // deletable and the inventory therefore carried no entry; the 2026-09-04
+    // staging dry-run read a detached method back in full and falsified it.
+    const paymentMethod = PROVIDER_DATA_RETENTION.find(
+      (entry) => entry.provider === 'stripe' && entry.object === 'payment_method',
+    );
+
+    expect(paymentMethod).toBeDefined();
+    expect(paymentMethod!.disposition).toBe('retain_compliance_limited_pii');
+    expect(paymentMethod!.reason).toMatch(/billing_details/);
+    expect(paymentMethod!.reason).toMatch(/last4/);
+    // The correction itself: the reason must not re-assert deletability.
+    expect(paymentMethod!.reason).not.toMatch(/is deletable/i);
   });
 
   it('PROVIDER_DATA_RETENTION entries never appear in ACCOUNT_OFFBOARDING_TABLES or PURGE_VERIFICATION_TABLES', () => {

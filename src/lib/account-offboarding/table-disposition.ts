@@ -463,4 +463,11 @@ export const PROVIDER_DATA_RETENTION = [
     reason:
       'Redaction clears the identifying fields and metadata on the Customer itself, but cannot reach what Stripe keeps for financial record-keeping: a paid invoice snapshots the billing name and address it was issued with and is immutable, and tax_ids hangs off the Customer as its own resource that customers.update cannot clear. Deleting the Customer is not the alternative — it detaches those invoices irreversibly.',
   },
+  {
+    provider: 'stripe',
+    object: 'payment_method',
+    disposition: 'retain_compliance_limited_pii',
+    reason:
+      'Detaching is the MOST the API allows, not an erasure. Stripe exposes detach and no delete, so the PaymentMethod object outlives the purge holding its own billing_details — name, email, phone, full address — plus card last4 and fingerprint, none of which customers.update can reach. Detaching unlinks it from the Customer and prevents reuse; it does not remove the data, and the object stays retrievable by id. An earlier version of this inventory carried no entry for it because the redaction module claimed that data was deletable; the 2026-09-04 staging dry-run read a detached method back in full after a completed purge and falsified that claim.',
+  },
 ] as const satisfies readonly ProviderDataRetention[];

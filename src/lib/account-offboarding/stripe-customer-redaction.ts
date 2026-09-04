@@ -24,15 +24,24 @@
 //
 // Attached PaymentMethods are DETACHED as well as the Customer being cleared.
 // `customers.update` cannot reach a PaymentMethod's own `billing_details` —
-// name, email, phone, full address — nor its card `last4`/`fingerprint`. That
-// data IS deletable, unlike an invoice, so leaving it would be an erasure gap
-// rather than an unavoidable retention. Detaching is only possible here because
-// teardown already cancelled the subscription; Stripe refuses to detach a
-// method a live subscription depends on.
+// name, email, phone, full address — nor its card `last4`/`fingerprint`.
+// Detaching is the MOST the API allows, NOT an erasure: Stripe exposes `detach`
+// and no delete, so the object outlives the purge with that data intact and
+// merely stops appearing under the Customer. It is still worth doing — it
+// unlinks the method and prevents reuse. Detaching is only possible here
+// because teardown already cancelled the subscription; Stripe refuses to detach
+// a method a live subscription depends on.
+//
+// An earlier version of this comment said that data "IS deletable, unlike an
+// invoice, so leaving it would be an erasure gap rather than an unavoidable
+// retention." The 2026-09-04 staging dry-run read a detached method back in
+// full after a completed purge and falsified it. It is an unavoidable retention
+// of the same class as an invoice, and it now has its own inventory entry.
 //
 // What survives at Stripe, unavoidably: paid invoices with the billing name and
-// address snapshotted onto them, and `tax_ids`, which is not a field
-// `customers.update` can reach. `PROVIDER_DATA_RETENTION` in
+// address snapshotted onto them; `tax_ids`, which is not a field
+// `customers.update` can reach; and every detached PaymentMethod's
+// `billing_details` and card `last4`/`fingerprint`. `PROVIDER_DATA_RETENTION` in
 // `table-disposition.ts` is the inventory that records this. The purge receipt
 // and the privacy policy state the same categories; neither imports the
 // inventory, so the three are kept in step by review, not by the compiler.
