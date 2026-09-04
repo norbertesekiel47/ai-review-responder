@@ -62,7 +62,8 @@
     "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md",
     "docs/reviews/fix-1105-unmapped-block-reason-signal",
     "docs/reviews/red-team",
-    "docs/directory.md"
+    "docs/directory.md",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "noteUnmappedBlockReasons captures one error-level Sentry message naming every unmapped code",
@@ -87,7 +88,7 @@
   "verification_commands": [
     "pnpm vitest run src/lib/refusals/__tests__/write.test.ts worker/jobs/response-generation/__tests__/persist.test.ts"
   ],
-  "estimated_prod_lines": 80,
+  "estimated_prod_lines": 245,
   "estimated_test_lines": 260,
   "dependencies_added": [],
   "rollback_plan": "Revert the branch. The change adds one observability signal and no state, no schema and no control-flow branch, so a revert restores the prior behaviour exactly. REFUSAL_LEDGER_ENABLED keeps its meaning either way.",

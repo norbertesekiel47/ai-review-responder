@@ -24,7 +24,9 @@ could pass on a wrong implementation. Each finding became one new eval case, and
 each new title is tagged `[R1-n]` in the plan's T1 so the reason survives.
 
 `estimated_test_lines` moved from 150 to 260 in the same edit — 1.7×, under the
-2× re-classification trigger. `estimated_prod_lines` is unchanged at 80.
+2× re-classification trigger. `estimated_prod_lines` was unchanged at 80 AT THIS
+POINT; D7 below later corrects it to the measured figure, and that entry owns the
+number. Do not read 80 back out of this paragraph.
 `allowed_edit_surface` is unchanged, so this is a deviations entry and not a
 surface amendment.
 
@@ -101,6 +103,47 @@ message named all of them.
 Fixed by joining once and giving both transports the same string. This is a
 general trap, not a fact about this branch, and it is promoted to lab notes at
 step 8.
+
+**Verdict:** ACCEPT.
+
+## D7 — the gate's re-classification trigger fired, and step 0 was re-run
+
+`verify-gate.sh --review` reported the production diff over 2× the estimate: 245
+changed lines against `estimated_prod_lines: 80`. Step 0 was re-run with the real
+numbers, as the trigger requires.
+
+**The lane did not move.** SIZE is still `small` — the breadth axis, not a line
+count: two production files, one behaviour, one tight surface, no new module and
+no new dependency. RISK is still `high`, for the reason the intake gave. SURFACE
+is still `backend`.
+
+**The estimate missed the documentation, not the implementation.** Of the added
+production lines, roughly 38 are executable and the rest are comment — about five
+to one, above this area's own two-to-three-to-one norm. Re-derive both halves
+rather than quoting these; a prose fix moves them, and this repo's architecture
+log has been falsified twice that way.
+
+`estimated_prod_lines` is corrected to 245 in both intake copies. That is a
+record of the measurement, not a way to silence the trigger: the trigger already
+fired and the re-classification it demanded is written above.
+
+The ratio is deliberately NOT defended here. It goes to the step 7 standards axis
+as a finding to judge.
+
+**Verdict:** ACCEPT.
+
+## D8 — surface amendment 1: `.claude/reference/arch-review-log.md`
+
+`ci:merge-ledger` fails any PR that changes a production file and adds no line to
+the architecture review log. The path was outside `allowed_edit_surface`, so the
+edit-surface guard blocked the write.
+
+Owner signed off. The path is added to both intake copies and counted:
+`surfaceAmendments = 1`. A second amendment now needs a stated reason and is
+itself an abort-criteria trigger.
+
+Not scope creep: the file is mandated by a CI audit for every production change
+in this repository, and the gate cannot go green without it.
 
 **Verdict:** ACCEPT.
 
