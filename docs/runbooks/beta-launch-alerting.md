@@ -254,7 +254,10 @@ email shares the Resend provider with the product.
   Keyed on `feature:solicitation_lane`, which is unique to this capture across
   the whole codebase, so the rule is narrow by construction like rule 5.
 
-- [ ] **Stripe out-of-order ack routed to Discord (red-team R05)** — issues tagged
+- [x] **Stripe out-of-order ack routed to Discord (red-team R05)** — **DONE
+  2026-09-04, rule `3946648`.** Built with an occurrence threshold rather than
+  the specified hourly window; §1a-do's rule 9 note records why and how it
+  behaves. Issues tagged
   `feature:stripe_subscription_out_of_order` at level `warning`, title
   `stripe_subscription_event_acked_for_age`, emitted by
   `warnStripeSubscriptionEventAckedForAge` (`worker/ingress/stripe/shared.ts`).
@@ -364,7 +367,7 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 6 | `solicitation-unattributed-suppression → discord` | `feature` equals `solicitation_lane` | **seen more than 3 times in one hour** | `warning` |
 | 7 | `refusal-vocabulary-hole → discord` | `fault` equals `unmapped_block_reason` | **every event** | `error` |
 | 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
-| 9 | `stripe-out-of-order-ack → discord` | `feature` equals `stripe_subscription_out_of_order` | **seen more than 3 times in one hour** | `warning` |
+| 9 | `stripe-out-of-order-ack → discord` **BUILT 2026-09-04, rule `3946648`** | `feature` equals `stripe_subscription_out_of_order` **AND** the issue has happened at least **4** times | **every event**, throttled to 1/hour | any |
 
 > **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
 > This table is the design; these are the rules. Re-read them before assuming a signal
@@ -532,6 +535,31 @@ lands in Sentry and pages nobody.** Its benign cause — the seconds-wide window
 before #630 commits `provider_message_id` — is why the trigger is frequency and
 not first-seen; its alarming cause is #965, an unexplained loss of Outreach rows
 that is still open. §1's bullet carries the response procedure.
+
+> **BUILT 2026-09-04 as rule `3946648`, and the SHAPE DIFFERS from the spec
+> above — read this before assuming the runbook describes it.** The rule was
+> specified as "seen more than 3 times in one hour". Sentry's current alert
+> builder does not offer that combination for this trigger: the windowed
+> frequency filters (`Number of events`, `Number of users affected`) are
+> restricted to the "a new event is captured" / "a new issue is created"
+> triggers, and the unrestricted `Issue frequency` filter is an
+> OCCURRENCE-COUNT with **no time window**.
+>
+> What was built instead: trigger `Every event`, filters `feature =
+> stripe_subscription_out_of_order` **AND** issue occurrences >= 4, action
+> throttle 1 hour. Verified by API read-back, not by the form.
+>
+> **How that behaves, stated plainly.** The first three acked events ever are
+> silent — the "a handful is normal" intent. From the fourth onward every acked
+> event matches, throttled to one Discord message per hour. Because the capture
+> title is a CONSTANT, all acks group into one Sentry issue, so the occurrence
+> count is cumulative and never resets: once past four, the rule stays armed
+> permanently. That is MORE sensitive than the spec over a long horizon and
+> less sensitive in the first three events. It is the closest the current UI
+> allows, and the throttle is what keeps it from being noisy.
+>
+> If Sentry later exposes a windowed filter for this trigger, this is the rule
+> to revisit.
 
 **Rule 9 is a REPLACEMENT too, and it is the narrower half of one (red-team
 R05).** Bounding the Stripe out-of-order retry at 15 minutes and acking takes
