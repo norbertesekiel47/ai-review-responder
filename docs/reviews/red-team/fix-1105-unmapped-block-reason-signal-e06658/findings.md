@@ -384,3 +384,35 @@ Every blocking finding on this branch is a one-paragraph documentation or
 one-row runbook edit. None touches production code: on this pass's evidence the code half of
 this branch is correct and adequately oracled at HEAD — every mutant this round
 executed, including all four the fresh pass and round 2 left alive, now dies.
+
+---
+
+## Close-out — owner-authorized accepted risk on V-F3
+
+Status `CLEAR` at HEAD `95802ca6`, via one authorization. Recorded here so the
+JSON and the prose agree.
+
+**V-F3 is `accepted-risk`, not `fixed`, and the distinction is deliberate.** Its
+two blocking sites were fixed at `5c8498b1` and independently verified by the
+close-out pass. That pass then found a THIRD twin — "Do §4 after the six rules
+above", where eight exist — plus a stale invariant ("the step number and the rule
+number must not collide") that this branch broke by adding rules 7 and 8. Both
+were fixed at `95802ca6`, together with the §4 acceptance drill rules 7 and 8 had
+shipped without.
+
+Those last fixes are NOT independently verified. Three consecutive attempts at
+this one finding each left a twin behind, so a fourth unverified claim of
+completeness would repeat the exact failure the finding is about. `accepted-risk`
+says that honestly; `fixed` would not.
+
+**The residual risk is a stale count or cross-reference in one runbook section.**
+No production code is implicated: it has been unchanged since `f0e44312` and is
+covered by 91 tests in the two suites, a green 27-row gate, and a live-DB
+integration lane verified at HEAD.
+
+**The real verification is the staging drill**, which this branch added because
+red team asked why §4 had none. It is written so a SINGLE page fails it: two
+distinct unmapped codes must produce two pages, which is the only way to prove
+the alert rule is not silently on first-seen.
+
+Still open, all P2, none blocking: V-F5, V-F6, F-08, R2-08.
