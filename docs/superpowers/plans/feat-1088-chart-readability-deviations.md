@@ -227,3 +227,100 @@ the abort budget is untouched.
 
 (The surface amendment recorded above is a SEPARATE matter — a spelling bug in
 the intake, found by T1, not a consequence of the plan revision.)
+
+## Main was taken at `gate_green`, before the review wave
+
+The branch sat 1 commit behind `origin/main` on resume — `2be0c323`, docs only
+(`CONTEXT.md`, `beta-launch-alerting.md`), no overlap with the chart surface.
+Phase was `gate_green` and no review round had opened, so `execution-lanes.md`
+§ Pin the fork permits taking it. Rebased; the gate re-ran green afterwards.
+Zero conflict. Nothing else on the branch moved.
+
+## T2 — the window goes where the chart speaks
+
+Closes G1 and G5. Four charts, one test file.
+
+| Chart | Now names its window as |
+|---|---|
+| `VelocityChart` caption | `Review velocity history, last N weeks` |
+| stacked aggregate caption | `Review velocity by location, last N weeks` |
+| `RankingChart` caption | `Search ranking history, most recent N snapshots, <first> to <last>` |
+| `ReputationTrendChart` empty state | names star-equivalent AND the span |
+
+Three decisions, each of which could have gone another way:
+
+1. **The week phrase reuses `trendSpanLabel`**, its existing single owner in
+   `charts/star-trend-plot.ts` (UX audit D36) — imported, never copied, so the
+   per-location and aggregate charts cannot drift apart. That file is OUTSIDE
+   the edit surface, so it could not be renamed to a chart-neutral name; the
+   name still reads trend-specific while the function is not. Renaming it is a
+   later, separate change.
+2. **`RankingChart` states a DATED span, not a week count.** Ranking is
+   sampled, not bucketed: `service.ts:292` and `aggregate-queries.ts:237` return
+   every snapshot of the last 12 months and the chart plots all of them. "Last N
+   weeks" there would be false. The caption therefore names the snapshot count
+   and the real first/last dates.
+3. **No on-screen window prose was added.** G5 reads "states no window
+   anywhere, on screen or in the caption" — the *on screen* half is overstated.
+   `RankingChart` already draws its dates on the x-axis (L108–L112), and
+   `VelocityChart` draws `weekShortLabel`. The genuine gap was the caption
+   alone. A second date range on the plot would be duplication, so the fix is
+   caption-only and G5 is closed narrower than written.
+
+The empty-state sentence is built as ONE template string rather than JSX text
+lines, because JSX joins sibling text lines and could split "last 8 weeks"
+across the join — which is exactly what the promised assertion matches on.
+
+## T3 — the velocity y-axis names its unit
+
+Closes G2. `VelocityAxisUnit` renders the word `reviews` once, in the `PAD.t`
+headroom above the top gridline and left of the plot band.
+
+Two alternatives were considered and rejected:
+
+- **A suffix on every tick** repeats one fact three times.
+- **A rotated axis title** costs horizontal width, and the intake names 390px
+  as the width where an axis label competes with the plot.
+
+Exported from `VelocityChart.tsx` and rendered by the stacked aggregate too, so
+both velocity charts name the same unit in the same place. `AggregateVelocityCard`
+already imported that module, so this adds no new coupling.
+
+**Its test is deliberately NOT one of the five promised titles.** The promised
+set reads the accessible name and the `sr-only` table; neither reaches the SVG,
+which is `aria-hidden`. A chart could satisfy every promised title and still be
+unitless on screen. The new title — `both velocity charts name their y-axis unit
+on screen` — is the sighted-path pin, and it queries `svg text` directly because
+no accessible query can reach an `aria-hidden` subtree.
+
+## T4 — the owner's first look
+
+Rendered out-of-tree, not from a running app: a Vite harness in the session
+scratchpad with `@` aliased at a chosen `src/` copy, so the SAME harness renders
+BEFORE and AFTER. The BEFORE tree is the current `src/` with the four changed
+files restored from the base commit `2be0c323`. Both bundles carry the repo's
+real `globals.css` + `console.css` through the repo's own Tailwind v4 pipeline,
+so the render is the Console system, not an approximation.
+
+Shot at 390px and 1440px, `deviceScaleFactor: 2`, `reducedMotion: 'reduce'` so
+the bar entry animation cannot land mid-flight and make two runs disagree.
+Evidence: `<scratchpad>/t4-shot/shots/velocity-{before,after}-{390,1440}.png`.
+
+**Result: the unit label reads at both widths and collides with nothing.** It
+sits above the top tick, outside the plot band, and costs the plot no width.
+
+### One PRE-EXISTING defect the screenshots exposed. Not fixed here.
+
+At 390px the `avg 8.8` reference label overlaps the trend line and the bars. It
+is present in the BEFORE shot too, so this branch neither caused nor worsened
+it. It is a genuine readability defect and it is inside this edit surface —
+but it is not G1–G6, and inventing a seventh gap mid-run is the scope drift the
+tracer ordering exists to prevent. **Recorded for the owner to rule on, not
+silently fixed.**
+
+### T2's window statement is INVISIBLE in these screenshots, by design
+
+The velocity window lives in the `sr-only` caption. A sighted reader sees the
+card header's "last 8 weeks", which was already there. So the only visible
+delta in the T4 evidence is T3's `reviews`. That is expected, not a shortfall:
+G1 was explicitly a screen-reader gap.
