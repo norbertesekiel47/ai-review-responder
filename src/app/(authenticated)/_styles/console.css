@@ -1313,6 +1313,16 @@
   gap: 8px;
   align-items: center;
   flex: 0 0 auto;
+  /* The group never shrinks, so below ~296px of banner its two nowrap labels are
+     wider than the banner and `overflow: clip` on `.main` swallows the second one
+     with no scroll to recover it (#1087 round 2, N5). These two lines together
+     put the buttons on two rows instead, and BOTH are needed: `flex-wrap` alone
+     is inert, because `flex: 0 0 auto` sizes the group to its own content so its
+     line can never overflow. `max-width` is what makes the group narrower than
+     its content and gives the wrap something to do. Measured: nothing clips at
+     any width down to 260px, and 320px upward is byte-identical without them. */
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 /* Two things the group owns, and both must stay SCOPED to it (#1087 review F1).
    `margin-left: 0` because two `margin-left: auto` CTAs in one flex row split
@@ -1329,12 +1339,21 @@
   background: transparent;
   color: var(--rw-app-text-muted);
 }
-/* `:not(:disabled)` restores what the inline style used to do for free: an
-   inline declaration outranks every author selector, so the old ghost button had
-   no hover response at all — including while the decision POST held it disabled.
-   `:hover` matches a disabled button, so the class form needs this to say the
-   same thing (#1087 review F5). */
-.banner-blue .banner-cta--ghost:hover:not(:disabled) { background: var(--rw-control-hover); }
+.banner-blue .banner-cta--ghost:hover { background: var(--rw-control-hover); }
+/* THE DISABLED GHOST PAINTS NOTHING, AND IT TAKES A RULE OF ITS OWN TO SAY SO.
+   `:hover` matches a disabled button, and the inline `background: transparent`
+   this class replaced outranked every author selector — so the old button had no
+   hover response at all, including while the decision POST held it disabled.
+
+   `:not(:disabled)` on the hover arm above LOOKED like the way to say that and
+   was measurably worse (#1087 round 2, N1): dropping the ghost arm on a disabled
+   button does not fall back to nothing, it falls through to
+   `.banner-blue .banner-cta:hover` — the PRIMARY treatment — so the disabled
+   ghost painted solid `--rw-accent-700` under muted text at 1.45:1 contrast.
+   Worse than the state it was written to restore. An override has to be more
+   specific than what it overrides (0-0-4-0 against 0-0-3-0), not merely absent. */
+.banner-cta--ghost:disabled:hover,
+.banner-blue .banner-cta--ghost:disabled:hover { background: transparent; }
 
 /* A banner whose copy runs to several lines anchors its icon and its actions to
    the TOP of that copy rather than floating them at its centre. Additive and

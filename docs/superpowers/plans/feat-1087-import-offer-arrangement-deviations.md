@@ -158,13 +158,21 @@ sat on the wrong side of the worst case:
 
 | viewport | column | fork h / copy | first fix h / copy | now h / copy |
 |---|---|---|---|---|
-| 390 | 390 | 507 / 95 | 239 / 268 | 239 / 268 |
-| 641 | 641 | 153 / 346 | 192 / 261 | 180 / 519 |
+| 360 | 360 | 585 / 78 | 258 / 238 | 263 / 238 |
+| 390 | 390 | 507 / 95 | 239 / 268 | 243 / 268 |
+| 641 | 641 | 153 / 346 | 192 / 261 | 185 / 519 |
+| 700 | 700 | 153 / 405 | 192 / 320 | 192 / 320 |
 | 768 | 768 | 153 / 473 | 153 / 388 | 153 / 388 |
-| **769** | **517** | 250 / 190 | **447 / 105** | **200 / 363** |
-| 820 | 568 | 211 / 241 | 310 / 156 | 200 / 414 |
-| 900 | 648 | 192 / 321 | 211 / 236 | 180 / 494 |
+| **769** | **517** | 250 / 190 | **447 / 105** | **204 / 363** |
+| 820 | 568 | 211 / 241 | 310 / 156 | 204 / 414 |
+| 900 | 648 | 192 / 321 | 211 / 236 | 185 / 494 |
+| 1280 | 1028 | 114 / 682 | 133 / 616 | 133 / 616 |
 | 1440 | 1188 | 114 / 809 | 114 / 776 | 114 / 776 |
+
+**Where the branch is TALLER than the fork, and why.** 700px (+39px) and 1280px
+(+19px) trade height for CTA labels that stay on one line — the defect the ticket
+exists to remove. The fork bought its shorter banner by wrapping "Import my
+reviews" onto two lines at 1440px and three at 390px. That trade is the ticket.
 
 At 769px the first fix produced **exactly the pathology it was written to
 remove** — a 105px ribbon of text running the full height of a 447px banner —
@@ -173,14 +181,27 @@ one breakpoint over from where I screenshotted.
 **Fix.** Delete the breakpoint. `.banner--top` wraps at every width and
 `.banner--top .banner-copy { flex: 1 1 50% }` decides when: a percentage
 `flex-basis` resolves against the **container**, so the actions take their own
-row whenever the banner's inner width falls under ~620px, wherever that happens.
-One rule, no magic pixel, and it follows the column instead of the window.
+row whenever the banner's inner width falls under **621px** (1-pixel sweep,
+560–1000px viewport), wherever that happens. One rule, no magic pixel, and it
+follows the column instead of the window.
 
-**Why 50% and not a pixel floor.** A fixed basis cannot satisfy both ends: the
-icon and copy only share a row at 360px if the basis is ≤ 244px, and the actions
-only wrap at 900px if it is > 274px. Swept 200/220/240/260/300/320/360px and
-50/55/60% — every pixel value loses one end or the other; 50% wins both because
-it scales.
+**Why 50% and not a pixel floor.** A pixel floor has to satisfy two opposing
+constraints at once — the icon and copy must share a row at 360px, and the
+actions must wrap at 900px — and the window between them, if it exists at all, is
+a few pixels wide. Measured here the two bounds do not overlap: ≤235px keeps the
+360px icon row, ≥239px wraps at 900px, and nothing satisfies both.
+
+> **Round 2 measured that differently** (N2), finding 230px and 235px satisfy
+> both. The disagreement is harness calibration, not arithmetic: its action group
+> measures 249px against this harness's 242px, which moves both bounds. **Neither
+> number is the point, and asserting one over the other would repeat the mistake.**
+> A mechanism whose correctness turns on a 4-pixel window that shifts with font
+> metrics and button label length is the wrong mechanism *whichever* harness is
+> right. `50%` needs no window: it scales with the container, which is the
+> property F2 was about.
+
+Swept seven pixel floors (200/220/240/260/300/320/360px) and three percentages
+(50/55/60%).
 
 **Precedent.** This is the accepted #1086 finding verbatim: a gutter fix gated at
 768px, proven with screenshots at 390 and 1440 that straddled it. **Two widths
@@ -229,14 +250,117 @@ move — so the amendment counter is untouched (#1092 precedent). Recorded
 
 **F5.** `.banner-blue .banner-cta--ghost:hover` lit up a *disabled* button.
 `:hover` matches disabled elements; the old inline `background: transparent`
-outranked every author selector and so silently suppressed it. Restored exactly,
-and no wider, with `:not(:disabled)`.
+outranked every author selector and so silently suppressed it. Fixed with
+`:not(:disabled)` — **which round 2 showed made it worse. See D9.**
 
 **F6.** Handled above — D1's table and the docstring numbers are re-measured in
 `.content--dash`.
 
-**Reclassify (gate WARN, not a review finding).** 121 production lines against an
-`estimated_prod_lines` of 60. Re-classified and unchanged: `small` / `normal` /
-`ui` / `db_touching: false`. The estimate was made against the plan's one-rule
-fix; D1 and D5 needed four. No dependency, migration, flag or worker surface is
-involved, and the rollback is still "revert the squash commit".
+**Reclassify (gate WARN, not a review finding).** After the review round: **215
+production lines against an `estimated_prod_lines` of 60, and 181 test lines
+against 90.** Re-classified and unchanged: `small` / `normal` / `ui` /
+`db_touching: false`. The estimate was made against the plan's one-rule fix; D1
+needed four rules, D5 replaced the strategy, and D6 restructured
+`ImportStatusBanner`. Most of the production count is prose — the CSS block
+carries more comment than declaration, because every rule in it now records a
+measurement or a defect it exists to stop. No dependency, migration, flag or
+worker surface is involved; the rollback is still "revert the squash commit".
+
+
+---
+
+# Round 2 — verification only
+
+Same axis, verifying the six round-1 fixes rather than re-reviewing the branch.
+Verdicts: **F1, F3, F4 HOLD. F2 and F6 HOLD WITH CAVEAT. F5 DOES NOT HOLD.**
+Five new findings, all accepted.
+
+> **A records note.** Round 2's findings are logged under round 1 in
+> `.feature/review-transcript.jsonl`. `review-log.mjs round-start` rejected the
+> axis name I passed (`spec-correctness-verify` is not in its enum) and the
+> `finding` calls then appended to the round that was still open. The content is
+> intact and the `N` prefix separates them; only the round number is wrong.
+
+## D9 — N1: the F5 fix was worse than the defect it fixed
+
+**What I wrote.** `.banner-blue .banner-cta--ghost:hover:not(:disabled)`, and in
+both the CSS comment and D8: *"the class form needs this to say the same thing"*,
+*"Restored exactly, and no wider."*
+
+**What it did.** Both statements were false, and measurably so. Dropping the
+ghost arm on a disabled button does not fall back to *nothing* — it falls through
+to `.banner-blue .banner-cta:hover` (`console.css:1302`, 0-0-3-0), which is the
+**primary** treatment and still matches a disabled button. Measured hover
+background on the disabled ghost:
+
+| | fork | first fix | `:not(:disabled)` |
+|---|---|---|---|
+| background | `rgba(0,0,0,0)` | `rgb(237,241,239)` | **`rgb(50,87,80)`** |
+
+That is `--rw-accent-700` under `#5C6B72` muted text — **1.45:1 contrast**, worse
+than both states before it. I had reasoned about which selector to *remove*
+without checking what the removal exposed.
+
+**Fix.** An override must be more specific than what it overrides, not merely
+absent: `.banner-blue .banner-cta--ghost:disabled:hover` (0-0-4-0) beats
+`.banner-blue .banner-cta:hover` (0-0-3-0) and sets `transparent`. Verified by
+measuring the computed background on a disabled ghost button:
+`rgba(0, 0, 0, 0)`, identical to the fork point. The primary button is unchanged
+at all three SHAs — pre-existing, and out of scope, as both rounds recorded.
+
+**The lesson.** `:not()` does not disable a declaration; it *un-shadows whatever
+was underneath*. Before writing one, look at what is underneath.
+
+## D10 — N5: an inert rule with a comment that claimed otherwise
+
+Below ~296px of banner the 242px nowrap action group is wider than the banner and
+`overflow: clip` on `.main` swallows the second button with no scroll to recover
+it. I added `flex-wrap: wrap` to the group and wrote a comment saying it "puts
+the buttons on two rows instead".
+
+**It did nothing.** `flex: 0 0 auto` sizes the group to its own content, so its
+line can never overflow and the wrap never engages. `max-width: 100%` is what
+makes the group narrower than its content and gives the wrap something to do.
+Measured with both: nothing clips at any width down to 260px, the buttons take
+two rows at 260/280/296, and 320px upward is byte-identical without them.
+
+Caught only because round 2 rewarded checking, and worth recording as its own
+deviation: **a rule that does nothing, under a comment that says it does
+something, is worse than no rule.**
+
+## D11 — N3: a test whose assertion the named mutant walked past
+
+The new `failed` test asserted live-region node *identity* across
+`importing → failed`. Round 2 found the gap: a `FailedBanner` that nests a
+**second** `BannerShell` inside the shared one leaves the outer node intact, so
+identity still holds — two live regions, all 20 tests green.
+
+Added `[aria-live]` and `.section-enter-2` length-1 assertions, and
+mutation-checked with that exact mutant: it now fails, and only that test.
+
+**Related, and the reason D6's lesson survives.** D6 recorded that only a
+component-*type* change at the position breaks reconciliation. Round 2 verified
+that claim true. The gap was never the lesson — it was that identity alone does
+not enforce `FailedBanner`'s stated "renders the inner `.banner` only" contract.
+
+## D12 — N2 and N4: the numbers, and what makes a number reproducible
+
+**N4.** Round 2 could not reproduce several recorded measurements. Root cause: the
+T1 harness omitted Tailwind preflight's `button { font: inherit }`, which the real
+app loads via `globals.css`. Every wrapped row was ~4.5px short. The harness now
+carries preflight and every table above is re-measured; the wrap threshold is
+**621px**, not "~620px"; the arch-log said "eight pixel floors" where seven were
+swept.
+
+**N2 is recorded but not adopted** — see the box under D5. My bounds were wrong
+and round 2's do not reproduce here either, because the two harnesses disagree on
+the action group's width (242px vs 249px).
+
+**The transferable part is not any of these numbers.** It is that an uncommitted
+harness makes every absolute number in a permanent code comment unverifiable by
+the next reader, and two careful people measuring the same branch got different
+figures. So: the harness definition is now stated wherever numbers are cited —
+`.rw-console > .shell > .sidebar + .main > .content content--dash`, the real
+Gabarito/Figtree faces, Tailwind preflight's button reset — and the claims that
+carry weight are **comparisons** (fork vs branch, equal or not), which held
+across both harnesses, rather than absolutes, which did not.

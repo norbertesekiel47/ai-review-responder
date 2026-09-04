@@ -622,6 +622,12 @@ describe('ImportOfferBanner', () => {
 
       // The SAME node carried the message, so it was an update and not a mount.
       expect(document.querySelector('[aria-live]')).toBe(live);
+      // And there is still exactly ONE region (#1087 round 2, N3). Identity alone
+      // passes for a `FailedBanner` that nests a SECOND shell inside the shared
+      // one: the outer node survives, so the assertion above is satisfied while
+      // the file's stated "renders the inner `.banner` only" contract is broken.
+      expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
+      expect(document.querySelectorAll('.section-enter-2')).toHaveLength(1);
       // The urgent channel and the visible copy are unchanged by the restructure.
       expect(document.querySelector('.banner-attn')?.getAttribute('role')).toBe('alert');
       expect(
