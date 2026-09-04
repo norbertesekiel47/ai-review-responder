@@ -126,10 +126,17 @@ email shares the Resend provider with the product.
   occurrence groups into one Sentry issue and per-issue throttling applies to
   the fault rather than to each distinct code set.
 
-  **_When_ cadence for both new rules:** `A new issue is created`. Neither is a
-  volume signal — the per-code latch and the cap already bound them to a handful
-  of events per worker process — so a "seen N times" trigger would delay the
-  page for a fault that fires at most once per code.
+  **_When_ cadence for both new rules: `Every event`, NEVER "a new issue is
+  created".** An earlier version of this item said first-seen, reasoning that a
+  repeat trigger would delay a page for a fault that fires at most once per code.
+  That reasoning had the failure backwards, and §1a-do's own rule-4/5/6 paragraph
+  states why: **the capture title is a CONSTANT**, so every occurrence groups into
+  ONE Sentry issue, and a first-seen trigger fires once ever and then stays silent
+  through exactly the repetition that IS the signal. Here the repetition is a
+  SECOND DISTINCT unmapped code — the precise event the per-code latch exists to
+  make visible. First-seen would have made the whole per-code design unobservable
+  to an operator. Volume is not a concern: the latch and the cap already bound
+  these to at most `UNMAPPED_SIGNAL_CAP` + 1 events per worker process.
 
   **A second event, `auto_approval_unmapped_block_reason_cap_reached`, tagged
   `fault:unmapped_block_reason_overflow`,** means more than
@@ -297,8 +304,8 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 4 | `import-consent-analytics-drift → discord` | `subsystem` equals `import_consent_analytics` | **seen more than 3 times in one hour** | `warning` |
 | 5 | ~~`solicitation-send-breaker → discord`~~ **SUPERSEDED — do not build** | `finding` equals `solicitation_send_breaker_tripped` | **seen more than 3 times in one hour** | `error` |
 | 6 | `solicitation-unattributed-suppression → discord` | `feature` equals `solicitation_lane` | **seen more than 3 times in one hour** | `warning` |
-| 7 | `refusal-vocabulary-hole → discord` | `fault` equals `unmapped_block_reason` | issue is **first seen** | `error` |
-| 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | issue is **first seen** | `error` |
+| 7 | `refusal-vocabulary-hole → discord` | `fault` equals `unmapped_block_reason` | **every event** | `error` |
+| 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
 
 > **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
 > This table is the design; these are the rules. Re-read them before assuming a signal
@@ -373,7 +380,9 @@ _If_ (filter), _Then_ (action) → name it → Save.
 >
 > **Rule 6 is not the only one still owed — #1105 added rules 7 and 8, and this
 > paragraph said otherwise for one commit.** A fresh red-team pass caught it
-> against the register eleven lines below, which is the same
+> against the register further down this section (cited by name, not by line
+> offset — the first version said "eleven lines below" and was already wrong),
+> which is the same
 > stale-count-after-an-edit failure this section keeps recording. Rule 6 remains
 > the one owed in PRODUCTION SPECIFICALLY, and that is what the rest of this
 > paragraph is about.
@@ -397,8 +406,12 @@ _If_ (filter), _Then_ (action) → name it → Save.
 >
 > **"No dedicated rule" is NOT "pages nobody", and the two must not be conflated for the
 > #1105 pair.** The premise that makes this register alarming — CONFIG-1's finding that a
-> `warning` `captureMessage` does not reliably classify as high priority — applies to the
-> first two signals, which are `warning`. Rules 7 and 8 are `error`, and rule 6's own
+> `warning` `captureMessage` does not reliably classify as high priority — applies to
+> `subsystem:refusal_ledger`, which IS `warning`. **It does NOT apply to
+> `subsystem:autonomy_governor`**, and an earlier version of this paragraph said it did:
+> that signal is a `captureException` with no level override, so it defaults to `error`,
+> exactly as this file already states twice elsewhere. Its problem is the ROUTE (email),
+> not the level. Rules 7 and 8 are `error` too, and rule 6's own
 > reasoning above implies the unfiltered production rule `3920752` may already catch
 > `error` captures. **Whether it does is UNVERIFIED here** — it needs a Sentry read-back,
 > which this branch did not perform. Treat the two new signals as owed until that

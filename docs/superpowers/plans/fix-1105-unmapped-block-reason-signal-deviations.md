@@ -319,7 +319,18 @@ This is the third distinct way this branch has shipped a test that passed while
 measuring nothing, after the all-unmapped fixtures (round 1) and the
 one-code-at-a-time cap cases (round 2). The generalisable lesson: **a substring
 assertion against a whole serialized log line is not an assertion about the
-payload.** Promoted to lab notes.
+payload.** It is queued for lab notes at step 8, along with the other durable
+lessons.
+
+**AND THIS SENTENCE ITSELF WAS THE NEXT DEFECT.** It first read "Promoted to lab
+notes." — present tense, and false: `lab-notes.md` is untouched by this branch.
+The IDENTICAL claim had been caught and corrected in `arch-review-log.md` one
+commit earlier, and its twin here was missed in that same sweep. That is exactly
+the failure the #1082 architecture-log row names by name: *correcting one mention
+of a moving claim and leaving its twin is the predictable outcome, so the repair
+is not "fix both" but "let one own it".* This branch read that sentence, wrote it
+into its own row, and then committed the error it describes. The owner of the
+promotion claim is the step 8 checklist; nothing else may assert it is done.
 
 **P0-b — "Rule 6 is the one still genuinely owed" was false at HEAD**, and was
 contradicted by the register eleven lines below it, which the SAME COMMIT edited
