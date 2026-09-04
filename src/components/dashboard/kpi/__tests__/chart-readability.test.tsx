@@ -303,8 +303,10 @@ describe('chart readability (feat/1088)', () => {
   // gets every number and no period. `VelocityCard` is rendered whole here on
   // purpose: its "last 3 weeks" header is present in the DOM and still must not
   // count.
-  // RED until T2 puts the window into each chart's own caption / label.
-  it.fails('every dashboard chart states the window it covers', async () => {
+  // GREEN since T2 put the window into each chart's own caption / label:
+  // `trendSpanLabel` for the two velocity charts, the dated snapshot span for
+  // `RankingChart`. `ReputationTrendChart` already carried it.
+  it('every dashboard chart states the window it covers', async () => {
     const named = await nameEachChart(PLOTTED_CHART_SUBJECTS);
 
     expect(
@@ -316,8 +318,10 @@ describe('chart readability (feat/1088)', () => {
   // two `Recent*` charts return null at total === 0 so the caller can drop the
   // slot, and that is the contract — asserted below so this title cannot be
   // satisfied by giving them an empty state they are not supposed to have.
-  // RED until T2 names the unit and window in the trend chart's empty state.
-  it.fails('a chart with an empty series still says what it would plot', () => {
+  // GREEN since T2 named the unit and the window in the trend chart's empty
+  // state. The two `Recent*` assertions below were green throughout and stay
+  // as the guard on their deliberate `return null`.
+  it('a chart with an empty series still says what it would plot', () => {
     const { container: trend } = render(<ReputationTrendChart trend={EMPTY_SERIES_WEEKS} />);
     const empty = within(trend).getByText(/not enough reviews/i);
 

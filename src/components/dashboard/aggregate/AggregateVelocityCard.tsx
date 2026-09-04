@@ -13,6 +13,7 @@ import {
 import { CardViewTabs } from '@/components/dashboard/charts/CardViewTabs';
 import { KpiSummary } from '@/components/dashboard/charts/KpiSummary';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition } from '@/components/dashboard/charts/motion-presets';
+import { trendSpanLabel } from '@/components/dashboard/charts/star-trend-plot';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { VelocityChart } from '@/components/dashboard/charts/VelocityChart';
 import {
@@ -116,7 +117,9 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <table className="sr-only">
-        <caption>Review velocity by location</caption>
+        {/* Same window statement as the per-location twin (#1088 G1), from the
+            same owner, so the two never disagree about the period they cover. */}
+        <caption>{`Review velocity by location, ${trendSpanLabel(weeks.length)}`}</caption>
         <thead>
           <tr>
             <th scope="col">Week</th>

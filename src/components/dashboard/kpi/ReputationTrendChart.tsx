@@ -79,7 +79,14 @@ export function ReputationTrendChart({ trend }: Props) {
       </div>
 
       {points.length === 0 ? (
-        <p className="rep-trend-empty">Not enough reviews yet to chart a trend. Check back in a few weeks.</p>
+        // An empty chart must still say WHAT it would have plotted (#1088,
+        // intake edge case). The window is real even when the series is not —
+        // `trend` still carries its weekly buckets — so this names the unit and
+        // the span instead of leaving the reader to guess both. One template
+        // string, so JSX cannot split the phrase across text lines.
+        <p className="rep-trend-empty">
+          {`Not enough reviews yet to chart a trend — this chart plots star-equivalent over the ${spanLabel}. Check back in a few weeks.`}
+        </p>
       ) : (
         <>
           <ChartHeadlineBanner data={headline} />

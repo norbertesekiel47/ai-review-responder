@@ -31,6 +31,25 @@ const H = 240;
 const OWNER_PRIMARY = 'var(--rw-sage-deep)';
 const OWNER_FADED = 'var(--rw-app-text-soft)';
 
+/**
+ * The period this chart covers, for its `sr-only` caption (#1088 G5).
+ *
+ * Ranking is sampled, not bucketed: the dashboard query returns every snapshot
+ * of the last 12 months and the chart plots all of them, so the honest window
+ * is the dated span of what is drawn — NOT a week count. The sighted reader
+ * already gets these dates from the x-axis; the caption is where the
+ * screen-reader path was missing them.
+ *
+ * `labels` are the formatted date labels, `dates` the ascending ISO keys.
+ */
+function rankingSpanLabel(dates: string[], labelFor: (date: string) => string): string {
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  if (!first || !last) return 'no snapshots yet';
+  if (dates.length === 1) return `most recent snapshot, ${labelFor(first)}`;
+  return `most recent ${dates.length} snapshots, ${labelFor(first)} to ${labelFor(last)}`;
+}
+
 export function RankingChart({
   series,
   formatSeriesLabel = (keyword) => keyword,
@@ -70,7 +89,9 @@ export function RankingChart({
   return (
     <div ref={ref}>
       <table className="sr-only">
-        <caption>Search ranking history</caption>
+        <caption>
+          {`Search ranking history, ${rankingSpanLabel(allDates, (date) => labelByDate.get(date) ?? date)}`}
+        </caption>
         <thead>
           <tr>
             <th scope="col">Date</th>

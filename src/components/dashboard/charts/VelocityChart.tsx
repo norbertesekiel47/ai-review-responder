@@ -14,6 +14,7 @@ import {
 } from '@/components/dashboard/charts/chart-tokens';
 import { ChartTooltip, weekOverWeekDeltaLabel } from '@/components/dashboard/charts/ChartTooltip';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition, LINE_REVEAL } from '@/components/dashboard/charts/motion-presets';
+import { trendSpanLabel } from '@/components/dashboard/charts/star-trend-plot';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
@@ -74,7 +75,11 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <table className="sr-only">
-        <caption>Review velocity history</caption>
+        {/* The window belongs in the caption, not only in the card header above
+            it (#1088 G1): a screen-reader user reading this table gets every
+            count and, without it, no period. `trendSpanLabel` is the one owner
+            of the phrase (UX audit D36) — the span IS the bucket count. */}
+        <caption>{`Review velocity history, ${trendSpanLabel(data.length)}`}</caption>
         <thead>
           <tr><th scope="col">Week</th><th scope="col">Reviews</th></tr>
         </thead>
