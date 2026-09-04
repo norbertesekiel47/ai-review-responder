@@ -31,6 +31,29 @@ const H = 240;
 const OWNER_PRIMARY = 'var(--rw-sage-deep)';
 const OWNER_FADED = 'var(--rw-app-text-soft)';
 
+/**
+ * The period this chart covers, for its `sr-only` caption (#1088 G5).
+ *
+ * Ranking is sampled, not bucketed: the dashboard query returns every snapshot
+ * of the last 12 months and the chart plots all of them, so the honest window
+ * is the dated span of what is drawn — NOT a week count.
+ *
+ * It counts **snapshot DATES, not snapshots.** A `ranking_snapshots` row is
+ * keyed `(business_id, keyword, snapshot_date)`, so three tracked keywords over
+ * 26 dates is 78 snapshots — and `dates` here is a de-duplicated set of dates.
+ * The first draft said "26 snapshots", which was simply false (review F3).
+ *
+ * @param dates    ascending, de-duplicated ISO date keys
+ * @param labelFor formats one of those keys for display
+ */
+function rankingSpanLabel(dates: string[], labelFor: (date: string) => string): string {
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  if (!first || !last) return 'no readings yet';
+  if (dates.length === 1) return `most recent reading, ${labelFor(first)}`;
+  return `most recent ${dates.length} readings, ${labelFor(first)} to ${labelFor(last)}`;
+}
+
 export function RankingChart({
   series,
   formatSeriesLabel = (keyword) => keyword,
@@ -70,7 +93,9 @@ export function RankingChart({
   return (
     <div ref={ref}>
       <table className="sr-only">
-        <caption>Search ranking history</caption>
+        <caption>
+          {`Search ranking history, ${rankingSpanLabel(allDates, (date) => labelByDate.get(date) ?? date)}`}
+        </caption>
         <thead>
           <tr>
             <th scope="col">Date</th>

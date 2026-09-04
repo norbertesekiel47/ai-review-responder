@@ -14,20 +14,81 @@ import {
 } from '@/components/dashboard/charts/chart-tokens';
 import { ChartTooltip, weekOverWeekDeltaLabel } from '@/components/dashboard/charts/ChartTooltip';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition, LINE_REVEAL } from '@/components/dashboard/charts/motion-presets';
+import { trendSpanLabel } from '@/components/dashboard/charts/star-trend-plot';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
-import { computeVelocitySummary, VELOCITY_H, VELOCITY_PAD } from '@/components/dashboard/charts/velocity-math';
+import { computeVelocitySummary, VELOCITY_H, VELOCITY_PAD, weekShortLabel } from '@/components/dashboard/charts/velocity-math';
 
 export interface VelocityDatum {
+  /** The week-start date, `YYYY-MM-DD`. Also the source of the table row label. */
   id: string;
+  /** The AXIS label — thinned by `weekShortLabel`, so it is `''` on odd ticks. */
   label: string;
   count: number;
 }
 
+/**
+ * The full week-start date for a data-table row (#1088 G3).
+ *
+ * `weekShortLabel` THINS: it returns `''` on odd indices so the x-axis does not
+ * crowd. That is right for the axis and wrong for the `sr-only` table, where
+ * every row needs its own date — the old fallback read "Week 2", which is not a
+ * date at all, while the stacked aggregate showed a raw ISO key. Calling the
+ * formatter at index 0 of 1 takes it, and its load-bearing UTC pin, without the
+ * thinning rule.
+ *
+ * Its home `velocity-math.ts` is outside this ticket's edit surface, so an
+ * un-thinned sibling export could not be added there. That is the follow-up;
+ * duplicating the formatter here would have duplicated the UTC pin with it.
+ */
+export function weekRowLabel(weekStartIso: string): string {
+  return weekShortLabel(weekStartIso, 0, 1);
+}
+
 const PAD = VELOCITY_PAD;
 const H = VELOCITY_H;
+
+/**
+ * The y-axis unit, named ONCE above the axis (#1088 G2).
+ *
+ * The ticks read `0`, `max/2`, `max` — bare numbers to a sighted reader, while
+ * the `sr-only` cells beside them already say "N reviews". Three choices were
+ * available and two were rejected:
+ *
+ * - Suffixing every tick repeats the word three times for one fact.
+ * - A rotated axis title costs horizontal space, and the intake calls out 390px
+ *   as the width where an axis label competes with the plot.
+ *
+ * So it sits in the `PAD.t` headroom above the top gridline, left of the plot
+ * band, where it takes width the plot was never going to use. Exported because
+ * the stacked aggregate plots the same unit and must name it the same way.
+ */
+export function VelocityAxisUnit() {
+  return (
+    <text x={0} y={12} fontSize="10" style={{ fill: CHART_AXIS_FILL, fontFamily: CHART_FONT_BODY }}>
+      reviews
+    </text>
+  );
+}
+
+/**
+ * The caption a velocity table carries, for a series of `weeks` buckets.
+ *
+ * An empty series is a REAL path, not a theoretical one: `service.ts:416`
+ * resolves the widget through `widgetOrFallback(weeklySeriesSettled, [])`, so a
+ * degraded velocity query renders the card with `[]`. `trendSpanLabel(0)` would
+ * then say `last 0 weeks` — the exact string this run's own T1 record calls
+ * meaningless — leaving a reader unable to tell a quiet period from a broken
+ * widget. So the empty branch says what the chart WOULD plot instead of
+ * asserting a window of zero (review F4).
+ */
+export function velocityCaption(subject: string, weeks: number): string {
+  return weeks === 0
+    ? `${subject} — no weeks to plot yet`
+    : `${subject}, ${trendSpanLabel(weeks)}`;
+}
 
 /**
  * Change vs the previous week's count, from the plotted data. The first week
@@ -74,14 +135,18 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <table className="sr-only">
-        <caption>Review velocity history</caption>
+        {/* The window belongs in the caption, not only in the card header above
+            it (#1088 G1): a screen-reader user reading this table gets every
+            count and, without it, no period. `trendSpanLabel` is the one owner
+            of the phrase (UX audit D36) — the span IS the bucket count. */}
+        <caption>{velocityCaption('Review velocity history', data.length)}</caption>
         <thead>
           <tr><th scope="col">Week</th><th scope="col">Reviews</th></tr>
         </thead>
         <tbody>
-          {data.map((datum, index) => (
+          {data.map((datum) => (
             <tr key={datum.id}>
-              <th scope="row">{datum.label || `Week ${index + 1}`}</th>
+              <th scope="row">{weekRowLabel(datum.id)}</th>
               <td>{datum.count} reviews</td>
             </tr>
           ))}
@@ -108,6 +173,8 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
             </linearGradient>
           </defs>
 
+          <VelocityAxisUnit />
+
           {yTicks.map((t) => (
             <g key={t}>
               <line x1={PAD.l} x2={width - PAD.r} y1={yScale(t)} y2={yScale(t)} style={{ stroke: CHART_GRID_STROKE }} strokeWidth="1" />
@@ -127,13 +194,27 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
             strokeDasharray="2 4"
             opacity="0.7"
           />
+          {/* The label names the average line, so it has to stay ON that line —
+              moving it off would break what it points at. But it sits inside
+              the plot, and at 390px the trend line and the bars run straight
+              through the glyphs. A card-colored stroke painted UNDER them
+              (`paint-order: stroke`) gives the text its own ground in place.
+              Owner-authorised addition, 2026-09-04: pre-existing, found by the
+              T4 render, outside the six gaps. */}
           <text
             x={width - PAD.r}
             y={yScale(avg) - 4}
             textAnchor="end"
             fontSize="9"
             fontWeight="500"
-            style={{ fill: CHART_AXIS_FILL, fontFamily: CHART_FONT_BODY }}
+            style={{
+              fill: CHART_AXIS_FILL,
+              fontFamily: CHART_FONT_BODY,
+              paintOrder: 'stroke',
+              stroke: 'var(--rw-card)',
+              strokeWidth: 3,
+              strokeLinejoin: 'round',
+            }}
           >
             avg {avg.toFixed(1)}
           </text>

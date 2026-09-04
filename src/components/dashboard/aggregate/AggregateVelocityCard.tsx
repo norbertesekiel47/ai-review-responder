@@ -14,7 +14,12 @@ import { CardViewTabs } from '@/components/dashboard/charts/CardViewTabs';
 import { KpiSummary } from '@/components/dashboard/charts/KpiSummary';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition } from '@/components/dashboard/charts/motion-presets';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
-import { VelocityChart } from '@/components/dashboard/charts/VelocityChart';
+import {
+  VelocityAxisUnit,
+  VelocityChart,
+  velocityCaption,
+  weekRowLabel,
+} from '@/components/dashboard/charts/VelocityChart';
 import {
   VELOCITY_H as H,
   VELOCITY_PAD as PAD,
@@ -116,7 +121,9 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <table className="sr-only">
-        <caption>Review velocity by location</caption>
+        {/* Same window statement as the per-location twin (#1088 G1), from the
+            same owner, so the two never disagree about the period they cover. */}
+        <caption>{velocityCaption('Review velocity by location', weeks.length)}</caption>
         <thead>
           <tr>
             <th scope="col">Week</th>
@@ -126,7 +133,10 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
         <tbody>
           {weeks.map((week) => (
             <tr key={week}>
-              <th scope="row">{week}</th>
+              {/* Was the raw ISO key (#1088 G3) — the per-location twin gave a
+                  formatted date and this one read "2026-06-01" aloud. One
+                  owner now, so the pair cannot disagree again. */}
+              <th scope="row">{weekRowLabel(week)}</th>
               {perLocationVelocity.map((location) => (
                 <td key={location.locationId}>
                   {location.velocity.find((entry) => entry.weekStart === week)?.count ?? 0} reviews
@@ -144,6 +154,9 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
           aria-hidden="true"
           focusable="false"
         >
+          {/* Same unit, same place as the per-location twin (#1088 G2). */}
+          <VelocityAxisUnit />
+
           {Array.from(new Set([0, Math.round(maxStack / 2), maxStack])).map((t) => (
             <g key={t}>
               <line x1={PAD.l} x2={width - PAD.r} y1={yScale(t)} y2={yScale(t)} style={{ stroke: CHART_GRID_STROKE }} strokeWidth="1" />
@@ -181,6 +194,18 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
                     transition={chartTransition(reduced, BAR_SPRING, wi * BAR_STAGGER_S)}
                   />
                 ))}
+                {/* The stacked chart drew NO x labels at all (#1088 G3), so a
+                    sighted reader got eight bars over an unlabelled axis. Same
+                    thinning rule, same y and anchor as the per-location twin. */}
+                <text
+                  x={x + barW / 2}
+                  y={H - 12}
+                  textAnchor="middle"
+                  fontSize="10"
+                  style={{ fill: CHART_AXIS_FILL, fontFamily: CHART_FONT_BODY }}
+                >
+                  {weekShortLabel(week, wi, weeks.length)}
+                </text>
               </g>
             );
           })}

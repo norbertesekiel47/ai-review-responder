@@ -75,11 +75,22 @@ export function ReputationTrendChart({ trend }: Props) {
     <div className="card rep-trend">
       <div className="rep-trend-head">
         <h2 className="card-h2" style={{ margin: 0 }}>Reputation trend</h2>
-        <span className="rep-trend-sub">star-equivalent · {spanLabel}</span>
+        {/* The empty state below states the unit and the span in a sentence, so
+            this sub-label would say both a second time six words above it —
+            the duplication T5 reworded both `Recent*` captions to avoid
+            (review F5). One statement per card, whichever branch renders. */}
+        {points.length > 0 && <span className="rep-trend-sub">star-equivalent · {spanLabel}</span>}
       </div>
 
       {points.length === 0 ? (
-        <p className="rep-trend-empty">Not enough reviews yet to chart a trend. Check back in a few weeks.</p>
+        // An empty chart must still say WHAT it would have plotted (#1088,
+        // intake edge case). The window is real even when the series is not —
+        // `trend` still carries its weekly buckets — so this names the unit and
+        // the span instead of leaving the reader to guess both. One template
+        // string, so JSX cannot split the phrase across text lines.
+        <p className="rep-trend-empty">
+          {`Not enough reviews yet to chart a trend — this chart plots star-equivalent over the ${spanLabel}. Check back in a few weeks.`}
+        </p>
       ) : (
         <>
           <ChartHeadlineBanner data={headline} />
