@@ -4865,3 +4865,94 @@ inside a transaction silently evaporates outside one. Seed helpers in this repo 
   what a later red-team round found. The repair is not "fix both" — it is "let
   one own it". The #1080 row one entry earlier records the identical residual,
   which is why this is a rule and not an anecdote.
+
+## 2026-09-04 — /feature #1105: the tests were the defect, four passes running
+
+### [2026-09-04] A substring assertion against a serialized log line can be satisfied by the TIMESTAMP
+- [2026-09-04] #1105's overflow case asserted
+  `expect(JSON.stringify(logLine)).toContain(String(cap))` with `cap = 8`. The
+  line carries an ISO timestamp, so the digit was frequently supplied by the
+  clock rather than by the payload. **Proved, not argued:** a red-team pass
+  applied a `cap: 0` mutant, watched it DIE at 07:37:0x, and watched the same
+  mutant SURVIVE on a re-run at 08:07:29Z — same assertion, same code, different
+  second. → **Parse the line and read the field** (`payload.data.cap`), and
+  assert the type while you are there (`toBe(8)`, never `toContain('8')`). A
+  serialized structure carries timestamps, ids, levels and paths; a substring
+  match against the whole of it is not an assertion about any one of them.
+  General form: **never `toContain` a short numeric or common token against a
+  whole serialized blob.**
+
+### [2026-09-04] `createWorkerLogger` silently DROPS array values
+- [2026-09-04] `logger.warn(msg, { flag, codes: ['a','b'] })` logs `codes` as an
+  ABSENT KEY. `createWorkerLogger` runs object args through
+  `sanitizeAnalyticsProperties` (`src/lib/analytics/events.ts`), which keeps
+  strings, numbers, booleans, `null` and nested plain objects — and drops arrays
+  with no warning. #1105's durable transport would have named no code while its
+  Sentry event named all of them. → **Join before you log**; one string, and both
+  transports carry the same one. Caught only because a test asserted the log
+  line's CONTENT — a test asserting the call count would have passed.
+
+### [2026-09-04] An unobservable invariant is an unasserted one
+- [2026-09-04] #1105 capped a latch `Set` at `UNMAPPED_SIGNAL_CAP` and asserted
+  that bound in FOUR documents. The bound did not exist: the code tested the
+  Set's size and then added every fresh code, so one call carrying N codes grew
+  it to N. The correctly-bounded mutant survived **31/31**, because every
+  emission path reads that size through a `room` value that saturates
+  identically at and past the cap — the mutant is EMISSION-equivalent and not
+  behaviour-preserving. → A bound on internal state needs an oracle that can SEE
+  the state; a test-only accessor is the cheap honest answer, and **mutate the
+  accessor too** so the oracle is not self-fulfilling. **Four documents
+  asserting a property is not evidence. One mutation is.**
+
+### [2026-09-04] A change has as many TOKEN-SHAPES as the facts it moves — sweep each shape, not each fact
+- [2026-09-04] #1105 added two alerting rules, then failed to fully fix ONE
+  finding three times running. Attempt 1 changed the table and left two
+  paragraphs contradicting it. Attempt 2 fixed those and left a COUNT in a
+  third. Attempt 2's greps were keyed on `first seen`, `Every event`, `rule 7`,
+  `7 and 8` — and the missed line stated the same fact as `Do §4 after the six
+  rules above`, matching none of them. → Adding two rules moved **three shapes**:
+  the trigger, the identity, and the count. Enumerate every shape BEFORE editing
+  any site, then re-grep to prove nothing survived. The count sweep is
+  `grep -nE "\b(five|six|seven|eight|nine)\b"`. This is the operational form of
+  #1082's "let one mention own the fact": when the fact is spread across prose,
+  enumeration IS the ownership.
+
+### [2026-09-04] A mocked module boundary can make a lane-level contract untestable
+- [2026-09-04] #1105's plan put a membership test inside a helper in
+  `src/lib/refusals/write.ts`. `persist.test.ts` MOCKS that whole module, so its
+  spy recorded a call for a HEALTHY input too, and four of five lane cases
+  asserted a count that discriminates nothing. Two codex plan-review rounds read
+  that decision and neither caught it; **the failing test did.** → Before siting
+  a predicate, ask which suite owns the contract and what that suite mocks. A
+  lane-level contract needs a lane-level oracle. The fix moved the predicate to
+  the call site beside its sibling `wouldRecordRefusal`, which also put it in the
+  file whose docblock owns the cannot-throw rule. **Plan review is not a
+  substitute for running the eval.**
+
+### [2026-09-04] Two local-tooling traps that each cost two dispatches
+- [2026-09-04] **`codex exec` hangs reading stdin** even when the prompt is an
+  argument. A backgrounded invocation blocks forever and is killed with no
+  session and no output; it happened twice on #1105 before the cause was found.
+  → Always `codex exec … < /dev/null`, redirect stdout to a file, and take the
+  answer via `-o <file>`. Piping `--json` into `tail` also buffers everything
+  until exit, so a killed run leaves nothing at all.
+- [2026-09-04] **A local gate RED on a suite the branch never touched, with a
+  multi-second per-test timeout, is a CONTENTION flake — re-run before believing
+  it.** #1105 saw three different suites do this (`live-db-suites-audit`,
+  `review-qr` twice) while red-team subagents ran concurrently; each passed in
+  isolation and in CI. `/feature`'s subagent barrier is written for
+  HEAD-movement, but its practical payoff is avoiding false REDs. **Never run the
+  gate while an agent is in flight.**
+
+### [2026-09-04] The prose-failure rules from #1082 did not hold — seven false self-claims on the next branch
+- [2026-09-04] The entry one section above records six false self-claims on
+  #1082 and three rules meant to prevent them. #1105 read that entry, quoted it
+  in its own architecture-log row, and then shipped **seven** — including a
+  comment-ratio compared against a norm for a different SIZE of change, a
+  "promoted to lab notes" written in the present tense for a step-8 action, and
+  the same twin-mention failure committed INSIDE the fix for a finding about
+  twin mentions. Every one was caught by an adversarial pass; none by the
+  author. → The honest conclusion is not a fourth rule. It is that **prose
+  defects are not reliably self-detectable by their author**, so the control has
+  to be an independent reader with a mechanical sweep, budgeted into the work
+  rather than added once something feels wrong.
