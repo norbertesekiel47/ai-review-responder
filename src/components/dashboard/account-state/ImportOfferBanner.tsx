@@ -225,6 +225,29 @@ function ReadOnlyNotice() {
  *
  * COPY IS LOCKED VERBATIM (owner decision 6, plan T5) — the 7-day disclosure and
  * the automatic-handling reassurance both. Moving it did not license rewording it.
+ *
+ * ARRANGEMENT IS THE SLOT'S JOB, NOT AN INLINE STYLE (#1087). This is the only
+ * banner with TWO actions, and it was the only one that laid them out itself: a
+ * raw `div` with an inline flex, holding two `.banner-cta`s that each carry
+ * `margin-left: auto`. Three defects followed, all measured at 390px and 1440px
+ * before the fix:
+ *
+ *  - the group had no `flex-shrink: 0`, so three lines of copy squeezed it. At
+ *    1440px both button labels wrapped to two lines; at 390px nothing wrapped at
+ *    all — the copy was crushed to a 95px column and the banner grew to 507px.
+ *  - `.banner`'s `align-items: center` floated the actions at mid-height against
+ *    a copy block four times their height.
+ *  - two `margin-left: auto` CTAs inside one group split the free space between
+ *    themselves and drifted apart whenever the group had any.
+ *
+ * So the group is now `.banner-actions` — a real element in the action slot,
+ * which is where `margin-left: auto` belongs — and `.banner--top` anchors this
+ * banner's icon and actions to the top of its multi-line copy. Both are
+ * additive: `.banner` itself is unchanged, so the seven other states and
+ * `ConnectGoogleBanner`, which shares this slot, render exactly as before.
+ *
+ * The read-only notice goes in the SAME slot rather than beside the copy, so a
+ * past-due owner reads the substitution where the buttons were.
  */
 function OfferPrompt({
   retryable,
@@ -238,11 +261,11 @@ function OfferPrompt({
   onDecide: (decision: 'accepted' | 'declined') => void;
 }) {
   return (
-    <div className="banner banner-blue">
+    <div className="banner banner-blue banner--top">
       <div className="b-icon">
         <Icon name="google" size={18} />
       </div>
-      <div>
+      <div className="banner-copy">
         <div className="b-title">Import your recent reviews?</div>
         <div className="b-sub">
           We can pull in your 100 most recent Google reviews from the past year so you can generate
@@ -254,29 +277,30 @@ function OfferPrompt({
         </div>
         {retryable && <div className="b-sub">{retryable}</div>}
       </div>
-      {readOnly ? (
-        <ReadOnlyNotice />
-      ) : (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            className="banner-cta"
-            disabled={pending}
-            onClick={() => onDecide('accepted')}
-          >
-            Import my reviews
-          </button>
-          <button
-            type="button"
-            className="banner-cta"
-            style={{ background: 'transparent', color: 'var(--rw-app-text-muted)' }}
-            disabled={pending}
-            onClick={() => onDecide('declined')}
-          >
-            No thanks
-          </button>
-        </div>
-      )}
+      <div className="banner-actions">
+        {readOnly ? (
+          <ReadOnlyNotice />
+        ) : (
+          <>
+            <button
+              type="button"
+              className="banner-cta"
+              disabled={pending}
+              onClick={() => onDecide('accepted')}
+            >
+              Import my reviews
+            </button>
+            <button
+              type="button"
+              className="banner-cta banner-cta--ghost"
+              disabled={pending}
+              onClick={() => onDecide('declined')}
+            >
+              No thanks
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

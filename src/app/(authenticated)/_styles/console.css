@@ -1301,6 +1301,52 @@
 .banner-blue .banner-cta { background: var(--rw-accent-600); color: var(--rw-on-accent); }
 .banner-blue .banner-cta:hover { background: var(--rw-accent-700); }
 
+/* A CTA is a label, not a paragraph (#1087). Without this a long label wraps to
+   two lines the moment the copy beside it competes for width. `ConnectGoogleBanner`
+   never showed it only because "Connect" is one short word. */
+.banner-cta { white-space: nowrap; }
+
+/* ---------- Banners with more than one action ---------- */
+/* `.banner-cta`'s own `margin-left: auto` positions the SINGLE-action case. A
+   banner with two actions groups them here instead, and the group is what
+   carries the auto margin — one owner for the placement, at the slot. `flex: 0 0
+   auto` is the load-bearing half: without it a multi-line copy block squeezes
+   the group and the labels wrap (#1087). */
+.banner-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+/* Inside the group the slot owns the placement. Two `margin-left: auto` CTAs in
+   one flex row split the free space BETWEEN them and drift apart. */
+.banner-actions .banner-cta { margin-left: 0; }
+/* Secondary action. A class, not two inline overrides on the element. */
+.banner-cta--ghost,
+.banner-blue .banner-cta--ghost {
+  background: transparent;
+  color: var(--rw-app-text-muted);
+}
+.banner-blue .banner-cta--ghost:hover { background: var(--rw-control-hover); }
+
+/* A banner whose copy runs to several lines anchors its icon and its actions to
+   the TOP of that copy rather than floating them at its centre. Additive and
+   opt-in: `.banner` keeps `align-items: center`, so every single-line banner —
+   including `ConnectGoogleBanner`, which shares this slot — is untouched. */
+.banner--top { align-items: flex-start; }
+/* The copy takes the row's remaining width and shrinks inside it. `min-width: 0`
+   is what lets it shrink at all; a flex item's default `min-width: auto` is its
+   min-CONTENT width, which is why the 390px banner grew to 507px instead of
+   wrapping. */
+.banner--top .banner-copy { flex: 1 1 0; min-width: 0; }
+/* On a phone there is no room for actions beside four lines of copy, so they
+   take their own row under it. Scoped to the modifier — no other banner wraps. */
+@media (max-width: 640px) {
+  .banner--top { flex-wrap: wrap; }
+  .banner--top .banner-actions { flex-basis: 100%; margin-left: 0; }
+}
+
 /* ---------- Subscription status banners ---------- */
 .sub-status-banner {
   display: flex;
