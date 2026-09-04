@@ -151,6 +151,16 @@ export function isRefusalLedgerEnabled(): boolean {
  * `wouldRecordRefusal` in `worker/jobs/response-generation/persist.ts`, whose
  * docblock carries the machine-produced counterexample; this docblock states the
  * rule, not the measurement.
+ *
+ * IT HAS A SIBLING, AND CHOOSING BETWEEN THEM IS EASY ONCE NAMED (#1105).
+ * `noteUnmappedBlockReasons` below reports that a block reason has no category
+ * MAPPING. This one reports that a row would have been WRITTEN and was not. An
+ * unmapped member would have THROWN rather than written, so it belongs to the
+ * sibling and never here — and the two cannot both fire on one decision, because
+ * an unmapped member is exactly what makes `wouldRecordRefusal` false. They do
+ * not share a latch: this one's is an EPISODE of the kill switch and re-arms
+ * when the ledger comes back; the sibling's is per PROCESS, because a map hole
+ * does not end when someone flips the flag.
  */
 export function noteRefusalLedgerDark(): void {
   warnLedgerDisabled();

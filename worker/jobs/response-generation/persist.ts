@@ -864,7 +864,26 @@ function unmappedBlockReasons(
  *      already pulled (#1079). Containment here is by NON-EXECUTION: nothing
  *      below this line runs.
  *
- *      IT STILL WARNS, BUT ONLY WHEN A ROW WOULD GENUINELY HAVE BEEN WRITTEN.
+ *      IT RAISES TWO DIFFERENT SIGNALS, AND CONFLATING THEM IS THE BUG #1105
+ *      FIXED. `noteUnmappedBlockReasons` reports that a block reason has no
+ *      category MAPPING; `noteRefusalLedgerDark` reports that a Refusal row
+ *      would have been WRITTEN and was not. Different faults, different
+ *      messages, different Sentry levels (`error` against `warning`), different
+ *      latches with different lifetimes — the vocabulary latch is per PROCESS,
+ *      because a map hole does not end when an operator flips the flag back.
+ *      Before #1105 only the second existed, so an unmapped code produced
+ *      nothing at all here and an operator could not tell a pulled lever from a
+ *      broken map behind one.
+ *
+ *      THEY ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION, WHICH IS WHY THE ARM HAS NO
+ *      `else`. An unmapped member is exactly what makes `wouldRecordRefusal`'s
+ *      `Object.hasOwn` conjunct false, so the two `if`s can never both fire. The
+ *      exclusivity belongs to the predicates; an `else` would move it into the
+ *      control flow, where a later edit that broke it would go unnoticed instead
+ *      of failing the case that asserts it.
+ *
+ *      THE LEDGER-DARK WARNING STILL FIRES ONLY WHEN A ROW WOULD GENUINELY HAVE
+ *      BEEN WRITTEN.
  *      The rule is `writeRefusalEvents`' contract in `src/lib/refusals/write.ts`
  *      (bullet 1, cited BY SYMBOL — a line range here went stale inside its own
  *      commit): a decision that records nothing either way has no ledger GAP,
@@ -986,11 +1005,19 @@ async function recordPolicyGateRefusal(
  * nor a writer bug, and unlike one it is genuinely SUPPRESSED by the flag now
  * that guard 4 returns before the resolve. So the Sentry issue this wrapper
  * raises for a vocabulary fault is the record of that fault only for a flag
- * flipped IN RESPONSE to it: a fault arriving into an already-off flag never
- * runs the resolver and raises nothing, and an operator who resolves the issue
- * once the aborts stop removes the record while the hole stays open. Recorded
- * rather than argued away — the `held_draft` invocation still wraps a write and
+ * flipped IN RESPONSE to it. The `held_draft` invocation still wraps a write and
  * nothing else.
+ *
+ * THE GAP THAT USED TO FOLLOW FROM THAT IS CLOSED (#1105), and the sentence
+ * describing it is corrected here rather than left standing. It read: "a fault
+ * arriving into an already-off flag never runs the resolver and raises nothing,
+ * and an operator who resolves the issue once the aborts stop removes the record
+ * while the hole stays open." The first half is still true and is the whole
+ * point of guard 4. The second half no longer holds: guard 4's off-arm now
+ * raises `noteUnmappedBlockReasons` on its own transport, at its own level, with
+ * a PROCESS-lifetime latch that does not re-arm when the flag flips back. So the
+ * hole is signalled whether the fault arrives before or after the flag moved,
+ * and this wrapper is no longer the only record of it.
  *
  * IT CHANGES NO CONTROL FLOW. The error is re-thrown, so the transaction still
  * aborts and no response commits without its required row. This is NOT the
