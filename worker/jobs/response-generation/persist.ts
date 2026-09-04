@@ -782,10 +782,27 @@ function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): b
  * cases asserted a count that discriminates nothing. With the test here, the
  * lane's own suite observes the lane's own decision.
  *
- * SINCE #1080 A NON-EMPTY RESULT NEEDS A VALUE THAT ESCAPED THE UNION.
- * `_PrecedenceIsTotal` makes a member with no map entry a `pnpm typecheck`
- * failure, so this is defence in depth against a run-time escapee, not a live
- * fault. That is the whole of #1105 and it is stated in the ticket.
+ * A NON-EMPTY RESULT NEEDS A VALUE THAT ESCAPED THE UNION — AND CREDIT THE
+ * RIGHT GUARD FOR THAT. A member with no map entry is caught by the map's own
+ * `satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>` clause
+ * (`vocabulary.ts`), which fails `pnpm typecheck` as a TS1360.
+ * `_PrecedenceIsTotal` is a DIFFERENT assertion: it catches a member that is
+ * mapped but left out of `AUTO_APPROVAL_BLOCK_PRECEDENCE`, and it fires on a map
+ * hole only as fallout — `vocabulary.ts` says so at the assertion itself. An
+ * earlier version of this docblock credited `_PrecedenceIsTotal` with both, and
+ * disagreed with this file's own test comment inside one diff.
+ *
+ * So this predicate is defence in depth against a RUN-TIME escapee, not a live
+ * fault. That is the whole of #1105 and the ticket says so itself.
+ *
+ * THE FAULT CLASS IS NOT CLOSED CODEBASE-WIDE, only this shape of it. Five lanes
+ * index a category map directly (`MAP[reason]`) instead of resolving through
+ * `resolvePolicyGateRefusal`; there an unmapped member yields `undefined` rather
+ * than a throw, and with the ledger off they raise the ledger-dark warning —
+ * claiming a gap for a row migration 116's NOT NULL would reject, and naming no
+ * code. Different mechanism, different fix, deliberately a different ticket.
+ * Recorded because red team's sibling sweep found leaving it unrecorded to be
+ * the actual omission.
  */
 function unmappedBlockReasons(
   blockReasons: readonly AutoApprovalBlockReason[],
@@ -943,18 +960,9 @@ async function recordPolicyGateRefusal(
   if (autoDecision.approved) return;
   if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
   // Guard 4 — the kill switch, BEFORE the resolve. Nothing below this line runs.
-  //
-  // TWO SIGNALS, TWO INDEPENDENT `if`s, AND NEVER AN `else`. They answer
-  // different questions — "a code has no mapping" versus "a row would have been
-  // written and was not" — and they are mutually exclusive by CONSTRUCTION, not
-  // by control flow: an unmapped member is exactly what makes
-  // `wouldRecordRefusal` false. An `else` here would be defensive handling of a
-  // state the predicates already exclude, and would hide a future change that
-  // broke the exclusivity instead of failing the case that asserts it.
-  //
-  // Neither call may throw; see each helper's contract. The ledger-dark warning
-  // still fires only when a row would genuinely have been written — see the
-  // docblock and `wouldRecordRefusal`.
+  // Two signals, two independent `if`s and no `else`: they are mutually
+  // exclusive by CONSTRUCTION, and the docblock above states why. Neither call
+  // may throw.
   if (!isRefusalLedgerEnabled()) {
     const unmapped = unmappedBlockReasons(autoDecision.blockReasons);
     if (unmapped.length > 0) noteUnmappedBlockReasons(unmapped);

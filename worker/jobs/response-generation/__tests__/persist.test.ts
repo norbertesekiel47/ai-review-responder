@@ -1256,8 +1256,12 @@ describe('invariants', () => {
 
     await persistWithBlockReasons(['ghost_reason']);
 
-    // THE SIGNAL, receiving the set VERBATIM. The helper owns the membership
-    // test, so the call site hands it everything and does not pre-filter.
+    // THE SIGNAL, receiving the FILTERED subset. The CALL SITE owns the
+    // membership test (`unmappedBlockReasons`) and hands the helper only codes
+    // the map does not hold; the helper is a pure transport and re-tests
+    // nothing. A single all-unmapped fixture cannot tell filtered from
+    // unfiltered — they are equal here — which is exactly what the mixed case
+    // below has to carry.
     expect(noteUnmappedBlockReasonsSpy).toHaveBeenCalledTimes(1);
     expect(noteUnmappedBlockReasonsSpy.mock.calls[0]![0]).toEqual(['ghost_reason']);
     // AND NOT the ledger-dark line. An unmapped member would have THROWN rather
@@ -1299,9 +1303,26 @@ describe('invariants', () => {
     // `wouldRecordRefusal` false on its own, so the exclusivity is a property of
     // the predicates and not of the control flow. This case is what asserts it,
     // which is what lets the `else` stay deleted.
-    await persistWithBlockReasons([mappedNonNullReason(), 'ghost_reason']);
+    //
+    // IT IS ALSO THE ONLY DISCRIMINATING INPUT FOR THE FILTER, AND ASSERTING
+    // THE CALL COUNT ALONE LEFT THAT UNTESTED — red team's round 1 P0. Passing
+    // `autoDecision.blockReasons` verbatim instead of the filtered subset
+    // survived 59/59 cases: every OTHER case here feeds an all-unmapped set,
+    // where filtered and unfiltered are the same array. Only a fixture that
+    // MIXES a mapped member with an unmapped one can tell them apart, and only
+    // an assertion on the ARGUMENT can read the difference.
+    //
+    // The consequence of that regression is not cosmetic: the operator's Sentry
+    // event and the log line would name a healthy, mapped code as a vocabulary
+    // hole, and `write.ts`'s "already-unmapped codes" contract would be a
+    // comment nothing enforced.
+    const mapped = mappedNonNullReason();
+    await persistWithBlockReasons([mapped, 'ghost_reason']);
 
     expect(noteUnmappedBlockReasonsSpy).toHaveBeenCalledTimes(1);
+    const handed = noteUnmappedBlockReasonsSpy.mock.calls[0]![0];
+    expect(handed, 'the mapped member is filtered OUT').toEqual(['ghost_reason']);
+    expect(handed, 'and specifically does not carry the healthy code').not.toContain(mapped);
     expect(noteRefusalLedgerDarkSpy).not.toHaveBeenCalled();
     expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
   });

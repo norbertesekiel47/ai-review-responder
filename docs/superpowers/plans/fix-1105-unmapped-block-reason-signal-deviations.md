@@ -61,6 +61,13 @@ The membership test now lives in `unmappedBlockReasons`, a private predicate in
 `worker/jobs/response-generation/persist.ts` beside `wouldRecordRefusal`.
 `noteUnmappedBlockReasons` takes already-unmapped codes and is a pure transport.
 
+Branch review round 1 later found the SAME weakness surviving in a milder form:
+the one remaining mixed-set case asserted the call COUNT and never the ARGUMENT,
+so passing `autoDecision.blockReasons` unfiltered survived 59/59 (red team P0).
+That case now asserts the argument. The single account of this event, since four
+documents previously told it two ways: four cases FAILED, and a fifth passed
+while measuring nothing.
+
 Two arguments say the reversal is an improvement rather than a concession:
 
 1. The predicate now sits in the file whose guard 4 docblock owns the
@@ -86,8 +93,9 @@ coverage it used to carry is now the lane case
 The second MOVED file, from the helper's suite to the lane's, because the
 `Object.hasOwn`-versus-`in` distinction is now the predicate's to make.
 
-Case count is unchanged at 18. `allowed_edit_surface` is unchanged, so this is a
-deviations entry and not a surface amendment.
+Case count was 18 AT THIS POINT; D10 below moves it and owns the number.
+`allowed_edit_surface` is unchanged, so this is a deviations entry and not a
+surface amendment.
 
 **Verdict:** ACCEPT.
 
@@ -119,16 +127,20 @@ is still `backend`.
 
 **The estimate missed the documentation, not the implementation.** Of the added
 production lines, roughly 38 are executable and the rest are comment — about five
-to one, above this area's own two-to-three-to-one norm. Re-derive both halves
-rather than quoting these; a prose fix moves them, and this repo's architecture
-log has been falsified twice that way.
+to one. **This entry first called that "above this area's own two-to-three-to-one
+norm" and the standards review axis refuted the comparison:** 2-3:1 is the
+large-feature-commit figure, while the two nearest comparable fixes in this same
+lane measure about 7.8:1 (#1080) and 5.4:1 (#1079). The branch is BELOW both.
+Re-derive rather than quoting any of these; a prose fix moves them, and this
+repo's architecture log has been falsified twice that way.
 
 `estimated_prod_lines` is corrected to 245 in both intake copies. That is a
 record of the measurement, not a way to silence the trigger: the trigger already
 fired and the re-classification it demanded is written above.
 
-The ratio is deliberately NOT defended here. It goes to the step 7 standards axis
-as a finding to judge.
+The ratio was deliberately NOT defended here; it went to the step 7 standards
+axis, which judged it acceptable against the right comparison and named three
+restatement blocks as the real inflation. Those are trimmed.
 
 **Verdict:** ACCEPT.
 
@@ -138,7 +150,10 @@ as a finding to judge.
 the architecture review log. The path was outside `allowed_edit_surface`, so the
 edit-surface guard blocked the write.
 
-Owner signed off. The path is added to both intake copies and counted:
+Owner signed off in this session, and the counter separately recorded
+`auto-approved (1st amendment)` — the script auto-approves the first amendment
+without requiring a reason, so both statements are true and neither implies the
+other. The path is added to both intake copies and counted:
 `surfaceAmendments = 1`. A second amendment now needs a stated reason and is
 itself an abort-criteria trigger.
 
@@ -166,10 +181,12 @@ describes the change, not the evidence wanted from it, and flipping it would mak
 the intake say something false about the branch. CI's `test` job stands up
 `postgres:16` unconditionally, so the PR run is the authoritative live-DB gate.
 
-**Re-run after the rebase.** The figures above were taken before this branch was
-rebased onto `origin/main` (three #1086 commits, no overlap with these files), so
-they are stale by the project's own rule. The final gate and a fresh integration
-run at the post-rebase HEAD are what step 7 relies on.
+**Re-run after the rebase, as this entry required.** The figures above were taken
+before the rebase onto `origin/main` (three #1086 commits, no overlap with these
+files). Re-derived at post-rebase HEAD `01aa07f3`: the whole integration project
+is **116 files / 1206 tests passed, 5 skipped**, and `refusal-write.integration.test.ts`
+alone is 32/32. Red team re-derived the same figure independently rather than
+accepting this entry's word for it.
 
 **Verdict:** ACCEPT.
 
@@ -183,5 +200,63 @@ therefore mapped. The vocabulary latch can never set there, and a reset call
 would assert nothing.
 
 Recorded rather than dropped silently, because it is a partial accept.
+
+**Verdict:** ACCEPT.
+
+## D10 — branch review round 1 changed two locked behaviours
+
+Four axes ran in one wave. Two Codex findings attacked decisions the intake had
+locked, and the owner accepted both.
+
+**The latch is now per CODE, bounded, not one process-wide boolean.** The intake
+accepted "a second distinct unmapped code is silent" on the argument that a map
+hole is systemic. Codex refuted the ARGUMENT rather than the design: since #1080
+the compiler rejects the systemic static hole, so the surviving threat is a value
+that escaped the union at run time — which varies per decision. In a long-lived
+single-replica worker the boolean let the first bad value permanently hide a
+second, from a different unsafe producer. Now a bounded `Set` with one overflow
+marker at `UNMAPPED_SIGNAL_CAP`; bounded because the keys are exactly the values
+the type system did not vouch for.
+
+**The Sentry message is now a constant, with the codes in `extra`.** Sentry
+groups by message, so an interpolated code list opened one issue group per
+distinct set, ordering and duplication — scattering one fault's history and
+applying per-issue throttling per group rather than per fault.
+
+`tests_to_add` goes 18 → 21: two retitles and three new cases (constant-message
+grouping, the distinct-code cap, and the enabled-ledger latch case that plan
+decision D3 had never had an oracle for). `estimated_test_lines` → 340.
+
+**Verdict:** ACCEPT.
+
+## D11 — surface amendment 2, and the abort trigger it fired
+
+`docs/runbooks/beta-launch-alerting.md` still stated that an unmapped block
+reason "raises nothing on this lane while the switch is off" — false at HEAD, and
+the sibling of the exact sentence this branch had already corrected in `write.ts`.
+It also scoped `subsystem:refusal_ledger` to three callers at `warning`, where
+HEAD adds a fourth at `error` with a new tag. Red team raised it P1; the Codex
+axis raised the same gap independently as "no completed operator route".
+
+`docs/runbooks/` was outside the surface, so fixing it is amendment 2 — which the
+workflow lists as an ABORT CRITERION. The trigger fired and the owner overrode it
+deliberately, with the reason recorded in `.feature/state.json`.
+
+Recorded plainly because an overridden abort trigger is exactly the thing a later
+reader should be able to find. The judgement: the trigger exists to catch
+sunk-cost thrash and scope creep, and this is a documentation correction two
+independent axes demanded on a branch whose implementation was already green.
+
+**Verdict:** ACCEPT.
+
+## D12 — `codex exec` hangs on stdin, and it cost two dispatches
+
+Plan round 1 and branch review's adversarial axis both died with no session and
+no output. `codex exec` reads stdin even when the prompt is an argument, so a
+backgrounded invocation blocks forever and is eventually killed. Both recovered
+on a re-run with `< /dev/null`.
+
+Not a finding about this branch. Recorded so the next run does not pay it twice,
+and promoted with the other durable lessons at step 8.
 
 **Verdict:** ACCEPT.

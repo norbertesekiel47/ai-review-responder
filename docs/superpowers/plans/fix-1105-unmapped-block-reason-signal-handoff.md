@@ -47,15 +47,33 @@ process was killed before it flushed. Redirect to a file and use
 
 ## State at handoff
 
-- Phase `plan_approved`, HEAD `cf7d7554`, plan review rounds 2, surface
-  amendments 0.
-- Gate: GREEN at baseline only. That run was docs-only, so the test, build,
-  promised-tests and diff-coverage rows were SKIPPED. It is not review evidence.
-- Nothing implemented. T1, T2 and T3 are all open.
+`.feature/state.json` is the authority for every figure below; this section goes
+stale and that file does not.
+
+- T1, T2 and T3 are all DONE. Plan review rounds 2, branch review rounds 1,
+  surface amendments 2 (the second overrode an abort trigger — deviations D11).
+- The step 7 wave ran all four axes and its findings are triaged in
+  `docs/reviews/fix-1105-unmapped-block-reason-signal/triage.md`. One P0, fixed.
+- **The gate must be re-run.** The round-1 fixes moved HEAD past the SHA the last
+  green gate measured, which also makes the red-team sidecar stale by
+  construction.
 
 ## Next action
 
-T1 — author all 18 tests failing, before any implementation. The plan's T1
-carries each title, its fixture and the defect it kills. Seven of them exist
-only because plan review found the original eleven could all pass on a wrong
-implementation; each is tagged `[R1-n]`.
+Re-run `scripts/verify-gate.sh --review`, then the scoped red-team round 2
+against the fix hunks only, then `red-team-status.mjs`, then the `reviewed`
+transition. Step 7.5's ORDER is load-bearing: the report commit moves HEAD, so it
+happens BEFORE the final gate.
+
+## Local gotcha this run paid for twice
+
+The gate's `test` row sanitizes the database URL out of its environment when
+`db_touching` is false, so 96 integration files silently SKIP inside a green
+gate. Run the live-DB lane yourself:
+
+    export TEST_DATABASE_POOL_URL="$(grep -m1 '^TEST_DATABASE_POOL_URL=' .env.local | cut -d= -f2-)"
+    export DATABASE_POOL_URL="$TEST_DATABASE_POOL_URL"
+    pnpm vitest run --project integration
+
+And `codex exec` hangs reading stdin unless you redirect `< /dev/null`. That
+killed two dispatches on this run (deviations D12).

@@ -327,24 +327,68 @@ export function resetRefusalLedgerWarningForTests(): void {
 }
 
 /**
- * Has the VOCABULARY-HOLE signal already fired in this process? (#1105)
+ * The unmapped codes this PROCESS has already signalled (#1105).
  *
  * A SEPARATE LATCH WITH A SEPARATE LIFETIME, and the separation is the whole
  * decision. `warnedThisEpisode` above belongs to a DISABLED EPISODE: the ledger
  * being off is a deliberate operator act, `endDisabledEpisode` clears the latch
  * the moment the ledger is observed on, and the next outage is meant to warn
  * again. A block reason with no category mapping is not an episode of anything —
- * it is a defect in the map, it does not end when someone flips the flag back,
- * and re-arming it on that flip would report the same hole twice for no new
+ * it is a defect, it does not end when someone flips the flag back, and
+ * re-arming it on that flip would report the same hole twice for no new
  * information. So this one is a PROCESS latch. A worker restart clears it.
  *
- * ONE BOOLEAN, NOT A SET OF CODES. A second, DIFFERENT unmapped code later in
- * the same process is therefore silent, and that is accepted rather than
- * overlooked: a map hole is systemic, one line names the code and sends an
- * operator to `POLICY_GATE_HELD_REFUSAL_CATEGORIES`, and a per-code set needs a
- * cap to stay bounded against an input this module does not control.
+ * PER CODE, NOT ONE BOOLEAN — AND THE FIRST VERSION OF THIS BRANCH GOT IT
+ * WRONG. That version latched a single boolean and justified it as "a map hole
+ * is systemic, so one line is enough". Branch review round 1 (adversarial axis)
+ * refuted the justification rather than the design: since #1080 the compiler
+ * REJECTS the systemic static hole — `POLICY_GATE_HELD_REFUSAL_CATEGORIES`
+ * carries `satisfies Record<AutoApprovalBlockReason, …>`, so a member with no
+ * entry is a TS1360 at `pnpm typecheck`. What is left is a value that escaped
+ * the union at run time, and THAT varies from decision to decision. In a
+ * long-lived single-replica worker a single boolean would let the first bad
+ * value permanently hide a second, from a different unsafe producer. The two
+ * events are not redundant evidence.
+ *
+ * BOUNDED, BECAUSE THE INPUT IS NOT. The set holds at most
+ * `UNMAPPED_SIGNAL_CAP` distinct codes and then stops growing — the values are
+ * by definition ones the type system did not vouch for, so an unbounded Set
+ * keyed on them is a memory leak with extra steps. Reaching the cap emits ONE
+ * overflow marker and nothing after it.
  */
-let unmappedSignalledThisProcess = false;
+const signalledUnmappedCodes = new Set<string>();
+
+/**
+ * How many distinct unmapped codes one process reports before it stops.
+ *
+ * Exported so the eval pins the overflow case on it rather than on a hard-coded
+ * literal that would pass while measuring nothing — `WARN_RETRY_COOLDOWN_MS`
+ * below is exported for the same reason.
+ *
+ * EIGHT IS A BOUND, NOT A TUNED VALUE. The whole 22-member block vocabulary is
+ * mapped by construction, so any distinct code here is already an escapee; a
+ * process producing more than eight DIFFERENT ones has a fault the ninth code
+ * will not clarify.
+ */
+export const UNMAPPED_SIGNAL_CAP = 8;
+
+/**
+ * The capture message — A CONSTANT, and that is the point.
+ *
+ * Sentry groups by message. An interpolated code list opens a new issue group
+ * for every distinct set, ordering and duplication of codes, which scatters one
+ * fault's history and defeats per-issue throttling. The codes ride `extra`
+ * instead, and the structured log line carries them too. Exported so the eval
+ * pins grouping on the constant rather than on a copied literal.
+ */
+export const UNMAPPED_BLOCK_REASON_MESSAGE = 'auto_approval_unmapped_block_reason';
+
+/** The overflow marker's message. A constant for the same grouping reason. */
+export const UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE =
+  'auto_approval_unmapped_block_reason_cap_reached';
+
+/** Set once the cap is reached, so the overflow marker is emitted exactly once. */
+let unmappedOverflowSignalled = false;
 
 /**
  * The cooldown half, on `nextWarnAttemptAt`'s exact terms: it rate-limits the
@@ -364,7 +408,8 @@ let nextUnmappedAttemptAt = 0;
  * sharing one clear is how they drift. Two latches, two resets.
  */
 export function resetUnmappedBlockReasonSignalForTests(): void {
-  unmappedSignalledThisProcess = false;
+  signalledUnmappedCodes.clear();
+  unmappedOverflowSignalled = false;
   nextUnmappedAttemptAt = 0;
 }
 
@@ -489,31 +534,52 @@ function warnLedgerDisabled(): void {
  * and the parameter is ALREADY-UNMAPPED codes. This module does not classify;
  * `unmappedBlockReasons` in `persist.ts` does, with `Object.hasOwn`, beside
  * `wouldRecordRefusal` and under the same cannot-throw rule. The first draft put
- * the membership test in here and the eval refuted it: with the test inside, the
- * lane's own suite — which mocks this module — could not tell "a hole was
- * signalled" from "a healthy set was handed over", so four of its five cases
- * asserted a count that discriminates nothing. A lane-level contract needs a
- * lane-level oracle.
+ * the membership test in here, and the eval refuted it — the single account of
+ * that event, which four documents previously told two ways: with the test
+ * inside this helper, four of the lane suite's five cases FAILED, because that
+ * suite mocks this module and its spy recorded a call for a healthy set too.
+ * A lane-level contract needs a lane-level oracle. (Branch review round 1 then
+ * showed one of the surviving cases had the same weakness in a milder form; see
+ * `persist.test.ts`'s mixed-set case, which now asserts the ARGUMENT.)
  *
- * SO AN EMPTY LIST IS THE ONLY THING IT DECLINES. Give it a mapped code and it
- * signals, because deciding that is not its job.
+ * IT DECLINES AN EMPTY LIST AND ALREADY-REPORTED CODES, and nothing else. Give
+ * it a mapped code and it signals, because deciding that is not its job.
  *
  * THE CODES GO OUT VERBATIM AND IN INPUT ORDER, never sorted or de-duplicated.
  * The gate's evaluation order is evidence for whoever debugs it — the same rule
  * `resolvePolicyGateRefusal` states for `allRefusalCodes` — and a repeat is
- * itself a fact about the decision.
+ * itself a fact about the decision. They ride `extra`, never the capture
+ * MESSAGE: Sentry groups by message, so an interpolated code list would open a
+ * new issue for every distinct set, ordering and duplication, scatter one
+ * fault's history across those groups, and defeat the per-issue throttling this
+ * repository's alerting already depends on. The message is a CONSTANT for that
+ * reason. (Branch review round 1, adversarial axis.)
+ *
+ * IT REPORTS EACH DISTINCT CODE ONCE, then stops at `UNMAPPED_SIGNAL_CAP` with
+ * a single overflow marker. A call may therefore signal for SOME of its codes
+ * and stay silent about the rest, which is why the already-reported ones are
+ * filtered out before anything is emitted rather than after.
  */
 export function noteUnmappedBlockReasons(unmapped: readonly string[]): void {
-  if (unmappedSignalledThisProcess || Date.now() < nextUnmappedAttemptAt) return;
-  if (unmapped.length === 0) return;
+  if (Date.now() < nextUnmappedAttemptAt) return;
+
+  // FILTERED AGAINST THE LATCH FIRST, so a set mixing a known code with a new
+  // one still reports the new one. A whole-call latch would lose it.
+  const fresh = unmapped.filter((code) => !signalledUnmappedCodes.has(code));
+  if (fresh.length === 0) return;
+
+  if (signalledUnmappedCodes.size >= UNMAPPED_SIGNAL_CAP) {
+    noteUnmappedOverflow();
+    return;
+  }
 
   // JOINED ONCE, and both transports carry the same string. Also the only shape
   // that SURVIVES the log: `createWorkerLogger` runs object args through
   // `sanitizeAnalyticsProperties`, which keeps strings, numbers, booleans, null
-  // and nested plain objects — and DROPS ARRAYS, silently. A `codes: unmapped`
+  // and nested plain objects — and DROPS ARRAYS, silently. A `codes: fresh`
   // array logs as an absent key, so the durable transport would name no code
-  // while the Sentry message named all of them.
-  const codes = unmapped.join(', ');
+  // while the Sentry event named all of them.
+  const codes = fresh.join(', ');
 
   try {
     logger.warn('refusal ledger vocabulary hole — a block reason has no category mapping', {
@@ -527,21 +593,59 @@ export function noteUnmappedBlockReasons(unmapped: readonly string[]): void {
   }
 
   try {
-    Sentry.captureMessage(
-      `${REFUSAL_LEDGER_FLAG}=false and an auto-approval block reason has no category mapping: ${codes}`,
-      {
-        level: 'error',
-        tags: { subsystem: 'refusal_ledger', fault: 'unmapped_block_reason' },
-      },
-    );
+    Sentry.captureMessage(UNMAPPED_BLOCK_REASON_MESSAGE, {
+      level: 'error',
+      tags: { subsystem: 'refusal_ledger', fault: 'unmapped_block_reason' },
+      extra: { flag: REFUSAL_LEDGER_FLAG, codes },
+    });
     // Latched once the capture RETURNS — queued, not delivered. The log line
-    // above is what makes that acceptable.
-    unmappedSignalledThisProcess = true;
+    // above is what makes that acceptable. Only the codes THIS call reported are
+    // marked, so a code suppressed by the cap is not recorded as reported.
+    for (const code of fresh) signalledUnmappedCodes.add(code);
   } catch {
     // A synchronous throw buys a cooldown rather than the latch, so a recovered
     // Sentry still carries the signal. Counted in TIME, never as an attempt
     // ceiling: a ceiling cannot tell "Sentry is broken" from "Sentry was briefly
     // broken".
+    nextUnmappedAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS;
+  }
+}
+
+/**
+ * The cap reached: say so ONCE, then go quiet for the life of the process.
+ *
+ * IT IS ITS OWN EVENT, not a suppressed copy of the one above. "Eight distinct
+ * codes escaped the union and there are more" is a different operational fact
+ * from "this code has no mapping" — it says the producer is generating varied
+ * garbage rather than missing one entry. A silently dropped ninth code would
+ * report neither.
+ *
+ * IT NAMES NO CODE, deliberately: the codes past the cap are unbounded input,
+ * and the point of the cap is to stop carrying them.
+ */
+function noteUnmappedOverflow(): void {
+  if (unmappedOverflowSignalled) return;
+
+  try {
+    logger.warn('refusal ledger vocabulary hole — distinct unmapped code cap reached', {
+      flag: REFUSAL_LEDGER_FLAG,
+      cap: UNMAPPED_SIGNAL_CAP,
+    });
+  } catch {
+    // Swallowed on the same terms as every other transport in this module.
+  }
+
+  try {
+    Sentry.captureMessage(UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE, {
+      level: 'error',
+      tags: { subsystem: 'refusal_ledger', fault: 'unmapped_block_reason_overflow' },
+      extra: { flag: REFUSAL_LEDGER_FLAG, cap: UNMAPPED_SIGNAL_CAP },
+    });
+    unmappedOverflowSignalled = true;
+  } catch {
+    // Shares the SAME cooldown as the signal above, deliberately: both are the
+    // same Sentry transport, and one broken SDK should buy one window rather
+    // than two independent retry storms.
     nextUnmappedAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS;
   }
 }

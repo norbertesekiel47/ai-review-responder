@@ -63,12 +63,13 @@
     "docs/reviews/fix-1105-unmapped-block-reason-signal",
     "docs/reviews/red-team",
     "docs/directory.md",
-    ".claude/reference/arch-review-log.md"
+    ".claude/reference/arch-review-log.md",
+    "docs/runbooks/beta-launch-alerting.md"
   ],
   "tests_to_add": [
-    "noteUnmappedBlockReasons captures one error-level Sentry message naming every unmapped code",
+    "noteUnmappedBlockReasons captures one error-level Sentry event naming every unmapped code",
     "noteUnmappedBlockReasons signals for the codes it is given without re-testing membership",
-    "noteUnmappedBlockReasons signals once per process and stays silent on the second unmapped set",
+    "noteUnmappedBlockReasons reports each distinct code once and repeats none",
     "a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons",
     "a throwing logger does not stop noteUnmappedBlockReasons from capturing",
     "noteUnmappedBlockReasons leaves the ledger-dark episode latch untouched",
@@ -83,13 +84,16 @@
     "with the ledger off, a fully mapped held decision warns ledger-dark and signals no vocabulary hole",
     "with the ledger off, a veto-only decision raises neither signal",
     "with the ledger off, a mixed mapped and unmapped decision signals the vocabulary hole only",
-    "with the ledger on, an unmapped block reason invokes no vocabulary-hole signal"
+    "with the ledger on, an unmapped block reason invokes no vocabulary-hole signal",
+    "noteUnmappedBlockReasons uses one constant Sentry message whatever the codes are",
+    "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+    "an enabled ledger does not re-arm the vocabulary-hole latch"
   ],
   "verification_commands": [
     "pnpm vitest run src/lib/refusals/__tests__/write.test.ts worker/jobs/response-generation/__tests__/persist.test.ts"
   ],
   "estimated_prod_lines": 245,
-  "estimated_test_lines": 260,
+  "estimated_test_lines": 340,
   "dependencies_added": [],
   "rollback_plan": "Revert the branch. The change adds one observability signal and no state, no schema and no control-flow branch, so a revert restores the prior behaviour exactly. REFUSAL_LEDGER_ENABLED keeps its meaning either way.",
   "observability": [

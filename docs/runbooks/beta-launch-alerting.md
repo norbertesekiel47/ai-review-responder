@@ -68,20 +68,62 @@ email shares the Resend provider with the product.
   decision every one of whose reasons maps to `null` records nothing either way
   and correctly stays silent.
 
-  **This is the only signal that the ledger has a gap** — the ledger
+  **This is the only signal that the ledger has a GAP** — the ledger
   structurally cannot show its own absence, since an absent row and a decision
-  that never happened look identical at read time. One blind spot #1079 leaves
-  standing, stated so an operator is not surprised by it: an UNMAPPED block
-  reason (the #1080 fault class) raises nothing on this lane while the switch is
-  off, because it would have thrown rather than written. The Restraint tab's
+  that never happened look identical at read time. The Restraint tab's
   `ledgerRecording` disclaimer is what tells an operator the ledger is off at
-  all. **It is CONFIG-1's shape exactly** (see the audit note
+  all.
+
+  **#1079's blind spot is CLOSED (#1105), and the sentence recording it is
+  corrected here rather than deleted.** It read: an UNMAPPED block reason (the
+  #1080 fault class) "raises nothing on this lane while the switch is off,
+  because it would have thrown rather than written". The reason clause is still
+  true, and is why such a code raises no *ledger-dark* line — it costs no row, so
+  there is no gap to claim. The conclusion is false at HEAD: that lane now raises
+  a SEPARATE signal, its own checklist item below. Do not merge the two rules.
+
+  **It is CONFIG-1's shape exactly** (see the audit note
   below): a `warning`-level `captureMessage` does not reliably classify as high
   priority, so today it is captured-but-not-paged. CONFIG-1's option (b) —
   raising the level — is **wrong here**: a flipped kill switch is a deliberate
   operator state, not an error, so this one needs the tag-based rule rather than
   a level change. The structured log line (`refusals:write`) is the durable
   second transport meanwhile. Added by #1009 (red-team RT-1).
+- [ ] **Refusal vocabulary hole routed to Discord** — issues tagged
+  `fault:unmapped_block_reason` at level **`error`** (a FOURTH
+  `subsystem:refusal_ledger` caller, and the only one above `warning`). Emitted
+  by `noteUnmappedBlockReasons` (`src/lib/refusals/write.ts`) from guard 4's
+  off-arm in `worker/jobs/response-generation/persist.ts`. Added by #1105.
+
+  **It is a DIFFERENT fault from the item above, which is why it gets its own
+  rule and its own level.** The ledger being off is a deliberate operator act
+  and warns. A block reason with no entry in
+  `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is a defect, and it means autonomy
+  decisions are being taken against a broken map. A rule written against
+  `subsystem:refusal_ledger` at `warning` alone does NOT catch it.
+
+  **What an operator does with it.** The event carries the offending codes in
+  `extra.codes`, in the gate's own evaluation order. Find each code in
+  `POLICY_GATE_HELD_REFUSAL_CATEGORIES` (`src/lib/refusals/vocabulary.ts`). It
+  will not be there — that is the point — so the question is which producer
+  emitted a value outside the compiled `AutoApprovalBlockReason` union, since
+  the map is total over that union at `pnpm typecheck`. Expect an unsafe cast,
+  a deserialized payload, or a mutated object.
+
+  **The message is a CONSTANT** (`auto_approval_unmapped_block_reason`) so every
+  occurrence groups into one Sentry issue and per-issue throttling applies to
+  the fault rather than to each distinct code set.
+
+  **A second event, `auto_approval_unmapped_block_reason_cap_reached`, tagged
+  `fault:unmapped_block_reason_overflow`,** means more than
+  `UNMAPPED_SIGNAL_CAP` distinct codes escaped in one worker process. Read it as
+  "a producer is generating varied garbage", not as "one map entry is missing".
+  It names no code deliberately, and it fires once per process.
+
+  **Latching:** per CODE, per PROCESS. Each distinct code reports once and never
+  re-arms — unlike the ledger-dark line above, which re-arms per disabled
+  episode. A worker restart clears it. So a repeat of the SAME code is silence
+  by design, and a new code is always reported.
 - [ ] **Autonomy Governor candidate failure routed to Discord** — issues tagged
   `subsystem:autonomy_governor`, emitted by `AutonomyGovernorScheduler`'s
   per-candidate `catch`. **Unlike the row above this one is a `captureException`,
