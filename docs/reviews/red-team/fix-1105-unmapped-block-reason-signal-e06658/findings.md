@@ -1,18 +1,21 @@
 # Red team — `fix/1105-unmapped-block-reason-signal`
 
-**Status: `OPEN_P0`.** One new P0, two new P1, five open P2 (three new, two carried).
+**Status: `OPEN_P1`.** Recomputed at `36ecc67c` by the close-out verification pass:
+zero open P0, **one open P1 (V-F3, reopened)**, four open P2. `counts` and `status`
+below are recomputed from the rows — never hand-set.
 
 | | |
 |---|---|
 | Mode | `feature` |
 | Run id | `feature-fix-1105-unmapped-block-reason-signal-e06658` |
 | Fork / merge-base | `313a3e01fa73612037eb6674718619e5bf75eb4b` |
-| HEAD measured | `e88eaaece598d9d0b3cf118a30bc3417ce7144af` |
+| HEAD verified | `36ecc67c9520206ed0b93db5d11d81cadb91b083` (close-out pass) |
+| HEAD measured | `e88eaaece598d9d0b3cf118a30bc3417ce7144af` (duty-1 mutation evidence; every `file:line` in the duty sections below is at THAT sha unless it says otherwise) |
 | Intake sha256 | `40f2cc8890b4e75c53e85165b57bc6da0b64c59795b377132fcdd7a429ded75a` |
 | Risk | `high` (from the signed-off intake) |
 | Journal round | 2 (see "Round accounting" — this is the branch's **third** measured pass) |
 | Mutation runs used | 16 of 30 |
-| Generated | 2026-09-04T08:17:55Z |
+| Generated | 2026-09-04T08:39:06Z (verification pass 2026-09-04T08:17:55Z; close-out re-emission 08:39:06Z) |
 
 ## What this pass is, and what it supersedes
 
@@ -53,16 +56,20 @@ the status below is what the checker recomputes from the rows.
 
 ## Findings
 
-| Severity | file:line | Finding |
-|---|---|---|
-| **P0** | `docs/runbooks/beta-launch-alerting.md:401` | The new register qualification calls `subsystem:autonomy_governor` a `warning` signal; it is a `captureException` at `error`, and the same runbook says so at :156 and :391 |
-| **P1** | `docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:322` | D14's "Promoted to lab notes." is false at HEAD — the identical claim this branch caught and corrected one commit earlier |
-| **P1** | `docs/runbooks/beta-launch-alerting.md:414` | Rules 7 and 8 pair a CONSTANT capture title with a first-seen trigger — the combination the same runbook says fires once, ever, then goes silent |
-| P2 | `docs/runbooks/beta-launch-alerting.md:376` | "the register eleven lines below" resolves to 10–15 source lines depending on the anchor |
-| P2 | `src/lib/refusals/__tests__/write.test.ts:1029` | The overflow log line is matched through the same exported constant the production line emits, so the message VALUE has no oracle |
-| P2 | `src/lib/refusals/__tests__/vocabulary.test.ts:592` | Sibling sweep: the "`resolvePolicyGateRefusal` still keeps duplicates" half of the new contrast has no oracle |
-| P2 | `src/lib/refusals/__tests__/write.test.ts:1336` | *(carried, unmeasured)* the both-transports-throw case may be redundant with the cooldown case |
-| P2 | `worker/jobs/response-generation/generate-draft.ts:77` | *(carried)* one live unbounded-cardinality Sentry capture message, in unchanged code |
+Severities and evidence are as measured at `e88eaaec`. The **Disposition** column
+and the `file:line` are re-resolved to `36ecc67c` by the close-out pass; each
+verdict was re-derived from the tree, not read off the previous disposition.
+
+| Severity | file:line @ `36ecc67c` | Disposition | Finding |
+|---|---|---|---|
+| **P0** | `docs/runbooks/beta-launch-alerting.md:410` | **fixed** ✔ verified | The register qualification called `subsystem:autonomy_governor` a `warning` signal; it is a `captureException` at `error`, and the same runbook says so at :162 and :400 |
+| **P1** | `docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:322` | **fixed** ✔ verified | D14's "Promoted to lab notes." was false — the identical claim this branch caught and corrected one commit earlier |
+| **P1** | `docs/runbooks/beta-launch-alerting.md:427` | **OPEN — reopened** ✘ | Rules 7 and 8 pair a CONSTANT capture title with a first-seen trigger. The TABLE was fixed; the prose at :427 and :433 that describes it was not, and :433 is now FALSE of the table |
+| P2 | `docs/runbooks/beta-launch-alerting.md:383` | **fixed** ✔ verified | "the register eleven lines below" resolved to 10–15 source lines depending on the anchor; it now cites the register descriptively, with no offset |
+| P2 | `src/lib/refusals/__tests__/write.test.ts:1029` | open | The overflow log line is matched through the same exported constant the production line emits, so the message VALUE has no oracle |
+| P2 | `src/lib/refusals/__tests__/vocabulary.test.ts:592` | open | Sibling sweep: the "`resolvePolicyGateRefusal` still keeps duplicates" half of the new contrast has no oracle |
+| P2 | `src/lib/refusals/__tests__/write.test.ts:1336` | open | *(carried, unmeasured)* the both-transports-throw case may be redundant with the cooldown case |
+| P2 | `worker/jobs/response-generation/generate-draft.ts:77` | open | *(carried)* one live unbounded-cardinality Sentry capture message, in unchanged code |
 
 ### P0 — `beta-launch-alerting.md:401`
 
@@ -304,10 +311,43 @@ against a constant grouping title — is **V-F3 (P1)**. The level facet is where
 
 This comparison is static; no staging delivery drill was run, per the skill.
 
+## Close-out verification at `36ecc67c` (2026-09-04T08:39:06Z)
+
+The orchestrator fixed V-F1…V-F4 in `36ecc67c` and set those four dispositions to
+`fixed`. It did NOT touch `counts` or `status` — hand-setting a derived status
+field is evidence tampering, and refusing was correct. This section is that
+close-out: **each of the four was re-derived from the tree at `36ecc67c` before
+any count was recomputed.** Three hold. One does not.
+
+| Finding | Verdict | Evidence at `36ecc67c` |
+|---|---|---|
+| **V-F1** (P0) | **VERIFIED FIXED** | `beta-launch-alerting.md:407-418` now names `subsystem:refusal_ledger` as the `warning` case and says the premise "does NOT apply to `subsystem:autonomy_governor` … a `captureException` with no level override, so it defaults to `error` … Its problem is the ROUTE (email), not the level." Re-derived independently: `AutonomyGovernorScheduler.ts:116` is `Sentry.captureException(error, { tags: { subsystem: 'autonomy_governor' } })` with no `level` key. The two other places agree — :162 "it defaults to level `error`" and :400 "a `captureException`, so today it reaches issue owners by **email**". |
+| **V-F2** (P1) | **VERIFIED FIXED** | D14:322 now reads "It is **queued** for lab notes **at step 8**", and :324-332 names the step 8 checklist as the claim's single owner. `git diff --stat 313a3e01..36ecc67c -- .claude/reference/lab-notes.md` is **empty** — the file is untouched by this branch. Whole-branch-diff twin sweep (`git diff 313a3e01..HEAD \| grep '^+' \| grep -i 'lab.notes'`), excluding this sidecar, leaves five hits, all of which either defer to step 8 (D6:112, D14:322) or quote the defect being corrected (`arch-review-log.md:1663`, deviations :325, `triage.md:31`). No live claim asserts the promotion is done. |
+| **V-F3** (P1) | **NOT FIXED — REOPENED** | Only the table moved. Rows 7 and 8 at :307-308 do read "**every event**", and the §1a-do cadence item at :129-138 carries the corrected reasoning. But the line V-F3 was recorded at was never edited: at `e88eaaec` it was :414, and the identical paragraph sits at :427 at `36ecc67c` still reading *"They are **first seen**, unlike rules 4-6: the per-code latch and the distinct-code cap already bound them … so a repeat trigger would delay a page for a fault that fires at most once per code"* — verbatim the reasoning the fix commit declared backwards. And :433 reads *"Rules 1-3 and 7-8 fire on a new issue"*, which was TRUE of the table at `e88eaaec` and which the table edit made **FALSE**. Cross-checked with `git show e88eaaec:docs/runbooks/beta-launch-alerting.md \| sed -n '405,425p'`, which puts the untouched paragraph at the finding's own recorded line. |
+| **V-F4** (P2) | **VERIFIED FIXED** | :382-385 now reads "against the register further down this section (cited by name, not by line offset — the first version said 'eleven lines below' and was already wrong)". `grep -n "lines below"` at HEAD returns only that self-describing quotation of the retired form. The section holds exactly one register (:398-418), so the reference resolves. |
+
+**Consequence for FP-9.** FP-9's fix produced the sentence now at :433, and its
+recorded reason claimed that sentence "matches the _When_ column of rows 1-3 and
+7-8 exactly". At `36ecc67c` that is false, because the V-F3 fix changed rows 7
+and 8. FP-9's own defect — the sentence enumerated only rules 1-3 — is still
+fixed, so it stays `fixed` with a corrected reason; the now-false cadence half is
+owned by **V-F3** and is not double-counted.
+
+**What closing V-F3 requires:** bring :427 and :433 into agreement with rows 7
+and 8, in the same edit. The fix commit corrected one mention of a moving claim
+and left its twins — which is the failure V-F2 itself records, committed inside
+the fix for V-F3.
+
+**Scope of this pass.** Documentation verification only. No mutation was run, no
+production file was touched, no new front was opened, and no new finding was
+added: the only edits are to this run's own two artifacts.
+
 ## Carried findings from the earlier passes
 
-Preserved as this branch's record. All 25 marked `fixed` were re-resolved against
-HEAD this pass; the open ones appear in the severity table above.
+Preserved as this branch's record. All of them were re-resolved against
+`e88eaaec` by the verification pass; the open ones appear in the severity table
+above. After the close-out at `36ecc67c` the branch's ledger is **28 fixed, 5
+open** (V-F3 P1, plus V-F5, V-F6, F-08, R2-08 at P2).
 
 **Round 1 / round 2 (at `05f94055` / `eb2b51de`):** F-01…F-10, R2-01…R2-08.
 Fixed: F-01–F-07, F-09, F-10, R2-01–R2-07. Still open: **F-08** (P2, carried
@@ -315,7 +355,8 @@ unmeasured for the third pass; line reference re-resolved to `write.test.ts:1336
 and **R2-08** (P2, unchanged code, separate ticket).
 
 **Fresh pass (at `eb2b51de`, reported under the unread slug `…-fresh-f12f6b`):**
-FP-1…FP-9, all fixed at `f0e44312` / `e88eaaec` and all re-verified above. Two of
+FP-1…FP-9, all fixed at `f0e44312` / `e88eaaec` and all re-verified above (FP-9's
+reason was corrected at close-out — see that section). Two of
 those fixes introduced the new findings V-F1 (inside FP-5's replacement text) and
 V-F4 (inside FP-2's), and one produced the P2 trade-off V-F5 (inside FP-8's).
 That pattern — a correction that ships its own smaller defect — is now the
@@ -327,13 +368,19 @@ None. No finding is `accepted-risk`.
 
 ## What blocks, and what an arbiter is being asked
 
-- **V-F1 (P0)** blocks the PR outright.
-- **V-F2 and V-F3 (P1)** block on a high-risk run unless fixed or authorized;
-  the checker enforces that. V-F3 in particular is a genuine design question
-  about alert cadence rather than a typo.
-- The five P2s are recorded and do not block.
+*As measured at `e88eaaec`:* V-F1 (P0) blocked outright, and V-F2/V-F3 (P1)
+blocked on a high-risk run unless fixed or authorized.
 
-All three blocking findings are one-paragraph documentation or one-row runbook
-edits. None touches production code: on this pass's evidence the code half of
+*After the close-out at `36ecc67c`:*
+
+- **V-F1 is fixed** — nothing blocks at P0. Recomputed `status` is `OPEN_P1`.
+- **V-F3 (P1) is reopened and is the only blocker.** On a high-risk run the
+  checker refuses an open P1 outright, so it must be fixed or carry a recorded
+  user authorization. It is a two-sentence runbook edit at :427 and :433.
+- **V-F2 (P1) and V-F4 (P2) are fixed.** The four remaining P2s — V-F5, V-F6,
+  F-08, R2-08 — are recorded and do not block.
+
+Every blocking finding on this branch is a one-paragraph documentation or
+one-row runbook edit. None touches production code: on this pass's evidence the code half of
 this branch is correct and adequately oracled at HEAD — every mutant this round
 executed, including all four the fresh pass and round 2 left alive, now dies.

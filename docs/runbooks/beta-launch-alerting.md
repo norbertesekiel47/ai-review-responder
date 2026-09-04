@@ -424,21 +424,28 @@ your server → the `#repworth-alerts` channel ID from step 0.
 Three different faults now carry `subsystem:refusal_ledger` at `error` —
 `withLedgerAttribution`'s ledger-failure attribution (since #1079) and both of
 these — so a subsystem-and-level filter pages on all three and tells an operator
-nothing about which. They are **first seen**, unlike rules 4-6: the per-code
-latch and the distinct-code cap already bound them to a handful of events per
-worker process, so a repeat trigger would delay a page for a fault that fires at
-most once per code.
+nothing about which. **Their trigger is `Every event`, the SAME as rules 4-6**,
+and an earlier version of this paragraph said the opposite. The reasoning it gave
+— that the per-code latch and the cap already bound the volume, so a repeat
+trigger would only delay the page — had the failure backwards. Both titles are
+CONSTANTS, so every occurrence groups into one issue and a first-seen rule fires
+once ever, then stays silent through exactly the repetition that IS the signal
+here: a SECOND DISTINCT unmapped code, which the per-code latch exists to make
+visible. The bound is what makes `Every event` safe, not what makes first-seen
+sufficient.
 
-**Rules 4, 5 and 6 are the odd ones, and the difference is not cosmetic.** Rules
-1–3 and 7–8 fire on a new issue. Rules 4, 5 and 6 must not. Each capture title is a
+**Rules 4-8 are the odd ones, and the difference is not cosmetic.** Rules 1-3
+fire on a new issue. Rules 4, 5, 6, 7 and 8 must not. Each capture title is a
 **constant string**, so every occurrence groups into ONE Sentry issue — for rule
 4, both **Import offer** event names across every location and both lanes; for
 rule 5, every re-page of one open breaker trip; for rule 6, every unattributed
-suppression across every account, event type and source. A first-seen trigger
-fires once, ever, and then stays silent through exactly the repetition that is
-the signal. See #697 and `.claude/reference/lab-notes.md` (2026-08-08).
+suppression across every account, event type and source; for rules 7 and 8,
+every unmapped block reason and every cap-reached marker across every worker
+process. A first-seen trigger fires once, ever, and then stays silent through
+exactly the repetition that is the signal. See #697 and
+`.claude/reference/lab-notes.md` (2026-08-08).
 
-**Rule 6 is a REPLACEMENT, not an addition (#967).** The other five add
+**Rule 6 is a REPLACEMENT, not an addition (#967).** The other rules add
 coverage; this one restores coverage that #967 deliberately removed. That ticket
 made an unmatched suppression-bearing Resend event ack instead of throw — right
 for the recipient's opt-out and right for payload retention, but it takes the

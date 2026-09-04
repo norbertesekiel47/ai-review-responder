@@ -5,11 +5,11 @@
   "branch": "fix/1105-unmapped-block-reason-signal",
   "fork_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
   "merge_base_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
-  "head_sha": "e88eaaece598d9d0b3cf118a30bc3417ce7144af",
+  "head_sha": "36ecc67c9520206ed0b93db5d11d81cadb91b083",
   "intake_sha256": "40f2cc8890b4e75c53e85165b57bc6da0b64c59795b377132fcdd7a429ded75a",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-09-04T08:17:55Z",
+  "generated_at": "2026-09-04T08:39:06Z",
   "inventory": [
     {
       "id": "V-01",
@@ -122,10 +122,10 @@
       "id": "V-F1",
       "severity": "P0",
       "duty": 3,
-      "at": "docs/runbooks/beta-launch-alerting.md:401",
+      "at": "docs/runbooks/beta-launch-alerting.md:410",
       "disposition": "fixed",
       "title": "The new register qualification calls subsystem:autonomy_governor a warning signal; it is a captureException at error, and the same runbook says so twice elsewhere",
-      "reason": "Fixed after this round, in the same session. The register paragraph no longer calls subsystem:autonomy_governor a warning signal: it is a captureException with no level override, so it defaults to error, and its problem is the email ROUTE rather than the level. The runbook already said so twice elsewhere; the qualification now agrees with both."
+      "reason": "Fixed, and verified at 36ecc67c by the close-out pass. The register qualification (beta-launch-alerting.md:407-418) now names `subsystem:refusal_ledger` as the `warning` case and states explicitly that the premise does NOT apply to `subsystem:autonomy_governor`, which is a `captureException` with no level override and so defaults to `error`; its problem is the email ROUTE. Independently re-derived: `worker/background/schedulers/AutonomyGovernorScheduler.ts:116` is `Sentry.captureException(error, { tags: { subsystem: 'autonomy_governor' } })` with no `level` key, and the same runbook says `error` at :162 (\"Unlike the row above this one is a `captureException`, so it defaults to level `error`\") and at :400 (\"a `captureException`, so today it reaches issue owners by email\"). The paragraph now agrees with both. The `at` line is re-resolved from :401 at e88eaaec to :410 at HEAD."
     },
     {
       "id": "V-F2",
@@ -134,25 +134,25 @@
       "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:322",
       "disposition": "fixed",
       "title": "D14's 'Promoted to lab notes.' is false at HEAD - the identical claim this branch caught and corrected one commit earlier",
-      "reason": "Fixed after this round, in the same session. D14 no longer claims the lab-notes promotion has happened. It names the step 8 checklist as the single owner of that claim, and records that this branch repeated the exact twin-mention failure the #1082 architecture-log row warns about."
+      "reason": "Fixed, and verified at 36ecc67c by the close-out pass. D14:322 now reads \"It is queued for lab notes at step 8, along with the other durable lessons\", and :324-332 records that the present-tense claim was itself the next defect and that the step 8 checklist is the single owner. Independently re-derived at HEAD: `git diff --stat 313a3e01..36ecc67c -- .claude/reference/lab-notes.md` is EMPTY, so the branch has not touched lab-notes. Whole-branch-diff sweep for surviving twins (`git diff 313a3e01..HEAD | grep '^+' | grep -i \"lab.notes\"`) returns, outside the red-team sidecar itself, only: deviations D6:112 \"it is promoted to lab notes at step 8\" (names step 8, asserts nothing done), deviations D14:322 \"queued ... at step 8\", deviations :325 quoting the defect it corrects, `arch-review-log.md:1663` \"Promotion to lab notes happens at step 8, and this row claimed it had already happened\", and `docs/reviews/fix-1105-.../triage.md:31`, a triage row recording the finding. No live claim asserts the promotion is done."
     },
     {
       "id": "V-F3",
       "severity": "P1",
       "duty": 5,
-      "at": "docs/runbooks/beta-launch-alerting.md:414",
-      "disposition": "fixed",
+      "at": "docs/runbooks/beta-launch-alerting.md:427",
+      "disposition": "open",
       "title": "Rules 7 and 8 pair a CONSTANT capture title with a first-seen trigger - the combination the same runbook says fires once, ever, then stays silent through the repetition that is the signal",
-      "reason": "Fixed after this round, in the same session. Rules 7 and 8 now use Every event, not first-seen. The finding is correct and the original reasoning was backwards: with a CONSTANT capture title every occurrence groups into one issue, so first-seen fires once ever and goes silent through the repetition that IS the signal - here a SECOND DISTINCT unmapped code, which is precisely what the per-code latch exists to make visible. The runbook now records the corrected reasoning."
+      "reason": "REOPENED by the close-out verification at 36ecc67c: the disposition `fixed` was not sustained by the tree. Only the TABLE moved. Rows 7 and 8 (beta-launch-alerting.md:307-308) now read \"**every event**\", and the §1a-do cadence item (:129-138) carries the corrected reasoning — that half is genuinely done. But the line V-F3 was RECORDED AT was never touched. At e88eaaec that line was :414; the identical text sits at :427 at HEAD and still reads \"They are **first seen**, unlike rules 4-6: the per-code latch and the distinct-code cap already bound them to a handful of events per worker process, so a repeat trigger would delay a page for a fault that fires at most once per code\" — verbatim the reasoning the fix commit itself declared backwards. Worse, :433 now reads \"Rules 1-3 and 7-8 fire on a new issue\", which was TRUE of the table at e88eaaec and the table edit made FALSE: it is a live, operator-actionable contradiction inside one runbook section, and it is the sentence FP-9's fix produced. Verified by `sed -n '416,440p'` at HEAD and by `git show e88eaaec:docs/runbooks/beta-launch-alerting.md | sed -n '405,425p'`, which places the untouched paragraph at the finding's own recorded line. This is the same twin-mention failure V-F2 records, committed inside the fix for V-F3. To close it, :427 and :433 must be brought into agreement with rows 7 and 8."
     },
     {
       "id": "V-F4",
       "severity": "P2",
       "duty": 3,
-      "at": "docs/runbooks/beta-launch-alerting.md:376",
+      "at": "docs/runbooks/beta-launch-alerting.md:383",
       "disposition": "fixed",
       "title": "'the register eleven lines below' resolves to 10-15 source lines depending on the anchor",
-      "reason": "Fixed after this round, in the same session. The cross-reference cites the register by name instead of by line offset, and records that the offset form was already wrong when written."
+      "reason": "Fixed, and verified at 36ecc67c by the close-out pass. The cross-reference (beta-launch-alerting.md:382-385) no longer cites a line offset: it reads \"against the register further down this section (cited by name, not by line offset — the first version said 'eleven lines below' and was already wrong)\". `grep -n \"lines below\" docs/runbooks/beta-launch-alerting.md` at HEAD returns only that self-describing quotation of the retired form. The section contains exactly one register (the \"Four §1 signals have no DEDICATED rule in either project\" block at :398-418), so the descriptive reference resolves unambiguously. Noted, not raised: the reference is descriptive rather than a quoted heading, and :156 (\"the cap paragraph four lines above it\") is a separate pre-existing offset citation outside this finding."
     },
     {
       "id": "V-F5",
@@ -413,7 +413,7 @@
       "at": "docs/runbooks/beta-launch-alerting.md:420",
       "disposition": "fixed",
       "title": "[fresh pass] 'Rules 1-3 fire on a new issue' was no longer exhaustive",
-      "reason": "Fixed and re-verified: the sentence reads 'Rules 1-3 and 7-8 fire on a new issue', which matches the _When_ column of rows 1-3 and 7-8 exactly. Whether first-seen is the RIGHT cadence for 7 and 8 is a separate question, raised as V-F3."
+      "reason": "The recorded defect — the sentence enumerated only rules 1-3 — is fixed: beta-launch-alerting.md:433 now names \"Rules 1-3 and 7-8\". Its original reason claimed the sentence \"matches the _When_ column of rows 1-3 and 7-8 exactly\"; the close-out pass verified that at 36ecc67c that claim is FALSE, because the V-F3 fix changed rows 7 and 8 to \"every event\". The now-false cadence half of that sentence is owned by V-F3 (reopened), not double-counted here."
     }
   ],
   "authorizations": [],
@@ -426,12 +426,12 @@
     "skipped_budget": 0,
     "excluded": 7,
     "findings_total": 33,
-    "p0_open": 1,
-    "p1_open": 2,
-    "p2_open": 5,
+    "p0_open": 0,
+    "p1_open": 1,
+    "p2_open": 4,
     "accepted_risk": 0,
-    "fixed": 25,
+    "fixed": 28,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "OPEN_P1"
 }

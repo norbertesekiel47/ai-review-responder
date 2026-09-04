@@ -396,3 +396,35 @@ Estimates corrected to 540 / 520 in both copies. As with D7, that records the
 measurement; it does not silence the trigger, which fired and is answered here.
 
 **Verdict:** ACCEPT.
+
+## D16 — the twin-mention failure, committed inside the fix for the twin-mention finding
+
+The verification round raised V-F3: click-path rules 7 and 8 paired a CONSTANT
+capture title with a first-seen trigger, which the same file says fires once ever
+and then goes silent through exactly the repetition that IS the signal.
+
+**The first fix changed the table rows and added a new cadence paragraph, and
+left two paragraphs asserting the opposite** — one still explaining that rules 7
+and 8 are first-seen "unlike rules 4-6", with the reasoning the fix commit had
+just declared backwards, and one stating "Rules 1-3 and 7-8 fire on a new issue",
+which was TRUE before the table edit and which the table edit made false.
+
+The sidecar agent refused to accept the disposition and set V-F3 back to `open`,
+on evidence: the line the finding was recorded at had never been edited.
+
+**This is the seventh time this branch has shipped a false claim about itself,
+and the second time inside the fix for a finding about exactly that.** D14
+records the same failure for the lab-notes claim. The #1082 architecture-log row
+names it and prescribes the remedy — *let one mention own the fact* — and this
+branch quoted that row before committing the error twice more.
+
+**What actually works, and it is a process change rather than a resolution:**
+enumerate every mention BEFORE editing any of them. The second attempt began with
+`grep -n "first seen\|first-seen\|new issue is created\|Every event"` and
+`grep -n "ules 7\|ule 7\|7 and 8"` across the file, fixed all five sites
+together, and then re-grepped to prove no residual claim survived. That is what
+"one owner" means operationally when the fact is spread across prose.
+
+Promoted with the other lessons at step 8.
+
+**Verdict:** ACCEPT.
