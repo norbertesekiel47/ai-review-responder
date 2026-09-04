@@ -343,6 +343,15 @@ The intake's first non-goal. File the ticket the split-out promised, citing
 the open question it inherits: what happens to the decision the ledger failed to
 record if the retry ladder short-circuits.
 
+**Filed as [#1127](https://github.com/RepWorth/ai-review-responder/issues/1127).**
+It records what is already settled and must not be re-litigated — the ledger is
+not best-effort (#1001), catch-and-rethrow is not swallowing, and the kill switch
+genuinely contains ledger faults (#1079), so the question narrows to faults
+arriving while the flag is ON. It also notes that the `fault` tags this branch
+added make the question empirical: measure real `fault=ledger_write` volume
+first, and if the rate is effectively zero in production, the cheapest correct
+answer may be to leave the retry ladder alone and say so explicitly.
+
 ---
 
 ## Verification
