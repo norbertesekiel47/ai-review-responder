@@ -45,7 +45,7 @@
   "tests_to_add": [
     "the offer state still renders the 7-day disclosure and the reassurance line verbatim",
     "BannerShell occupies the same tree position across importing and imported",
-    "the offer actions are right-aligned rather than inline-styled",
+    "the offer actions sit in the banner action slot rather than inline styles",
     "a read-only owner gets the notice in the actions slot, not the buttons"
   ],
   "verification_commands": [],

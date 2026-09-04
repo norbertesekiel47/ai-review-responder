@@ -229,12 +229,13 @@ function ReadOnlyNotice() {
  * ARRANGEMENT IS THE SLOT'S JOB, NOT AN INLINE STYLE (#1087). This is the only
  * banner with TWO actions, and it was the only one that laid them out itself: a
  * raw `div` with an inline flex, holding two `.banner-cta`s that each carry
- * `margin-left: auto`. Three defects followed, all measured at 390px and 1440px
- * before the fix:
+ * `margin-left: auto`. Three defects followed, measured in the real
+ * `.content--dash` container across 360–1440px:
  *
  *  - the group had no `flex-shrink: 0`, so three lines of copy squeezed it. At
  *    1440px both button labels wrapped to two lines; at 390px nothing wrapped at
- *    all — the copy was crushed to a 95px column and the banner grew to 507px.
+ *    all — the copy was crushed to a 95px column and the banner grew to 507px,
+ *    and at 360px to 585px with a 78px column.
  *  - `.banner`'s `align-items: center` floated the actions at mid-height against
  *    a copy block four times their height.
  *  - two `margin-left: auto` CTAs inside one group split the free space between
@@ -242,9 +243,16 @@ function ReadOnlyNotice() {
  *
  * So the group is now `.banner-actions` — a real element in the action slot,
  * which is where `margin-left: auto` belongs — and `.banner--top` anchors this
- * banner's icon and actions to the top of its multi-line copy. Both are
- * additive: `.banner` itself is unchanged, so the seven other states and
- * `ConnectGoogleBanner`, which shares this slot, render exactly as before.
+ * banner's icon and actions to the top of its multi-line copy and lets the
+ * actions take their own row when the copy cannot fit beside them.
+ *
+ * WHAT "ADDITIVE" DOES AND DOES NOT MEAN HERE. `.banner` is byte-unchanged and
+ * every new rule is scoped to `.banner-actions` or `.banner--top`, so no other
+ * banner is reached. The first draft was NOT: it set `white-space: nowrap` on
+ * `.banner-cta` itself, and there is a THIRD production call site nobody had
+ * enumerated — `AutoApprovalClient`'s "Turn off auto-posting" banner — which it
+ * regressed from 133px to 212px tall at 390px. Before claiming a rule touches
+ * only this banner, grep the class; do not count the states you remember.
  *
  * The read-only notice goes in the SAME slot rather than beside the copy, so a
  * past-due owner reads the substitution where the buttons were.
@@ -409,33 +417,46 @@ function ImportStatusBanner({
   view: Extract<ImportOfferView, { state: 'importing' | 'imported' | 'empty' | 'failed' }>;
   noticePhase: NoticePhase;
 }) {
-  if (view.state === 'failed') return <FailedBanner />;
-
   // ONE interpolated string per state, never `Imported {count} reviews.` in JSX.
   // The JSX form renders three sibling text nodes, which no exact-text query can
   // match and which a screen reader may read with odd pauses.
   const message =
-    view.state === 'importing'
-      ? 'Importing your reviews… this usually takes a minute.'
-      : view.state === 'empty'
-        ? 'No recent reviews found — nothing to import.'
-        : `Imported ${view.count} reviews. They're in your reviews list.`;
+    view.state === 'failed'
+      ? "We couldn't finish importing your reviews."
+      : view.state === 'importing'
+        ? 'Importing your reviews… this usually takes a minute.'
+        : view.state === 'empty'
+          ? 'No recent reviews found — nothing to import.'
+          : `Imported ${view.count} reviews. They're in your reviews list.`;
 
   // `empty` is a distinct OUTCOME, not a count of zero — "Imported 0 reviews"
-  // reads as a bug to an owner (owner decision 4).
-  const retires = view.state !== 'importing';
+  // reads as a bug to an owner (owner decision 4). `failed` is not a notice and
+  // never retires, so it is named here rather than derived from "not importing".
+  const retires = view.state === 'imported' || view.state === 'empty';
   if (retires && noticePhase === 'gone') return null;
 
+  // ONE `BannerShell` FOR ALL FOUR STATES, including `failed` (#1087 review F3).
+  // `failed` used to return its own shell from an early return at this position,
+  // so React saw a type change, remounted the live region, and the region's first
+  // paint already carried the failure text — the exact condition the A6c doc
+  // above says produces NO announcement. It is also the announcement an owner
+  // most needs read to them, and it is reached on the ordinary path: the
+  // `importing` poll returns `failed` when the worker gives up. Sharing the shell
+  // makes the message an UPDATE to a region that already exists.
   return (
-    <BannerShell announcement={retires ? message : ''}>
-      <div className={`banner banner-blue${retires && noticePhase === 'leaving' ? ' banner--leaving' : ''}`}>
-        <div className="b-icon">
-          <Icon name={view.state === 'importing' ? 'refresh' : 'check'} size={18} />
+    <BannerShell announcement={view.state === 'importing' ? '' : message}>
+      {view.state === 'failed' ? (
+        <FailedBanner />
+      ) : (
+        <div className={`banner banner-blue${retires && noticePhase === 'leaving' ? ' banner--leaving' : ''}`}>
+          <div className="b-icon">
+            <Icon name={view.state === 'importing' ? 'refresh' : 'check'} size={18} />
+          </div>
+          <div>
+            <div className="b-title">{message}</div>
+          </div>
         </div>
-        <div>
-          <div className="b-title">{message}</div>
-        </div>
-      </div>
+      )}
     </BannerShell>
   );
 }
@@ -444,23 +465,24 @@ function ImportStatusBanner({
  * Neutral, with a support contact, and deliberately NO retry button. Retry
  * belongs to the worker via the `completed_at IS NULL` sentinel (spec §5.1); an
  * owner-facing retry would enqueue a second job.
+ *
+ * Renders the inner `.banner` ONLY, never its own `BannerShell` — the same
+ * contract `OfferPrompt` keeps, and for the same reason (#1087 review F3).
  */
 function FailedBanner() {
   return (
-    <BannerShell announcement="We couldn't finish importing your reviews.">
-      <div className="banner banner-attn" role="alert">
-        <div className="b-icon">
-          <Icon name="alert" size={18} />
-        </div>
-        <div>
-          <div className="b-title">We couldn&apos;t finish importing your reviews</div>
-          <div className="b-sub">
-            Your new reviews are still being handled normally. Contact{' '}
-            <a href="mailto:support@repworth.net">support@repworth.net</a> if you&apos;d like us to
-            look into the import.
-          </div>
+    <div className="banner banner-attn" role="alert">
+      <div className="b-icon">
+        <Icon name="alert" size={18} />
+      </div>
+      <div>
+        <div className="b-title">We couldn&apos;t finish importing your reviews</div>
+        <div className="b-sub">
+          Your new reviews are still being handled normally. Contact{' '}
+          <a href="mailto:support@repworth.net">support@repworth.net</a> if you&apos;d like us to
+          look into the import.
         </div>
       </div>
-    </BannerShell>
+    </div>
   );
 }

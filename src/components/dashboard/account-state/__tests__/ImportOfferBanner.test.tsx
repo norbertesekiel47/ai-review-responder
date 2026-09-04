@@ -480,14 +480,15 @@ describe('ImportOfferBanner', () => {
     ).toBeInTheDocument();
   });
 
-  it('ImportOfferBanner — the offer actions are right-aligned rather than inline-styled', async () => {
-    // WHAT THIS ASSERTS, PRECISELY: jsdom applies no stylesheet, so "right-
-    // aligned" is not a computed position here. The alignment itself was proven
-    // by measurement at 390px and 1440px (#1087 T1). What this pins is the
-    // STRUCTURE that stylesheet acts on — the element carrying `margin-left:
-    // auto` exists and the actions are inside it — and the whole of "rather than
-    // inline-styled", which IS directly assertable and is the half that
-    // regresses silently.
+  it('ImportOfferBanner — the offer actions sit in the banner action slot rather than inline styles', async () => {
+    // RETITLED FROM "are right-aligned" (#1087 review F4). jsdom applies no
+    // stylesheet, so alignment is not a computed position here and the old title
+    // promised what the body cannot prove — which mattered, because review F2
+    // showed alignment was exactly the half that regressed. Alignment is proven
+    // by measurement instead, in the real `.content--dash` container across
+    // 360–1440px. What this pins is the STRUCTURE that stylesheet acts on: the
+    // element carrying `margin-left: auto` exists, the actions are inside it, and
+    // neither action carries an inline style.
     mockGetSequence([OFFER]);
 
     const { container } = renderBanner();
@@ -590,6 +591,42 @@ describe('ImportOfferBanner', () => {
       // Node IDENTITY across the transition the contract is about. A remount
       // produces a different node that every `querySelector` would still find.
       expect(container.firstElementChild).toBe(shellDuringImport);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('ImportOfferBanner announces the failed outcome through the live region it was already using', async () => {
+    // Review F3. `failed` used to return `FailedBanner` from an early return
+    // where its sibling returned `BannerShell`, so React saw a type change,
+    // remounted the live region, and the region's FIRST PAINT already carried the
+    // failure text — which announces nothing. This is the ordinary path: the
+    // `importing` poll returns `failed` when the worker gives up, and it is the
+    // message an owner most needs read to them.
+    //
+    // Node identity is the assertion. A DOM-presence check on the terminal state
+    // passes either way, which is how this survived the original suite.
+    vi.useFakeTimers();
+    try {
+      mockGetSequence([{ state: 'importing' }, { state: 'failed' }]);
+      renderBanner();
+
+      await vi.waitFor(() => expect(document.querySelector('[aria-live]')).not.toBeNull());
+      const live = document.querySelector('[aria-live]')!;
+      expect(live.textContent).toBe('');
+
+      // `refetchInterval` is 4s while importing.
+      await vi.advanceTimersByTimeAsync(4000);
+      await vi.waitFor(() =>
+        expect(live.textContent).toBe("We couldn't finish importing your reviews."),
+      );
+
+      // The SAME node carried the message, so it was an update and not a mount.
+      expect(document.querySelector('[aria-live]')).toBe(live);
+      // The urgent channel and the visible copy are unchanged by the restructure.
+      expect(document.querySelector('.banner-attn')?.getAttribute('role')).toBe('alert');
+      expect(
+        screen.getByText("We couldn't finish importing your reviews", { selector: '.b-title' }),
+      ).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
