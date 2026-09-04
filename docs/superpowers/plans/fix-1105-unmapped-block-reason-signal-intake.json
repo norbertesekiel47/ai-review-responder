@@ -71,6 +71,13 @@
     "a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons",
     "a throwing logger does not stop noteUnmappedBlockReasons from capturing",
     "noteUnmappedBlockReasons leaves the ledger-dark episode latch untouched",
+    "a prior ledger-dark warning does not suppress noteUnmappedBlockReasons",
+    "noteUnmappedBlockReasons never invokes resolvePolicyGateRefusal",
+    "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
+    "noteUnmappedBlockReasons treats an inherited object key as unmapped",
+    "noteUnmappedBlockReasons ignores an empty block-reason set",
+    "noteUnmappedBlockReasons preserves unmapped codes in input order",
+    "simultaneously throwing logger and Sentry transports do not escape noteUnmappedBlockReasons",
     "with the ledger off, an unmapped block reason signals the vocabulary hole and raises no ledger-dark warning",
     "with the ledger off, a fully mapped held decision warns ledger-dark and signals no vocabulary hole",
     "with the ledger off, a veto-only decision raises neither signal",
@@ -81,7 +88,7 @@
     "pnpm vitest run src/lib/refusals/__tests__/write.test.ts worker/jobs/response-generation/__tests__/persist.test.ts"
   ],
   "estimated_prod_lines": 80,
-  "estimated_test_lines": 150,
+  "estimated_test_lines": 260,
   "dependencies_added": [],
   "rollback_plan": "Revert the branch. The change adds one observability signal and no state, no schema and no control-flow branch, so a revert restores the prior behaviour exactly. REFUSAL_LEDGER_ENABLED keeps its meaning either way.",
   "observability": [
