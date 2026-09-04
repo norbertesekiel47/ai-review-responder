@@ -4,11 +4,41 @@ Resume with `/feature-resume feat/1088-chart-readability`.
 
 ## Where this run is
 
-**Step 4, tracer T1 (eval tests) dispatched.** Phase `executing`. No production
-code written. Prepared 2026-09-03; resumed and corrected 2026-09-04.
+**Step 4, T1 done — 1 of 6 tracers.** Phase `gate_green` at `0a4edca8`, gate
+GREEN on all 26 rows (full mode). No production code yet; T1 is tests only.
+Prepared 2026-09-03; resumed, corrected and executed 2026-09-04.
 
 Rebased onto `origin/main` at `dec98bab` while still at `plan_approved`, so both
 #1087 and #1086 are taken and the `console.css` overlap closed at zero cost.
+
+**Next: T2** — put the window into each chart's own caption / label, and name
+the unit and window in `ReputationTrendChart`'s empty state. Then T3 (units on
+the velocity y-axis), then **T4, which gates T5** — the owner sees ONE reworked
+chart at 390px and 1440px before the remaining charts are touched.
+
+### The four red tests are `it.fails`, and that is load-bearing
+
+`src/components/dashboard/kpi/__tests__/chart-readability.test.tsx` carries all
+five promised titles verbatim. Four are `it.fails`, so the suite is green today
+(1 passed, 4 expected fail) and the gate stays honest while the spec stays red.
+
+**This is a forcing function in BOTH directions.** The moment a tracer closes
+its gap the `.fails` itself starts failing, so no tracer can land without
+flipping its own test back to a plain `it`. Do not "fix" a newly failing
+`.fails` by deleting the test — that is the signal working.
+
+Ownership: T2 owns the window title and the empty-state title; T5 owns the
+accessible-name title and the aggregate-parity title.
+
+### Surface amendment 1 of 2 is SPENT
+
+The intake's two `__tests__` entries were bare directories, which the guard
+admits no file through. Fixed to `.../__tests__/*` with owner sign-off.
+**One amendment remains before the abort trigger.** Do not spend it casually.
+
+When replaying the guard by hand, wrap it in `bash -c '…'`. The Bash tool runs
+zsh, which reports a false NO MATCH for a correct `/*` entry — indistinguishable
+from the real bug.
 
 ## Read these, by path
 
