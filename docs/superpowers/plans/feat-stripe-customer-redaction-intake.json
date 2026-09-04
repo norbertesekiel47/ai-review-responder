@@ -131,7 +131,8 @@
     "docs/directory.md",
     "CONTEXT.md",
     "worker/jobs/account-offboarding/__tests__/stripe-customer-redaction-guard.integration.test.ts",
-    "docs/runbooks/beta-launch-alerting.md"
+    "docs/runbooks/beta-launch-alerting.md",
+    "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts"
   ],
   "tests_to_add": [
     "redactStripeCustomer clears name, email, phone, description, address, shipping, business_name and individual_name in one update call",

@@ -418,3 +418,56 @@ earned by a check.
 
 **Verdict:** ACCEPT, under the owner's explicit no-third-round decision and the
 2026-09-04 approval recorded above
+
+## D9 — CI found a regression six review axes and two red-team rounds did not
+
+**What happened.** CI's `test` job failed with `Error: STRIPE_SECRET_KEY is not
+set`, thrown from `handleAccountOffboardingPurge`. Three tests, all in
+`offboarding-lifecycle.integration.test.ts`. Every other check passed.
+
+**The cause is this branch.** **Stripe Customer redaction** now runs FIRST in a
+`delete_data` purge, and the stage resolves `getStripe()` whenever the
+offboarding row carries a `stripe_customer_id`. `runFullProductionPurge` seeds
+one. CI has no `STRIPE_SECRET_KEY`; `.env.local` does. So the local gate passed
+and CI failed.
+
+**Not a production defect.** `STRIPE_SECRET_KEY` is in
+`worker/config/startup-assert.ts`, so a real worker refuses to boot without it.
+The state cannot occur outside a test process.
+
+**A dummy key is NOT the fix, and was tried.** Setting
+`STRIPE_SECRET_KEY=sk_test_dummy` — the pattern `TeardownWorker.test.ts` and
+`BillingScheduleWorker.test.ts` use — gets past the throw and then issues a LIVE
+request: *"Stripe customer redaction hit a permanent Stripe error on retrieve."*
+Same three tests, different error. Those two siblings get away with it because
+they mock the Stripe module; this suite deliberately keeps everything real.
+
+**The fix is a module-boundary stub**, mirroring how this same file already
+stubs `sendInternalEmail`: `vi.mock` on `stripe-client` returns a narrow
+`getStripe` (retrieve / update / list / detach). Everything else stays real, and
+no production code changes. Verified as a real oracle, not a green light: making
+the stub's `retrieve` throw fails exactly the three tests CI failed, and the
+suite passes 21/21 with `STRIPE_SECRET_KEY` unset — CI's actual condition.
+
+**A stale comment sat directly over the defect, again.** The suite's header said
+*"the purge path touches Stripe — the mock transport short-circuits both."*
+`getStripe()` has no `MOCK_EXTERNAL_APIS` branch and never did. The sentence was
+harmless while the purge touched no Stripe API (teardown is pre-completed in
+these fixtures, so `teardown-stripe.ts` never runs) and became load-bearing the
+moment redaction moved to stage one. Corrected in place. **That is the third
+occurrence of D7's pattern on this branch, and the first one D7 itself did not
+predict.**
+
+**What this says about the verification this branch carries.** Six review axes,
+two red-team rounds and a green local gate all missed it. None of them could
+have caught it: the local gate reads `.env.local`, so the failing condition does
+not exist on this machine. CI was the only instrument that could see it, and it
+was not consulted until after `reviewed` was authorized. **The lesson is not
+"add another round" — it is that a local gate and CI test different worlds, and
+this branch treated the local one as authoritative for far too long.**
+
+**Surface amendment 6**, owner-approved 2026-09-04: adds
+`worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts`.
+The branch broke that suite, so the branch fixes it.
+
+**Verdict:** ACCEPT

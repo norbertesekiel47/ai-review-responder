@@ -18,10 +18,25 @@
 // Gating: SKIPS only when TEST_DATABASE_POOL_URL is absent. With the URL
 // present it is a HARD MERGE GATE — it must run, not skip.
 //
-// MOCK_EXTERNAL_APIS=true (same as the Playwright original): the delete_data
-// confirm path disconnects Zernio and the purge path touches Stripe — the
-// mock transport short-circuits both. All env mutations are restored in
-// afterAll so later files in the same worker see the original values.
+// MOCK_EXTERNAL_APIS=true (same as the Playwright original) short-circuits the
+// Zernio transport the delete_data confirm path uses. All env mutations are
+// restored in afterAll so later files in the same worker see the original
+// values.
+//
+// IT DOES NOT COVER STRIPE, and an earlier version of this comment said it did.
+// `getStripe()` (src/lib/payments/stripe-client.ts) has no MOCK_EXTERNAL_APIS
+// branch at all: it reads the key, throws without one, and otherwise builds a
+// real client that makes real HTTP calls. That was harmless while the purge
+// path touched no Stripe API — teardown is pre-completed in these fixtures, so
+// teardown-stripe.ts never runs. It stopped being harmless when Stripe Customer
+// redaction became the FIRST purge stage: `runFullProductionPurge` seeds a
+// `stripe_customer_id`, so the stage now resolves the client and calls
+// `customers.retrieve` for every full-purge scenario here.
+//
+// So the client is stubbed at its module boundary, the same way
+// `sendInternalEmail` is below — everything else stays real. A dummy
+// STRIPE_SECRET_KEY is NOT sufficient and was tried: it gets past the throw and
+// then issues a live request that fails with a permanent Stripe error.
 
 import { it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
@@ -79,6 +94,29 @@ const { testDbUrl, originalEnv } = vi.hoisted(() => {
     process.env.SUPABASE_SERVICE_KEY ??= 'integration-test-service-key';
   }
   return { testDbUrl, originalEnv };
+});
+
+// The redaction stage's Stripe client. Narrow on purpose: the stage only ever
+// retrieves, updates and lists/detaches payment methods, and this suite asserts
+// the PURGE's local outcome, not Stripe's. `redactStripeCustomer`'s own
+// behaviour is covered by its unit suite and by
+// stripe-customer-redaction-guard.integration.test.ts.
+vi.mock('../../../../src/lib/payments/stripe-client', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../../src/lib/payments/stripe-client')>();
+  return {
+    ...actual,
+    getStripe: () => ({
+      customers: {
+        retrieve: async (id: string) => ({ id, email: 'owner@example.test', metadata: {} }),
+        update: async (id: string) => ({ id }),
+      },
+      paymentMethods: {
+        list: async () => ({ data: [], has_more: false }),
+        detach: async (id: string) => ({ id }),
+      },
+    }),
+  };
 });
 
 // The purge receipt is the ONE place this suite needs the rendered email rather
