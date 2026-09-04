@@ -410,3 +410,95 @@ exemption, so the literals are the copy that drifted. `chart-tokens.ts` IS in
 this edit surface, but this is a token-ownership question, not a readability
 one, and the invariant says a change there must be deliberate and named.
 Recorded for a separate ticket.
+
+## Review round 1 — spec/correctness
+
+One axis. The wave carried no maintainability member and no red-team member,
+and both omissions are measurements rather than choices: the production diff is
+**283 lines** (`git diff --numstat` from the fork point, `__tests__` excluded)
+against the 300-line threshold, and `risk` is `normal`, whose lane records a
+red-team waiver. The measured number is recorded so a resumed session does not
+re-decide it.
+
+Nine findings, **all nine ACCEPTED**. Seven are fixed on the branch; two could
+not be, and say so below rather than being quietly downgraded.
+
+### F1 was confirmed by MUTATION, and it was the serious one
+
+> *"a per-location chart and its aggregate peer describe the same measure
+> identically"* — the promised test collected both label sets and never
+> compared them.
+
+Both arms asserted only "no row header is an ISO date". That was already true
+of the per-location chart **before** the fix, because its fallback read
+`Week 2` — not a date, but not ISO either. So the title's actual promise was
+unguarded, and `weekRowLabel` had no other test.
+
+I did not take this on the reviewer's word. Replacing `weekRowLabel(datum.id)`
+with `datum.label || 'MUTATION'` left **all six tests green** while the
+per-location table read `Jun 1 / MUTATION / Jun 15`. The one-line fix —
+`expect(aggregateWeeks).toEqual(perLocationWeeks)` — then killed that mutant on
+re-run. **The branch's headline behavioural change had no working guard until
+this round.**
+
+### F4 and F5 are both "the branch did the thing it criticised"
+
+- **F4:** the velocity caption shipped `last 0 weeks` on a real path.
+  `service.ts:416` resolves the widget through
+  `widgetOrFallback(weeklySeriesSettled, [])`, so a degraded query renders the
+  card with `[]`. This run's own T1 record calls that exact string meaningless.
+  `velocityCaption` now branches on the empty series.
+- **F5:** the new trend empty state repeated the unit and span that
+  `.rep-trend-head` prints six words above it — the duplication T5 reworded both
+  `Recent*` captions to avoid. The sub-label is now suppressed in the empty
+  branch, which keeps the promised assertion on the `<p>` intact.
+
+### F3: the caption said "snapshots" and counted DATES
+
+A `ranking_snapshots` row is keyed `(business_id, keyword, snapshot_date)`, so
+three tracked keywords over 26 dates is 78 snapshots announced as 26. The
+number was right and the noun was false. It now reads "readings".
+
+### Two findings whose fix does NOT land in this run
+
+**F2 — `edge_cases[4]` (prefers-contrast / colour-blind) is unmet, and until
+now unrecorded.** `StackedVelocityChart` and both `AggregateRankingCard` views
+separate series by colour alone, over a ramp whose positions 2, 3 and 6
+(`#16a34a`, `#ea580c`, `#dc2626`) are the canonical deuteranopia confusion set,
+with a colour-only legend beside them. A three-location owner who is a
+deuteranope cannot tell Downtown from Airport in the By Location view.
+
+Adding a non-colour channel is a visible design change outside all six gaps, so
+this run records the deferral instead — which is the honest half of the fix,
+because the defect's real cost was that **no run document mentioned it at all**,
+leaving a later session unable to tell "decided" from "overlooked". It needs its
+own ticket. Raised to the owner.
+
+**F6 — G5's recorded premise does not hold at realistic data volume.** T2
+closed G5 caption-only, on the reason that `RankingChart` "already draws its
+dates on the x-axis". It does — one **unthinned** label per date, unlike
+`weekShortLabel`. At the real bi-weekly-over-12-months cadence that is ~26
+labels in a ~190px band at 390px, overlapping at both intake widths. So the
+sighted half of G5 is closed only nominally. The fix belongs in
+`RankingCard`'s header, which is **outside `allowed_edit_surface`**. The
+premise is corrected in this file and in the ledger; the fix is follow-up.
+
+### The three documentation findings
+
+F8 (the ledger cited `RankingChart.tsx:L108–L112`, stale the moment this branch
+inserted `rankingSpanLabel` above that block — it is L133–137 at HEAD), F9 (the
+handoff still claimed "T1 done, no production code yet, four are `it.fails`"),
+and F7 (the window test still excluded both `Recent*` charts on a reason that
+expired at T5, leaving their new captions guarded by nothing — deleting either
+window clause kept every test green). All three fixed.
+
+### Follow-ups this run deliberately leaves behind
+
+1. `weekRowLabel` belongs in `velocity-math.ts` (outside the surface).
+2. `RANKING_COLORS` disagrees with `tokens.css`'s `--rw-chart-*` past entry one.
+3. F2's colour-only series encoding.
+4. F6's ranking x-axis crowding, and the header span that would fix it.
+5. The velocity tooltip still reads `Week of #3` on odd-indexed bars
+   (`VelocityChart.tsx`, reviewer appendix A2) — the same "not a date" defect G3
+   fixed one construct over. In-surface and a drop-in, but tooltips are
+   `non_goals[1]` (#1086's affordance), so it is recorded rather than taken.

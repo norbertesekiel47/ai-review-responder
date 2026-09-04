@@ -36,18 +36,22 @@ const OWNER_FADED = 'var(--rw-app-text-soft)';
  *
  * Ranking is sampled, not bucketed: the dashboard query returns every snapshot
  * of the last 12 months and the chart plots all of them, so the honest window
- * is the dated span of what is drawn — NOT a week count. The sighted reader
- * already gets these dates from the x-axis; the caption is where the
- * screen-reader path was missing them.
+ * is the dated span of what is drawn — NOT a week count.
  *
- * `labels` are the formatted date labels, `dates` the ascending ISO keys.
+ * It counts **snapshot DATES, not snapshots.** A `ranking_snapshots` row is
+ * keyed `(business_id, keyword, snapshot_date)`, so three tracked keywords over
+ * 26 dates is 78 snapshots — and `dates` here is a de-duplicated set of dates.
+ * The first draft said "26 snapshots", which was simply false (review F3).
+ *
+ * @param dates    ascending, de-duplicated ISO date keys
+ * @param labelFor formats one of those keys for display
  */
 function rankingSpanLabel(dates: string[], labelFor: (date: string) => string): string {
   const first = dates[0];
   const last = dates[dates.length - 1];
-  if (!first || !last) return 'no snapshots yet';
-  if (dates.length === 1) return `most recent snapshot, ${labelFor(first)}`;
-  return `most recent ${dates.length} snapshots, ${labelFor(first)} to ${labelFor(last)}`;
+  if (!first || !last) return 'no readings yet';
+  if (dates.length === 1) return `most recent reading, ${labelFor(first)}`;
+  return `most recent ${dates.length} readings, ${labelFor(first)} to ${labelFor(last)}`;
 }
 
 export function RankingChart({

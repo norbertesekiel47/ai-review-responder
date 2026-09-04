@@ -263,15 +263,17 @@ const CHART_SUBJECTS: ReadonlyArray<ChartSubject> = [
 ];
 
 /**
- * The charts whose accessible name is the ONLY place they speak — an SVG plot
- * with an `sr-only` table or a `role="img"` label behind it. The two `Recent*`
- * charts are excluded here and not forgotten: their window disagreement is a
- * different gap (G4) and is pinned by the aggregate-parity title below.
+ * Every chart that carries an accessible name, for the window assertion.
+ *
+ * The two `Recent*` charts were excluded here at T1, on the reason that
+ * including them would have made the window test re-fail G6 (no chart-level
+ * name) rather than G1/G5. **That reason expired at T5**, which gave both a
+ * caption: their window text was left guarded by nothing, and deleting the
+ * window clause from either caption kept every test green (review F7). They
+ * are in the list now, so the list is the whole set its title names.
  */
-const PLOTTED_CHART_SUBJECTS: ReadonlyArray<ChartSubject> = [
-  CHART_SUBJECTS[0]!,
-  CHART_SUBJECTS[1]!,
-  CHART_SUBJECTS[2]!,
+const NAMED_CHART_SUBJECTS: ReadonlyArray<ChartSubject> = [
+  ...CHART_SUBJECTS,
   { name: 'StackedVelocityChart', render: renderStackedVelocityChart },
 ];
 
@@ -318,7 +320,7 @@ describe('chart readability (feat/1088)', () => {
   // `trendSpanLabel` for the two velocity charts, the dated snapshot span for
   // `RankingChart`. `ReputationTrendChart` already carried it.
   it('every dashboard chart states the window it covers', async () => {
-    const named = await nameEachChart(PLOTTED_CHART_SUBJECTS);
+    const named = await nameEachChart(NAMED_CHART_SUBJECTS);
 
     expect(
       named.filter((entry) => !WINDOW_PATTERN.test(entry.name)).map((entry) => entry.chart),
@@ -366,6 +368,15 @@ describe('chart readability (feat/1088)', () => {
     const aggregateWeeks = rowHeaderTexts(await renderStackedVelocityChart());
     expect(aggregateWeeks).not.toHaveLength(0);
     expect(aggregateWeeks.filter((label) => ISO_DATE.test(label))).toEqual([]);
+
+    // The assertion the title actually promises, and the one this test was
+    // missing (review F1, confirmed by mutation): "no header is an ISO date"
+    // was true of the per-location chart BEFORE the fix too, because its
+    // fallback read `Week 2` — not a date, and not ISO either. Both fixtures
+    // are built from the same VELOCITY_WEEK_KEYS, so the two tables must
+    // produce the identical labels. Without this line, reverting
+    // `weekRowLabel` leaves the whole suite green.
+    expect(aggregateWeeks).toEqual(perLocationWeeks);
     cleanup();
 
     // G4: the two `Recent*` charts are NOT a per-location/aggregate pair. They

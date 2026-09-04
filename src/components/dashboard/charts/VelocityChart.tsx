@@ -74,6 +74,23 @@ export function VelocityAxisUnit() {
 }
 
 /**
+ * The caption a velocity table carries, for a series of `weeks` buckets.
+ *
+ * An empty series is a REAL path, not a theoretical one: `service.ts:416`
+ * resolves the widget through `widgetOrFallback(weeklySeriesSettled, [])`, so a
+ * degraded velocity query renders the card with `[]`. `trendSpanLabel(0)` would
+ * then say `last 0 weeks` — the exact string this run's own T1 record calls
+ * meaningless — leaving a reader unable to tell a quiet period from a broken
+ * widget. So the empty branch says what the chart WOULD plot instead of
+ * asserting a window of zero (review F4).
+ */
+export function velocityCaption(subject: string, weeks: number): string {
+  return weeks === 0
+    ? `${subject} — no weeks to plot yet`
+    : `${subject}, ${trendSpanLabel(weeks)}`;
+}
+
+/**
  * Change vs the previous week's count, from the plotted data. The first week
  * has no prior, so no delta renders.
  */
@@ -122,7 +139,7 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
             it (#1088 G1): a screen-reader user reading this table gets every
             count and, without it, no period. `trendSpanLabel` is the one owner
             of the phrase (UX audit D36) — the span IS the bucket count. */}
-        <caption>{`Review velocity history, ${trendSpanLabel(data.length)}`}</caption>
+        <caption>{velocityCaption('Review velocity history', data.length)}</caption>
         <thead>
           <tr><th scope="col">Week</th><th scope="col">Reviews</th></tr>
         </thead>

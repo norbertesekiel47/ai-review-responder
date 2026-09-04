@@ -2,126 +2,76 @@
 
 Resume with `/feature-resume feat/1088-chart-readability`.
 
+> **This file was stale for the whole of T2–T6, and review F9 caught it.** It
+> still said "T1 done — 1 of 6 tracers", "no production code yet" and "four are
+> `it.fails`", none of which had been true for six commits, and it pinned a
+> phase SHA that two rebases had left off the branch. It is rewritten to HEAD
+> below. **The deviations file is the authoritative record** — it was kept
+> current throughout. If the two ever disagree again, believe the deviations
+> file and fix this one.
+
 ## Where this run is
 
-**Step 4, T1 done — 1 of 6 tracers.** Phase `gate_green` at `0a4edca8`, gate
-GREEN on all 26 rows (full mode). No production code yet; T1 is tests only.
-Prepared 2026-09-03; resumed, corrected and executed 2026-09-04.
+**Step 6 done — all six tracers complete, review round 1 triaged and fixed.**
+Execution is finished. What remains is the post-fix gate, the review gate, the
+status check (it prints WAIVED) and the `reviewed` transition.
 
-Rebased onto `origin/main` at `dec98bab` while still at `plan_approved`, so both
-#1087 and #1086 are taken and the `console.css` overlap closed at zero cost.
+Read `docs/superpowers/plans/feat-1088-chart-readability-deviations.md` before
+anything else. It carries the corrected measurement, every tracer's decisions,
+the owner rulings and the full review-round record.
 
-**Next: T2** — put the window into each chart's own caption / label, and name
-the unit and window in `ReputationTrendChart`'s empty state. Then T3 (units on
-the velocity y-axis), then **T4, which gates T5** — the owner sees ONE reworked
-chart at 390px and 1440px before the remaining charts are touched.
+## What shipped
 
-### The four red tests are `it.fails`, and that is load-bearing
-
-`src/components/dashboard/kpi/__tests__/chart-readability.test.tsx` carries all
-five promised titles verbatim. Four are `it.fails`, so the suite is green today
-(1 passed, 4 expected fail) and the gate stays honest while the spec stays red.
-
-**This is a forcing function in BOTH directions.** The moment a tracer closes
-its gap the `.fails` itself starts failing, so no tracer can land without
-flipping its own test back to a plain `it`. Do not "fix" a newly failing
-`.fails` by deleting the test — that is the signal working.
-
-Ownership: T2 owns the window title and the empty-state title; T5 owns the
-accessible-name title and the aggregate-parity title.
-
-### Surface amendment 1 of 2 is SPENT
-
-The intake's two `__tests__` entries were bare directories, which the guard
-admits no file through. Fixed to `.../__tests__/*` with owner sign-off.
-**One amendment remains before the abort trigger.** Do not spend it casually.
-
-When replaying the guard by hand, wrap it in `bash -c '…'`. The Bash tool runs
-zsh, which reports a false NO MATCH for a correct `/*` entry — indistinguishable
-from the real bug.
-
-## Read these, by path
-
-| What | Where |
+| Tracer | What it did |
 |---|---|
-| Locked scope contract | `docs/superpowers/plans/feat-1088-chart-readability-intake.json` |
-| Plan, with the CORRECTED measurement | `docs/superpowers/plans/feat-1088-chart-readability.md` |
-| **Why the original measurement was wrong** | `docs/superpowers/plans/feat-1088-chart-readability-deviations.md` |
-| Decision ticket | `gh issue view 1088` |
-| Build ticket | `gh issue view 1095` |
+| T1 | The five promised tests, four red on purpose |
+| T2 | Every chart states its window where it speaks (G1, G5) |
+| T3 | `VelocityAxisUnit` — the velocity y-axis names its unit (G2) |
+| T4 | One reworked chart, rendered before/after at 390px and 1440px |
+| T5 | Chart-level names on both `Recent*` charts (G6); one week-label owner across the velocity pair (G3); the owner-authorised `avg` overlap fix |
+| T6 | Deviations + `arch-review-log.md` |
 
-## The measurement — CORRECTED 2026-09-04. Do not trust the old one.
+All five promised titles are plain `it(` and green. No `it.fails` remains.
 
-> This section previously read: *"Four of five charts have no accessible name at
-> all."* **That was false**, and it was the ticket's whole justification. The
-> grep behind it searched `aria-label`, `role="img"` and `<title>`, and missed
-> the `sr-only` table pattern two of the charts use.
+## Three things a resuming session must not re-derive
 
-**Every one of the five charts is already reachable by a screen reader.**
-`VelocityChart` (L76) and `RankingChart` (L72) each render an `sr-only`
-`<table>` with a `<caption>` and mark the SVG `aria-hidden="true"` — exposing
-the FULL data series, which is stronger than the `aria-label` summary the plan
-first proposed to copy onto them. `ReputationTrendChart` (L91) uses
-`role="img"` + `aria-label`. The two `Recent*` charts label every row (L40, L55)
-but carry no chart-level name.
+1. **The ticket's original measurement was FALSE.** It claimed four of five
+   charts were silent to a screen reader. Every chart already spoke. The real
+   gap was the missing unit and window. Do not "restore" the aria-label work
+   the plan first proposed — the deviations file explains why it was void.
+2. **The line not to cross.** Presentation only. `src/lib/kpi/fragments.ts`
+   owns the **Review-time anchor** (ADR 0019 / #688 / #757) and is outside the
+   edit surface. A chart that buckets wrongly is a separate `RISK=high` ticket.
+3. **Surface amendment 1 of 2 is SPENT** (the intake's two `__tests__`
+   directory entries needed a trailing `/*`). One remains before the abort
+   trigger. Do not spend it casually.
 
-`.sr-only` is Tailwind v4's built-in visually-hidden utility (`globals.css:1`).
+## The guard, and this session's output style
 
-**Tracer T2 as originally written had no work in it and is replaced.** The gap
-is not silence — it is that the charts give numbers with no unit and no period.
-Six gaps (G1–G6) replace the false one; the plan table cites each to a line.
+`scripts/arm-check.sh` reports ARMED and the hook IS registered. But
+`.claude/hooks/edit-surface-guard.sh` is a **PreToolUse hook on
+`Edit`/`Write`/`MultiEdit`**, so a session that routes file changes through
+Bash bypasses it entirely.
 
-The intake is NOT amended: every `goal` line, `user_visible_behavior` line and
-invariant survived. Deviations entry, not a surface amendment.
+**This session ran under exactly such an output style and made the opposite
+call**, per `working-rules.md` § Worktree path discipline, which overrides the
+output style. Every repo edit went through Write/Edit. That was not theoretical:
+`bash-write-guard.sh` blocked a `cp` during the F1 mutation test, and the
+mutation was re-run through Edit instead. **A future session resuming this
+branch must make the same call, and say so out loud when it does.**
 
-## The empty-series edge case was re-pointed
+## Follow-ups recorded, not done
 
-Owner ruled 2026-09-04: both `Recent*` charts keep `return null` at `total === 0`
-— deliberate, so the caller drops the slot cleanly. The intake edge case now
-targets `ReputationTrendChart`, whose empty state (L82) names neither its unit
-nor its window. The promised-test title is UNCHANGED — the gate matches the
-exact string, and retitling would trade a real check for a green row.
+Five, listed at the end of the deviations file. Two matter most:
 
-## The line not to cross
-
-This is **presentation only**. `src/lib/kpi/fragments.ts` owns the bucketing
-(ADR 0019 / #688 / #757) and is deliberately OUTSIDE the edit surface. A chart
-that is wrong because it buckets wrongly is a separate `RISK=high` ticket — do
-not fix it quietly here.
-
-## Do this first
-
-T4 shows the owner ONE reworked chart at 390px and 1440px before the rest are
-touched. Five charts redesigned before anyone has reacted is the failure mode
-this ordering exists to prevent.
-
-## Coordinate with #1086
-
-Charts take NO info tips. A missing unit is a LABEL fix and belongs here. If
-that boundary moves, both intakes change.
-
-## The guard says ARMED. Verify that it binds.
-
-`scripts/arm-check.sh` reports ARMED and is telling the truth — the hook IS
-registered. But `.claude/hooks/edit-surface-guard.sh` is a **PreToolUse hook on
-`Edit` / `Write` / `MultiEdit`**, and its own header names the gap:
-
-> Known gap (inherent to PreToolUse): file changes made through Bash … routing
-> repo edits through Bash during a feature run.
-
-A session whose output mode routes file changes through **Bash** bypasses the
-guard entirely. On feat/1092 three files landed outside the declared surface and
-nothing stopped them. If that is this session, **enforce the surface by hand**:
-diff every commit's `--name-only` against `allowed_edit_surface` before
-committing, and handle `->` rename entries on BOTH sides.
-
-**Confirmed on 2026-09-04: this warning fired.** The resuming session ran under
-an output style that instructs file changes through Bash — exactly the bypass
-described above. The project rule in
-`.agents/skills/feature/references/working-rules.md` § Worktree path discipline
-("No bash writes to repo files") **overrides the output style**, and the session
-routed every repo edit through Write/Edit so the guard bound. Any future session
-resuming this branch must make the same call, and say so out loud when it does.
+- **F2 — colour-blind readers.** The stacked velocity chart and both aggregate
+  ranking views separate series by colour alone, over a ramp whose positions
+  2/3/6 are the deuteranopia confusion set. `edge_cases[4]` is unmet. It needs
+  its own ticket; the deferral is now recorded rather than silent.
+- **F6 — G5 is only nominally closed for sighted readers.** The ranking x-axis
+  draws one unthinned label per date, so at real cadence ~26 labels overlap at
+  both intake widths. The fix belongs in `RankingCard`'s header, which is
+  outside this edit surface.
 
 ## Reproduce the fallow gate properly
 

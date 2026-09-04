@@ -75,7 +75,11 @@ export function ReputationTrendChart({ trend }: Props) {
     <div className="card rep-trend">
       <div className="rep-trend-head">
         <h2 className="card-h2" style={{ margin: 0 }}>Reputation trend</h2>
-        <span className="rep-trend-sub">star-equivalent · {spanLabel}</span>
+        {/* The empty state below states the unit and the span in a sentence, so
+            this sub-label would say both a second time six words above it —
+            the duplication T5 reworded both `Recent*` captions to avoid
+            (review F5). One statement per card, whichever branch renders. */}
+        {points.length > 0 && <span className="rep-trend-sub">star-equivalent · {spanLabel}</span>}
       </div>
 
       {points.length === 0 ? (
