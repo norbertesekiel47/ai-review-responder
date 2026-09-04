@@ -260,3 +260,41 @@ Not a finding about this branch. Recorded so the next run does not pay it twice,
 and promoted with the other durable lessons at step 8.
 
 **Verdict:** ACCEPT.
+
+## D13 — red-team round 2 found three P0s in round 1's own fixes
+
+There is no round 3; `round-start` refuses one. These fixes therefore carry NO
+adversarial round behind them, and that is stated plainly rather than glossed.
+
+**P0-a — the cap did not exist.** `noteUnmappedBlockReasons` tested the Set's
+SIZE and then added every fresh code, so one call carrying N new codes grew the
+Set to N. Four documents asserted a bound the code did not enforce, and the
+correctly-bounded mutant survived 29/29 because every case fed one code at a
+time. The fix computes `room` from the cap and slices; the codes it cannot carry
+are never marked as reported, and the call emits the overflow marker alongside
+its report. A new case drives a single call with `cap + 3` codes.
+
+**P0-b — "the only one above `warning`" was false when written.**
+`withLedgerAttribution` has raised `error`-level `subsystem:refusal_ledger`
+issues since #1079, and this branch's own overflow marker adds a third. A rule
+filtering on subsystem plus level would page on three different faults. The
+runbook now says: rule on the `fault` tag, never on subsystem-plus-level.
+
+**P0-c — the overflow marker's durable log line had no oracle.** Deleting it
+survived the whole suite, while the module latches on a QUEUED capture on the
+stated grounds that the log line is what makes that acceptable. An untested
+durable transport cannot carry that argument. The cap case now asserts it.
+
+**P1s, all fixed:** the overflow catch's cooldown had no oracle either (new
+case); "a new code is always reported" was false past the cap and contradicted
+the paragraph four lines above it; both new signals were missing from §1a-do's
+click-path table and from its register of un-ruled signals, which is the same
+class of defect that register exists to prevent.
+
+**P2s, recorded not fixed:** `generate-draft.ts:77` interpolates a `businessId`
+into a `captureMessage`, so it opens one issue group per business under a
+first-seen rule — unchanged code, a separate ticket. And round 1's F-08 (the
+both-transports-throw case may be redundant with the Sentry-throw case) is
+carried forward open, unmeasured, because case 4's mutation budget was spent.
+
+**Verdict:** ACCEPT.

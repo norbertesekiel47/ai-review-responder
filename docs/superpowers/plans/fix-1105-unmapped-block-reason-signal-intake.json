@@ -87,13 +87,15 @@
     "with the ledger on, an unmapped block reason invokes no vocabulary-hole signal",
     "noteUnmappedBlockReasons uses one constant Sentry message whatever the codes are",
     "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
-    "an enabled ledger does not re-arm the vocabulary-hole latch"
+    "an enabled ledger does not re-arm the vocabulary-hole latch",
+    "noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap",
+    "a synchronously throwing Sentry buys a cooldown on the overflow marker too"
   ],
   "verification_commands": [
     "pnpm vitest run src/lib/refusals/__tests__/write.test.ts worker/jobs/response-generation/__tests__/persist.test.ts"
   ],
   "estimated_prod_lines": 245,
-  "estimated_test_lines": 340,
+  "estimated_test_lines": 420,
   "dependencies_added": [],
   "rollback_plan": "Revert the branch. The change adds one observability signal and no state, no schema and no control-flow branch, so a revert restores the prior behaviour exactly. REFUSAL_LEDGER_ENABLED keeps its meaning either way.",
   "observability": [

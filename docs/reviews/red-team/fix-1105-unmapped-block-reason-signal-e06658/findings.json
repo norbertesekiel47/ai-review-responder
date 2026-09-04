@@ -5,180 +5,112 @@
   "branch": "fix/1105-unmapped-block-reason-signal",
   "fork_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
   "merge_base_sha": "313a3e01fa73612037eb6674718619e5bf75eb4b",
-  "head_sha": "01aa07f3113af2688137f5d4004419ac03cc4264",
-  "intake_sha256": "9b3075f79c1c6daea851b6197b18c364d71485f7f12a77776559f3ba3430f82b",
+  "head_sha": "05f94055edd66d852fa064ddbcaf8f80d7e5622c",
+  "intake_sha256": "ccf6e2714576b46828869bc1f1fa31b0a8713fb423986b98d0a68677e7639f4c",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-04T05:26:52.781283Z",
+  "round": 2,
+  "generated_at": "2026-09-04T07:14:21.500137Z",
   "inventory": [
     {
-      "id": "M-w05",
-      "test": "noteUnmappedBlockReasons captures one error-level Sentry message naming every unmapped code",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: write.ts Sentry options `level: 'error'` -> `'warning'`. Test failed."
-    },
-    {
-      "id": "M-w15",
-      "test": "noteUnmappedBlockReasons signals for the codes it is given without re-testing membership",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the helper re-filters its own argument with Object.hasOwn against POLICY_GATE_HELD_REFUSAL_CATEGORIES (the reverted plan-D1 design). A mapped set then captures nothing. Test failed."
-    },
-    {
-      "id": "M-w03",
-      "test": "noteUnmappedBlockReasons signals once per process and stays silent on the second unmapped set",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the `unmappedSignalledThisProcess = true` assignment deleted. Test failed."
-    },
-    {
-      "id": "M-w02",
-      "test": "a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the Sentry `catch` sets the PROCESS latch instead of the cooldown deadline. Test failed on attempt 2."
-    },
-    {
-      "id": "M-w04",
-      "test": "a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the `Date.now() < nextUnmappedAttemptAt` conjunct removed from the entry guard, so the cooldown window no longer suppresses. Test failed."
-    },
-    {
-      "id": "M-w08",
-      "test": "a throwing logger does not stop noteUnmappedBlockReasons from capturing",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the logger.warn `try`/`catch` removed, so a broken console escapes before the capture. Test failed."
-    },
-    {
-      "id": "M-w16",
-      "test": "noteUnmappedBlockReasons leaves the ledger-dark episode latch untouched",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the vocabulary signal also WRITES `warnedThisEpisode`, consuming the ledger-dark episode latch. Test failed."
-    },
-    {
-      "id": "M-w10",
-      "test": "a prior ledger-dark warning does not suppress noteUnmappedBlockReasons",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the entry guard READS `warnedThisEpisode` instead of `unmappedSignalledThisProcess` ([R1-2]\u2019s exact target). Test failed."
-    },
-    {
-      "id": "M-w11",
-      "test": "noteUnmappedBlockReasons never invokes resolvePolicyGateRefusal",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the helper calls `resolvePolicyGateRefusal(unmapped)` inside a `try`/`catch` before joining ([R1-1]\u2019s exact target: resolve-and-catch). Test failed."
-    },
-    {
-      "id": "M-w09",
-      "test": "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the log message loses its identity text ('refusal ledger vocabulary hole' -> 'refusal ledger note'). Test failed."
-    },
-    {
-      "id": "M-w12",
-      "test": "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the logger receives `codes: unmapped` (an ARRAY) instead of the joined string. Test failed \u2014 this is the measured proof of the branch\u2019s sanitizeAnalyticsProperties array-drop claim."
-    },
-    {
-      "id": "M-w13",
-      "test": "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the log is emitted BEFORE the latch guard, so it fires on every call while only Sentry is latched ([R1-3]\u2019s exact target). Test failed."
-    },
-    {
-      "id": "M-w01",
-      "test": "noteUnmappedBlockReasons ignores an empty block-reason set",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: `if (unmapped.length === 0) return;` deleted ([R1-5]\u2019s exact target). Test failed."
-    },
-    {
-      "id": "M-w06",
-      "test": "noteUnmappedBlockReasons preserves unmapped codes in input order",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: `[...new Set(unmapped)].join()` \u2014 DE-DUPLICATION. Test failed; this is what the repeated-code fixture buys over two distinct codes ([R1-6])."
-    },
-    {
-      "id": "M-w07",
-      "test": "noteUnmappedBlockReasons preserves unmapped codes in input order",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: `[...unmapped].sort().join()` \u2014 SORTING. Test failed."
-    },
-    {
-      "id": "M-w14",
-      "test": "simultaneously throwing logger and Sentry transports do not escape noteUnmappedBlockReasons",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the Sentry `try`/`catch` removed, so a throwing transport escapes the helper. Test failed. See F-06: case 4 would very likely kill the same mutant; unmeasured (case 4\u2019s 2-mutation budget was spent)."
-    },
-    {
-      "id": "M-p06",
-      "test": "invariants: with the ledger off, an unmapped block reason signals the vocabulary hole and raises no ledger-dark warning",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: guard 4\u2019s off-arm loses the `noteUnmappedBlockReasons` call entirely (regression to pre-#1105). Test failed."
-    },
-    {
-      "id": "M-p03",
-      "test": "invariants: with the ledger off, a fully mapped held decision warns ledger-dark and signals no vocabulary hole",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: the call site drops its `unmapped.length > 0` guard and always calls the helper. Test failed \u2014 the negative arm IS falsifiable."
-    },
-    {
-      "id": "M-p04",
-      "test": "invariants: with the ledger off, a veto-only decision raises neither signal",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
-      "outcome": "killed",
-      "reason": "mutant: `unmappedBlockReasons` filter inverted (MAPPED members reported as the hole). Test failed \u2014 the negative arm IS falsifiable."
-    },
-    {
-      "id": "M-p01",
+      "id": "R2-M01",
       "test": "invariants: with the ledger off, a mixed mapped and unmapped decision signals the vocabulary hole only",
       "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "outcome": "killed",
+      "reason": "Round 1's P0 mutant re-applied: persist.ts:968 `noteUnmappedBlockReasons(unmapped)` -> `noteUnmappedBlockReasons(autoDecision.blockReasons)`. Round 1: survived 59/59. Round 2: 58/59, this case fails. The argument assertion at persist.test.ts:1322-1325 kills it. F-01 verified fixed."
+    },
+    {
+      "id": "R2-M02",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "write.ts:571 `signalledUnmappedCodes.size >= UNMAPPED_SIGNAL_CAP` -> `> `. 28/29; this case fails on `expect(message).toBe(UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE)`. The off-by-one AT the cap is pinned: the code at size==cap overflows and the one at size==cap-1 reports."
+    },
+    {
+      "id": "R2-M03",
+      "test": "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
       "outcome": "survived-confirmed-P0",
-      "finding_id": "F-01",
-      "reason": "mutant: `noteUnmappedBlockReasons(unmapped)` -> `noteUnmappedBlockReasons(autoDecision.blockReasons)`. The single case PASSED, and so did all 59 cases in the file. Arbiter: non-equivalent (the emitted Sentry message and log line name MAPPED codes as unmapped for any mixed set) and on a branch this case executes (the case IS the mixed set). See F-01."
+      "finding_id": "R2-03",
+      "reason": "write.ts:630-636: the whole `logger.warn` block deleted from noteUnmappedOverflow. Survived 29/29 of the only suite that reaches the function (reverse-import sweep: write.ts, write.test.ts, persist.ts, persist.test.ts and docs only)."
     },
     {
-      "id": "M-p02",
-      "test": "invariants: with the ledger off, an inherited object key is treated as an unmapped block reason",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "id": "R2-M04",
+      "test": "(no covering case) src/lib/refusals/write.ts:645-650 \u2014 noteUnmappedOverflow's Sentry catch, the shared-cooldown arm",
+      "file": "src/lib/refusals/write.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "write.ts:649 `nextUnmappedAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS` deleted. Survived 29/29, but NO case in the suite makes Sentry.captureMessage throw while the cap is already reached, so the mutated line is on a branch no test executes. Per the arbiter rule that is inconclusive/oracle, not a confirmed survivor. The sibling normal-path cooldown is pinned by four failures plus a recovery (write.test.ts:1024-1068); the overflow arm has nothing."
+    },
+    {
+      "id": "R2-M05",
+      "test": "noteUnmappedBlockReasons reports each distinct code once and repeats none",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
       "outcome": "killed",
-      "reason": "mutant: `!Object.hasOwn(MAP, code)` -> `!(code in MAP)` ([R1-4]\u2019s exact target). Test failed \u2014 the inherited-key fixture does pin the membership test."
+      "reason": "write.ts:569 `if (fresh.length === 0)` -> `if (unmapped.length === 0)`. 25/29; four cases fail including this one \u2014 a repeated code then emits an event whose extra.codes is the empty string."
     },
     {
-      "id": "M-p05",
-      "test": "invariants: with the ledger on, an unmapped block reason invokes no vocabulary-hole signal",
-      "file": "worker/jobs/response-generation/__tests__/persist.test.ts",
+      "id": "R2-M06",
+      "test": "noteUnmappedBlockReasons reports each distinct code once and repeats none",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
       "outcome": "killed",
-      "reason": "mutant: the signal is raised BEFORE the kill-switch read, so it also fires on the on-arm (double-reporting). Test failed \u2014 the negative arm IS falsifiable."
+      "reason": "write.ts:568 the per-code filter dropped (`unmapped.slice()`). 25/29; four cases fail. The per-code latch is real, not decorative."
     },
     {
-      "id": "M-int01",
-      "test": "refusal-write.integration.test.ts (32 cases, guard 4 through the real auto-approval gate)",
+      "id": "R2-M07",
+      "test": "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "write.ts:604 `for (const code of fresh) add(code)` -> add only `fresh[0]`. 28/29; this case fails, because the second identical call then finds one code still fresh and logs a second line. Partial marking is caught."
+    },
+    {
+      "id": "R2-M08",
+      "test": "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "R2-01",
+      "reason": "write.ts:604 `for (const code of fresh)` -> `for (const code of fresh.slice(0, UNMAPPED_SIGNAL_CAP - signalledUnmappedCodes.size))`, i.e. the correctly-bounded form the docblock claims. Survived 29/29. Same mutation family as R2-M07, which died; only the cap-boundary variant lives, because every cap-adjacent case feeds exactly one code per call."
+    },
+    {
+      "id": "R2-M09",
+      "test": "noteUnmappedBlockReasons uses one constant Sentry message whatever the codes are",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "write.ts:596 `captureMessage(UNMAPPED_BLOCK_REASON_MESSAGE, ...)` -> the constant with the joined codes appended. 27/29; this case and the naming case both fail. The grouping pin is falsifiable, and a `toContain`-shaped assertion would not have caught it."
+    },
+    {
+      "id": "R2-M10",
+      "test": "an enabled ledger does not re-arm the vocabulary-hole latch",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "write.ts:423-426 `endDisabledEpisode()` given `signalledUnmappedCodes.clear()`. 28/29; only this case fails. Plan decision D3, which had no oracle at all before this round, now has one."
+    },
+    {
+      "id": "R2-M11",
+      "test": "noteUnmappedBlockReasons preserves unmapped codes in input order",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed",
+      "reason": "write.ts:582 `fresh.join(', ')` -> `[...new Set(fresh)].sort().join(', ')`. 28/29; only this case fails. The verbatim-order/duplicates-kept contract still discriminates after the assertion moved from the Sentry message to extra.codes."
+    },
+    {
+      "id": "R2-X01",
+      "test": "worker/jobs/response-generation/persist.ts:782-801 and :962-965 \u2014 docblock and comment hunks",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "outcome": "excluded",
+      "reason": "Prose-only hunks with no executable change; nothing to mutate. Their factual claims are audited under duty 3 instead and were verified TRUE against vocabulary.ts:487/:658 and the six direct-map-index call sites."
+    },
+    {
+      "id": "R2-X02",
+      "test": "the round-1 reviewed surface (24 rows, 21 killed) at 01aa07f3",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "excluded",
+      "reason": "Out of round-2 scope by instruction: round 1's negative results stand (mutual exclusivity, the seven review-added cases, the three must-NOT-fire lane cases). Re-mutating them would be over-reviewing."
+    },
+    {
+      "id": "R2-X03",
+      "test": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts (32 cases)",
       "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Live-DB covering suite for guard 4, reached by reverse import search on persist.ts. Run GREEN at HEAD 01aa07f3 (32/32) as a regression check, but EXCLUDED from mutation: it drives the real gate, so every block reason it can produce is a member of the compiled AutoApprovalBlockReason union and therefore mapped \u2014 the unmapped branch is structurally unreachable there, so any survivor would be \"on a branch this test never executes\" rather than an oracle gap. Recorded in deviations D4 and independently verified here."
-    },
-    {
-      "id": "M-int02",
-      "test": "write.integration.test.ts / read.integration.test.ts / vocabulary.test.ts (other importers of src/lib/refusals/write.ts)",
-      "file": "src/lib/refusals/__tests__/",
-      "outcome": "excluded",
-      "reason": "Reverse import search on the changed production symbols (`noteUnmappedBlockReasons`, `resetUnmappedBlockReasonSignalForTests`, `unmappedBlockReasons`) returns exactly four code files: write.ts, persist.ts and their two suites. No other suite imports the changed symbols, so none of these can be a covering test for a changed hunk. Excluded as non-covering, not as unrun."
+      "reason": "Unchanged in 01aa07f3..05f94055 and excluded on the same grounds round 1 recorded; the round-2 hunks are all inside the mocked write module, which this live-DB suite exercises for real but does not assert the Sentry/log transports of."
     }
   ],
   "findings": [
@@ -186,108 +118,180 @@
       "id": "F-01",
       "severity": "P0",
       "duty": 1,
-      "at": "worker/jobs/response-generation/persist.ts:960",
-      "title": "The filtered argument to noteUnmappedBlockReasons is unasserted: passing the WHOLE block-reason set survives all 59 cases of persist.test.ts",
-      "disposition": "open",
-      "arbiter_reasoning": "Mutant applied: `if (unmapped.length > 0) noteUnmappedBlockReasons(unmapped);` -> `... noteUnmappedBlockReasons(autoDecision.blockReasons);`. The designated case passed, and a full-file run passed 59/59. NOT equivalent: for a mixed set the helper joins and emits a DIFFERENT string, so the operator Sentry issue and the durable log line would read \"...has no category mapping: rating_below_threshold, ghost_reason\" \u2014 naming a mapped code as unmapped, which is exactly the operator confusion the ticket exists to remove. NOT on an unexecuted branch: the mixed case runs this line. The hole is structural \u2014 the only two cases that assert `mock.calls[0]![0]` (case 1 and the toString case) pass ALL-unmapped sets, where filtered and unfiltered are the same array; the mixed case, the one input that discriminates, asserts only `toHaveBeenCalledTimes(1)`. write.ts:488-492 and the docs/directory.md row both state the parameter contract as \"already-unmapped codes\", and nothing enforces it. Fix is one line: add `expect(noteUnmappedBlockReasonsSpy.mock.calls[0]![0]).toEqual(['ghost_reason'])` to the mixed case."
+      "at": "worker/jobs/response-generation/persist.ts:968",
+      "disposition": "fixed",
+      "title": "[round 1] The filtered argument to noteUnmappedBlockReasons was unasserted",
+      "reason": "Fixed at 05f94055: persist.test.ts:1322-1325 asserts the ARGUMENT, and the round-1 mutant now kills (R2-M01)."
     },
     {
       "id": "F-02",
       "severity": "P1",
       "duty": 5,
       "at": "docs/runbooks/beta-launch-alerting.md:54-83",
-      "title": "The alerting runbook still says an unmapped block reason raises nothing, and records only three warning-level emitters where HEAD has a fourth at level error",
-      "disposition": "open",
-      "reason": "Three facets of the six contradict the emitted signal. (a) Line 73-77 states verbatim: \"One blind spot #1079 leaves standing ... an UNMAPPED block reason (the #1080 fault class) raises nothing on this lane while the switch is off\". That is FALSE at HEAD \u2014 it is precisely what this branch fixes, and the branch corrected the identical sentence in write.ts's withLedgerAttribution docblock while leaving this one standing. (b) Line 54-59 scopes the rule to issues tagged `subsystem:refusal_ledger` \"at level `warning`\", \"Emitted by **three** callers ... all through the shared private `warnLedgerDisabled()`\". HEAD adds a FOURTH emitter carrying the SAME tag at level `error` and NOT through warnLedgerDisabled. (c) The new `fault: unmapped_block_reason` tag and its grouping title have no row anywhere in the runbook, and line 312 still names `subsystem:refusal_ledger` as \"the ledger's only gap detector\" with no rule in either Sentry project. Operational consequence: the row teaches an operator that every `subsystem:refusal_ledger` issue is a deliberate operator state rather than a defect, and any tag-based Discord rule built from this row would silently route the new error signal under that reading \u2014 re-creating the exact confusion at the alert layer. docs/runbooks/ is NOT in allowed_edit_surface, which is why this was missed; fixing it needs surface amendment 2, itself an abort-criteria trigger (D8)."
+      "disposition": "fixed",
+      "title": "[round 1] The alerting runbook said an unmapped block reason raises nothing, and recorded only three warning-level emitters",
+      "reason": "Fixed at 05f94055: lines 78-90 correct the blind-spot sentence and lines 92-127 add the new item. The replacement text raises R2-02, R2-05 and R2-06 as NEW findings; those are not a failure to fix this one."
     },
     {
       "id": "F-03",
       "severity": "P1",
       "duty": 3,
       "at": ".claude/reference/arch-review-log.md:1663",
-      "title": "\"Promoted to lab notes.\" is false \u2014 lab-notes.md is unchanged on this branch and holds no #1105 or array-drop entry",
-      "disposition": "open",
-      "reason": "The row's item (d) ends \"Both transports now carry one joined string. Promoted to lab notes.\" `git diff 313a3e01..01aa07f3 --name-only` does not list `.claude/reference/lab-notes.md`; `rg \"1105\" .claude/reference/lab-notes.md` returns 0 and no sanitizeAnalyticsProperties / array-drop lesson exists there. The path is also outside allowed_edit_surface, so the promotion could not have happened on this branch. The branch's own deviations D6 states it in the FUTURE tense \u2014 \"it is promoted to lab notes at step 8\" \u2014 so two changed docs contradict each other and the arch log is the false one. \"Promoted to lab notes\" appears exactly once in the whole file (this row), so it is not an established shorthand for a pending action. This is the third recorded falsification of this file."
+      "disposition": "fixed",
+      "title": "[round 1] \"Promoted to lab notes\" was false",
+      "reason": "Fixed: the row now says promotion happens at step 8. Verified lab-notes.md is untouched by 313a3e01..05f94055 and holds no #1105 reference."
     },
     {
       "id": "F-04",
       "severity": "P1",
       "duty": 3,
       "at": "worker/jobs/response-generation/__tests__/persist.test.ts:1259",
-      "title": "Test comment asserts the exact opposite of the implementation: \"the call site hands it everything and does not pre-filter\"",
-      "disposition": "open",
-      "reason": "The comment reads \"THE SIGNAL, receiving the set VERBATIM. The helper owns the membership test, so the call site hands it everything and does not pre-filter.\" At HEAD persist.ts:960 passes the FILTERED `unmapped`, and persist.ts:751 owns the `Object.hasOwn` test \u2014 deviations D5 records that reversal explicitly. The comment survives from the reverted design and now contradicts write.ts:488, the docs/directory.md row, the arch-review-log row and D5, all in the same diff. It is also the proximate reason F-01 is invisible: a reader of this case is told the argument is deliberately unfiltered, so the missing argument assertion looks intentional."
+      "disposition": "fixed",
+      "title": "[round 1] Test comment asserted the opposite of the implementation",
+      "reason": "Fixed: the comment now reads \"receiving the FILTERED subset. The CALL SITE owns the membership test\"."
     },
     {
       "id": "F-05",
       "severity": "P1",
       "duty": 3,
       "at": "src/lib/refusals/__tests__/write.test.ts:871",
-      "title": "\"SEVEN OF THESE THIRTEEN CASES ... THE OTHER SIX\" \u2014 the describe block holds twelve cases, six of them review-added",
-      "disposition": "open",
-      "reason": "`describe('noteUnmappedBlockReasons')` contains 12 `it(` cases at HEAD, not 13. The plan's T1 lists 13 titles for this file, but deviations D5 MOVED one of them \u2014 [R1-4], the inherited-key case \u2014 to persist.test.ts, so 12 remain and 6 of them (not 7) came from plan review; the seventh review-added case now lives in the other file. The intake's 18 titles resolve as 12 + 6, which is correct; only this docblock's arithmetic is wrong. It matters because the same paragraph instructs a future agent \"Do not delete one as redundant without re-deriving why it was added\" \u2014 an agent counting 12 and hunting for 7 review-added cases cannot complete that instruction."
+      "disposition": "fixed",
+      "title": "[round 1] \"SEVEN OF THESE THIRTEEN CASES ... THE OTHER SIX\" did not match the block",
+      "reason": "Fixed: the count is deliberately unquoted. Re-derived at HEAD \u2014 15 cases = 6 original + 6 plan-review + 3 branch-review, and the Object.hasOwn case is at persist.test.ts:1330 as the new text says."
     },
     {
       "id": "F-06",
       "severity": "P1",
       "duty": 3,
-      "at": "worker/jobs/response-generation/persist.ts:785-787",
-      "title": "`_PrecedenceIsTotal` is credited with a guarantee it does not carry (unranked, not unmapped)",
-      "disposition": "open",
-      "reason": "The new docblock states \"SINCE #1080 A NON-EMPTY RESULT NEEDS A VALUE THAT ESCAPED THE UNION. `_PrecedenceIsTotal` makes a member with no map entry a `pnpm typecheck` failure.\" At src/lib/refusals/vocabulary.ts:658, `_PrecedenceIsTotal = AssertNever<UnrankedIn<typeof AUTO_APPROVAL_BLOCK_PRECEDENCE>>` asserts that every member MAPPED to a non-null category is RANKED in the precedence array \u2014 it says nothing about a missing MAP entry. The guard that makes a missing map entry a compile error is the `satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>` clause at vocabulary.ts:487. The branch's own test comment at persist.test.ts:1216 states it CORRECTLY (\"makes the mapped-but-unranked case a `pnpm typecheck` failure\"), so the docblock and the suite disagree inside one diff. The conclusion (\"you need a value that escaped the union\") survives; the citation does not."
+      "at": "worker/jobs/response-generation/persist.ts:785-793",
+      "disposition": "fixed",
+      "title": "[round 1] _PrecedenceIsTotal was credited with a guarantee it does not carry",
+      "reason": "Fixed and verified: vocabulary.ts:487 is the `satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>` map-hole guard; vocabulary.ts:658 is _PrecedenceIsTotal, the unranked-member guard."
     },
     {
       "id": "F-07",
       "severity": "P2",
       "duty": 4,
       "at": "worker/jobs/publisher/auto-policy-downgrade.ts:218",
-      "title": "The held_draft non-goal is structurally sound; the auto_post_revoked / ask_withheld / outreach_withheld / batch_halted non-goal leaves the same fault class open in a different shape, unrecorded",
-      "disposition": "open",
-      "reason": "Search performed: `rg \"isRefusalLedgerEnabled\\(\\)\"` and `rg \"noteRefusalLedgerDark\"` over the repo excluding node_modules, docs and *.test.ts; plus every consumer of a POLICY_GATE-style category map. Scope: all seven lanes in REFUSAL_SOURCES. Exclusions: docs and tests. Result: guard 4 in persist.ts is the ONLY early kill-switch read outside write.ts, and resolvePolicyGateRefusal (vocabulary.ts:726) is the ONLY throwing resolver. So the exact #1105 shape has no sibling. held_draft: fully defensible \u2014 HELD_DRAFT_REFUSAL_CATEGORY (vocabulary.ts:244, used at persist.ts:1126) is a frozen literal with no map, so a vocabulary hole is impossible there. The five map-indexing lanes are different: auto-policy-downgrade.ts:218 writes `refusalCategory: AUTO_POST_REVOKED_REFUSAL_CATEGORIES[reason]`, so an escapee yields `undefined` rather than a throw, the flag check happens INSIDE writeRefusalEvent, and with the ledger off the lane emits the ledger-dark WARNING \u2014 claiming a gap for a row migration 116's NOT NULL would have rejected \u2014 while naming no code. Same fault class (an escapee behind a dark ledger is unnamed), different mechanism, and equally compile-guarded by `satisfies`. Deferring is a defensible call; what is missing is that neither the arch-review-log row nor the directory.md row records that the class stays open in five other lanes, so the next reader of \"#1105 fixed the unsignalled fault class\" will over-read it."
+      "disposition": "fixed",
+      "title": "[round 1] The open fault class in the other lanes was unrecorded",
+      "reason": "Fixed: recorded at persist.ts:795-801 and docs/directory.md:905. The \"five lanes\" figure re-derived \u2014 six direct MAP[reason] sites (batch-builder.ts:674, auto-policy-downgrade.ts:218, dispatch.ts:1481, ask-generation.ts:751, suspension.ts:339, approval.ts:635) across exactly five lanes."
     },
     {
       "id": "F-08",
       "severity": "P2",
       "duty": 1,
-      "at": "src/lib/refusals/__tests__/write.test.ts:1090",
-      "title": "[R1-7] (both transports throw) may be redundant with case 4 \u2014 no natural single-line mutant isolates it",
+      "at": "src/lib/refusals/__tests__/write.test.ts:1196",
       "disposition": "open",
-      "reason": "M-w14 (Sentry `try`/`catch` removed) is the defect class [R1-7] names, and case 12 kills it. But case 4 (`a synchronously throwing Sentry buys a cooldown...`) also makes captureMessage throw synchronously and calls the helper OUTSIDE any `not.toThrow()` wrapper, so on inspection it would fail on the same mutant. I did not measure that pairing \u2014 case 4's 2-mutation-per-test budget was already spent on M-w02 and M-w04 \u2014 so this is an inspection claim, not a measurement. A mutant that ONLY case 12 kills would have to re-throw conditionally on the logger having failed, which is not a shape any plausible edit produces. Recorded so the case is not deleted on the strength of this note alone; defence-in-depth against a combined-failure escape is a reasonable thing to keep."
+      "title": "[round 1] The both-transports-throw case may be redundant with the cooldown case",
+      "reason": "Untouched by the round-2 diff and out of round-2 scope; carried forward unchanged."
     },
     {
       "id": "F-09",
       "severity": "P2",
       "duty": 3,
-      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-handoff.md:52-56",
-      "title": "The handoff\u2019s \"State at handoff\" is stale at HEAD: it says phase plan_approved and \"Nothing implemented\"",
-      "disposition": "open",
-      "reason": "The handoff's own header says \"A resumed session bootstraps from this file\", and its state section reads \"Phase `plan_approved`, HEAD `cf7d7554` ... Nothing implemented. T1, T2 and T3 are all open.\" At HEAD 01aa07f3, `.feature/state.json` says phase `gate_green`, `lastGreenGateSha` 01aa07f3, and all three tasks are done. Impact is bounded because the same file names `.feature/state.json` as the machine-state authority and that file is correct \u2014 which is why this is P2 and not P1."
+      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-handoff.md:48-58",
+      "disposition": "fixed",
+      "title": "[round 1] The handoff's \"State at handoff\" was stale",
+      "reason": "Fixed: the section is current at HEAD, records \"One P0, fixed\", and states the gate must be re-run."
     },
     {
       "id": "F-10",
       "severity": "P2",
       "duty": 3,
-      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:D9",
-      "title": "D9\u2019s live-DB figures are recorded at the pre-rebase SHA and the doc\u2019s own \"re-run after the rebase\" instruction was never written back",
+      "at": "docs/superpowers/plans/fix-1105-unmapped-block-reason-signal-deviations.md:196",
+      "disposition": "fixed",
+      "title": "[round 1] D9's live-DB figures were recorded at the pre-rebase SHA",
+      "reason": "Fixed: the entry now carries the post-rebase re-derivation and names the SHA it was taken at (01aa07f3)."
+    },
+    {
+      "id": "R2-01",
+      "severity": "P0",
+      "duty": 3,
+      "at": "src/lib/refusals/write.ts:571",
       "disposition": "open",
-      "reason": "D9 records \"116 files, 1206 tests passed, 5 skipped, at `229c51ba`\" and then says \"**Re-run after the rebase.** The figures above were taken before this branch was rebased ... they are stale by the project's own rule.\" No post-rebase figures were written back, so the committed record still cites a SHA that is not HEAD. I verified the substance independently rather than accepting the number: the one covering live-DB suite, worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts, runs 32/32 GREEN at HEAD 01aa07f3 against the local test DB, matching D9's \"The named suite alone is 32 passing cases\". So the claim is TRUE at HEAD and only its citation is stale \u2014 P2, not P1."
+      "title": "The UNMAPPED_SIGNAL_CAP bound is not enforced, and four changed documents claim it is",
+      "arbiter_reasoning": "Mutant: write.ts:604 `for (const code of fresh)` -> `for (const code of fresh.slice(0, UNMAPPED_SIGNAL_CAP - signalledUnmappedCodes.size))` \u2014 the correctly-bounded form. Survived 29/29. NOT equivalent: under the mutant a code that WAS named in the capture is left unmarked and is re-reported by a later call, breaking the stated \"IT REPORTS EACH DISTINCT CODE ONCE\" contract; under HEAD the Set instead grows past the cap. The two differ observably and no case can tell them apart, because every cap-adjacent case feeds exactly one code per call. NOT on an unexecuted branch: write.ts:604 runs in most cases in the describe block. Static half of the proof: write.ts:571 tests `size` BEFORE :604 adds every element of `fresh`, and `rg signalledUnmappedCodes` finds exactly one growth site (604) and no trim site (359 decl, 411 clear, 568 has, 571 size, 604 add) \u2014 so with size==0 and a 20-code call, `0 >= 8` is false and the Set reaches 20. Worst case is UNMAPPED_SIGNAL_CAP-1+fresh.length for an input the signature types as readonly string[] and the docblock calls unbounded. Falsified: write.ts:353-354 (\"holds at most UNMAPPED_SIGNAL_CAP distinct codes and then stops growing\"), docs/directory.md:905 (\"BOUNDED at UNMAPPED_SIGNAL_CAP distinct codes\"), .claude/reference/arch-review-log.md:1663 (\"Now a bounded per-code Set\"), deviations D10 line 217 (\"Now a bounded Set\")."
+    },
+    {
+      "id": "R2-02",
+      "severity": "P0",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:94",
+      "disposition": "open",
+      "title": "Runbook claim \"the only one above warning\" is false \u2014 withLedgerAttribution and the new overflow marker are both error-level subsystem:refusal_ledger emitters",
+      "reason": "worker/jobs/response-generation/persist.ts:1048-1052 is Sentry.captureException(error, { level: 'error', tags: { subsystem: 'refusal_ledger', ... } }) and has been since #1079; src/lib/refusals/write.ts:639-642, added in this same diff, is a second error-level emitter under the same tag. At HEAD four emitters carry subsystem:refusal_ledger \u2014 one warning (write.ts:479-484) and three error. An operator building the rule this row asks for would reach for `subsystem:refusal_ledger AND level:error` and also catch every ledger-write exception plus the overflow marker. The companion \"a FOURTH caller\" half is not independently falsifiable: line 55 sets a local convention of counting only warnLedgerDisabled's callers."
+    },
+    {
+      "id": "R2-03",
+      "severity": "P0",
+      "duty": 1,
+      "at": "src/lib/refusals/write.ts:630-636",
+      "disposition": "open",
+      "title": "The overflow marker's durable log transport has no oracle anywhere in the codebase",
+      "arbiter_reasoning": "Mutant: the entire logger.warn block deleted from noteUnmappedOverflow. Survived 29/29 of write.test.ts, which the reverse-import sweep proves is the ONLY suite reaching this function (importers of noteUnmappedBlockReasons/UNMAPPED_*/noteUnmappedOverflow are write.ts, write.test.ts, persist.ts, persist.test.ts and docs). EXECUTED: the cap case's ['one_too_many'] call enters noteUnmappedOverflow and runs the block; the case simply asserts nothing about it. NOT equivalent: it removes a transport. Load-bearing by the module's own doctrine \u2014 write.ts:601-603 and docs/directory.md:905 both state the latch is set when captureMessage RETURNS (queued, not delivered) and that \"the log line above is what makes that acceptable\"; noteUnmappedOverflow latches unmappedOverflowSignalled on the same queued-return terms at write.ts:644. With the capture queued-but-undelivered and the log line gone, the fact that more than eight codes escaped the union exists nowhere for the life of the process, with no retry. Fix is one assertion in the cap case."
+    },
+    {
+      "id": "R2-04",
+      "severity": "P1",
+      "duty": 1,
+      "at": "src/lib/refusals/write.ts:645-650",
+      "disposition": "open",
+      "title": "noteUnmappedOverflow's Sentry catch \u2014 the \"shares the SAME cooldown\" claim \u2014 is on a branch no case executes",
+      "reason": "Deleting `nextUnmappedAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS` survives 29/29, and no case makes captureMessage throw while the cap is already reached, so the row is recorded inconclusive/oracle rather than as a confirmed survivor. Without the line a throwing Sentry in the overflow path buys no window and every subsequent unmapped decision retries the capture \u2014 the retry storm the comment says the shared cooldown prevents. The sibling normal-path cooldown is pinned by four consecutive failures plus a recovery at write.test.ts:1024-1068."
+    },
+    {
+      "id": "R2-05",
+      "severity": "P1",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:126",
+      "disposition": "open",
+      "title": "\"a new code is always reported\" is false past the cap and contradicts the same bullet four lines above",
+      "reason": "write.ts:571-574 routes any call to noteUnmappedOverflow once size >= cap, and write.ts:627 makes that a one-shot. write.test.ts:1019-1021 asserts it at HEAD: two further new codes past the cap produce NO additional Sentry event. An operator reading line 126 literally will treat the absence of an event as evidence that no new code has escaped."
+    },
+    {
+      "id": "R2-06",
+      "severity": "P1",
+      "duty": 5,
+      "at": "docs/runbooks/beta-launch-alerting.md:92",
+      "disposition": "open",
+      "title": "Two newly emitted signals have no rule row in the \u00a71a-do click-path and no _When_ trigger anywhere",
+      "reason": "\u00a71a-do (line 243) is \"every unconfigured rule, in one sitting\": a six-row table of # | Rule name | _If_ filter | _When_ trigger | Level, closed by \"_Then_ action for all six\" at line 358. Neither fault:unmapped_block_reason nor fault:unmapped_block_reason_overflow gets a row, so an operator who works \u00a71a-do end to end builds six rules and catches neither signal; no cadence is stated anywhere, and for a constant-message error \"first seen\" versus a frequency is exactly the decision the runbook itself argues at lines 361-365. The runbook's own register of un-ruled \u00a71 signals (line 353, \"Two \u00a71 signals have no rule in either project\") is also now wrong and names neither new signal. Precedent, not excuse: the #1009 sibling item has the same missing row and is one of the two line 353 records."
+    },
+    {
+      "id": "R2-07",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/runbooks/beta-launch-alerting.md:105-107",
+      "disposition": "open",
+      "title": "\"The event carries the offending codes\" omits that the event carries only the not-yet-signalled subset",
+      "reason": "write.ts:568 filters against the latch before anything is emitted, so a decision repeating an already-reported code produces no event and a mixed decision's event names a subset. The Latching paragraph at 123-127 states the mechanism; the operator-action paragraph reads as if the list were complete. One clause closes it."
+    },
+    {
+      "id": "R2-08",
+      "severity": "P2",
+      "duty": 4,
+      "at": "worker/jobs/response-generation/generate-draft.ts:77",
+      "disposition": "open",
+      "title": "Sibling sweep: one live unbounded-cardinality Sentry capture message remains, in unchanged code",
+      "reason": "Sweep of Sentry.captureMessage over src/ and worker/ excluding tests: seven sites, five interpolating. Four interpolate bounded values (circuit-breaker.ts:197, subscription-updated.ts:154, OnboardingDemoWorker.ts:148, write.ts:479 whose only interpolation is a compile-time constant). generate-draft.ts:77 interpolates businessId, opening one Sentry issue group per business, and \u00a71a-do rule 2 (cost_event:limit_exceeded) fires on \"issue is first seen\", so the fragmentation multiplies pages. Unchanged code on this branch and out of scope for a fix here; recorded because a zero-sibling claim would have been false."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 24,
-    "killed": 21,
-    "survived_confirmed_p0": 1,
+    "inventory_total": 14,
+    "killed": 8,
+    "survived_confirmed_p0": 2,
     "equivalent": 0,
-    "inconclusive": 0,
+    "inconclusive": 1,
     "skipped_budget": 0,
-    "excluded": 2,
-    "findings_total": 10,
-    "p0_open": 1,
-    "p1_open": 5,
-    "p2_open": 4,
+    "excluded": 3,
+    "findings_total": 18,
+    "p0_open": 3,
+    "p1_open": 3,
+    "p2_open": 3,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 9,
     "rejected": 0
   },
   "status": "OPEN_P0"

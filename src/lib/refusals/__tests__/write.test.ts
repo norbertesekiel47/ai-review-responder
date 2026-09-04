@@ -1019,6 +1019,94 @@ describe('noteUnmappedBlockReasons', () => {
     refusalWrite.noteUnmappedBlockReasons(['and_another']);
     refusalWrite.noteUnmappedBlockReasons(['and_yet_another']);
     expect(sentryStub.captureMessage, 'one marker, not one per code').toHaveBeenCalledTimes(cap + 1);
+
+    // THE DURABLE TRANSPORT CARRIED THE MARKER TOO. Red-team round 2 found this
+    // log line had no oracle anywhere: deleting it survived the whole suite,
+    // while the module latches on a QUEUED capture on the stated grounds that
+    // the log line is what makes that acceptable. An untested durable transport
+    // cannot carry that argument.
+    const overflowLines = consoleWarn.mock.calls.filter((call) =>
+      JSON.stringify(call).includes('distinct unmapped code cap reached'),
+    );
+    expect(overflowLines, 'the marker reached the durable transport').toHaveLength(1);
+    expect(JSON.stringify(overflowLines[0])).toContain(String(cap));
+  });
+
+  it('noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap', () => {
+    // THE BOUND, AND IT DID NOT EXIST WHEN THIS BRANCH FIRST CLAIMED IT.
+    // Red-team round 2 P0: the implementation tested the Set's SIZE and then
+    // added every fresh code, so one call carrying N new codes grew the Set to
+    // N. Four documents asserted a bound the code did not enforce, and the
+    // correctly-bounded mutant survived 29/29 because every case fed one code
+    // at a time.
+    const cap = refusalWrite.UNMAPPED_SIGNAL_CAP;
+    const codes = Array.from({ length: cap + 3 }, (_, i) => `ghost_${i}`);
+
+    refusalWrite.noteUnmappedBlockReasons(codes);
+
+    // ONE report naming exactly `cap` codes, plus ONE overflow marker — the same
+    // call both reports what it can carry and says there was more.
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+    expect(sentryStub.captureMessage.mock.calls[0]![1]).toMatchObject({
+      extra: { codes: codes.slice(0, cap).join(', ') },
+    });
+    expect(sentryStub.captureMessage.mock.calls[1]![0]).toBe(
+      refusalWrite.UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE,
+    );
+
+    // THE CODES PAST THE CAP WERE NOT MARKED AS REPORTED. Marking them would
+    // record a claim the operator never received.
+    expect(JSON.stringify(sentryStub.captureMessage.mock.calls[0]![1])).not.toContain(
+      codes[cap]!,
+    );
+
+    // And the latch is genuinely at the cap: a further NEW code gets the marker,
+    // never a report. If the Set had grown past `cap` this would still pass, so
+    // the assertion that carries the bound is the `extra.codes` count above.
+    sentryStub.captureMessage.mockClear();
+    refusalWrite.noteUnmappedBlockReasons(['one_more_entirely_new']);
+    expect(sentryStub.captureMessage, 'the cap holds').not.toHaveBeenCalled();
+  });
+
+  it('a synchronously throwing Sentry buys a cooldown on the overflow marker too', () => {
+    // THE OVERFLOW CATCH HAD NO ORACLE — red-team round 2 P1: deleting its
+    // cooldown survived the whole suite, so the "shares the SAME cooldown,
+    // deliberately" claim in that catch was prose nothing executed.
+    const cap = refusalWrite.UNMAPPED_SIGNAL_CAP;
+    const nowSpy = vi.spyOn(Date, 'now');
+    try {
+      let clock = 1_800_000_000_000;
+      nowSpy.mockImplementation(() => clock);
+
+      // Fill the cap with a working transport.
+      for (let i = 0; i < cap; i++) refusalWrite.noteUnmappedBlockReasons([`ghost_${i}`]);
+      sentryStub.captureMessage.mockClear();
+
+      // Now break Sentry and trip the overflow.
+      sentryStub.captureMessage.mockImplementation(() => {
+        throw new Error('sentry transport is down');
+      });
+      expect(() => refusalWrite.noteUnmappedBlockReasons(['past_the_cap'])).not.toThrow();
+      expect(sentryStub.captureMessage, 'the marker was attempted').toHaveBeenCalledTimes(1);
+
+      // Inside the window: no second attempt, and the overflow latch is NOT set —
+      // a throw buys time, never the latch.
+      clock += WARN_RETRY_COOLDOWN_MS - 1;
+      refusalWrite.noteUnmappedBlockReasons(['past_the_cap_again']);
+      expect(sentryStub.captureMessage, 'the window suppresses').toHaveBeenCalledTimes(1);
+
+      // Window elapsed and Sentry recovers: the marker still lands.
+      clock += 1;
+      sentryStub.captureMessage.mockImplementation(() => 'event-id');
+      refusalWrite.noteUnmappedBlockReasons(['past_the_cap_once_more']);
+      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+      expect(sentryStub.captureMessage.mock.calls[1]![0]).toBe(
+        refusalWrite.UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE,
+      );
+    } finally {
+      nowSpy.mockRestore();
+      sentryStub.captureMessage.mockImplementation(() => undefined);
+    }
   });
 
   it('a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons', () => {

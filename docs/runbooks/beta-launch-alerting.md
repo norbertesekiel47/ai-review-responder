@@ -90,10 +90,17 @@ email shares the Resend provider with the product.
   a level change. The structured log line (`refusals:write`) is the durable
   second transport meanwhile. Added by #1009 (red-team RT-1).
 - [ ] **Refusal vocabulary hole routed to Discord** — issues tagged
-  `fault:unmapped_block_reason` at level **`error`** (a FOURTH
-  `subsystem:refusal_ledger` caller, and the only one above `warning`). Emitted
-  by `noteUnmappedBlockReasons` (`src/lib/refusals/write.ts`) from guard 4's
+  **`fault:unmapped_block_reason`** at level `error`. Emitted by
+  `noteUnmappedBlockReasons` (`src/lib/refusals/write.ts`) from guard 4's
   off-arm in `worker/jobs/response-generation/persist.ts`. Added by #1105.
+
+  **RULE ON THE `fault` TAG, NEVER ON `subsystem:refusal_ledger AND
+  level:error`.** An earlier draft of this item called it "the only one above
+  `warning`" and that was false when written: `withLedgerAttribution`
+  (`worker/jobs/response-generation/persist.ts`) has raised `error`-level
+  `subsystem:refusal_ledger` issues since #1079, and the overflow marker below
+  adds a third. A level-plus-subsystem rule selects all of them and pages on
+  three different faults.
 
   **It is a DIFFERENT fault from the item above, which is why it gets its own
   rule and its own level.** The ledger being off is a deliberate operator act
@@ -103,7 +110,9 @@ email shares the Resend provider with the product.
   `subsystem:refusal_ledger` at `warning` alone does NOT catch it.
 
   **What an operator does with it.** The event carries the offending codes in
-  `extra.codes`, in the gate's own evaluation order. Find each code in
+  `extra.codes`, in the gate's own evaluation order — the ones NOT ALREADY
+  REPORTED by this worker process, since the latch is per code (see below). A
+  code missing from the list may simply have been reported in an earlier event. Find each code in
   `POLICY_GATE_HELD_REFUSAL_CATEGORIES` (`src/lib/refusals/vocabulary.ts`). It
   will not be there — that is the point — so the question is which producer
   emitted a value outside the compiled `AutoApprovalBlockReason` union, since
@@ -114,16 +123,31 @@ email shares the Resend provider with the product.
   occurrence groups into one Sentry issue and per-issue throttling applies to
   the fault rather than to each distinct code set.
 
+  **_When_ cadence for both new rules:** `A new issue is created`. Neither is a
+  volume signal — the per-code latch and the cap already bound them to a handful
+  of events per worker process — so a "seen N times" trigger would delay the
+  page for a fault that fires at most once per code.
+
   **A second event, `auto_approval_unmapped_block_reason_cap_reached`, tagged
   `fault:unmapped_block_reason_overflow`,** means more than
   `UNMAPPED_SIGNAL_CAP` distinct codes escaped in one worker process. Read it as
   "a producer is generating varied garbage", not as "one map entry is missing".
-  It names no code deliberately, and it fires once per process.
+  It names no code deliberately, and it fires once per process. **It also
+  carries `subsystem:refusal_ledger` at `error`** — the second reason the rule
+  must key on the `fault` tag.
 
-  **Latching:** per CODE, per PROCESS. Each distinct code reports once and never
-  re-arms — unlike the ledger-dark line above, which re-arms per disabled
-  episode. A worker restart clears it. So a repeat of the SAME code is silence
-  by design, and a new code is always reported.
+  **Latching:** per CODE, per PROCESS, BOUNDED. Each distinct code reports once
+  and never re-arms — unlike the ledger-dark line above, which re-arms per
+  disabled episode. A worker restart clears it. So a repeat of the SAME code is
+  silence by design.
+
+  **A new code is reported UNTIL the cap, and silent after it.** An earlier
+  draft of this item said "a new code is always reported", which contradicted
+  the cap paragraph four lines above it. Past `UNMAPPED_SIGNAL_CAP` distinct
+  codes the process emits the overflow marker once and then nothing at all —
+  including for codes it has never seen. **That is the state to restart the
+  worker out of**, and it is why the marker is worth a rule of its own rather
+  than being folded into the item above.
 - [ ] **Autonomy Governor candidate failure routed to Discord** — issues tagged
   `subsystem:autonomy_governor`, emitted by `AutonomyGovernorScheduler`'s
   per-candidate `catch`. **Unlike the row above this one is a `captureException`,
@@ -270,6 +294,8 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 4 | `import-consent-analytics-drift → discord` | `subsystem` equals `import_consent_analytics` | **seen more than 3 times in one hour** | `warning` |
 | 5 | ~~`solicitation-send-breaker → discord`~~ **SUPERSEDED — do not build** | `finding` equals `solicitation_send_breaker_tripped` | **seen more than 3 times in one hour** | `error` |
 | 6 | `solicitation-unattributed-suppression → discord` | `feature` equals `solicitation_lane` | **seen more than 3 times in one hour** | `warning` |
+| 7 | `refusal-vocabulary-hole → discord` | `fault` equals `unmapped_block_reason` | issue is **first seen** | `error` |
+| 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | issue is **first seen** | `error` |
 
 > **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
 > This table is the design; these are the rules. Re-read them before assuming a signal
@@ -350,13 +376,26 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > the failure this section predicts. Not yet harmful, because solicitation sending is off
 > in production; harmful the moment it is on.
 >
-> **Two §1 signals have no rule in either project** and are named here so the absence is
-> not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector) and
+> **Four §1 signals have no rule in either project** and are named here so the absence is
+> not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector),
 > `subsystem:autonomy_governor` (a `captureException`, so today it reaches issue owners by
-> **email** — which §1's own premise rules out as an acceptable route).
+> **email** — which §1's own premise rules out as an acceptable route), and — added by
+> #1105 — `fault:unmapped_block_reason` and `fault:unmapped_block_reason_overflow`,
+> rules 7 and 8 above. **The count was "two" and the two new signals were not listed
+> when they shipped**; red team caught the omission, which is the same class of defect
+> this whole register exists to prevent.
 
-_Then_ action for all six: **Send a notification to the Discord integration** →
+_Then_ action for all eight: **Send a notification to the Discord integration** →
 your server → the `#repworth-alerts` channel ID from step 0.
+
+**Rules 7 and 8 filter on the `fault` tag, NOT on `subsystem` plus level (#1105).**
+Three different faults now carry `subsystem:refusal_ledger` at `error` —
+`withLedgerAttribution`'s ledger-failure attribution (since #1079) and both of
+these — so a subsystem-and-level filter pages on all three and tells an operator
+nothing about which. They are **first seen**, unlike rules 4-6: the per-code
+latch and the distinct-code cap already bound them to a handful of events per
+worker process, so a repeat trigger would delay a page for a fault that fires at
+most once per code.
 
 **Rules 4, 5 and 6 are the odd ones, and the difference is not cosmetic.** Rules
 1–3 fire on a new issue. Rules 4, 5 and 6 must not. Each capture title is a

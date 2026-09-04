@@ -568,7 +568,18 @@ export function noteUnmappedBlockReasons(unmapped: readonly string[]): void {
   const fresh = unmapped.filter((code) => !signalledUnmappedCodes.has(code));
   if (fresh.length === 0) return;
 
-  if (signalledUnmappedCodes.size >= UNMAPPED_SIGNAL_CAP) {
+  // THE CAP IS APPLIED TO THIS CALL'S CODES, NOT ONLY TO THE SET'S CURRENT SIZE.
+  // Red-team round 2 found the bound did not exist: testing `size` and then
+  // adding every member of `fresh` lets ONE call with N new codes grow the Set
+  // to N, which is precisely the unbounded growth the cap is here to prevent —
+  // and four documents asserted the bound while the correctly-bounded mutant
+  // survived the whole suite. `room` is what makes the claim true.
+  const room = Math.max(0, UNMAPPED_SIGNAL_CAP - signalledUnmappedCodes.size);
+  const reportable = fresh.slice(0, room);
+  const overflowed = fresh.length > room;
+
+  if (reportable.length === 0) {
+    // No room at all: the cap was already full before this call.
     noteUnmappedOverflow();
     return;
   }
@@ -576,10 +587,10 @@ export function noteUnmappedBlockReasons(unmapped: readonly string[]): void {
   // JOINED ONCE, and both transports carry the same string. Also the only shape
   // that SURVIVES the log: `createWorkerLogger` runs object args through
   // `sanitizeAnalyticsProperties`, which keeps strings, numbers, booleans, null
-  // and nested plain objects — and DROPS ARRAYS, silently. A `codes: fresh`
+  // and nested plain objects — and DROPS ARRAYS, silently. A `codes: reportable`
   // array logs as an absent key, so the durable transport would name no code
   // while the Sentry event named all of them.
-  const codes = fresh.join(', ');
+  const codes = reportable.join(', ');
 
   try {
     logger.warn('refusal ledger vocabulary hole — a block reason has no category mapping', {
@@ -599,9 +610,12 @@ export function noteUnmappedBlockReasons(unmapped: readonly string[]): void {
       extra: { flag: REFUSAL_LEDGER_FLAG, codes },
     });
     // Latched once the capture RETURNS — queued, not delivered. The log line
-    // above is what makes that acceptable. Only the codes THIS call reported are
-    // marked, so a code suppressed by the cap is not recorded as reported.
-    for (const code of fresh) signalledUnmappedCodes.add(code);
+    // above is what makes that acceptable. Only the codes THIS call REPORTED are
+    // marked, so a code the cap held back is never recorded as reported.
+    for (const code of reportable) signalledUnmappedCodes.add(code);
+    // The same call may both report and overflow: it says which codes it saw
+    // and, separately, that there were more than the cap carries.
+    if (overflowed) noteUnmappedOverflow();
   } catch {
     // A synchronous throw buys a cooldown rather than the latch, so a recovered
     // Sentry still carries the signal. Counted in TIME, never as an attempt
