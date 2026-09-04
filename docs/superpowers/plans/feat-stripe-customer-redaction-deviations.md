@@ -471,3 +471,47 @@ this branch treated the local one as authoritative for far too long.**
 The branch broke that suite, so the branch fixes it.
 
 **Verdict:** ACCEPT
+
+## D10 — `fallow` ran for the first time at the very end, and one finding stays open
+
+**Why it ran so late.** CI's `fallow` job is `needs: test`. `test` failed or
+skipped on every earlier run of this branch, so the coverage-informed gate had
+never once been consulted until after `reviewed` was authorized. **That is a
+sequencing defect in how this branch was driven, not in the gate** — the same
+shape as D9, one job over.
+
+**Four findings. Three are closed.**
+
+- **`detachPaymentMethods` cognitive complexity 18, over threshold — MINE.**
+  R04's bounded pagination took it from 27 lines to 50. Invariant #12 says to
+  extract an error-handling branch over ~30 lines, so the page fetch and the
+  per-page detach loop became `listAttachedPaymentMethods` and `detachPage`;
+  the caller is 22 lines. Re-verified as a real oracle after the extraction —
+  reinstating the one-page sweep fails 5 of 22 tests.
+- **`StripeCustomerRedactionError` and `ProviderDataRetention` exported with no
+  consumer.** Both are used only inside their own module; the test reference is
+  a string literal, not an import. Both are now module-private, each carrying a
+  line saying why, so neither is re-exported on spec.
+
+**One stays open, owner decision 2026-09-04: record, do not fix.**
+
+`isRetryableStripeError` is byte-identical in
+`src/lib/account-offboarding/stripe-customer-redaction.ts` and
+`src/lib/account-offboarding/stripe-invoices.ts`. That single duplication is
+BOTH remaining fallow findings — the clone group and the complexity/CRAP report
+are one root cause reported twice.
+
+The fix is a shared owner, and `stripe-invoices.ts` is off the locked surface.
+Declined on scope: the duplication is deliberate and already documented (the
+branch's own docblock calls the two copies "BYTE-IDENTICAL"), and extracting a
+module would open a file this feature has no other reason to touch, on a branch
+already carrying six surface amendments, two exhausted red-team rounds, and
+fixes that ship unattacked.
+
+**`fallow` is therefore RED at merge, and that is known and accepted.** It is
+not a required check; the PR reports `MERGEABLE` / `UNSTABLE`. **Follow-up
+owed:** give `isRetryableStripeError` one owner, which turns the job green and
+removes a real drift hazard — two copies of a provider-error classifier can
+disagree silently.
+
+**Verdict:** ACCEPT
