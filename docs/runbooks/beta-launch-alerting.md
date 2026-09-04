@@ -110,9 +110,12 @@ email shares the Resend provider with the product.
   `subsystem:refusal_ledger` at `warning` alone does NOT catch it.
 
   **What an operator does with it.** The event carries the offending codes in
-  `extra.codes`, in the gate's own evaluation order — the ones NOT ALREADY
-  REPORTED by this worker process, since the latch is per code (see below). A
-  code missing from the list may simply have been reported in an earlier event. Find each code in
+  `extra.codes`, in the gate's own evaluation order, DE-DUPLICATED — the ones NOT
+  ALREADY REPORTED by this worker process, since the latch is per code (see
+  below). **A code you expected and cannot find is in one of three states**: it
+  was reported in an earlier event; it is a repeat within the same decision; or
+  it arrived once the cap was full, in which case it is named NOWHERE and only
+  the overflow marker records that it existed. Find each code in
   `POLICY_GATE_HELD_REFUSAL_CATEGORIES` (`src/lib/refusals/vocabulary.ts`). It
   will not be there — that is the point — so the question is which producer
   emitted a value outside the compiled `AutoApprovalBlockReason` union, since
@@ -368,7 +371,14 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > message for every breaker tick and buy nothing. Proven by G.3 §4.5, which exercised
 > exactly that route.
 >
-> **Rule 6 is the one still genuinely owed, and it is owed in PRODUCTION.**
+> **Rule 6 is not the only one still owed — #1105 added rules 7 and 8, and this
+> paragraph said otherwise for one commit.** A fresh red-team pass caught it
+> against the register eleven lines below, which is the same
+> stale-count-after-an-edit failure this section keeps recording. Rule 6 remains
+> the one owed in PRODUCTION SPECIFICALLY, and that is what the rest of this
+> paragraph is about.
+>
+> **Rule 6 is owed in PRODUCTION.**
 > `reportUnattributedSuppression` emits `level:'warning'` tagged `feature:solicitation_lane`.
 > That matches none of `3925256`'s four filters, and CONFIG-1 already established that a
 > `warning` `captureMessage` does not reliably classify as high priority, so `3920752`
@@ -376,14 +386,23 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > the failure this section predicts. Not yet harmful, because solicitation sending is off
 > in production; harmful the moment it is on.
 >
-> **Four §1 signals have no rule in either project** and are named here so the absence is
-> not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector),
+> **Four §1 signals have no DEDICATED rule in either project** and are named here so the
+> absence is not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector),
 > `subsystem:autonomy_governor` (a `captureException`, so today it reaches issue owners by
 > **email** — which §1's own premise rules out as an acceptable route), and — added by
 > #1105 — `fault:unmapped_block_reason` and `fault:unmapped_block_reason_overflow`,
 > rules 7 and 8 above. **The count was "two" and the two new signals were not listed
 > when they shipped**; red team caught the omission, which is the same class of defect
 > this whole register exists to prevent.
+>
+> **"No dedicated rule" is NOT "pages nobody", and the two must not be conflated for the
+> #1105 pair.** The premise that makes this register alarming — CONFIG-1's finding that a
+> `warning` `captureMessage` does not reliably classify as high priority — applies to the
+> first two signals, which are `warning`. Rules 7 and 8 are `error`, and rule 6's own
+> reasoning above implies the unfiltered production rule `3920752` may already catch
+> `error` captures. **Whether it does is UNVERIFIED here** — it needs a Sentry read-back,
+> which this branch did not perform. Treat the two new signals as owed until that
+> read-back is done, and do not repeat either claim as settled.
 
 _Then_ action for all eight: **Send a notification to the Discord integration** →
 your server → the `#repworth-alerts` channel ID from step 0.
@@ -398,7 +417,7 @@ worker process, so a repeat trigger would delay a page for a fault that fires at
 most once per code.
 
 **Rules 4, 5 and 6 are the odd ones, and the difference is not cosmetic.** Rules
-1–3 fire on a new issue. Rules 4, 5 and 6 must not. Each capture title is a
+1–3 and 7–8 fire on a new issue. Rules 4, 5 and 6 must not. Each capture title is a
 **constant string**, so every occurrence groups into ONE Sentry issue — for rule
 4, both **Import offer** event names across every location and both lanes; for
 rule 5, every re-page of one open breaker trip; for rule 6, every unattributed

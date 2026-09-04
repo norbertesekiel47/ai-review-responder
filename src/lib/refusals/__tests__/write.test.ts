@@ -1026,10 +1026,21 @@ describe('noteUnmappedBlockReasons', () => {
     // the log line is what makes that acceptable. An untested durable transport
     // cannot carry that argument.
     const overflowLines = consoleWarn.mock.calls.filter((call) =>
-      JSON.stringify(call).includes('distinct unmapped code cap reached'),
+      JSON.stringify(call).includes(refusalWrite.UNMAPPED_OVERFLOW_LOG_MESSAGE),
     );
     expect(overflowLines, 'the marker reached the durable transport').toHaveLength(1);
-    expect(JSON.stringify(overflowLines[0])).toContain(String(cap));
+
+    // PARSED AND READ BY FIELD, never matched as a substring of the whole line.
+    // The first version of this assertion was `toContain(String(cap))`, and a
+    // fresh red-team pass proved it a FALSE PASS: the line carries an ISO
+    // timestamp, so with `cap` = 8 the digit was satisfied by the clock. The
+    // `cap: 0` mutant died at 07:37 and SURVIVED at another instant — the same
+    // assertion, the same code, a different second.
+    const payload = JSON.parse(String(overflowLines[0]![0])) as {
+      data?: { cap?: unknown; flag?: unknown };
+    };
+    expect(payload.data?.cap, 'the cap is carried as a NUMBER, by name').toBe(cap);
+    expect(payload.data?.flag).toBe(REFUSAL_LEDGER_FLAG);
   });
 
   it('noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap', () => {
@@ -1060,12 +1071,48 @@ describe('noteUnmappedBlockReasons', () => {
       codes[cap]!,
     );
 
-    // And the latch is genuinely at the cap: a further NEW code gets the marker,
-    // never a report. If the Set had grown past `cap` this would still pass, so
-    // the assertion that carries the bound is the `extra.codes` count above.
+    // THE BOUND ITSELF, READ OFF THE LATCH. Every emission path reads the Set's
+    // size through `room`, which saturates identically at and past the cap — so
+    // marking `fresh` instead of `reportable` is EMISSION-equivalent and no
+    // assertion about captures or log lines can tell them apart. A fresh
+    // red-team pass measured that mutant surviving 31/31. The difference is
+    // unbounded growth, which is the entire reason the cap exists, so the
+    // invariant needs an oracle that can actually see it.
+    expect(
+      refusalWrite.unmappedSignalledCodeCountForTests(),
+      'the latch never exceeds the cap',
+    ).toBe(cap);
+
+    // And a further NEW code gets the marker, never a report.
     sentryStub.captureMessage.mockClear();
     refusalWrite.noteUnmappedBlockReasons(['one_more_entirely_new']);
-    expect(sentryStub.captureMessage, 'the cap holds').not.toHaveBeenCalled();
+    expect(sentryStub.captureMessage, 'the cap holds').toHaveBeenCalledTimes(0);
+    expect(refusalWrite.unmappedSignalledCodeCountForTests()).toBe(cap);
+  });
+
+  it('noteUnmappedBlockReasons counts DISTINCT codes, not repeats, against the cap', () => {
+    // REPEATS ARE NOT DISTINCT CODES. Before the de-duplication,
+    // `fresh.length > room` compared array entries against Set slots, so N
+    // repeats of ONE code tripped the cap-reached page, named that code N times,
+    // and burned the once-per-process overflow latch — after which the GENUINE
+    // cap-reached event could never fire. Reproduced by a fresh red-team pass.
+    //
+    // Unreachable from today's only caller, which de-duplicates upstream. Fixed
+    // regardless: this helper's contract must not depend on a property of one
+    // call site.
+    const cap = refusalWrite.UNMAPPED_SIGNAL_CAP;
+    const repeats = Array.from({ length: cap + 1 }, () => 'one_code');
+
+    refusalWrite.noteUnmappedBlockReasons(repeats);
+
+    expect(sentryStub.captureMessage, 'one report, no overflow marker').toHaveBeenCalledTimes(1);
+    expect(sentryStub.captureMessage.mock.calls[0]![0]).toBe(
+      refusalWrite.UNMAPPED_BLOCK_REASON_MESSAGE,
+    );
+    expect(sentryStub.captureMessage.mock.calls[0]![1]).toMatchObject({
+      extra: { codes: 'one_code' },
+    });
+    expect(refusalWrite.unmappedSignalledCodeCountForTests(), 'one distinct code').toBe(1);
   });
 
   it('a synchronously throwing Sentry buys a cooldown on the overflow marker too', () => {
@@ -1267,17 +1314,22 @@ describe('noteUnmappedBlockReasons', () => {
   });
 
   it('noteUnmappedBlockReasons preserves unmapped codes in input order', () => {
-    // A REPEATED CODE, not two distinct ones. An order-sensitive assertion over
-    // two distinct codes kills SORTING and leaves DE-DUPLICATION alive. The
-    // gate's evaluation order is evidence for whoever debugs it —
-    // `vocabulary.ts` says exactly that about `allRefusalCodes` — and this
-    // signal follows the same rule.
+    // ORDER IS PRESERVED; DUPLICATES ARE NOT, and the difference is deliberate
+    // at THIS seam only. The gate's evaluation order is evidence for whoever
+    // debugs it — `vocabulary.ts` says exactly that about `allRefusalCodes`, and
+    // the codes go out in it. But here a code is also a LATCH KEY and the cap
+    // counts DISTINCT codes, so repeats collapse. An earlier version of this
+    // case asserted `'zeta, alpha, zeta'`; a fresh red-team pass showed keeping
+    // repeats let nine copies of one code trip the cap-reached page.
+    //
+    // `zeta` BEFORE `alpha` is what kills a sort: alphabetical output would
+    // reverse them.
     refusalWrite.noteUnmappedBlockReasons(['zeta', 'alpha', 'zeta']);
 
     // On `extra`, not the message: the message is a constant so Sentry files
     // every occurrence of this fault under one issue.
     expect(sentryStub.captureMessage.mock.calls[0]![1]).toMatchObject({
-      extra: { codes: 'zeta, alpha, zeta' },
+      extra: { codes: 'zeta, alpha' },
     });
   });
 

@@ -89,7 +89,8 @@
     "noteUnmappedBlockReasons stops at the distinct-code cap with one overflow marker",
     "an enabled ledger does not re-arm the vocabulary-hole latch",
     "noteUnmappedBlockReasons bounds the latch when a single call carries more codes than the cap",
-    "a synchronously throwing Sentry buys a cooldown on the overflow marker too"
+    "a synchronously throwing Sentry buys a cooldown on the overflow marker too",
+    "noteUnmappedBlockReasons counts DISTINCT codes, not repeats, against the cap"
   ],
   "verification_commands": [
     "pnpm vitest run src/lib/refusals/__tests__/write.test.ts worker/jobs/response-generation/__tests__/persist.test.ts"

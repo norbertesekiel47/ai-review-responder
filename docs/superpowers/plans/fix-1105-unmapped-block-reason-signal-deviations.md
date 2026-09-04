@@ -263,8 +263,10 @@ and promoted with the other durable lessons at step 8.
 
 ## D13 — red-team round 2 found three P0s in round 1's own fixes
 
-There is no round 3; `round-start` refuses one. These fixes therefore carry NO
-adversarial round behind them, and that is stated plainly rather than glossed.
+`round-start` refused a round 3 on that pass. These fixes therefore carried no
+adversarial round behind them AT THE TIME THIS ENTRY WAS WRITTEN — the owner then
+chose to spend a FRESH pass on exactly that gap, and D14 below records what it
+found. Do not read this paragraph as the final state.
 
 **P0-a — the cap did not exist.** `noteUnmappedBlockReasons` tested the Set's
 SIZE and then added every fresh code, so one call carrying N new codes grew the
@@ -296,5 +298,62 @@ into a `captureMessage`, so it opens one issue group per business under a
 first-seen rule — unchanged code, a separate ticket. And round 1's F-08 (the
 both-transports-throw case may be redundant with the Sentry-throw case) is
 carried forward open, unmeasured, because case 4's mutation budget was spent.
+
+**Verdict:** ACCEPT.
+
+## D14 — a fresh red-team pass, and the owner was right to spend it
+
+Round 2's fixes had no adversarial round behind them. The owner chose a fresh
+pass over accepting the risk. It found two more P0s, and the first is the
+sharpest finding of the whole run.
+
+**P0-a — an assertion that passed on the clock.** The overflow case asserted
+`expect(JSON.stringify(overflowLines[0])).toContain(String(cap))`. `cap` is 8,
+and the log line carries an ISO timestamp — so the digit was frequently supplied
+by the current time rather than by the payload. The pass proved it rather than
+argued it: the `cap: 0` mutant DIED at 07:37 and SURVIVED on a re-run at another
+instant. Same assertion, same code, different second. It now parses the line and
+reads `data.cap` as a number.
+
+This is the third distinct way this branch has shipped a test that passed while
+measuring nothing, after the all-unmapped fixtures (round 1) and the
+one-code-at-a-time cap cases (round 2). The generalisable lesson: **a substring
+assertion against a whole serialized log line is not an assertion about the
+payload.** Promoted to lab notes.
+
+**P0-b — "Rule 6 is the one still genuinely owed" was false at HEAD**, and was
+contradicted by the register eleven lines below it, which the SAME COMMIT edited
+to say rules 7 and 8 are owed too. The branch's signature failure, occurring
+inside the paragraph that records that lesson.
+
+**P1 — the cap counted array entries, not distinct codes.** `fresh.length > room`
+compared entries against Set slots, so nine repeats of ONE code tripped the
+cap-reached page, named that code eight times, and burned the once-per-process
+overflow latch — after which the genuine cap-reached event could never fire.
+Unreachable from today's only caller, which de-duplicates upstream. Fixed anyway:
+the helper's contract must not rest on a property of one call site. Duplicates
+now collapse at this seam, and only at this seam — `resolvePolicyGateRefusal`
+still keeps them, because there they are evidence rather than latch keys.
+
+**P1 — the boundedness claim had no oracle.** Marking `fresh` instead of
+`reportable` survived 31/31, because every emission path reads the Set's size
+through `room`, which saturates identically at and past the cap. The mutant is
+emission-equivalent and NOT behaviour-preserving: the difference is unbounded
+growth, which is the entire reason the cap exists. Four documents asserted a
+bound nothing could observe. Fixed with a test-only
+`unmappedSignalledCodeCountForTests()` — a third test-only export, justified
+because an unobservable invariant is an unasserted one.
+
+**Also fixed:** the overflow log message is matched through an exported constant
+rather than a copied literal; the operator-facing paragraph now names all three
+reasons a code can be absent from `extra.codes`, including the cap-boundary case
+where it is named nowhere; and the "Rules 1-3 fire on a new issue" sentence is no
+longer non-exhaustive.
+
+**Recorded, NOT fixed — and this one is a live gap.** The register's "no rule in
+either project" claim rests on CONFIG-1's premise about `warning`-level captures.
+Rules 7 and 8 are `error`, and rule 6's own reasoning implies the unfiltered
+production rule `3920752` may already catch them. **Nobody has read Sentry back
+to check.** The runbook now says so explicitly instead of asserting either way.
 
 **Verdict:** ACCEPT.

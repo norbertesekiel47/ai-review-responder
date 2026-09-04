@@ -387,6 +387,31 @@ export const UNMAPPED_BLOCK_REASON_MESSAGE = 'auto_approval_unmapped_block_reaso
 export const UNMAPPED_BLOCK_REASON_OVERFLOW_MESSAGE =
   'auto_approval_unmapped_block_reason_cap_reached';
 
+/**
+ * The overflow marker's LOG line. Exported so the eval matches the module's own
+ * string rather than a copied literal, on this module's existing
+ * exported-constant discipline.
+ */
+export const UNMAPPED_OVERFLOW_LOG_MESSAGE =
+  'refusal ledger vocabulary hole — distinct unmapped code cap reached';
+
+/**
+ * How many distinct codes the latch is holding. TEST-ONLY.
+ *
+ * WHY IT EXISTS, and it is not convenience. The bound is asserted by four
+ * documents and by the docblock above, and until this accessor NOTHING could
+ * observe it: a fresh red-team pass showed that marking every fresh code instead
+ * of only the reported ones survived 31/31, because the two differ solely in the
+ * Set's SIZE and every emission path reads that size through `room`, which
+ * saturates identically at and past the cap. The mutant is emission-equivalent
+ * and NOT behaviour-preserving — the difference is unbounded growth, which is
+ * the whole reason the cap exists. An unobservable invariant is an unasserted
+ * one.
+ */
+export function unmappedSignalledCodeCountForTests(): number {
+  return signalledUnmappedCodes.size;
+}
+
 /** Set once the cap is reached, so the overflow marker is emitted exactly once. */
 let unmappedOverflowSignalled = false;
 
@@ -565,7 +590,18 @@ export function noteUnmappedBlockReasons(unmapped: readonly string[]): void {
 
   // FILTERED AGAINST THE LATCH FIRST, so a set mixing a known code with a new
   // one still reports the new one. A whole-call latch would lose it.
-  const fresh = unmapped.filter((code) => !signalledUnmappedCodes.has(code));
+  //
+  // DE-DUPLICATED, and this is the ONE place duplicates are dropped. The rest of
+  // the lane keeps them on purpose — `resolvePolicyGateRefusal` says the input
+  // order and its repeats are evidence — but here a code is a LATCH KEY, and the
+  // cap counts DISTINCT codes. Without this, `fresh.length > room` compared
+  // array entries against Set slots: a fresh red-team pass reproduced nine
+  // repeats of ONE code tripping the cap-reached page, naming that code eight
+  // times, and burning the once-per-process latch so the genuine cap-reached
+  // event never fired. Unreachable from today's only caller, which de-duplicates
+  // upstream — fixed anyway, because the helper's contract must not depend on
+  // that.
+  const fresh = [...new Set(unmapped.filter((code) => !signalledUnmappedCodes.has(code)))];
   if (fresh.length === 0) return;
 
   // THE CAP IS APPLIED TO THIS CALL'S CODES, NOT ONLY TO THE SET'S CURRENT SIZE.
@@ -641,7 +677,7 @@ function noteUnmappedOverflow(): void {
   if (unmappedOverflowSignalled) return;
 
   try {
-    logger.warn('refusal ledger vocabulary hole — distinct unmapped code cap reached', {
+    logger.warn(UNMAPPED_OVERFLOW_LOG_MESSAGE, {
       flag: REFUSAL_LEDGER_FLAG,
       cap: UNMAPPED_SIGNAL_CAP,
     });
