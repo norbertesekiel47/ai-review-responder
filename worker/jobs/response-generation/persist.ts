@@ -43,6 +43,7 @@ import {
   REFUSAL_LEDGER_FLAG,
   isRefusalLedgerEnabled,
   noteRefusalLedgerDark,
+  noteUnmappedBlockReasons,
   writeRefusalEvent,
 } from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
@@ -751,6 +752,48 @@ function wouldRecordRefusal(blockReasons: readonly AutoApprovalBlockReason[]): b
 }
 
 /**
+ * The members the category map does not hold, in INPUT ORDER (#1105).
+ *
+ * GUARD 4'S OTHER WARNING PREDICATE, and it sits here beside
+ * `wouldRecordRefusal` for the same reason that one does: guard 4 contains a
+ * vocabulary fault by NON-EXECUTION, so every predicate it consults must be
+ * decidable without running `resolvePolicyGateRefusal`. `Object.hasOwn` is the
+ * resolver's own membership test and CANNOT THROW, which is what keeps this
+ * inside the containment guarantee.
+ *
+ * `some`-SHAPED, WHERE `wouldRecordRefusal` IS `every`-SHAPED, and the asymmetry
+ * is correct rather than an oversight. A ledger GAP is a property of the WHOLE
+ * decision — one `null`-mapped member vetoes the entire row (#1003), so every
+ * member must record for a gap to exist. A vocabulary hole is a property of a
+ * SINGLE CODE: one unmapped member is one defect in the map, whatever its
+ * neighbours do. Reading the two predicates as variants of each other is how a
+ * later edit collapses them.
+ *
+ * THE TWO ARE MUTUALLY EXCLUSIVE, AND THAT FALLS OUT OF THESE DEFINITIONS
+ * rather than out of the call site's control flow: a non-empty result here makes
+ * `wouldRecordRefusal`'s `Object.hasOwn` conjunct false, so the two `if`s below
+ * can never both fire. Guard 4 states that and a case asserts it, which is what
+ * lets the `else` stay deleted.
+ *
+ * IT LIVES HERE AND NOT IN `write.ts`, and the eval is why. The first draft put
+ * the membership test inside `noteUnmappedBlockReasons`, so the call site handed
+ * over every decision and let the helper decide. `persist.test.ts` mocks that
+ * module, so its spy recorded a call for a HEALTHY set too and four of its five
+ * cases asserted a count that discriminates nothing. With the test here, the
+ * lane's own suite observes the lane's own decision.
+ *
+ * SINCE #1080 A NON-EMPTY RESULT NEEDS A VALUE THAT ESCAPED THE UNION.
+ * `_PrecedenceIsTotal` makes a member with no map entry a `pnpm typecheck`
+ * failure, so this is defence in depth against a run-time escapee, not a live
+ * fault. That is the whole of #1105 and it is stated in the ticket.
+ */
+function unmappedBlockReasons(
+  blockReasons: readonly AutoApprovalBlockReason[],
+): readonly AutoApprovalBlockReason[] {
+  return blockReasons.filter((code) => !Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code));
+}
+
+/**
  * Records the `policy_gate_held` **Refusal** for a draft the auto-approval gate
  * held for the owner. Runs on the OPEN transaction `tx`, so the row is atomic
  * with the decision it records (#1013).
@@ -881,9 +924,21 @@ async function recordPolicyGateRefusal(
   if (autoDecision.approved) return;
   if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
   // Guard 4 — the kill switch, BEFORE the resolve. Nothing below this line runs.
-  // The warning is raised only when a row would genuinely have been written; see
-  // the docblock and `wouldRecordRefusal`.
+  //
+  // TWO SIGNALS, TWO INDEPENDENT `if`s, AND NEVER AN `else`. They answer
+  // different questions — "a code has no mapping" versus "a row would have been
+  // written and was not" — and they are mutually exclusive by CONSTRUCTION, not
+  // by control flow: an unmapped member is exactly what makes
+  // `wouldRecordRefusal` false. An `else` here would be defensive handling of a
+  // state the predicates already exclude, and would hide a future change that
+  // broke the exclusivity instead of failing the case that asserts it.
+  //
+  // Neither call may throw; see each helper's contract. The ledger-dark warning
+  // still fires only when a row would genuinely have been written — see the
+  // docblock and `wouldRecordRefusal`.
   if (!isRefusalLedgerEnabled()) {
+    const unmapped = unmappedBlockReasons(autoDecision.blockReasons);
+    if (unmapped.length > 0) noteUnmappedBlockReasons(unmapped);
     if (wouldRecordRefusal(autoDecision.blockReasons)) noteRefusalLedgerDark();
     return;
   }

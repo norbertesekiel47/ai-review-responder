@@ -1306,6 +1306,24 @@ describe('invariants', () => {
     expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
   });
 
+  it('invariants: with the ledger off, an inherited object key is treated as an unmapped block reason', async () => {
+    // `Object.hasOwn`, NOT `in`. `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is an
+    // ordinary object, so `'toString'` resolves through `Object.prototype` — an
+    // `in` test, or a bare truthiness check on the lookup, calls it MAPPED and
+    // stays silent on a genuine escapee. An ordinary unknown string cannot tell
+    // those implementations from the correct one; this is the only case that
+    // can, and it belongs here because `unmappedBlockReasons` lives here.
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    await persistWithBlockReasons(['toString']);
+
+    expect(noteUnmappedBlockReasonsSpy, 'an inherited key is not a mapping').toHaveBeenCalledTimes(
+      1,
+    );
+    expect(noteUnmappedBlockReasonsSpy.mock.calls[0]![0]).toEqual(['toString']);
+    expect(resolvePolicyGateRefusalSpy).not.toHaveBeenCalled();
+  });
+
   it('invariants: with the ledger on, an unmapped block reason invokes no vocabulary-hole signal', async () => {
     // THE ON ARM IS ALREADY COVERED, and this branch may not soften it. With the
     // switch on, `resolvePolicyGateRefusal` runs, throws

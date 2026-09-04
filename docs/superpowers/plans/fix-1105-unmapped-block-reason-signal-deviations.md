@@ -46,6 +46,64 @@ Verified in the working tree before acceptance, not taken on the reviewer's word
 
 **Verdict:** ACCEPT.
 
+## D5 — plan decision D1 was REVERSED during T2, by a failing test
+
+The plan put the membership test inside `noteUnmappedBlockReasons`, so guard 4's
+off-arm handed it every decision and let the helper decide. Four of the five
+lane cases then failed for a reason neither plan review round caught:
+`persist.test.ts` MOCKS `@/lib/refusals/write`, so its spy recorded a call for a
+HEALTHY set too. The count could not tell "a hole was signalled" from "a set was
+handed over", and a lane-level contract had no lane-level oracle.
+
+The membership test now lives in `unmappedBlockReasons`, a private predicate in
+`worker/jobs/response-generation/persist.ts` beside `wouldRecordRefusal`.
+`noteUnmappedBlockReasons` takes already-unmapped codes and is a pure transport.
+
+Two arguments say the reversal is an improvement rather than a concession:
+
+1. The predicate now sits in the file whose guard 4 docblock owns the
+   cannot-throw containment rule, next to the only other predicate bound by it.
+2. `src/lib/refusals/write.ts` keeps no coupling to the category map at all —
+   it gained no vocabulary import in the end.
+
+Rejected alternative: keep the helper owning the test and make the lane suite
+call through to the real helper. That needs a Sentry stub in a suite that has
+none today, which changes the blast radius of ~55 unrelated cases to buy an
+oracle the reversal gives for free.
+
+Two promised test titles changed with it, in both intake copies:
+
+| Was | Now |
+|---|---|
+| `noteUnmappedBlockReasons ignores a set whose every member is mapped` | `noteUnmappedBlockReasons signals for the codes it is given without re-testing membership` |
+| `noteUnmappedBlockReasons treats an inherited object key as unmapped` | `with the ledger off, an inherited object key is treated as an unmapped block reason` |
+
+The first changed meaning because the helper no longer classifies; the healthy-set
+coverage it used to carry is now the lane case
+`a fully mapped held decision warns ledger-dark and signals no vocabulary hole`.
+The second MOVED file, from the helper's suite to the lane's, because the
+`Object.hasOwn`-versus-`in` distinction is now the predicate's to make.
+
+Case count is unchanged at 18. `allowed_edit_surface` is unchanged, so this is a
+deviations entry and not a surface amendment.
+
+**Verdict:** ACCEPT.
+
+## D6 — the worker logger silently drops array values
+
+The first implementation logged `{ flag, codes: unmapped }`. The `codes` key
+never appeared in the line. `createWorkerLogger` runs object args through
+`sanitizeAnalyticsProperties` (`src/lib/analytics/events.ts`), which keeps
+strings, numbers, booleans, `null` and nested plain objects — and drops arrays
+with no warning. The durable transport would have named no code while the Sentry
+message named all of them.
+
+Fixed by joining once and giving both transports the same string. This is a
+general trap, not a fact about this branch, and it is promoted to lab notes at
+step 8.
+
+**Verdict:** ACCEPT.
+
 ## D4 — round 1's correction to finding 8 was narrowed
 
 Round 1 asked for the new reset to be called in every suite that exercises the

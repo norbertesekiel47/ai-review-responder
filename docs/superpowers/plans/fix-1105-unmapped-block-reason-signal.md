@@ -39,8 +39,26 @@ unsignalled, and the cost is one helper.
 
 ## Decisions locked before the tasks
 
-- **D1 — the helper owns the membership test.** `noteUnmappedBlockReasons` takes
-  the whole block-reason set and filters it with `Object.hasOwn` itself.
+- **D1 — REVERSED DURING T2. The CALL SITE owns the membership test.** A private
+  `unmappedBlockReasons` predicate in
+  `worker/jobs/response-generation/persist.ts`, beside `wouldRecordRefusal` and
+  under the same cannot-throw rule, filters with `Object.hasOwn`;
+  `noteUnmappedBlockReasons` takes already-unmapped codes and is a pure
+  transport.
+
+  A FAILING TEST REVERSED IT, not an argument. `persist.test.ts` mocks
+  `@/lib/refusals/write`, so with the test inside the helper its spy recorded a
+  call for a HEALTHY set too — four of the five lane cases asserted a count that
+  discriminates nothing. A lane-level contract needs a lane-level oracle. Full
+  record, including the rejected call-through alternative, in the deviations
+  file entry D5.
+
+  The paragraphs below are the ORIGINAL reasoning, kept because it is what the
+  two plan review rounds read and because its import claim is still true and
+  still worth knowing. Its conclusion is not.
+- **D1 (superseded) — the helper owns the membership test.**
+  `noteUnmappedBlockReasons` takes the whole block-reason set and filters it with
+  `Object.hasOwn` itself.
   Rejected alternative: the caller filters and the helper takes an
   already-unmapped list (mirroring `noteRefusalLedgerDark`'s
   caller-owns-the-precondition contract). The precedent does not transfer:

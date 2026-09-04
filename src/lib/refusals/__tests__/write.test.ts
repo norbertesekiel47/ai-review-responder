@@ -43,7 +43,6 @@ import {
 // precedent kept its own: the next slice to add an arm here inherits it.
 import * as refusalWrite from '../write';
 import { POLICY_GATE_HELD_REFUSAL_CATEGORIES } from '../vocabulary';
-import type { AutoApprovalBlockReason } from '@/lib/shared/worker-types';
 
 // `vi.hoisted` rather than a bare `const`: the stub has to exist before the
 // module graph is loaded, and `job-failure-sink.test.ts` is the house form.
@@ -878,18 +877,6 @@ describe('isRefusalLedgerEnabled', () => {
  * why it was added.
  */
 describe('noteUnmappedBlockReasons', () => {
-  /**
-   * A code that ESCAPED the compiled union, which is the entire fault class.
-   *
-   * THE CAST IS THE FIXTURE, not a convenience. Since #1080 the compiler proves
-   * `POLICY_GATE_HELD_REFUSAL_CATEGORIES` total over `AutoApprovalBlockReason`,
-   * so no legally-typed value can be unmapped and no honest fixture can be built
-   * without stepping outside the type. `persist.test.ts`'s property cases
-   * generate from `ALL_BLOCK_REASONS` and therefore cannot reach this arm at
-   * all.
-   */
-  const escaped = (code: string): AutoApprovalBlockReason => code as AutoApprovalBlockReason;
-
   beforeEach(() => {
     // LOCAL, not folded into the file's top-level `beforeEach`. At the RED phase
     // the export does not exist, and a throwing top-level hook would take this
@@ -903,7 +890,7 @@ describe('noteUnmappedBlockReasons', () => {
   });
 
   it('noteUnmappedBlockReasons captures one error-level Sentry message naming every unmapped code', () => {
-    refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason'), escaped('phantom_reason')]);
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', 'phantom_reason']);
 
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
     const [message, options] = sentryStub.captureMessage.mock.calls[0]!;
@@ -922,31 +909,40 @@ describe('noteUnmappedBlockReasons', () => {
     });
   });
 
-  it('noteUnmappedBlockReasons ignores a set whose every member is mapped', () => {
-    refusalWrite.noteUnmappedBlockReasons(mappedBlockReasons(3).map(escaped));
+  it('noteUnmappedBlockReasons signals for the codes it is given without re-testing membership', () => {
+    // THE CALLER OWNS THE PRECONDITION, on `noteRefusalLedgerDark`'s precedent.
+    // Feeding this helper a genuinely MAPPED code is not a mistake the helper is
+    // meant to catch — it is the fixture that proves the helper does not
+    // classify. `unmappedBlockReasons` in `persist.ts` owns that decision, and
+    // the lane's own cases are its oracle.
+    //
+    // AN EARLIER DRAFT PUT THE MEMBERSHIP TEST IN HERE and this case asserted
+    // the opposite. The eval refuted it: with the test inside the helper, the
+    // lane suite — which mocks this module — recorded a call for a healthy set
+    // too, so four of its five cases discriminated nothing.
+    refusalWrite.noteUnmappedBlockReasons(mappedBlockReasons(1));
 
-    expect(sentryStub.captureMessage, 'no capture for a healthy set').not.toHaveBeenCalled();
-    expect(unmappedSignals(), 'no line for a healthy set').toHaveLength(0);
-    // AND the ledger-dark counter is untouched: this helper may not borrow the
-    // other signal's transport to say nothing.
+    expect(sentryStub.captureMessage, 'it signals what it is handed').toHaveBeenCalledTimes(1);
+    // …and never on the OTHER signal's transport: the ledger-dark counter must
+    // stay clean, or the two faults become one line.
     expect(ledgerWarnings()).toHaveLength(0);
   });
 
   it('noteUnmappedBlockReasons signals once per process and stays silent on the second unmapped set', () => {
-    refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')]);
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
 
     // A DIFFERENT hole, deliberately. The latch is one boolean, so a second
     // distinct code is silent — accepted at intake, because a map hole is
     // systemic and one line is enough to send an operator to the map. A
     // per-code set is the rejected alternative.
-    refusalWrite.noteUnmappedBlockReasons([escaped('second_ghost')]);
+    refusalWrite.noteUnmappedBlockReasons(['second_ghost']);
     expect(sentryStub.captureMessage, 'the latch holds across sets').toHaveBeenCalledTimes(1);
 
     // THE CONTROL. Every assertion above is "the count did not move", which a
     // helper that did nothing at all would also satisfy.
     refusalWrite.resetUnmappedBlockReasonSignalForTests();
-    refusalWrite.noteUnmappedBlockReasons([escaped('second_ghost')]);
+    refusalWrite.noteUnmappedBlockReasons(['second_ghost']);
     expect(sentryStub.captureMessage, 'a reset process signals again').toHaveBeenCalledTimes(2);
   });
 
@@ -964,11 +960,11 @@ describe('noteUnmappedBlockReasons', () => {
       });
 
       for (let attempt = 1; attempt <= failures; attempt++) {
-        refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')]);
+        refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
         expect(sentryStub.captureMessage, `attempt ${attempt} runs`).toHaveBeenCalledTimes(attempt);
 
         clock += WARN_RETRY_COOLDOWN_MS - 1;
-        refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')]);
+        refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
         expect(
           sentryStub.captureMessage,
           `attempt ${attempt}: the window still suppresses`,
@@ -982,14 +978,14 @@ describe('noteUnmappedBlockReasons', () => {
       expect(unmappedSignals()).toHaveLength(failures);
 
       sentryStub.captureMessage.mockImplementation(() => 'event-id');
-      refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')]);
+      refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
       expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 1);
 
       // Now the latch is set, and it is a PROCESS latch, not an episode latch:
       // no amount of elapsed time re-opens it. That is the difference from
       // `warnLedgerDisabled`, whose episode ends when the ledger is observed on.
       clock += WARN_RETRY_COOLDOWN_MS * 10;
-      refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')]);
+      refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
       expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 1);
     } finally {
       nowSpy.mockRestore();
@@ -1002,14 +998,14 @@ describe('noteUnmappedBlockReasons', () => {
       throw new Error('console is broken');
     });
 
-    expect(() => refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')])).not.toThrow();
+    expect(() => refusalWrite.noteUnmappedBlockReasons(['ghost_reason'])).not.toThrow();
     // The log guard owns its own `catch`, so a broken console cannot take the
     // second transport with it.
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
   });
 
   it('noteUnmappedBlockReasons leaves the ledger-dark episode latch untouched', () => {
-    refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')]);
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
     expect(unmappedSignals()).toHaveLength(1);
 
     // The ledger-dark latch was NOT consumed: its own signal still raises its
@@ -1028,7 +1024,7 @@ describe('noteUnmappedBlockReasons', () => {
     refusalWrite.noteRefusalLedgerDark();
     expect(ledgerWarnings()).toHaveLength(1);
 
-    refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')]);
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason']);
     expect(unmappedSignals(), 'the vocabulary hole still signals').toHaveLength(1);
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
   });
@@ -1040,10 +1036,7 @@ describe('noteUnmappedBlockReasons', () => {
     // promised.
     resolvePolicyGateRefusalSpy.mockClear();
 
-    refusalWrite.noteUnmappedBlockReasons([
-      escaped('ghost_reason'),
-      ...mappedBlockReasons(1).map(escaped),
-    ]);
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', ...mappedBlockReasons(1)]);
 
     expect(
       resolvePolicyGateRefusalSpy,
@@ -1057,8 +1050,8 @@ describe('noteUnmappedBlockReasons', () => {
     // implementation that logs on EVERY call and latches only the Sentry side —
     // a broken map would then write one line per held draft for as long as the
     // hole stays open, which is the noise the latch exists to prevent.
-    refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason'), escaped('phantom_reason')]);
-    refusalWrite.noteUnmappedBlockReasons([escaped('third_ghost')]);
+    refusalWrite.noteUnmappedBlockReasons(['ghost_reason', 'phantom_reason']);
+    refusalWrite.noteUnmappedBlockReasons(['third_ghost']);
 
     expect(unmappedSignals(), 'exactly one line across both calls').toHaveLength(1);
     expect(
@@ -1078,18 +1071,6 @@ describe('noteUnmappedBlockReasons', () => {
     );
   });
 
-  it('noteUnmappedBlockReasons treats an inherited object key as unmapped', () => {
-    // `Object.hasOwn`, NOT `in`. The category map is an ordinary object, so
-    // `'toString'` resolves through `Object.prototype` and an `in` test — or a
-    // bare truthiness check on the lookup — calls it MAPPED and stays silent on
-    // a genuine escapee. An ordinary unknown string cannot tell the two
-    // implementations apart; this is the only case that can.
-    refusalWrite.noteUnmappedBlockReasons([escaped('toString')]);
-
-    expect(sentryStub.captureMessage, 'an inherited key is not a mapping').toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(unmappedSignals()[0])).toContain('toString');
-  });
-
   it('noteUnmappedBlockReasons ignores an empty block-reason set', () => {
     // The mapped-set case above uses a real NON-EMPTY set, so a helper that
     // signals on `[]` passes it. Guard 2 makes the empty set unreachable at the
@@ -1106,7 +1087,7 @@ describe('noteUnmappedBlockReasons', () => {
     // gate's evaluation order is evidence for whoever debugs it —
     // `vocabulary.ts` says exactly that about `allRefusalCodes` — and this
     // signal follows the same rule.
-    refusalWrite.noteUnmappedBlockReasons([escaped('zeta'), escaped('alpha'), escaped('zeta')]);
+    refusalWrite.noteUnmappedBlockReasons(['zeta', 'alpha', 'zeta']);
 
     const [message] = sentryStub.captureMessage.mock.calls[0]!;
     expect(message).toContain('zeta, alpha, zeta');
@@ -1126,7 +1107,7 @@ describe('noteUnmappedBlockReasons', () => {
     });
 
     try {
-      expect(() => refusalWrite.noteUnmappedBlockReasons([escaped('ghost_reason')])).not.toThrow();
+      expect(() => refusalWrite.noteUnmappedBlockReasons(['ghost_reason'])).not.toThrow();
       expect(
         sentryStub.captureMessage,
         'the second transport was still attempted',

@@ -317,6 +317,48 @@ export function resetRefusalLedgerWarningForTests(): void {
 }
 
 /**
+ * Has the VOCABULARY-HOLE signal already fired in this process? (#1105)
+ *
+ * A SEPARATE LATCH WITH A SEPARATE LIFETIME, and the separation is the whole
+ * decision. `warnedThisEpisode` above belongs to a DISABLED EPISODE: the ledger
+ * being off is a deliberate operator act, `endDisabledEpisode` clears the latch
+ * the moment the ledger is observed on, and the next outage is meant to warn
+ * again. A block reason with no category mapping is not an episode of anything —
+ * it is a defect in the map, it does not end when someone flips the flag back,
+ * and re-arming it on that flip would report the same hole twice for no new
+ * information. So this one is a PROCESS latch. A worker restart clears it.
+ *
+ * ONE BOOLEAN, NOT A SET OF CODES. A second, DIFFERENT unmapped code later in
+ * the same process is therefore silent, and that is accepted rather than
+ * overlooked: a map hole is systemic, one line names the code and sends an
+ * operator to `POLICY_GATE_HELD_REFUSAL_CATEGORIES`, and a per-code set needs a
+ * cap to stay bounded against an input this module does not control.
+ */
+let unmappedSignalledThisProcess = false;
+
+/**
+ * The cooldown half, on `nextWarnAttemptAt`'s exact terms: it rate-limits the
+ * retry of a capture that threw SYNCHRONOUSLY, and buys time rather than the
+ * latch so a recovered Sentry still gets to carry the signal.
+ */
+let nextUnmappedAttemptAt = 0;
+
+/**
+ * Clears both halves of the vocabulary-hole latch. Test-only.
+ *
+ * A SECOND RESET RATHER THAN AN EXTENSION OF THE ONE ABOVE, and the reason is a
+ * live suite. `refusal-write.integration.test.ts` calls
+ * `resetRefusalLedgerWarningForTests` MID-TEST, to open a fresh disabled episode
+ * inside a case. Folding this latch into that reset would make an episode
+ * boundary silently clear an unrelated process-lifetime signal — two lifetimes
+ * sharing one clear is how they drift. Two latches, two resets.
+ */
+export function resetUnmappedBlockReasonSignalForTests(): void {
+  unmappedSignalledThisProcess = false;
+  nextUnmappedAttemptAt = 0;
+}
+
+/**
  * The enabled path's one side effect: it ENDS the disabled episode.
  *
  * Two unconditional assignments and no I/O — cheaper than reading the state to
@@ -394,6 +436,103 @@ function warnLedgerDisabled(): void {
     // cooldown rather than the latch, so a recovered Sentry still gets to carry
     // the warning within this same episode.
     nextWarnAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS;
+  }
+}
+
+/**
+ * Report that a gate decision carried a block reason the category map does not
+ * hold. THE SECOND SIGNAL ON A DARK LEDGER, and not a variant of the first.
+ *
+ * WHY IT EXISTS (#1105). #1079 put the kill switch in FRONT of
+ * `resolvePolicyGateRefusal`, so an unmapped block reason no longer aborts the
+ * response persist. That containment is correct and stays. Its cost is that the
+ * fault became invisible: the resolver never runs, so `withLedgerAttribution`
+ * raises nothing, and `wouldRecordRefusal` is `every(mapped && non-null)`, so an
+ * unmapped member makes IT false too and no ledger-dark line fires either. An
+ * operator could not tell "the ledger is off deliberately" from "the ledger is
+ * off AND decisions are being made against a broken map".
+ *
+ * IT IS NOT `noteRefusalLedgerDark`, AND MUST NOT BECOME IT. That helper says
+ * "a Refusal row would have been written and was not" — a ledger GAP. This one
+ * says "a code has no mapping". An unmapped member would have THROWN rather than
+ * written, so it costs no row and creates no gap; `writeRefusalEvents`' contract
+ * below forbids claiming one. Different fault, different message, different
+ * level, different latch. The two are MUTUALLY EXCLUSIVE at the one call site by
+ * construction, because an unmapped member is exactly what makes
+ * `wouldRecordRefusal` false.
+ *
+ * `error`, WHERE THE LEDGER-DARK LINE IS `warning`. The ledger being off is a
+ * deliberate operator act. A vocabulary hole behind it is a defect. If both
+ * carried one level an operator would have to read the message to tell a pulled
+ * lever from a broken map, which is the confusion this helper removes.
+ *
+ * IT CANNOT THROW, AND THAT IS A CONTRACT, not a property of today's body. Its
+ * only call site is guard 4's off-arm in
+ * `worker/jobs/response-generation/persist.ts`, where containment is by
+ * NON-EXECUTION: an escape from here would abort the response persist through
+ * the very lever an operator had already pulled. Two consequences bind any
+ * future edit. This helper NEVER calls `resolvePolicyGateRefusal`, not even
+ * inside a `try`. And each transport keeps its own `catch`, so a broken console
+ * cannot take the capture with it and neither can reject the caller.
+ *
+ * THE CALLER OWNS THE PRECONDITION, exactly as `noteRefusalLedgerDark`'s does,
+ * and the parameter is ALREADY-UNMAPPED codes. This module does not classify;
+ * `unmappedBlockReasons` in `persist.ts` does, with `Object.hasOwn`, beside
+ * `wouldRecordRefusal` and under the same cannot-throw rule. The first draft put
+ * the membership test in here and the eval refuted it: with the test inside, the
+ * lane's own suite — which mocks this module — could not tell "a hole was
+ * signalled" from "a healthy set was handed over", so four of its five cases
+ * asserted a count that discriminates nothing. A lane-level contract needs a
+ * lane-level oracle.
+ *
+ * SO AN EMPTY LIST IS THE ONLY THING IT DECLINES. Give it a mapped code and it
+ * signals, because deciding that is not its job.
+ *
+ * THE CODES GO OUT VERBATIM AND IN INPUT ORDER, never sorted or de-duplicated.
+ * The gate's evaluation order is evidence for whoever debugs it — the same rule
+ * `resolvePolicyGateRefusal` states for `allRefusalCodes` — and a repeat is
+ * itself a fact about the decision.
+ */
+export function noteUnmappedBlockReasons(unmapped: readonly string[]): void {
+  if (unmappedSignalledThisProcess || Date.now() < nextUnmappedAttemptAt) return;
+  if (unmapped.length === 0) return;
+
+  // JOINED ONCE, and both transports carry the same string. Also the only shape
+  // that SURVIVES the log: `createWorkerLogger` runs object args through
+  // `sanitizeAnalyticsProperties`, which keeps strings, numbers, booleans, null
+  // and nested plain objects — and DROPS ARRAYS, silently. A `codes: unmapped`
+  // array logs as an absent key, so the durable transport would name no code
+  // while the Sentry message named all of them.
+  const codes = unmapped.join(', ');
+
+  try {
+    logger.warn('refusal ledger vocabulary hole — a block reason has no category mapping', {
+      flag: REFUSAL_LEDGER_FLAG,
+      codes,
+    });
+  } catch {
+    // Swallowed on purpose, on `warnLedgerDisabled`'s terms: a throwing console
+    // must not take the capture below with it, and must never reject this
+    // helper. There is by definition nothing left to log the failure with.
+  }
+
+  try {
+    Sentry.captureMessage(
+      `${REFUSAL_LEDGER_FLAG}=false and an auto-approval block reason has no category mapping: ${codes}`,
+      {
+        level: 'error',
+        tags: { subsystem: 'refusal_ledger', fault: 'unmapped_block_reason' },
+      },
+    );
+    // Latched once the capture RETURNS — queued, not delivered. The log line
+    // above is what makes that acceptable.
+    unmappedSignalledThisProcess = true;
+  } catch {
+    // A synchronous throw buys a cooldown rather than the latch, so a recovered
+    // Sentry still carries the signal. Counted in TIME, never as an attempt
+    // ceiling: a ceiling cannot tell "Sentry is broken" from "Sentry was briefly
+    // broken".
+    nextUnmappedAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS;
   }
 }
 

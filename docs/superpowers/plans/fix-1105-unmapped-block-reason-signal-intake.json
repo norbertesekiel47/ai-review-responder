@@ -66,7 +66,7 @@
   ],
   "tests_to_add": [
     "noteUnmappedBlockReasons captures one error-level Sentry message naming every unmapped code",
-    "noteUnmappedBlockReasons ignores a set whose every member is mapped",
+    "noteUnmappedBlockReasons signals for the codes it is given without re-testing membership",
     "noteUnmappedBlockReasons signals once per process and stays silent on the second unmapped set",
     "a synchronously throwing Sentry buys a cooldown rather than the latch on noteUnmappedBlockReasons",
     "a throwing logger does not stop noteUnmappedBlockReasons from capturing",
@@ -74,7 +74,7 @@
     "a prior ledger-dark warning does not suppress noteUnmappedBlockReasons",
     "noteUnmappedBlockReasons never invokes resolvePolicyGateRefusal",
     "noteUnmappedBlockReasons emits one structured logger line naming every unmapped code and the flag",
-    "noteUnmappedBlockReasons treats an inherited object key as unmapped",
+    "with the ledger off, an inherited object key is treated as an unmapped block reason",
     "noteUnmappedBlockReasons ignores an empty block-reason set",
     "noteUnmappedBlockReasons preserves unmapped codes in input order",
     "simultaneously throwing logger and Sentry transports do not escape noteUnmappedBlockReasons",
