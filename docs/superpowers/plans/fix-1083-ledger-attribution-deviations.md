@@ -138,6 +138,21 @@ templates in `try` blocks, so every line of both templates shifts two spaces and
 `git diff` counts each as changed-and-re-added. The substance is 179 lines
 against an estimate of 180.
 
+**Final numbers, at the green gate (HEAD `330b938e`)** — the row read 496 once
+T4 and the doc rows landed:
+
+| File | Raw | `-w` |
+|---|---|---|
+| `src/lib/refusals/write.ts` | 367 | 179 |
+| `worker/jobs/response-generation/persist.ts` | 123 | 95 |
+| **Code total** | **490** | **274** |
+
+274 against a 180 estimate is **1.52×**, comfortably under the 2× trigger. The
+remaining six of the reported 496 are four single-line doc rows in `CONTEXT.md`,
+`docs/directory.md` and `.claude/reference/arch-review-log.md`, which the row's
+exclusion list does not cover because it excludes only
+`docs/superpowers/plans/**` and `docs/reviews/**`.
+
 No re-classification is warranted, and the estimate was accurate. The row is not
 wrong — it measures raw changed lines, which is the right default for a scope
 trigger — it simply cannot distinguish a reindent from new logic. Worth noting
@@ -200,3 +215,40 @@ call for one.
 
 **Verdict:** ACCEPT — caught and fixed in scope. Promote the grep habit to
 lab-notes at step 8 alongside D7.
+
+---
+
+## D9 — Two gate rounds lost to unrelated suites timing out under machine load
+
+**When**: step 5, gate rounds 1 and 2.
+
+Two consecutive `--review` gates went RED on a `test` row, each on a
+**different** suite, neither in this branch's edit surface:
+
+| Round | Suite | Failure |
+|---|---|---|
+| 1 | `scripts/ci/__tests__/live-db-suites-audit.test.ts` | `Test timed out in 5000ms` |
+| 2 | `src/lib/locations/__tests__/review-qr.test.ts` | `Test timed out in 5000ms` |
+
+Neither was an assertion failure. Both pass in isolation — 43/43 in 776 ms and
+17/17 in 836 ms respectively.
+
+**The same failure class twice is the anti-thrash trigger, so the class was
+diagnosed rather than the instances patched.** Machine load average was
+**21.97**, with `mediaanalysisd` at 212% CPU. Under vitest's 5000 ms default,
+any repository-reading suite loses the race; which suite loses is arbitrary,
+which is why two rounds named two different files. The third run, on the
+identical commit, went GREEN — same code, same SHA, different load.
+
+Nothing was fixed and nothing needed fixing. Recorded because a reader of
+`.feature/state.json` will otherwise see `gateFailRounds=2` and reasonably
+assume this branch failed its gate twice on its own merits. It did not.
+
+Round 1 also carried a real failure alongside the flake — `merge-ledger`,
+because `.claude/reference/arch-review-log.md` had no added line. That audit
+reads `git diff mergeBase..HEAD`, so writing the row was not enough; it had to
+be committed. Genuine miss, genuinely fixed.
+
+**Verdict:** ACCEPT — one real defect fixed, two environmental flakes
+identified and not chased. The gate is green at `330b938e` with a current
+fingerprint.
