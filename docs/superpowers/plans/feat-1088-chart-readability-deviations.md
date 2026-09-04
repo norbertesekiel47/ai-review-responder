@@ -24,10 +24,94 @@ Plan assumption 3 ("a label beats a tooltip") is therefore checkable against
 real code rather than forecast. The boundary itself does not move: charts take
 no info tips, and a missing unit stays a LABEL fix owned here.
 
-## The measurement, restated after re-verification
+## The plan's headline measurement is FALSE. Corrected here.
 
-The plan's "four of five charts carry no accessible name" is correct **at chart
-level**, but two of the four are not silent. `RecentRatingBreakdown` labels each
-row (`aria-label` per `<li>`, with the visual spans `aria-hidden`), and
-`RecentSentimentMix` does the same. Adding a chart-level name to those two must
-not double-label the rows that already speak.
+The plan opens with: *"Four of five charts carry no `aria-label`, no `<title>`
+and no `role="img"`. To a screen reader they are nothing at all."* That is the
+stated justification for the whole ticket, and it does not survive reading the
+files.
+
+The grep behind it searched for `aria-label`, `role="img"` and `<title>`. It
+missed the pattern two of the charts actually use, and it misread a third.
+
+**Every one of the five charts is reachable by a screen reader today.**
+
+| Chart | Reachable? | Mechanism |
+|---|---|---|
+| `VelocityChart` | yes | `<table className="sr-only">` + `<caption>Review velocity history</caption>`; the SVG is `aria-hidden="true" focusable="false"` (L76–L98) |
+| `RankingChart` | yes | same pattern, `<caption>Search ranking history</caption>` (L72–L98) |
+| `ReputationTrendChart` | yes | `role="img"` + `aria-label` (L91–L92) |
+| `RecentRatingBreakdown` | yes | per-row `aria-label` on each `<li>`, visuals `aria-hidden` (L40) |
+| `RecentSentimentMix` | yes | same per-row pattern (L55) |
+
+`.sr-only` is Tailwind v4's built-in visually-hidden utility (`globals.css:1`
+imports `tailwindcss`), so those tables are hidden from sight and present in the
+accessibility tree. `VelocityChart` and `RankingChart` therefore expose the FULL
+data series as a table — a stronger affordance than the `aria-label` summary the
+plan proposed to copy onto them, not a weaker one.
+
+**Consequence: tracer T2 ("the four silent charts get names and descriptions")
+has no work in it and is void as written.** No chart is silent.
+
+## What the goal DOES still buy, measured
+
+The intake `goal` and all four `user_visible_behavior` lines survive intact —
+only the plan's measurement and T2 fall. The real gaps, each verified in the
+files:
+
+1. **No `sr-only` caption states a window.** "Review velocity history", "Search
+   ranking history", "Review velocity by location" — a screen-reader user gets
+   every number and no period. The on-screen "last N weeks" lives in the card
+   header (`VelocityCard.tsx:27–29`, `AggregateVelocityCard.tsx:56–58`), outside
+   the table and unassociated with it. This is `user_visible_behavior` line 3,
+   and it is the largest genuine gap.
+2. **`VelocityChart`'s y-axis ticks are unitless** — bare `0`, `max/2`, `max`
+   (L111–L118). The sr-only cells say "N reviews", so the screen reader gets the
+   unit and the sighted reader does not. Same in `StackedVelocityChart`
+   (L147–L154). This is `user_visible_behavior` line 2.
+3. **The aggregate and per-location velocity charts disagree about week
+   labels.** `VelocityChart` renders `weekShortLabel`; `StackedVelocityChart`
+   puts the raw ISO `weekStart` in its row headers (L129) and draws no x labels
+   at all. This is `user_visible_behavior` line 4 and invariant 2.
+4. **`RecentRatingBreakdown` and `RecentSentimentMix` state DIFFERENT windows
+   while sitting side by side** — "Across N reviews in the selected period" (the
+   windowed aggregate, #405) versus "Share of your N most recent reviews" (the
+   recent sample). Both are honest alone and confusing together. Presentation
+   only; neither number changes.
+5. **`RankingChart` states no window anywhere**, on screen or in the caption.
+6. **Neither `Recent*` chart carries a chart-level name** — the rows speak, the
+   chart does not. Adding one must not make the rows speak twice.
+
+## Empty series: the intake edge case contradicts a deliberate design
+
+The intake lists *"Empty series: the chart must still say what it would have
+plotted."* Both `Recent*` charts deliberately `return null` at `total === 0`
+(`RecentRatingBreakdown.tsx:22`, `RecentSentimentMix.tsx:39`), each with a
+docblock saying it renders nothing "so the caller can drop the slot cleanly".
+`ReputationTrendChart` does the opposite and renders an empty-state sentence
+(L82).
+
+The two cannot both be satisfied without a decision.
+
+**Owner decision, 2026-09-04: `return null` wins.** The existing design is
+deliberate and both docblocks say so. The intake edge case is SUPERSEDED for
+these two charts: the CALLER owns the empty slot, and a chart that renders
+nothing is the contract, not an oversight.
+
+The edge case is not dropped — it is re-pointed. `ReputationTrendChart` DOES
+render an empty state (L82: "Not enough reviews yet to chart a trend"), and that
+sentence names neither the unit nor the window it would have covered. That is
+where the promised test earns its keep.
+
+`tests_to_add` line 3 keeps its VERBATIM title — the gate's `promised-tests` row
+matches on the title string, and retitling it would trade a real check for a
+green row. Only its target narrows, and a retitle would be a deviations entry
+rather than a surface amendment in any case.
+
+## Owner decision on the plan itself
+
+**2026-09-04: revise the plan in place, intake unamended.** Every `goal` line,
+`user_visible_behavior` line and invariant survived the corrected measurement —
+only the plan's prose measurement and its T2 slice were wrong. That makes this a
+deviations entry, NOT a surface amendment, so `incr-amendment` is not called and
+the abort budget is untouched.
