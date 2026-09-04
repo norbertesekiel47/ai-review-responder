@@ -549,16 +549,47 @@ Which surface a context earns, by how much it interrupts:
 
 | Surface | Use when | Blocking |
 |---|---|---|
+| Info tip | A number needs one sentence of meaning, and a better label will not do | No |
 | Popover menu | The context is simple and dismissible with no consequence | No |
 | Modal `<dialog>` | The context is complex but belongs to this page | Yes |
 | New page | The context is permanent or large — and it owes a back link or breadcrumb | n/a |
 | Toast | Reporting the RESULT of an action, without taking the screen | No |
 
-**Popover menus** (`useMenuPopover`) are the single owner of menu behavior:
-outside-click dismissal, Escape with focus restored to the trigger, Tab to
-close, and roving Arrow/Home/End over anything with a `menuitem` role. Two
+**One core, two surfaces.** `useDisclosurePopover`
+(`src/components/ui/useDisclosurePopover.ts`) owns what every Console popover
+shares: open state, stable ids, outside-**pointer** dismissal, and close with
+focus restored to the trigger. `pointerdown`, not `mousedown` — iOS Safari
+synthesises no mouse event for a tap on a plain `<div>`, which is most of the
+dashboard body. Anything that opens beside a trigger builds on it.
+
+**Popover menus** (`useMenuPopover`) are the single owner of *menu* behavior on
+top of that core: which item takes focus on open, ArrowDown/ArrowUp on the
+trigger, and roving Arrow/Home/End over anything with a `menuitem` role. Two
 callers — the location switcher and the account menu. A menu that reimplements
 any of this is a bug, not a variant.
+
+**Info tips** (`InfoTip`) are the disclosure sibling, and they use the core
+directly rather than the menu hook. The reason is specific and worth keeping:
+`onMenuKeyDown` `preventDefault`s Arrow/Home/End *before* checking whether any
+item exists — right for a menu, and it would swallow arrow-key page scrolling
+for a popover with none.
+
+- Hover previews the tip only where `(hover: hover) and (pointer: fine)`
+  reports a real pointer; a click or tap pins it everywhere. A tap emits a
+  synthetic `mouseenter` on many touch browsers, and opening on that would let
+  the click behind it toggle the tip straight shut.
+- Hover handlers belong to the CONTAINER, not the trigger. An 8px gap sits
+  between them, and button-only handlers make the panel vanish as the pointer
+  reaches for it — WCAG 2.1 SC 1.4.13 (Hoverable).
+- The panel is anchored to its trigger, so a tip in the right part of a wide
+  row passes `align="end"` or it runs past the canvas and
+  `.main { overflow: clip }` cuts it with no scrollbar. Screenshots at 390px
+  and 1440px straddle that band and see nothing.
+- On the inverted deep panel the focus ring takes `--rw-nav-ink`; `--rw-focus`
+  is 1.44:1 there.
+- **A tip is warranted only when a better label will not do**, and its copy is
+  written against the QUERY, not the label. Two dashboard surfaces carry none
+  on that rule, each pinned by a test.
 
 ### Toasts
 
