@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 15** — last reset to 0 by the
+**Merges since last architecture pass: 16** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -229,6 +229,27 @@ Merges since the 2026-08-26 pass:
   that follows toggle the tip straight shut. `allowed_edit_surface` was amended
   **once**, with owner approval, to admit six existing dashboard test files; the
   intake promised surface tests but locked their files out.
+
+- 2026-09-04 — `refactor(#1086 follow-up)`: the shared half of Console popover
+  behaviour gets one owner, `src/components/ui/useDisclosurePopover.ts`. Touches
+  that new file · `src/components/dashboard/shell/useMenuPopover.ts` ·
+  `src/components/ui/InfoTip.tsx` · `docs/design/console/DESIGN.md`. Takes the
+  counter to **16**. This closes the follow-up #1086 recorded in its deviations
+  D7 and rejected as M3 at the time: the review was right that the dismissal
+  machinery was duplicated, and the owner was right that #1086 was the wrong
+  branch to fix it on. **`useMenuPopover`'s public API is byte-identical**, so
+  `AccountMenu` and `LocationPicker` are untouched — including its ids, which is
+  why the core takes a `panelIdSegment` and the menu passes `'menu'`. **The
+  split is load-bearing:** `onMenuKeyDown` `preventDefault`s Arrow/Home/End
+  before checking whether an item exists, which is correct for a menu and would
+  swallow arrow-key page scrolling for a tip, so it stays in the menu layer. One
+  deliberate BEHAVIOUR change rides along: outside-dismissal moves from
+  `mousedown` to `pointerdown` for the account menu and the location switcher
+  too, because iOS Safari synthesises no mouse event for a tap on a plain
+  `<div>` — the same defect #1086's review found in the tip. `useMenuPopover`
+  keeps its own `toggle` rather than the core's, because opening through
+  `openMenu()` is what resets the focus target; sharing the core's would make a
+  menu once opened with ArrowDown keep landing on the first item.
 
 ---
 

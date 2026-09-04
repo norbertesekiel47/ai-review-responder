@@ -3,13 +3,12 @@
 import {
   useCallback,
   useEffect,
-  useId,
-  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useDisclosurePopover } from '@/components/ui/useDisclosurePopover';
 
 /**
  * The repo's one "this device has a real pointer" predicate, shared with
@@ -50,56 +49,64 @@ export interface InfoTipProps {
  * Both elements are inline `<span>`s, so a tip is legal inside a heading or a
  * label.
  *
- * Dismissal is owned here rather than by `useMenuPopover`. That hook is the
- * Console's single owner of *menu* behavior (`aria-haspopup="menu"`); it
- * preventDefaults Arrow/Home/End to rove between `menuitem` rows before it
- * checks whether any exist (`useMenuPopover.ts:131` vs `:133`). A tip has none,
- * so reusing it would swallow arrow-key page scrolling, and would be the first
- * import from `components/dashboard/` into `components/ui/`. The three
- * behaviours below (outside-pointer dismissal, Escape with focus restored, Tab
- * to close) are duplicated from it knowingly; extracting a shared disclosure
- * core is recorded as owed follow-up in this branch's deviations file.
+ * Dismissal, ids and focus restoration come from `useDisclosurePopover`, the
+ * shared core this and `useMenuPopover` both build on. It does NOT use the
+ * menu hook: that one `preventDefault`s Arrow/Home/End to rove between
+ * `menuitem` rows before it checks whether any exist, and a tip has none — so
+ * reusing it would swallow arrow-key page scrolling. A test named "does not
+ * swallow arrow keys while it is open" pins that.
+ *
+ * Hover is this component's own layer on top of the shared PINNED state: the
+ * core knows nothing about pointers, and a menu must not acquire hover-open
+ * behaviour by sharing a hook with a tip.
  */
 export function InfoTip({ subject, align = 'start', children }: InfoTipProps) {
-  const [pinned, setPinned] = useState(false);
+  // The disclosure hook owns PINNED — the durable half of open. Hover is a
+  // second, transient input this component adds on top, which is why `open`
+  // below is derived rather than read straight off the hook.
+  const {
+    open: pinned,
+    containerRef,
+    triggerRef,
+    panelId,
+    close: unpin,
+    closeAndRestoreFocus: unpinAndRestoreFocus,
+    openPopover: pin,
+  } = useDisclosurePopover<HTMLButtonElement, HTMLSpanElement, HTMLSpanElement>('info-tip');
+
   const [hovering, setHovering] = useState(false);
-  const containerRef = useRef<HTMLSpanElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const hasHover = useMediaQuery(HOVER_CAPABLE);
-  const panelId = `info-tip-${useId().replace(/:/g, '')}`;
 
   const open = pinned || (hasHover && hovering);
 
   const close = useCallback(() => {
-    setPinned(false);
+    unpin();
     setHovering(false);
-  }, []);
+  }, [unpin]);
 
   const closeAndRestoreFocus = useCallback(() => {
-    close();
-    requestAnimationFrame(() => triggerRef.current?.focus());
-  }, [close]);
+    setHovering(false);
+    unpinAndRestoreFocus();
+  }, [unpinAndRestoreFocus]);
 
   const toggle = useCallback(() => {
     if (pinned) closeAndRestoreFocus();
-    else setPinned(true);
-  }, [closeAndRestoreFocus, pinned]);
+    else pin();
+  }, [closeAndRestoreFocus, pin, pinned]);
 
+  // The hook's own outside-pointer listener only runs while PINNED. A tip that
+  // is merely hover-open needs the same dismissal, and `mouseleave` cannot be
+  // relied on when the pointer lands somewhere that steals focus.
   useEffect(() => {
-    if (!open) return;
+    if (!hovering) return;
     function handlePointerDown(event: Event) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setPinned(false);
         setHovering(false);
       }
     }
-    // `pointerdown`, not `mousedown`: iOS Safari synthesises mouse events from
-    // a tap only for elements it treats as clickable, so an outside tap on a
-    // plain div or paragraph — most of the dashboard body — fires no
-    // `mousedown` at all and the tip would stay pinned.
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [open]);
+  }, [containerRef, hovering]);
 
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLSpanElement>) => {
@@ -111,7 +118,8 @@ export function InfoTip({ subject, align = 'start', children }: InfoTipProps) {
       }
       // Tab leaves on purpose: focus moves onward, so pulling it back to the
       // trigger would fight the user. Every other key falls through — an open
-      // tip must not stop the page scrolling.
+      // tip must not stop the page scrolling, which is the whole reason this
+      // component does not use `useMenuPopover`'s key handler.
       if (event.key === 'Tab') close();
     },
     [close, closeAndRestoreFocus, open],

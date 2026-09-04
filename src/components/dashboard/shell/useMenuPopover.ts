@@ -3,11 +3,10 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useRef,
-  useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
+import { useDisclosurePopover } from '@/components/ui/useDisclosurePopover';
 
 /** Which item takes focus when the menu opens. `selected` prefers the
  *  `aria-checked` row and falls back to the first, which is what a radio-style
@@ -39,6 +38,18 @@ export interface MenuPopover<Trigger extends HTMLElement> {
  * menu (`aria-haspopup="menu"`). Two callers today: the location switcher and
  * the sidebar account menu.
  *
+ * **This is the MENU layer.** Open state, stable ids, outside-pointer
+ * dismissal and close-with-focus-restored now live in `useDisclosurePopover`,
+ * because a tip needs those four and needs none of the menu behaviour below.
+ * What stays here is what makes a menu a menu: which item takes focus on open,
+ * ArrowDown/ArrowUp on the trigger, and the roving Arrow/Home/End inside it.
+ *
+ * That split is load-bearing, not tidiness. `onMenuKeyDown` `preventDefault`s
+ * Arrow/Home/End BEFORE it checks whether any item exists — correct for a
+ * menu, and it would swallow arrow-key page scrolling for a popover that has
+ * no items. `InfoTip` is exactly that popover, which is why #1086 could not
+ * reuse this hook and why the shared half was extracted instead.
+ *
  * Items are discovered from the DOM by `role^="menuitem"` rather than from a
  * prop, so a caller can mix `menuitem`, `menuitemradio`, links, and buttons in
  * one menu without registering anything.
@@ -46,32 +57,37 @@ export interface MenuPopover<Trigger extends HTMLElement> {
 export function useMenuPopover<Trigger extends HTMLElement>(
   idPrefix: string,
 ): MenuPopover<Trigger> {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<Trigger>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const {
+    open,
+    containerRef,
+    triggerRef,
+    panelRef: menuRef,
+    triggerId,
+    panelId: menuId,
+    close,
+    closeAndRestoreFocus,
+    openPopover,
+  } = useDisclosurePopover<Trigger>(idPrefix, 'menu');
+
   const focusOnOpenRef = useRef<MenuOpenFocus>('selected');
-  const rawId = useId().replace(/:/g, '');
-  const triggerId = `${idPrefix}-trigger-${rawId}`;
-  const menuId = `${idPrefix}-menu-${rawId}`;
 
   const getMenuItems = useCallback((): HTMLElement[] => {
     if (!menuRef.current) return [];
     return Array.from(menuRef.current.querySelectorAll<HTMLElement>('[role^="menuitem"]'));
-  }, []);
+  }, [menuRef]);
 
-  const close = useCallback(() => setOpen(false), []);
+  const openMenu = useCallback(
+    (focus: MenuOpenFocus = 'selected') => {
+      focusOnOpenRef.current = focus;
+      openPopover();
+    },
+    [openPopover],
+  );
 
-  const closeAndRestoreFocus = useCallback(() => {
-    setOpen(false);
-    requestAnimationFrame(() => triggerRef.current?.focus());
-  }, []);
-
-  const openMenu = useCallback((focus: MenuOpenFocus = 'selected') => {
-    focusOnOpenRef.current = focus;
-    setOpen(true);
-  }, []);
-
+  // Deliberately NOT the disclosure hook's `toggle`: opening through
+  // `openMenu()` is what resets `focusOnOpenRef` to 'selected'. Without that, a
+  // menu once opened with ArrowDown would keep landing on the first item on
+  // every later open.
   const toggle = useCallback(() => {
     if (open) closeAndRestoreFocus();
     else openMenu();
@@ -91,18 +107,7 @@ export function useMenuPopover<Trigger extends HTMLElement>(
       target?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [getMenuItems, open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
+  }, [getMenuItems, menuRef, open]);
 
   const onTriggerKeyDown = useCallback(
     (event: ReactKeyboardEvent<Trigger>) => {
@@ -123,7 +128,7 @@ export function useMenuPopover<Trigger extends HTMLElement>(
       // Tab leaves the menu on purpose: the focus moves onward, so restoring it
       // to the trigger would fight the user.
       if (event.key === 'Tab') {
-        setOpen(false);
+        close();
         return;
       }
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -142,7 +147,7 @@ export function useMenuPopover<Trigger extends HTMLElement>(
               : (current - 1 + items.length) % items.length;
       items[next]?.focus();
     },
-    [closeAndRestoreFocus, getMenuItems],
+    [close, closeAndRestoreFocus, getMenuItems],
   );
 
   return {
