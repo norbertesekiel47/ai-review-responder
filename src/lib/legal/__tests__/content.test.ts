@@ -157,6 +157,9 @@ describe('legal content — Stripe Customer redaction disclosure', () => {
     expect(retentionText).toContain('payment processor');
     expect(retentionText).toContain('paid invoices');
     expect(retentionText).toContain('billing name and address');
+    // The detached PaymentMethod is the second PROVIDER_DATA_RETENTION entry.
+    // No Stripe verb deletes it, so the policy must disclose it too.
+    expect(retentionText).toContain('last four digits');
     // No new section: the disclosure sharpens the paragraph that already
     // exists rather than adding a heading a reader has to find.
     expect(

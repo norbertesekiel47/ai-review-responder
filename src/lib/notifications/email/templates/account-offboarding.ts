@@ -283,7 +283,7 @@ function formatRetainedSuppressions(count: number): string {
  * so a zero-suppression purge discloses exactly the same thing.
  */
 const PAYMENT_PROCESSOR_RETENTION_SENTENCE =
-  'Our payment processor keeps paid invoices, including the billing name and address on them, and tax identifiers, for financial record-keeping.';
+  'Our payment processor keeps paid invoices, including the billing name and address on them, tax identifiers, and the billing details and last four card digits on any payment method you saved. We unlink that payment method, and the processor offers no way to delete it.';
 
 function formatPurgedAt(value: Date | string | null): string {
   if (!value) return 'the scheduled deletion date';
