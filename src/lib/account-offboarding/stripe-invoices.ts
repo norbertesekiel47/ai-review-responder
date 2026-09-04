@@ -1,13 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
-  RETRYABLE_STRIPE_ERROR_TYPES,
-  PERMANENT_STRIPE_ERROR_TYPES,
-} from '../payments/stripe-error-inspect';
-import {
-  RETRYABLE_NETWORK_ERROR_CODES,
   errorStringProperty as stringProperty,
   errorNumberProperty as numberProperty,
 } from '../shared/error-inspect';
+import { isRetryableStripeError } from './stripe-retry-policy';
 
 type StripeInvoiceStatus = 'draft' | 'open' | 'paid' | 'uncollectible' | 'void';
 type StripeInvoiceCleanupOperation = 'list' | 'inspect' | 'finalize' | 'void';
@@ -438,20 +434,6 @@ function stripeError(input: {
     code: retryable ? 'stripe_retryable_error' : 'stripe_permanent_error',
     stripeError: stripeErrorDetails(input.err),
   });
-}
-
-function isRetryableStripeError(err: unknown): boolean {
-  const type = stringProperty(err, 'type');
-  if (type && RETRYABLE_STRIPE_ERROR_TYPES.has(type)) return true;
-  if (type && PERMANENT_STRIPE_ERROR_TYPES.has(type)) return false;
-
-  const statusCode = numberProperty(err, 'statusCode') ?? numberProperty(err, 'status');
-  if (statusCode === 429) return true;
-  if (typeof statusCode === 'number' && statusCode >= 500 && statusCode <= 599) return true;
-  if (typeof statusCode === 'number' && statusCode >= 400 && statusCode <= 499) return false;
-
-  const code = stringProperty(err, 'code');
-  return code ? RETRYABLE_NETWORK_ERROR_CODES.has(code) : false;
 }
 
 function stripeErrorDetails(err: unknown): StripeInvoiceCleanupErrorDetails {
