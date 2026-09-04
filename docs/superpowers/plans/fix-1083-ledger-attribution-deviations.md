@@ -67,3 +67,54 @@ deviations entry and not a surface amendment; the amendment counter is
 untouched.
 
 **Verdict:** ACCEPT — the plan is stronger and the surface did not move.
+
+---
+
+## D4 — The set arm's `extra` key for the distinct sources was unspecified
+
+**When**: step 4, integrating T1.
+
+The plan said the set-arm capture carries "`row_count` and the distinct
+sources" without naming the key. T1 could not pin what the plan had not named,
+so it asserted the sources key-agnostically — a weaker test than the rest of
+the eval.
+
+Named on integration: **`refusal_lanes`**, the same sorted comma-joined string
+as the `refusal_lane` tag. The duplication is deliberate rather than sloppy — a
+Sentry **tag** value truncates at 200 characters and `extra` does not, so a
+cohort spanning every lane is exactly the case where the tag can lose a member.
+`extra` is the durable copy.
+
+The plan's T3 now states the shape as exactly `{ row_count, refusal_lanes }`,
+and the eval pins the key. Test counts unchanged; the file `write.test.ts` was
+already in the surface.
+
+**Verdict:** ACCEPT — a gap in the plan, closed with a decision and a stronger
+assertion. No scope change.
+
+---
+
+## D5 — Two of the sixteen eval titles pass before implementation
+
+**When**: step 4, T1.
+
+The plan's Done-when says "sixteen new failing assertions". The run shows
+**fourteen failing, two passing**, and both passes are correct:
+
+- `commits the response persist when the policy gate resolver would throw and
+  the kill switch is off` is #1079's containment invariant. The plan itself
+  requires it to pass **both before and after** — it is a regression pin, not a
+  red test.
+- `attributes a policy gate vocabulary fault without also attributing a write
+  fault` passes because the surviving wrapper already reports that fault
+  identically before and after T4. It pins that the wrapper's `extra` stays
+  `{response_id}` rather than becoming the writer's five-key payload.
+
+The double-attribution risk T4 introduces is caught by `raises exactly one
+capture for a policy gate write failure`, which asserts the surviving capture
+carries the **writer's** payload. A bare count of one would not have failed —
+"delete the writer guard, keep the wrapper" also produces one — so the eval
+asserts the shape, not the count.
+
+**Verdict:** ACCEPT — the plan's own Done-when wording was imprecise, not the
+eval. Fourteen is the correct number of red tests.

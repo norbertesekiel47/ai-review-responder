@@ -137,6 +137,29 @@ vi.mock('../../../../src/lib/refusals/write', async (importOriginal) => {
   };
 });
 
+/**
+ * `Sentry.captureException` as a SPY, so LEDGER ATTRIBUTION is observable here
+ * (#1083).
+ *
+ * THE COUNT IS THE ORACLE, not the fact that a capture happened. Both fault
+ * classes on this lane raise an `error`-level event tagged
+ * `subsystem=refusal_ledger`, so "a capture occurred" cannot tell a vocabulary
+ * fault from a write fault, and it cannot tell ONE event from TWO. Two events
+ * for one failure is the defect the wrapper narrowing exists to remove: an
+ * operator triaging a duplicated issue cannot tell which of the two is the
+ * fault and which is the echo.
+ *
+ * A PARTIAL mock, on this file's `importOriginal` house style. `persist.ts`
+ * imports the namespace, and the rest of the module graph keeps whatever else it
+ * reaches for; only the one function under observation is replaced.
+ */
+const captureExceptionSpy = vi.hoisted(() => vi.fn());
+
+vi.mock('@sentry/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@sentry/node')>();
+  return { ...actual, captureException: captureExceptionSpy };
+});
+
 import { hasStaleReviewContent, persistResponseAndNotify } from '../persist';
 import type { AutoApprovalDecision } from '../auto-approval';
 import { POLICY_GATE_HELD_REFUSAL_CATEGORIES } from '../../../../src/lib/refusals/vocabulary';
@@ -1361,5 +1384,211 @@ describe('invariants', () => {
     expect(resolvePolicyGateRefusalSpy, 'the resolver runs on the on-arm').toHaveBeenCalledTimes(1);
     expect(noteUnmappedBlockReasonsSpy, 'the off-arm signal stays off').not.toHaveBeenCalled();
     expect(noteRefusalLedgerDarkSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LEDGER ATTRIBUTION — the lane keeps ONE wrapper, narrowed (#1083).
+//
+// WHAT MOVED AND WHAT STAYED. Attribution for a ledger WRITE fault belongs to
+// `src/lib/refusals/write.ts`, which is the single owner of the statement, and
+// `write.test.ts` owns those twelve cases. What cannot move is the VOCABULARY
+// fault: `resolvePolicyGateRefusal` throws BEFORE the writer is ever reached, so
+// exactly one call site still needs a wrapper — this one, for that one fault, on
+// that one lane. The `held_draft` invocation wrapped a write and nothing else,
+// so it goes; the writer covers it.
+//
+// THE COUNT IS THE PROPERTY, and it is what these four cases are for. Leaving
+// the write inside the surviving wrapper doubles every `policy_gate_held` write
+// fault, and the twelve writer cases all still pass while it does — the
+// vocabulary case never reaches the writer, and a `held_draft`-only one-capture
+// case says nothing about this lane (plan round 1, finding F1).
+//
+// SO EACH CASE READS THE `extra` PAYLOAD, not just the count. The two fault
+// classes are distinguishable only there: the wrapper carries `response_id`, the
+// writer carries the five closed fields. A single capture with the WRONG payload
+// is the surviving-wrapper-around-the-write shape, and a count alone cannot see
+// it.
+// ---------------------------------------------------------------------------
+describe('ledger attribution (#1083)', () => {
+  /** The statement the writer owns — matched by text, on `sqlText`'s terms. */
+  const LEDGER_INSERT = 'INSERT INTO refusal_events';
+
+  /** `uuid`'s `v7` is mocked at the top of this file, so the response id is fixed. */
+  const RESPONSE_ID = 'deterministic-uuid-v7';
+
+  interface LedgerCapture {
+    error: unknown;
+    level?: string;
+    tags?: Record<string, string>;
+    extra?: Record<string, unknown>;
+  }
+
+  function ledgerCaptures(): LedgerCapture[] {
+    return (captureExceptionSpy.mock.calls as unknown[][]).map((call) => {
+      const options = (call[1] ?? {}) as Omit<LedgerCapture, 'error'>;
+      return { error: call[0], ...options };
+    });
+  }
+
+  /**
+   * The hoisted `mockTx` body, re-installed.
+   *
+   * `vi.clearAllMocks()` clears call history and KEEPS implementations, so a
+   * case that armed a fault would leak it into every case that ran after it.
+   * Re-installing on both sides is what keeps this block independent of file
+   * order — the same reason `gateOverride` is reset twice above.
+   */
+  function restoreTx(): void {
+    mockTx.mockImplementation((_strings: TemplateStringsArray, ..._values: unknown[]) =>
+      Promise.resolve(txQueue.shift() ?? []));
+  }
+
+  /** Make the ledger INSERT — and only it — reject, wherever it lands in the flow. */
+  function failLedgerWrite(error: Error): void {
+    mockTx.mockImplementation((strings: TemplateStringsArray, ..._values: unknown[]) => {
+      if (strings.join('?').includes(LEDGER_INSERT)) return Promise.reject(error);
+      return Promise.resolve(txQueue.shift() ?? []);
+    });
+  }
+
+  /** A block reason the category map really holds and does not veto. */
+  function mappedNonNullBlockReason(): string {
+    const found = ALL_BLOCK_REASONS.find(
+      (code) =>
+        POLICY_GATE_HELD_REFUSAL_CATEGORIES[
+          code as keyof typeof POLICY_GATE_HELD_REFUSAL_CATEGORIES
+        ] !== null,
+    );
+    if (found === undefined) throw new Error('the category map holds no non-null member');
+    return found;
+  }
+
+  /** The high-severity moderation verdict that HOLDS a draft and writes `held_draft`. */
+  const HELD_MODERATION: ModerationDecision = {
+    ...CLEAN_MODERATION,
+    flagged: true,
+    severity: 'high',
+    source: 'local_regex',
+    reason: 'refund_discount',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    txQueue.length = 0;
+    restoreTx();
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+    delete process.env[REFUSAL_LEDGER_FLAG];
+    gateOverride.blockReasons = null;
+  });
+
+  afterEach(() => {
+    restoreTx();
+    delete process.env.AUTO_APPROVAL_ENABLED;
+    delete process.env.OPENAI_MODERATION_ENABLED;
+    delete process.env[REFUSAL_LEDGER_FLAG];
+    gateOverride.blockReasons = null;
+  });
+
+  it('attributes a policy gate vocabulary fault without also attributing a write fault', async () => {
+    // The fault class that keeps a wrapper: an unmapped block reason throws out
+    // of `resolvePolicyGateRefusal`, which runs BEFORE the writer is reached. It
+    // is not a CHECK violation and not a writer bug, and the writer can never
+    // see it — so the narrowed wrapper is its only reporter.
+    queuePersistRows();
+    gateOverride.blockReasons = ['ghost_reason'];
+
+    await expect(persistResponseAndNotify(mockSql, baseInput())).rejects.toThrow(
+      /unmapped_auto_approval_block_reason/,
+    );
+
+    expect(captureExceptionSpy, 'ONE fault, ONE event').toHaveBeenCalledTimes(1);
+    const [capture] = ledgerCaptures();
+    expect(capture?.level).toBe('error');
+    expect(capture?.tags).toEqual({
+      subsystem: 'refusal_ledger',
+      refusal_lane: 'policy_gate_held',
+      flag: REFUSAL_LEDGER_FLAG,
+    });
+    // THE WRAPPER'S PAYLOAD, not the writer's. This is what makes the two fault
+    // classes tellable apart in Sentry, and it is the assertion that fails if
+    // the write is left inside the wrapper and reports as a vocabulary fault.
+    expect(capture?.extra).toEqual({ response_id: RESPONSE_ID });
+    // …and the writer really was never reached, so there is no write fault to
+    // attribute in the first place.
+    expect(txTexts().some((text) => text.includes(LEDGER_INSERT))).toBe(false);
+  });
+
+  it('raises exactly one capture for a held draft write failure', async () => {
+    queuePersistRows({ flaggedHigh: true, notify: false });
+    const boom = new Error('23514: refusal_events_c4');
+    failLedgerWrite(boom);
+
+    await expect(
+      persistResponseAndNotify(mockSql, baseInput({ moderation: HELD_MODERATION })),
+    ).rejects.toBe(boom);
+
+    // ONE, not two. The call-site wrapper on this lane wrapped a write and
+    // nothing else; once the writer attributes its own faults, keeping it raises
+    // two Sentry events for one failure.
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+    const [capture] = ledgerCaptures();
+    expect(capture?.error).toBe(boom);
+    expect(capture?.tags?.refusal_lane).toBe('held_draft');
+    // AND THE SURVIVOR IS THE WRITER'S, identified by its payload. A count of
+    // one is also what a deleted writer guard plus a surviving wrapper gives,
+    // and only the payload separates them.
+    expect(capture?.extra).toEqual({
+      refusal_source: 'held_draft',
+      subject_type: 'response',
+      subject_id: RESPONSE_ID,
+      account_id: 'acct-1',
+      business_id: 'biz-1',
+    });
+  });
+
+  it('raises exactly one capture for a policy gate write failure', async () => {
+    // The case plan round 1 found missing (F1). The lane's OTHER fault class:
+    // the vocabulary resolves cleanly and the WRITE fails. With the write left
+    // inside the surviving wrapper this fault reports twice, and every one of
+    // the twelve writer titles still passes.
+    queuePersistRows();
+    gateOverride.blockReasons = [mappedNonNullBlockReason()];
+    const boom = new Error('23514: refusal_events_c5');
+    failLedgerWrite(boom);
+
+    await expect(persistResponseAndNotify(mockSql, baseInput())).rejects.toBe(boom);
+
+    expect(captureExceptionSpy).toHaveBeenCalledTimes(1);
+    const [capture] = ledgerCaptures();
+    expect(capture?.error).toBe(boom);
+    expect(capture?.tags?.refusal_lane).toBe('policy_gate_held');
+    expect(capture?.extra).toEqual({
+      refusal_source: 'policy_gate_held',
+      subject_type: 'response',
+      subject_id: RESPONSE_ID,
+      account_id: 'acct-1',
+      business_id: 'biz-1',
+    });
+  });
+
+  it('commits the response persist when the policy gate resolver would throw and the kill switch is off', async () => {
+    // #1079's containment invariant, and it must hold BOTH before and after this
+    // change. Guard 4 returns before the resolve, so the throwing resolver never
+    // runs, nothing new can throw behind it, and the decision commits. A version
+    // of ledger attribution that ran anything ahead of that guard would abort the
+    // persist through the very lever the operator had already pulled.
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+    queuePersistRows();
+    gateOverride.blockReasons = ['ghost_reason'];
+
+    await persistResponseAndNotify(mockSql, baseInput());
+
+    expect(resolvePolicyGateRefusalSpy, 'containment is by NON-EXECUTION').not.toHaveBeenCalled();
+    expect(txTexts().some((text) => text.includes('INSERT INTO responses'))).toBe(true);
+    expect(txTexts().some((text) => text.includes(LEDGER_INSERT))).toBe(false);
+    expect(sendNotificationPayloads(), 'the decision landed, unrecorded').toHaveLength(1);
+    expect(captureExceptionSpy, 'nothing to attribute: nothing ran').not.toHaveBeenCalled();
   });
 });

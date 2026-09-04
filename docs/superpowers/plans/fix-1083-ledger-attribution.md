@@ -104,7 +104,13 @@ passes under an input-order or first-source-only implementation, so it proves
 nothing.
 
 **Done when**: `pnpm vitest run src/lib/refusals worker/jobs/response-generation`
-shows sixteen new failing assertions and no error outside them.
+shows **fourteen** new failing assertions and no error outside them. Two of the
+sixteen pass before implementation and that is correct — see deviations D5. Both
+are regression pins: `commits the response persist when the policy gate resolver
+would throw and the kill switch is off` is #1079's containment invariant, which
+this section already required to pass before and after, and `attributes a policy
+gate vocabulary fault without also attributing a write fault` pins that the
+surviving wrapper's `extra` stays `{response_id}`.
 
 ---
 
@@ -207,9 +213,14 @@ input being `readonly WriteRefusalEventInput[]`:
   comma-joined**. Sorting is what makes the tag deterministic — an input-order
   tag would open two Sentry issue facets for the same pair of lanes. Cardinality
   is bounded at 127 and is 1 in practice.
-- **`extra` carries `row_count` and the distinct sources, never per-row ids.**
+- **`extra` is exactly `{ row_count, refusal_lanes }`, never per-row ids.**
   `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000) Refusals in one
   build; 5,000 subject ids in a Sentry event is a payload, not a signal.
+  `refusal_lanes` is the same sorted comma-joined string as the tag. The
+  duplication is deliberate: a Sentry **tag** value truncates at 200 characters
+  and `extra` does not, so a cohort spanning every lane is the case where the
+  tag can lose a member. The key name was unspecified when T1 wrote the eval;
+  it was named on integrating T1 and the eval now pins it.
 
 The empty-input return at `write.ts:891` stays **first**, before the flag read
 and before this block, exactly as it is today.
