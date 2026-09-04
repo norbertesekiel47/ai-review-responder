@@ -172,3 +172,31 @@ the agent and gate afterwards.
 **Verdict:** ACCEPT — no artifact was poisoned, and the lesson is durable.
 Promote to lab-notes at step 8: *the subagent barrier is about the working tree,
 not only HEAD; a clean porcelain does not make a mid-flight gate safe.*
+
+---
+
+## D8 — Two more stale docblock sentences, outside the wrapper the plan named
+
+**When**: step 4, T4.
+
+The plan named two sentences in `withLedgerAttribution`'s own docblock that go
+stale when the wrapper narrows. T4 found two more, in
+`recordPolicyGateRefusal`'s docblock — a different function:
+
+- Bullet 4's zero-window argument asserted that `withLedgerAttribution` and
+  `writeRefusalEvent` "each run synchronously to their first `await`". The
+  wrapper now has no `await` at all.
+- Bullet 5 said the recordability guard "now lives INSIDE
+  `withLedgerAttribution`". It now sits on the wrapper's return value, outside
+  it.
+
+Both corrected inside the lease. Neither is a behaviour change; both are
+sentences that would have contradicted the code in the same file.
+
+The generalisable point: this repo's docblocks cite each other across function
+boundaries, so narrowing a function invalidates prose in its *callers* as well
+as its own. A grep for the symbol name is the cheap check, and the plan did not
+call for one.
+
+**Verdict:** ACCEPT — caught and fixed in scope. Promote the grep habit to
+lab-notes at step 8 alongside D7.

@@ -928,14 +928,16 @@ function unmappedBlockReasons(
  *
  *      A SECOND, LIVE READ still happens inside `writeRefusalEvent`. THE WINDOW
  *      BETWEEN THEM IS ZERO, not "microseconds": no `await` separates them —
- *      `withLedgerAttribution` and `writeRefusalEvent` each run synchronously to
- *      their first `await`, and the second read is `writeRefusalEvent`'s first
- *      statement. A mid-process flip cannot land between them, so there is
- *      nothing here to defend against and nothing for a test to exercise.
+ *      `withLedgerAttribution` is wholly synchronous (#1083) and
+ *      `writeRefusalEvent` runs synchronously to its first `await`, and the
+ *      second read is that function's first statement. A mid-process flip cannot
+ *      land between them, so there is nothing here to defend against and nothing
+ *      for a test to exercise.
  *   5. the resolver returned nothing — the set was empty, or a `null`-mapped
  *      member vetoed it. THIS is the guard that decides whether a Refusal is
- *      recordable, and it now lives INSIDE `withLedgerAttribution` so the
- *      resolve it depends on is attributed too.
+ *      recordable. It sits on the wrapper's RETURN VALUE, immediately after it:
+ *      the resolve it depends on is attributed, and the write it gates is not
+ *      wrapped, because the writer attributes that one itself (#1083).
  *
  * NOT CAUGHT AT THE CALL SITE, on the same terms as the `held_draft` write and
  * `write.ts`'s own contract: a CHECK violation is a writer bug and must abort
@@ -970,51 +972,68 @@ async function recordPolicyGateRefusal(
     return;
   }
 
-  // The RESOLVE is inside the wrapper, not before it. A vocabulary fault is a
-  // ledger fault and must report as one; outside, it escaped attribution and
-  // surfaced as a generic persist failure (#1079).
-  await withLedgerAttribution('policy_gate_held', responseId, async () => {
-    const refusal = resolvePolicyGateRefusal(autoDecision.blockReasons);
-    if (!refusal) return;
+  // The RESOLVE is inside the wrapper, and it is now the ONLY thing inside it. A
+  // vocabulary fault is a ledger fault and must report as one; outside, it
+  // escaped attribution and surfaced as a generic persist failure (#1079).
+  const refusal = withLedgerAttribution(
+    'policy_gate_held',
+    responseId,
+    () => resolvePolicyGateRefusal(autoDecision.blockReasons),
+  );
+  if (!refusal) return;
 
-    await writeRefusalEvent(tx, {
-      accountId,
-      businessId,
-      refusalSource: 'policy_gate_held',
-      refusalCode: refusal.refusalCode,
-      allRefusalCodes: refusal.allRefusalCodes,
-      refusalCategory: refusal.refusalCategory,
-      subjectType: 'response',
-      subjectId: responseId,
-      // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
-      // why `occurred_at` is writer-supplied. The gate decided inside this
-      // transaction, so its transaction timestamp IS the decision time.
-      occurredAt: 'transaction_time',
-    });
+  // The WRITE is outside the wrapper (#1083): `writeRefusalEvent` attributes its
+  // own faults, so wrapping it here would raise a second Sentry event for one
+  // failure.
+  await writeRefusalEvent(tx, {
+    accountId,
+    businessId,
+    refusalSource: 'policy_gate_held',
+    refusalCode: refusal.refusalCode,
+    allRefusalCodes: refusal.allRefusalCodes,
+    refusalCategory: refusal.refusalCategory,
+    subjectType: 'response',
+    subjectId: responseId,
+    // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
+    // why `occurred_at` is writer-supplied. The gate decided inside this
+    // transaction, so its transaction timestamp IS the decision time.
+    occurredAt: 'transaction_time',
   });
 }
 
 /**
- * Attribute a ledger failure to the Refusal ledger, then RETHROW unchanged.
+ * Attribute a Refusal-ledger VOCABULARY failure, then RETHROW unchanged.
  *
- * WHY THIS EXISTS, and it is not observability for its own sake. Both write
- * sites are deliberately uncaught: a migration-116 CHECK violation is a writer
- * bug and must abort the response persist (`write.ts`'s contract). The stated
- * lever against such a bug is the `REFUSAL_LEDGER_ENABLED` kill switch — but
- * branch review round 1 (adversarial axis) showed an operator could not FIND
- * that lever. A deterministic violation aborts every persist,
- * `generate_response` burns its attempts in about 75 seconds, and the only
- * signal is `attachJobFailureSink`'s generic `subsystem=worker_job` issue on the
- * terminal attempt. Nothing said "the ledger did this" or "flip its flag".
+ * WHY THIS EXISTS, and it is not observability for its own sake. A ledger fault
+ * aborts the response persist by design — a migration-116 CHECK violation is a
+ * writer bug (`write.ts`'s contract) and a vocabulary hole is a map bug, and
+ * neither may commit a draft whose Refusal was never recorded. The stated lever
+ * against either is the `REFUSAL_LEDGER_ENABLED` kill switch — but branch review
+ * round 1 (adversarial axis) showed an operator could not FIND that lever. A
+ * deterministic fault aborts every persist, `generate_response` burns its
+ * attempts in about 75 seconds, and the only signal is `attachJobFailureSink`'s
+ * generic `subsystem=worker_job` issue on the terminal attempt. Nothing said
+ * "the ledger did this" or "flip its flag".
  *
- * IT COVERS TWO FAULT CLASSES, NOT ONE. The `policy_gate_held` invocation also
- * wraps the VOCABULARY RESOLVE (#1079) — an unmapped or unranked block reason
- * throwing out of `resolvePolicyGateRefusal`. That is neither a CHECK violation
- * nor a writer bug, and unlike one it is genuinely SUPPRESSED by the flag now
- * that guard 4 returns before the resolve. So the Sentry issue this wrapper
- * raises for a vocabulary fault is the record of that fault only for a flag
- * flipped IN RESPONSE to it. The `held_draft` invocation still wraps a write and
- * nothing else.
+ * IT COVERS ONE FAULT CLASS, AND IT IS THE ONE THE WRITER CANNOT SEE (#1083).
+ * The WRITE fault moved to `writeRefusalEvent`, which owns the statement and
+ * calls `captureLedgerWriteFault` on every lane by construction — so a wrapper
+ * around a write is now a SECOND Sentry event for one failure, and the
+ * `held_draft` invocation, which wrapped a write and nothing else, is gone. What
+ * survives is the VOCABULARY RESOLVE (#1079) — an unmapped or unranked block
+ * reason throwing out of `resolvePolicyGateRefusal`, which runs BEFORE the
+ * writer is ever reached. That is neither a CHECK violation nor a writer bug,
+ * the writer can never observe it, and unlike a writer bug it is genuinely
+ * SUPPRESSED by the flag now that guard 4 returns before the resolve. So the
+ * Sentry issue this wrapper raises is the record of that fault only for a flag
+ * flipped IN RESPONSE to it.
+ *
+ * THE TWO REPORTERS ARE DISJOINT BY POSITION, so this is not redundant with
+ * `captureLedgerWriteFault` and the two can never both fire for one failure:
+ * this wrapper covers only the resolve, the writer only its own INSERT, and no
+ * throw is inside both. Sentry tells them apart by `extra` — `response_id` here,
+ * the writer's five closed fields there — which is what the lane's one-capture
+ * cases assert instead of a bare count.
  *
  * THE GAP THAT USED TO FOLLOW FROM THAT IS CLOSED (#1105), and the sentence
  * describing it is corrected here rather than left standing. It read: "a fault
@@ -1036,13 +1055,13 @@ async function recordPolicyGateRefusal(
  * The capture is itself guarded: a failing reporter must never replace the real
  * error with a reporting error.
  */
-async function withLedgerAttribution<T>(
-  lane: 'held_draft' | 'policy_gate_held',
+function withLedgerAttribution<T>(
+  lane: 'policy_gate_held',
   responseId: string,
-  write: () => Promise<T>,
-): Promise<T> {
+  resolve: () => T,
+): T {
   try {
-    return await write();
+    return resolve();
   } catch (error) {
     try {
       Sentry.captureException(error, {
@@ -1051,7 +1070,7 @@ async function withLedgerAttribution<T>(
         extra: { response_id: responseId },
       });
     } catch {
-      // A broken reporter must not mask the writer bug it was reporting.
+      // A broken reporter must not mask the map hole it was reporting.
     }
     throw error;
   }
@@ -1125,7 +1144,7 @@ async function recordModerationAndHold(
     // No candidacy narrowing and no `activeRun` condition: a high-severity flag
     // is a moderation decision on every lane, and it is recorded wherever it
     // happens.
-    await withLedgerAttribution('held_draft', responseId, () => writeRefusalEvent(tx, {
+    await writeRefusalEvent(tx, {
       accountId,
       businessId,
       refusalSource: 'held_draft',
@@ -1135,7 +1154,7 @@ async function recordModerationAndHold(
       subjectType: 'response',
       subjectId: responseId,
       occurredAt: 'transaction_time',
-    }));
+    });
   }
 
   return flaggedHigh;
