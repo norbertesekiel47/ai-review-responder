@@ -15,7 +15,7 @@ import { KpiSummary } from '@/components/dashboard/charts/KpiSummary';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition } from '@/components/dashboard/charts/motion-presets';
 import { trendSpanLabel } from '@/components/dashboard/charts/star-trend-plot';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
-import { VelocityChart } from '@/components/dashboard/charts/VelocityChart';
+import { VelocityAxisUnit, VelocityChart } from '@/components/dashboard/charts/VelocityChart';
 import {
   VELOCITY_H as H,
   VELOCITY_PAD as PAD,
@@ -147,6 +147,9 @@ function StackedVelocityChart({ perLocationVelocity }: { perLocationVelocity: Ag
           aria-hidden="true"
           focusable="false"
         >
+          {/* Same unit, same place as the per-location twin (#1088 G2). */}
+          <VelocityAxisUnit />
+
           {Array.from(new Set([0, Math.round(maxStack / 2), maxStack])).map((t) => (
             <g key={t}>
               <line x1={PAD.l} x2={width - PAD.r} y1={yScale(t)} y2={yScale(t)} style={{ stroke: CHART_GRID_STROKE }} strokeWidth="1" />

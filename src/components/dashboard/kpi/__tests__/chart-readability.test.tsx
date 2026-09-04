@@ -193,6 +193,15 @@ function trendAxisStars(container: HTMLElement): string[] {
   ).filter((text) => /^\d+\.\d$/.test(text));
 }
 
+/**
+ * Every text node the SVG itself draws — the SIGHTED path, as distinct from the
+ * `sr-only` table beside it. The plot is `aria-hidden`, so no accessible query
+ * reaches these; a raw selector is the only way to assert what is on screen.
+ */
+function svgTextContents(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll('svg text'), (node) => node.textContent?.trim() ?? '');
+}
+
 /** The one-line window statement under a `Recent*` chart's heading. */
 function windowSubLabel(container: HTMLElement): string {
   return container.querySelector('.rating-breakdown-sub')?.textContent?.trim() ?? '';
@@ -377,6 +386,19 @@ describe('chart readability (feat/1088)', () => {
     expect(ratingWindow).not.toBe('');
     expect(sentimentWindow).not.toBe('');
     expect(sentimentWindow).not.toBe(ratingWindow);
+  });
+
+  // G2, added by T3. NOT one of the five promised titles — those are fixed and
+  // the `promised-tests` gate row matches them verbatim. This one pins the
+  // sighted path, which the promised set does not reach: the `sr-only` cells
+  // already said "N reviews" while the y-axis showed bare numbers, so a chart
+  // could satisfy every promised title and still be unitless on screen.
+  it('both velocity charts name their y-axis unit on screen', async () => {
+    const perLocation = render(<VelocityCard reviewVelocity={VELOCITY_WEEKS} />).container;
+    expect(svgTextContents(perLocation)).toContain('reviews');
+    cleanup();
+
+    expect(svgTextContents(await renderStackedVelocityChart())).toContain('reviews');
   });
 
   // The invariant that makes the whole ticket safe: this is a LABEL change, so

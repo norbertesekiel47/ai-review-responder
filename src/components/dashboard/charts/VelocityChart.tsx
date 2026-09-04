@@ -31,6 +31,29 @@ const PAD = VELOCITY_PAD;
 const H = VELOCITY_H;
 
 /**
+ * The y-axis unit, named ONCE above the axis (#1088 G2).
+ *
+ * The ticks read `0`, `max/2`, `max` — bare numbers to a sighted reader, while
+ * the `sr-only` cells beside them already say "N reviews". Three choices were
+ * available and two were rejected:
+ *
+ * - Suffixing every tick repeats the word three times for one fact.
+ * - A rotated axis title costs horizontal space, and the intake calls out 390px
+ *   as the width where an axis label competes with the plot.
+ *
+ * So it sits in the `PAD.t` headroom above the top gridline, left of the plot
+ * band, where it takes width the plot was never going to use. Exported because
+ * the stacked aggregate plots the same unit and must name it the same way.
+ */
+export function VelocityAxisUnit() {
+  return (
+    <text x={0} y={12} fontSize="10" style={{ fill: CHART_AXIS_FILL, fontFamily: CHART_FONT_BODY }}>
+      reviews
+    </text>
+  );
+}
+
+/**
  * Change vs the previous week's count, from the plotted data. The first week
  * has no prior, so no delta renders.
  */
@@ -112,6 +135,8 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
               <stop offset="100%" style={{ stopColor: CHART_ACCENT, stopOpacity: 1 }} />
             </linearGradient>
           </defs>
+
+          <VelocityAxisUnit />
 
           {yTicks.map((t) => (
             <g key={t}>
