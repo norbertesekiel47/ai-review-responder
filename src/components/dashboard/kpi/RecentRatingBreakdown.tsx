@@ -21,6 +21,13 @@ export function RecentRatingBreakdown({ breakdown }: Props) {
   const { counts, total } = breakdown;
   if (total === 0) return null;
 
+  const reviewWord = (n: number) => (n === 1 ? 'review' : 'reviews');
+  const rows = counts.map(({ stars, count }) => ({
+    stars,
+    count,
+    pct: Math.round((count / total) * 100),
+  }));
+
   return (
     <div className="card rating-breakdown">
       <div className="card-h2-row">
@@ -28,33 +35,54 @@ export function RecentRatingBreakdown({ breakdown }: Props) {
         <h2>Reviews by rating</h2>
       </div>
       <p className="rating-breakdown-sub">
-        Across {total} {total === 1 ? 'review' : 'reviews'} in the selected period.
+        Across {total} {reviewWord(total)} in the selected period.
       </p>
-      <ul className="rating-rows">
-        {counts.map(({ stars, count }) => {
-          const pct = Math.round((count / total) * 100);
-          return (
-            <li
-              key={stars}
-              className="rating-row"
-              aria-label={`${stars} star${stars === 1 ? '' : 's'}: ${count} review${count === 1 ? '' : 's'}, ${pct}%`}
-            >
-              <span className="rating-row-label" aria-hidden="true">
-                {stars}
-                <span className="rating-row-star">★</span>
-              </span>
-              <span className="rating-track" aria-hidden="true">
-                <span
-                  className={`rating-fill rating-fill--${tierForStars(stars)}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </span>
-              <span className="rating-row-count" aria-hidden="true">
-                {count}
-              </span>
-            </li>
-          );
-        })}
+      {/* The chart-level name (#1088 G6). The rows used to carry the only
+          labels, and a row label names a ROW — the chart itself was anonymous,
+          so a reader met five unattributed bars. This is the same `sr-only`
+          table the velocity and ranking charts use, so all four charts now
+          announce themselves the same way, and the caption states the window
+          as well as the subject. The visual list goes `aria-hidden` in the
+          same move: it is the same data, and two copies would make every row
+          speak twice — which G6 explicitly forbids. */}
+      <table className="sr-only">
+        {/* Worded so it does NOT repeat the visible sub-label verbatim: an
+            `sr-only` copy of the same sentence makes `getByText` ambiguous and
+            gives a reader the line twice over. */}
+        <caption>{`Reviews by rating — ${total} rated ${reviewWord(total)} in the selected period`}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Rating</th>
+            <th scope="col">Reviews</th>
+            <th scope="col">Share</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ stars, count, pct }) => (
+            <tr key={stars}>
+              <th scope="row">{`${stars} star${stars === 1 ? '' : 's'}`}</th>
+              <td>{`${count} ${reviewWord(count)}`}</td>
+              <td>{pct}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <ul className="rating-rows" aria-hidden="true">
+        {rows.map(({ stars, count, pct }) => (
+          <li key={stars} className="rating-row">
+            <span className="rating-row-label">
+              {stars}
+              <span className="rating-row-star">★</span>
+            </span>
+            <span className="rating-track">
+              <span
+                className={`rating-fill rating-fill--${tierForStars(stars)}`}
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+            <span className="rating-row-count">{count}</span>
+          </li>
+        ))}
       </ul>
     </div>
   );

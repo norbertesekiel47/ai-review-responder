@@ -19,12 +19,32 @@ import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
-import { computeVelocitySummary, VELOCITY_H, VELOCITY_PAD } from '@/components/dashboard/charts/velocity-math';
+import { computeVelocitySummary, VELOCITY_H, VELOCITY_PAD, weekShortLabel } from '@/components/dashboard/charts/velocity-math';
 
 export interface VelocityDatum {
+  /** The week-start date, `YYYY-MM-DD`. Also the source of the table row label. */
   id: string;
+  /** The AXIS label — thinned by `weekShortLabel`, so it is `''` on odd ticks. */
   label: string;
   count: number;
+}
+
+/**
+ * The full week-start date for a data-table row (#1088 G3).
+ *
+ * `weekShortLabel` THINS: it returns `''` on odd indices so the x-axis does not
+ * crowd. That is right for the axis and wrong for the `sr-only` table, where
+ * every row needs its own date — the old fallback read "Week 2", which is not a
+ * date at all, while the stacked aggregate showed a raw ISO key. Calling the
+ * formatter at index 0 of 1 takes it, and its load-bearing UTC pin, without the
+ * thinning rule.
+ *
+ * Its home `velocity-math.ts` is outside this ticket's edit surface, so an
+ * un-thinned sibling export could not be added there. That is the follow-up;
+ * duplicating the formatter here would have duplicated the UTC pin with it.
+ */
+export function weekRowLabel(weekStartIso: string): string {
+  return weekShortLabel(weekStartIso, 0, 1);
 }
 
 const PAD = VELOCITY_PAD;
@@ -107,9 +127,9 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
           <tr><th scope="col">Week</th><th scope="col">Reviews</th></tr>
         </thead>
         <tbody>
-          {data.map((datum, index) => (
+          {data.map((datum) => (
             <tr key={datum.id}>
-              <th scope="row">{datum.label || `Week ${index + 1}`}</th>
+              <th scope="row">{weekRowLabel(datum.id)}</th>
               <td>{datum.count} reviews</td>
             </tr>
           ))}
@@ -157,13 +177,27 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
             strokeDasharray="2 4"
             opacity="0.7"
           />
+          {/* The label names the average line, so it has to stay ON that line —
+              moving it off would break what it points at. But it sits inside
+              the plot, and at 390px the trend line and the bars run straight
+              through the glyphs. A card-colored stroke painted UNDER them
+              (`paint-order: stroke`) gives the text its own ground in place.
+              Owner-authorised addition, 2026-09-04: pre-existing, found by the
+              T4 render, outside the six gaps. */}
           <text
             x={width - PAD.r}
             y={yScale(avg) - 4}
             textAnchor="end"
             fontSize="9"
             fontWeight="500"
-            style={{ fill: CHART_AXIS_FILL, fontFamily: CHART_FONT_BODY }}
+            style={{
+              fill: CHART_AXIS_FILL,
+              fontFamily: CHART_FONT_BODY,
+              paintOrder: 'stroke',
+              stroke: 'var(--rw-card)',
+              strokeWidth: 3,
+              strokeLinejoin: 'round',
+            }}
           >
             avg {avg.toFixed(1)}
           </text>

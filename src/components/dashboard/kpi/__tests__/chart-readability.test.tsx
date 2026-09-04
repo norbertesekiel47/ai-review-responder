@@ -300,8 +300,10 @@ describe('chart readability (feat/1088)', () => {
   // G6. Every chart is already reachable by a screen reader — the corrected
   // measurement settled that — but reachable is not named. The two `Recent*`
   // charts label each row and leave the chart itself anonymous.
-  // RED until T5 adds chart-level names to the two `Recent*` charts.
-  it.fails('every dashboard chart exposes an accessible name', async () => {
+  // GREEN since T5 gave the two `Recent*` charts the same `sr-only` table +
+  // `<caption>` the plotted charts use, and hid the visual rows so the data is
+  // announced once rather than twice.
+  it('every dashboard chart exposes an accessible name', async () => {
     const named = await nameEachChart(CHART_SUBJECTS);
 
     expect(named.filter((entry) => entry.name === '').map((entry) => entry.chart)).toEqual([]);
@@ -348,9 +350,9 @@ describe('chart readability (feat/1088)', () => {
 
   // G3 + G4. Two pairs that sit next to each other, each pinned to the thing
   // that is actually wrong with it.
-  // RED until T5 gives the stacked aggregate the same week labels as its
-  // per-location twin. The G4 arm below already passes and is a regression pin.
-  it.fails('a per-location chart and its aggregate peer describe the same measure identically', async () => {
+  // GREEN since T5 put both velocity tables on one row-label owner,
+  // `weekRowLabel`. The G4 arm below passed throughout and is a regression pin.
+  it('a per-location chart and its aggregate peer describe the same measure identically', async () => {
     // G3: the TRUE per-location/aggregate pair. Both plot review velocity by
     // week, so their week labels must read the same way. Today the per-location
     // chart uses `weekShortLabel` and the stacked aggregate puts the raw ISO

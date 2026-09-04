@@ -38,6 +38,12 @@ export function RecentSentimentMix({ reviews }: Props) {
   const total = stars.length;
   if (total === 0) return null;
 
+  const reviewWord = total === 1 ? 'review' : 'reviews';
+  const rows = BUCKETS.map(({ label, sentiment }) => {
+    const count = stars.filter((value) => classifySentiment(value).label === sentiment).length;
+    return { label, sentiment, count, pct: Math.round((count / total) * 100) };
+  });
+
   return (
     <div className="card">
       <div className="card-h2-row">
@@ -45,29 +51,49 @@ export function RecentSentimentMix({ reviews }: Props) {
         <h2>Sentiment mix</h2>
       </div>
       <p className="rating-breakdown-sub">
-        Share of your {total} most recent {total === 1 ? 'review' : 'reviews'}.
+        Share of your {total} most recent {reviewWord}.
       </p>
-      <ul className="rating-rows">
-        {BUCKETS.map(({ label, sentiment }) => {
-          const count = stars.filter((value) => classifySentiment(value).label === sentiment).length;
-          const pct = Math.round((count / total) * 100);
-          return (
-            <li key={label} className="rating-row wide" aria-label={`${label}: ${pct}%`}>
-              <span className="rating-row-label text" aria-hidden="true">
-                {label}
-              </span>
-              <span className="rating-track" aria-hidden="true">
-                <span
-                  className={`rating-fill rating-fill--${TIER_BY_SENTIMENT[sentiment]}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </span>
-              <span className="rating-row-count" aria-hidden="true">
-                {pct}%
-              </span>
-            </li>
-          );
-        })}
+      {/* The chart-level name (#1088 G6), matching its neighbour and the two
+          plotted charts. The window phrase deliberately stays DIFFERENT from
+          `RecentRatingBreakdown`'s: this chart reads the recent-review sample
+          and that one reads the windowed aggregate (#405), so one shared
+          phrase would misdescribe whichever chart it did not come from. */}
+      <table className="sr-only">
+        {/* Worded so it does NOT repeat the visible sub-label verbatim — see
+            the twin in `RecentRatingBreakdown`. "most recent" is kept, because
+            that phrase IS this chart's window and the pair must stay
+            distinguishable from the rating breakdown's "selected period". */}
+        <caption>{`Sentiment mix — across the ${total} most recent rated ${reviewWord}`}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Sentiment</th>
+            <th scope="col">Reviews</th>
+            <th scope="col">Share</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ label, count, pct }) => (
+            <tr key={label}>
+              <th scope="row">{label}</th>
+              <td>{count}</td>
+              <td>{pct}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <ul className="rating-rows" aria-hidden="true">
+        {rows.map(({ label, sentiment, pct }) => (
+          <li key={label} className="rating-row wide">
+            <span className="rating-row-label text">{label}</span>
+            <span className="rating-track">
+              <span
+                className={`rating-fill rating-fill--${TIER_BY_SENTIMENT[sentiment]}`}
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+            <span className="rating-row-count">{pct}%</span>
+          </li>
+        ))}
       </ul>
     </div>
   );
