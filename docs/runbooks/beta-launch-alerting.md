@@ -106,8 +106,18 @@ email shares the Resend provider with the product.
   `warning`" and that was false when written: `withLedgerAttribution`
   (`worker/jobs/response-generation/persist.ts`) has raised `error`-level
   `subsystem:refusal_ledger` issues since #1079, and the overflow marker below
-  adds a third. A level-plus-subsystem rule selects all of them and pages on
-  three different faults.
+  adds a third. **#1083 added a FOURTH, and made the advice above enforceable
+  rather than merely advisable.** `captureLedgerWriteFault`
+  (`src/lib/refusals/write.ts`, module-private, called by both write arms) now
+  raises the ledger **write** fault for ALL SEVEN lanes, and
+  `withLedgerAttribution` was narrowed to the **vocabulary** fault on
+  `policy_gate_held` alone — so "`withLedgerAttribution` is the ledger-failure
+  attribution" is no longer true and must not be repeated anywhere in this
+  runbook. Both now carry a `fault` tag of their own — `fault=ledger_write` and
+  `fault=ledger_vocabulary` — which they did NOT before: until #1083 the two
+  were byte-identical in every tag on the `policy_gate_held` lane and only
+  `extra` separated them, and a Sentry rule cannot filter on `extra`. A
+  level-plus-subsystem rule selects all four and pages on four different faults.
 
   **It is a DIFFERENT fault from the item above, which is why it gets its own
   rule and its own level.** The ledger being off is a deliberate operator act
@@ -499,10 +509,15 @@ _Then_ action for all eight: **Send a notification to the Discord integration** 
 your server → the `#repworth-alerts` channel ID from step 0.
 
 **Rules 7 and 8 filter on the `fault` tag, NOT on `subsystem` plus level (#1105).**
-Three different faults now carry `subsystem:refusal_ledger` at `error` —
-`withLedgerAttribution`'s ledger-failure attribution (since #1079) and both of
-these — so a subsystem-and-level filter pages on all three and tells an operator
-nothing about which. **Their trigger is `Every event`, the SAME as rules 4-6**,
+**FOUR** different faults now carry `subsystem:refusal_ledger` at `error` —
+`captureLedgerWriteFault`'s ledger **write** fault across all seven lanes and
+`withLedgerAttribution`'s **vocabulary** fault on `policy_gate_held` alone (both
+#1083; before it, the wrapper carried both classes under one tag set and #1079
+is the version this sentence used to describe), plus both of these. A
+subsystem-and-level filter pages on all four and tells an operator nothing about
+which. Since #1083 every one of the four carries its own `fault` value, so the
+tag filter this section prescribes is now available for all of them rather than
+only for rules 7 and 8. **Their trigger is `Every event`, the SAME as rules 4-6**,
 and an earlier version of this paragraph said the opposite. The reasoning it gave
 — that the per-code latch and the cap already bound the volume, so a repeat
 trigger would only delay the page — had the failure backwards. Both titles are

@@ -698,8 +698,11 @@ export interface PolicyGateRefusal {
  * defensive handling that would hide the bug.
  *
  * IT MAY THROW INSIDE A DECIDING TRANSACTION, and that is deliberate on the same
- * terms as `write.ts`'s uncaught INSERT: a writer bug aborts the decision, and
- * the lever against it is `REFUSAL_LEDGER_ENABLED`, not a silent default.
+ * terms as `write.ts`'s INSERT: a writer bug aborts the decision, and the lever
+ * against it is `REFUSAL_LEDGER_ENABLED`, not a silent default. That INSERT is
+ * now CAUGHT (#1083), but only to attribute the fault to the ledger and rethrow
+ * THE SAME INSTANCE — attribution, never recovery — so the abort is exactly the
+ * one it always was and the terms this resolver borrows are unchanged.
  */
 export function resolvePolicyGateRefusal(
   blockReasons: readonly AutoApprovalBlockReason[],

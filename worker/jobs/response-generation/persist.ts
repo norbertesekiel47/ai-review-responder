@@ -975,10 +975,8 @@ async function recordPolicyGateRefusal(
   // The RESOLVE is inside the wrapper, and it is now the ONLY thing inside it. A
   // vocabulary fault is a ledger fault and must report as one; outside, it
   // escaped attribution and surfaced as a generic persist failure (#1079).
-  const refusal = withLedgerAttribution(
-    'policy_gate_held',
-    responseId,
-    () => resolvePolicyGateRefusal(autoDecision.blockReasons),
+  const refusal = withLedgerAttribution(responseId, () =>
+    resolvePolicyGateRefusal(autoDecision.blockReasons),
   );
   if (!refusal) return;
 
@@ -1031,9 +1029,12 @@ async function recordPolicyGateRefusal(
  * THE TWO REPORTERS ARE DISJOINT BY POSITION, so this is not redundant with
  * `captureLedgerWriteFault` and the two can never both fire for one failure:
  * this wrapper covers only the resolve, the writer only its own INSERT, and no
- * throw is inside both. Sentry tells them apart by `extra` — `response_id` here,
- * the writer's five closed fields there — which is what the lane's one-capture
- * cases assert instead of a bare count.
+ * throw is inside both. Sentry tells them apart by the `fault` TAG —
+ * `ledger_vocabulary` here, `ledger_write` there — which is a facet an alert rule
+ * can filter on; `extra` differs too (`response_id` here, the writer's four
+ * closed fields there) but `extra` is not filterable, and on `policy_gate_held`
+ * it was for one round the ONLY thing separating the two. The lane's one-capture
+ * cases assert the distinction instead of a bare count.
  *
  * THE GAP THAT USED TO FOLLOW FROM THAT IS CLOSED (#1105), and the sentence
  * describing it is corrected here rather than left standing. It read: "a fault
@@ -1055,18 +1056,23 @@ async function recordPolicyGateRefusal(
  * The capture is itself guarded: a failing reporter must never replace the real
  * error with a reporting error.
  */
-function withLedgerAttribution<T>(
-  lane: 'policy_gate_held',
-  responseId: string,
-  resolve: () => T,
-): T {
+function withLedgerAttribution<T>(responseId: string, resolve: () => T): T {
   try {
     return resolve();
   } catch (error) {
     try {
       Sentry.captureException(error, {
         level: 'error',
-        tags: { subsystem: 'refusal_ledger', refusal_lane: lane, flag: REFUSAL_LEDGER_FLAG },
+        // THE LANE IS A LITERAL, not a parameter. This wrapper covers exactly one
+        // resolve on exactly one lane; a `lane` parameter whose type admitted a
+        // single value, passed as that same constant from the only call site,
+        // said "this generalises" and nothing else.
+        tags: {
+          subsystem: 'refusal_ledger',
+          refusal_lane: 'policy_gate_held',
+          fault: 'ledger_vocabulary',
+          flag: REFUSAL_LEDGER_FLAG,
+        },
         extra: { response_id: responseId },
       });
     } catch {

@@ -47,16 +47,33 @@ The eval is sixteen titles in the intake's `tests_to_add`, split twelve
 (`write.test.ts`) / four (`persist.test.ts`). Titles are matched **verbatim** by
 the `promised-tests` gate row, and none contains an apostrophe (#1108).
 
-## The three traps most likely to be re-broken
+## The traps most likely to be re-broken
 
-1. **The set-arm guard starts at the row map (`write.ts:904`), not the INSERT
-   (`write.ts:925`).** Round 1 F2. `toISOString()` at `:922` throws on a
-   type-valid `new Date(NaN)`.
-2. **Do not hoist `uuidv7()` above the `try` in the single-row arm.** It is a
-   tagged-template interpolation at `write.ts:791`, so it already evaluates
-   inside the guard. Round 2 R2-c added the test that catches the hoist.
+**Cited by SYMBOL, not by line.** The first version of this section carried four
+`write.ts` line numbers that resolved at the fork point and were stale at HEAD
+the moment they were written — the branch's own `try` blocks moved them, and
+three of the four came to land in the *other* write arm. Two review axes caught
+it. Line numbers in a post-implementation handoff are a liability; symbols are
+not.
+
+1. **In `writeRefusalEvents`, the guard starts at the `rows` map, not at the
+   INSERT.** Round 1 F2. `input.occurredAt.toISOString()` inside that map throws
+   on a `new Date(NaN)`, which is a type-valid `Date`, and `uuidv7()` can fail
+   there too. A guard around the statement alone leaves both unattributed.
+2. **In `writeRefusalEvent`, do not hoist `uuidv7()` above the `try`.** It is a
+   tagged-template interpolation, so it already evaluates inside the guard.
+   Round 2 R2-c added the test that catches the hoist. **The two arms are
+   protected by DIFFERENT mechanisms** — template evaluation order in one, the
+   moved guard in the other — and neither implies the other.
 3. **`endDisabledEpisode()` stays outside both guards.** It is not a write and
    must not report as one.
+4. **`extra` is a closed key set on both arms, asserted by exact sorted key
+   list.** Red team smuggled an unbounded `refusal_codes` past a
+   presence-asserted payload with the whole suite green. Presence assertions do
+   not hold a payload closed.
+5. **Both captures carry a `fault` tag.** Without one, the write fault and the
+   vocabulary fault are byte-identical in every tag on `policy_gate_held`, and a
+   Sentry rule cannot filter on `extra`.
 
 ## Cost read-back
 

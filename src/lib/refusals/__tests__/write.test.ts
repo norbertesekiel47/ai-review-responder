@@ -96,7 +96,8 @@ vi.mock('../vocabulary', async (importOriginal) => {
 /**
  * `uuid`'s `v7` as a SPY, so an ID-GENERATION failure is expressible (#1083).
  *
- * WHY IT HAS TO BE A MOCK. `write.ts:61` imports `v7 as uuidv7` and the
+ * WHY IT HAS TO BE A MOCK. `write.ts` imports `v7 as uuidv7` (`write.ts:73` as
+ * of this branch — the symbol is the durable citation, the line is not) and the
  * single-row arm interpolates `${uuidv7()}::uuid` INSIDE its tagged template, so
  * the call evaluates inside the guard the writer wraps around the statement. A
  * later "tidy" to `const id = uuidv7();` above the `try` moves it out and leaves
@@ -1458,14 +1459,32 @@ function queueStatementFailure(error: Error): void {
   harness.sqlReturnQueue.push(rejected);
 }
 
-/** The five keys a single-row capture may carry, and no others. */
-const SINGLE_ROW_EXTRA_KEYS = [
-  'account_id',
-  'business_id',
-  'refusal_source',
-  'subject_id',
-  'subject_type',
-];
+/**
+ * The four keys a single-row capture may carry, AND NO OTHERS.
+ *
+ * ASSERTED AS AN EXACT SET, never as a subset. Round 1's red team added
+ * `refusal_codes: inputs.map(r => r.refusalCode).join(',')` to the set arm's
+ * `extra` and every one of the 146 cases stayed green — prose walked into a
+ * Sentry event and nothing here noticed. A `toMatchObject` or a per-key
+ * assertion cannot see an ADDED key; `Object.keys(...).sort()` compared to a
+ * pinned list is what closes the payload.
+ *
+ * `refusal_source` is deliberately ABSENT: the lane rides the `refusal_lane`
+ * TAG, which an alert rule can filter on, and a second copy under `extra` is
+ * only somewhere for the two to disagree.
+ */
+const SINGLE_ROW_EXTRA_KEYS = ['account_id', 'business_id', 'subject_id', 'subject_type'];
+
+/**
+ * The three keys a set-arm capture may carry, AND NO OTHERS. Same closed-set
+ * rule, same reason.
+ *
+ * `refusal_lanes` is deliberately ABSENT. It duplicated the tag under a
+ * truncation rationale that does not hold: all seven `REFUSAL_SOURCES` sorted
+ * and comma-joined is 108 characters against Sentry's 200-character tag limit,
+ * so the tag cannot lose a member and there is nothing for the copy to protect.
+ */
+const SET_ARM_EXTRA_KEYS = ['account_count', 'account_id', 'row_count'];
 
 describe('ledger attribution (#1083)', () => {
   it('attributes a single-row write failure to the refusal ledger and rethrows the same error instance', async () => {
@@ -1489,7 +1508,7 @@ describe('ledger attribution (#1083)', () => {
     expect(capture?.level).toBe('error');
   });
 
-  it('tags the single-row capture with the lane, the subsystem and the kill-switch flag name', async () => {
+  it('tags the single-row capture with the lane, the subsystem, the fault class and the kill-switch flag name', async () => {
     // TWO LANES IN ONE CASE, and that is what makes the lane tag testable at
     // all. A single-lane fixture is satisfied by a hard-coded literal — the
     // exact defect that let five call sites go untagged — so the case drives the
@@ -1503,18 +1522,29 @@ describe('ledger attribution (#1083)', () => {
     await expect(writeRefusalEvent(tx(), autonomySuspended())).rejects.toBe(second);
 
     const [held, suspended] = ledgerCaptures();
-    // THREE TAGS, EXACTLY. `subsystem` is what an operator facets on to tell a
+    // FOUR TAGS, EXACTLY. `subsystem` is what an operator facets on to tell a
     // ledger fault from a fault in the decision the Refusal was recording;
     // `refusal_lane` is the facet that says WHICH lane; `flag` is how they find
-    // the lever. A fourth tag is a fourth facet nobody agreed to.
+    // the lever; `fault` is the CLASS.
+    //
+    // `fault` IS THE ONE THIS TITLE GAINED, and it is not decoration. On
+    // `policy_gate_held` the WRITE fault here and the VOCABULARY fault raised by
+    // `withLedgerAttribution` (`worker/jobs/response-generation/persist.ts`,
+    // `fault=ledger_vocabulary`) otherwise carry byte-identical tag sets, leaving
+    // only `extra` to separate them — and a Sentry alert rule cannot filter on
+    // `extra`. The module already spells `fault=unmapped_block_reason` on its
+    // other transports, and `docs/runbooks/beta-launch-alerting.md` states the
+    // convention as a rule.
     expect(held?.tags).toEqual({
       subsystem: 'refusal_ledger',
       refusal_lane: 'held_draft',
+      fault: 'ledger_write',
       flag: REFUSAL_LEDGER_FLAG,
     });
     expect(suspended?.tags).toEqual({
       subsystem: 'refusal_ledger',
       refusal_lane: 'autonomy_suspended',
+      fault: 'ledger_write',
       flag: REFUSAL_LEDGER_FLAG,
     });
     // The flag tag is the NAME of the switch, never its value: an operator
@@ -1532,9 +1562,11 @@ describe('ledger attribution (#1083)', () => {
     await expect(writeRefusalEvent(tx(), ask)).rejects.toBe(boom);
 
     const [capture] = ledgerCaptures();
-    expect(Object.keys(capture?.extra ?? {}).sort()).toEqual(SINGLE_ROW_EXTRA_KEYS);
+    expect(
+      Object.keys(capture?.extra ?? {}).sort(),
+      'the key set is CLOSED — an added key must fail here',
+    ).toEqual([...SINGLE_ROW_EXTRA_KEYS].sort());
     expect(capture?.extra).toEqual({
-      refusal_source: 'ask_withheld',
       subject_type: 'solicitation_ask',
       subject_id: ask.subjectId,
       account_id: ask.accountId,
@@ -1545,7 +1577,7 @@ describe('ledger attribution (#1083)', () => {
     expect(JSON.stringify(capture?.extra)).not.toContain('no_consent');
     expect(JSON.stringify(capture?.extra)).not.toContain('no_permission');
 
-    // THE ACCOUNT-WIDE LANE KEEPS THE SAME FIVE KEYS, with NULLs rather than
+    // THE ACCOUNT-WIDE LANE KEEPS THE SAME FOUR KEYS, with NULLs rather than
     // omissions. A payload whose shape changes with the lane makes two Sentry
     // events of one fault class, and an absent key reads as "not recorded"
     // rather than as "account-wide, pointing at nothing".
@@ -1555,9 +1587,11 @@ describe('ledger attribution (#1083)', () => {
     await expect(writeRefusalEvent(tx(), autonomySuspended())).rejects.toBe(wide);
 
     const [accountWide] = ledgerCaptures();
-    expect(Object.keys(accountWide?.extra ?? {}).sort()).toEqual(SINGLE_ROW_EXTRA_KEYS);
+    expect(
+      Object.keys(accountWide?.extra ?? {}).sort(),
+      'the key set is CLOSED on the account-wide lane too',
+    ).toEqual([...SINGLE_ROW_EXTRA_KEYS].sort());
     expect(accountWide?.extra).toMatchObject({
-      refusal_source: 'autonomy_suspended',
       subject_type: null,
       subject_id: null,
       business_id: null,
@@ -1588,6 +1622,7 @@ describe('ledger attribution (#1083)', () => {
     expect(capture?.tags).toEqual({
       subsystem: 'refusal_ledger',
       refusal_lane: 'ask_withheld,outreach_withheld',
+      fault: 'ledger_write',
       flag: REFUSAL_LEDGER_FLAG,
     });
     expect(capture?.level).toBe('error');
@@ -1605,18 +1640,32 @@ describe('ledger attribution (#1083)', () => {
 
     const [capture] = ledgerCaptures();
     const extra = capture?.extra ?? {};
+    // THE KEY SET IS CLOSED, and this assertion is the one that matters. Round
+    // 1's red team appended `refusal_codes: inputs.map(r => r.refusalCode)
+    // .join(',')` here and all 146 cases stayed green — a per-key assertion is
+    // blind to an ADDED key, and prose therefore walked into a Sentry event
+    // against the intake's own invariant. An added key must fail HERE.
+    expect(
+      Object.keys(extra).sort(),
+      'the key set is CLOSED — an added key must fail here',
+    ).toEqual([...SET_ARM_EXTRA_KEYS].sort());
     expect(extra.row_count, 'the cohort SIZE is the bounded fact worth carrying').toBe(3);
-    // The distinct sources ride the payload too, under a PINNED key. T1 left this
-    // key-agnostic because the plan had not named it; the key was named
-    // `refusal_lanes` when T1 was integrated, so the eval pins it.
-    //
-    // It duplicates the `refusal_lane` TAG on purpose. A Sentry tag value is
-    // truncated at 200 characters and `extra` is not, so a cohort spanning every
-    // lane is the case where the tag can lose a member. `extra` is the durable
-    // copy.
-    expect(extra.refusal_lanes, 'the distinct sources ride extra under a pinned key').toBe(
-      'ask_withheld',
+    // TENANT IDENTITY, BOUNDED. Without it a rollback leaves an operator with
+    // "this lane failed for N rows" and nothing to join on. The writer genuinely
+    // cannot see the batch or the run, but it can see the account: the DISTINCT
+    // cardinality always, and the single id only when the count is exactly 1 —
+    // which is the real case at both call sites, since a build belongs to one
+    // account. Never a joined list of up to 5,000 ids.
+    expect(extra.account_count, 'the DISTINCT account cardinality is always carried').toBe(1);
+    expect(extra.account_id, 'one distinct account means the id itself is emitted').toBe(
+      inputs[0]?.accountId,
     );
+    // No lane copy. `refusal_lanes` used to ride here under a truncation
+    // rationale that is arithmetically false: all seven `REFUSAL_SOURCES` sorted
+    // and comma-joined is 108 characters against Sentry's 200-character tag
+    // limit, so the tag it was guarding cannot lose a member. The tag already
+    // carries the string, and only a tag is filterable in an alert rule.
+    expect(extra.refusal_lanes, 'the lane rides the TAG, never a second copy').toBeUndefined();
 
     const serialized = JSON.stringify(extra);
     for (const input of inputs) {
@@ -1624,6 +1673,28 @@ describe('ledger attribution (#1083)', () => {
         input.subjectId,
       );
     }
+
+    // THE MIXED COHORT DEGRADES TO `null`, IT DOES NOT GROW. Without this arm
+    // the pair is satisfied by `account_id: inputs[0].accountId` — "the first
+    // row's account", which LIES about a mixed set — and equally by a joined
+    // list, which is the unbounded payload the whole rule forbids. Both call
+    // sites pass one account today; the input type permits more.
+    sentryStub.captureException.mockClear();
+    const mixed = [
+      askWithheld(askSubjectId(4)),
+      { ...askWithheld(askSubjectId(5)), accountId: '00000000-0000-4000-8000-0000000000b2' },
+    ];
+    const second = new Error('deadlock detected');
+    queueStatementFailure(second);
+    await expect(refusalWrite.writeRefusalEvents(tx(), mixed)).rejects.toBe(second);
+
+    const mixedExtra = ledgerCaptures()[0]?.extra ?? {};
+    expect(Object.keys(mixedExtra).sort()).toEqual([...SET_ARM_EXTRA_KEYS].sort());
+    expect(mixedExtra.account_count, 'the cardinality is the fact that always holds').toBe(2);
+    expect(mixedExtra.account_id, 'more than one account means no single id to name').toBeNull();
+    expect(JSON.stringify(mixedExtra), 'never a joined list of ids').not.toContain(
+      '00000000-0000-4000-8000-0000000000b2',
+    );
   });
 
   it('does not capture when the set arm receives an empty input', async () => {

@@ -48,12 +48,15 @@ Codex returned `VERDICT: REVISE` with four findings, all verified against source
 and all accepted. Three were missing failing tests; one was a stale line
 citation. The full table is in the plan's review appendix.
 
-The material one is **F2**: the set arm materializes its rows at
-`src/lib/refusals/write.ts:904`, before the INSERT at `:925`, and
-`input.occurredAt.toISOString()` at `:922` throws on a type-valid
-`new Date(NaN)`. A guard around the statement alone would leave a writer-side
-failure unattributed — this ticket's own defect, one layer in. The guard now
-starts at the row map.
+The material one is **F2**: `writeRefusalEvents` materializes its `rows` before
+the INSERT, and `input.occurredAt.toISOString()` inside that map throws on a
+type-valid `new Date(NaN)`. A guard around the statement alone would leave a
+writer-side failure unattributed — this ticket's own defect, one layer in. The
+guard now starts at the row map.
+
+*(Citations here were originally `write.ts:904/925/922`, which resolved at the
+fork and were stale at HEAD by the time the review wave read them — red team
+P1. Rewritten to name symbols, for the same reason the handoff was.)*
 
 Round 2 confirmed F1–F3 addressed and raised three residual items, the material
 one being that the new "do not hoist `uuidv7()`" instruction had **no test** —
@@ -80,17 +83,26 @@ so it asserted the sources key-agnostically — a weaker test than the rest of
 the eval.
 
 Named on integration: **`refusal_lanes`**, the same sorted comma-joined string
-as the `refusal_lane` tag. The duplication is deliberate rather than sloppy — a
-Sentry **tag** value truncates at 200 characters and `extra` does not, so a
-cohort spanning every lane is exactly the case where the tag can lose a member.
-`extra` is the durable copy.
+as the `refusal_lane` tag, justified by a claim that a Sentry tag value
+truncates at 200 characters while `extra` does not.
 
-The plan's T3 now states the shape as exactly `{ row_count, refusal_lanes }`,
-and the eval pins the key. Test counts unchanged; the file `write.test.ts` was
-already in the surface.
+**THAT JUSTIFICATION WAS FALSE, AND ROUND 1 KILLED IT FROM THREE DIRECTIONS.**
+All seven lanes sorted and comma-joined is **108 characters**. The truncation it
+guarded against is arithmetically unreachable, so the field was pure duplication
+of a tag that is strictly better than `extra` for the purpose — tags are
+filterable in Sentry, `extra` is not. Spec, standards and red team each found it
+independently. It is worth naming what went wrong: a plausible-sounding reason
+that nobody checked with arithmetic, propagated into a LOCKED `CONTEXT.md`
+entry, a production docblock, a test comment and the plan before anyone
+multiplied seven strings.
 
-**Verdict:** ACCEPT — a gap in the plan, closed with a decision and a stronger
-assertion. No scope change.
+`refusal_lanes` is **removed**. The set-arm `extra` is now
+`{ row_count, account_id, account_count }` — see D10, which folds in the
+adversarial axis's separate finding that the set arm carried no tenant identity
+at all.
+
+**Verdict:** ACCEPT — the gap was real, the first fix for it was wrong, and the
+correction is recorded rather than quietly rewritten.
 
 ---
 
@@ -250,5 +262,89 @@ reads `git diff mergeBase..HEAD`, so writing the row was not enough; it had to
 be committed. Genuine miss, genuinely fixed.
 
 **Verdict:** ACCEPT — one real defect fixed, two environmental flakes
-identified and not chased. The gate is green at `330b938e` with a current
-fingerprint.
+identified and not chased. The gate was green at `330b938e` with a fingerprint
+current **as of that commit**.
+
+**Correction (red team P2).** The sentence above originally read "the gate is
+green at `330b938e` with a current fingerprint", present tense, and by the time
+the review wave ran that was false: two docs-only commits had moved HEAD to
+`c94277bf` and the fingerprint's `headSha` was two behind. The claim was true
+when written and became stale without anyone rewriting it, which is the whole
+reason gate evidence is keyed to a SHA rather than to a phase. Tense fixed and
+the SHA named; the final gate at step 7.5 is what re-establishes it.
+
+---
+
+## D10 — The review wave rewrote both `extra` payloads and added a `fault` tag
+
+**When**: step 7, round 1 triage.
+
+Four independent axes converged on the same surface. Twenty-five findings; the
+consolidated table is in `docs/reviews/fix-1083-ledger-attribution/`. The
+structural ones:
+
+**The set arm's `extra` was wrong in four ways at once.** Red team's two P0s:
+adding `refusal_codes: inputs.map(r => r.refusalCode).join(',')` **survived every
+suite, 146/146 green including both live-DB suites** — so nothing held the
+payload closed and gate prose could ride a Sentry event against the intake's own
+invariant; and `refusal_lanes` was asserted only on a single-lane fixture, so
+degrading it to `inputs[0].refusalSource` also survived. The adversarial axis
+found no tenant, batch or run identity at all. Spec and standards found the
+`refusal_lanes` rationale arithmetically false (D4).
+
+Resolution — one redesign answering all four:
+
+| Arm | Before | After |
+|---|---|---|
+| single-row | `{ refusal_source, subject_type, subject_id, account_id, business_id }` | `{ subject_type, subject_id, account_id, business_id }` |
+| set | `{ row_count, refusal_lanes }` | `{ row_count, account_id, account_count }` |
+
+`refusal_source`/`refusal_lanes` are gone because the **tag** already carries the
+lane and a tag is filterable where `extra` is not. `account_id` is the single
+distinct value or `null`; `account_count` the distinct count. Both bounded —
+never a joined list of up to 5,000 ids. The writer genuinely cannot see the batch
+or the run, so the adversarial axis's ask for those is answered with the account
+rather than by widening the interface, which is the design this whole branch
+exists to protect. **The eval now asserts an exact sorted key list on both arms**,
+which is what actually kills the P0: presence assertions do not hold a payload
+closed.
+
+**The tags could not distinguish the two fault classes.** Standards and red team
+both found that on `policy_gate_held` the write fault and the vocabulary fault
+carried byte-identical tag sets, separated only by `extra` — which a Sentry
+alert rule cannot filter on. That comes close to defeating the ticket's purpose.
+Both captures now carry `fault=ledger_write` / `fault=ledger_vocabulary`,
+following this module's own `fault=unmapped_block_reason` convention and the
+rule `beta-launch-alerting.md` states. Two intake titles changed (16 → 17).
+
+**Surface amendment #1, owner-approved.** `docs/runbooks/beta-launch-alerting.md`
+said three `error`-level `subsystem:refusal_ledger` emitters and named
+`withLedgerAttribution` as the attribution source. There are four and it is not.
+Three axes flagged it, red team as P1. `src/lib/refusals/vocabulary.ts` joined in
+the same amendment under the auto-approve rule (two files inside a tree the
+surface already covers) — its docblock still said "write.ts's **uncaught**
+INSERT".
+
+**Stale citations, six sites.** The handoff's four `write.ts` line numbers all
+resolved at the fork and were stale at HEAD, three of them landing in the *other*
+write arm; `write.test.ts` cited `:61` for an import this same commit moved to
+`:73`; `docs/directory.md` claimed `uuidv7()` is interpolated inside *both*
+templates, which is false for the set arm, where it sits in the `rows` map and is
+protected by the moved guard instead — two different mechanisms, and collapsing
+them is how the weaker one gets broken later. Three docblocks in
+`refusal-write.integration.test.ts` still named the removed wrapper, **inside a
+file already in the lease**, which is D8's own grep lesson written down and then
+not applied.
+
+**Rejected, with the owner's decision recorded.** The adversarial axis asked for
+a latch or cap on `captureLedgerWriteFault`, arguing from this module's two
+existing latches. Rejected 2026-09-04: those latches exist to stop unbounded
+issue-GROUP scattering, because their keys are distinct codes. This signal cannot
+scatter — one exception shape, seven bounded lanes — so Sentry groups it into a
+single issue with a count, and a latch on an error-level write fault would hide
+whether it is still happening, which is the opposite of what an operator needs
+mid-incident. Listed in the PR under rejected findings.
+
+**Verdict:** ACCEPT — the wave found real defects in the payload design and the
+tag set, both fixed; one finding rejected with reasoning; one surface amendment
+taken with sign-off.

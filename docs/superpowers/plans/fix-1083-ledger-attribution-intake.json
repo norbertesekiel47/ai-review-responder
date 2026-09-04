@@ -68,6 +68,8 @@
   ],
   "allowed_edit_surface": [
     "src/lib/refusals/write.ts",
+    "src/lib/refusals/vocabulary.ts",
+    "docs/runbooks/beta-launch-alerting.md",
     "src/lib/refusals/__tests__/write.test.ts",
     "src/lib/refusals/__tests__/write.integration.test.ts",
     "worker/jobs/response-generation/persist.ts",
@@ -83,7 +85,8 @@
   ],
   "tests_to_add": [
     "attributes a single-row write failure to the refusal ledger and rethrows the same error instance",
-    "tags the single-row capture with the lane, the subsystem and the kill-switch flag name",
+    "tags the single-row capture with the lane, the subsystem, the fault class and the kill-switch flag name",
+    "tags the policy gate vocabulary fault with its own fault class",
     "carries only closed enums and ids in the single-row capture extra",
     "attributes a set-arm write failure with the distinct sources sorted and comma-joined",
     "carries row_count and never per-row subject ids in the set-arm capture extra",

@@ -1509,6 +1509,7 @@ describe('ledger attribution (#1083)', () => {
     expect(capture?.tags).toEqual({
       subsystem: 'refusal_ledger',
       refusal_lane: 'policy_gate_held',
+      fault: 'ledger_vocabulary',
       flag: REFUSAL_LEDGER_FLAG,
     });
     // THE WRAPPER'S PAYLOAD, not the writer's. This is what makes the two fault
@@ -1540,7 +1541,6 @@ describe('ledger attribution (#1083)', () => {
     // one is also what a deleted writer guard plus a surviving wrapper gives,
     // and only the payload separates them.
     expect(capture?.extra).toEqual({
-      refusal_source: 'held_draft',
       subject_type: 'response',
       subject_id: RESPONSE_ID,
       account_id: 'acct-1',
@@ -1565,12 +1565,37 @@ describe('ledger attribution (#1083)', () => {
     expect(capture?.error).toBe(boom);
     expect(capture?.tags?.refusal_lane).toBe('policy_gate_held');
     expect(capture?.extra).toEqual({
-      refusal_source: 'policy_gate_held',
       subject_type: 'response',
       subject_id: RESPONSE_ID,
       account_id: 'acct-1',
       business_id: 'biz-1',
     });
+    // …and it is the WRITE fault, not the vocabulary one. The lane tag is the
+    // same on both, so before #1083's review round this pair was byte-identical
+    // in every tag and only `extra` told them apart — which no Sentry alert rule
+    // can filter on.
+    expect(capture?.tags?.fault).toBe('ledger_write');
+  });
+
+  it('tags the policy gate vocabulary fault with its own fault class', async () => {
+    // The two fault classes share a lane, a subsystem and a flag tag. `fault` is
+    // the ONLY tag that separates them, and a Sentry alert rule can filter on
+    // tags and nothing else — so without this the operator signal the ticket
+    // exists to create cannot be routed. Standards and red team both found it.
+    //
+    // Asserted as a PAIR with the write-fault case above rather than alone: the
+    // value matters less than the two being different, and a single-sided
+    // assertion passes if both are set to the same constant.
+    queuePersistRows();
+    gateOverride.blockReasons = ['ghost_reason'];
+
+    await expect(persistResponseAndNotify(mockSql, baseInput())).rejects.toThrow(
+      /unmapped_auto_approval_block_reason/,
+    );
+
+    const [capture] = ledgerCaptures();
+    expect(capture?.tags?.fault).toBe('ledger_vocabulary');
+    expect(capture?.tags?.fault).not.toBe('ledger_write');
   });
 
   it('commits the response persist when the policy gate resolver would throw and the kill switch is off', async () => {

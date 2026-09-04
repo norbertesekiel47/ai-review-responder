@@ -739,12 +739,21 @@ function noteUnmappedOverflow(): void {
  * never replace the writer bug it was reporting. The caller rethrows the
  * ORIGINAL error immediately after, so attribution is never recovery.
  *
- * `extra` IS CLOSED ENUMS AND UUIDs ONLY, and each arm passes its own. No
+ * `extra` IS CLOSED ENUMS AND UUIDs ONLY, AND EACH ARM'S KEY SET IS CLOSED — the
+ * eval asserts the exact keys, not merely that the expected ones are present. No
  * `refusalCode` — that is the gate reason verbatim and free-ish text on several
- * lanes — and no review or response prose. The set arm additionally carries no
- * per-row subject id: `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000)
- * Refusals in one build, and 5,000 ids in a Sentry event is a payload, not a
- * signal.
+ * lanes — and no review or response prose. Nothing that merely duplicates a TAG,
+ * either: a Sentry alert rule can filter on a tag and cannot filter on `extra`,
+ * so a fact already carried by a tag gains nothing by riding `extra` beside it.
+ *
+ * THE SET ARM CARRIES BOUNDED TENANT IDENTITY AND NOTHING PER-ROW.
+ * `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000) Refusals in one build,
+ * so 5,000 subject ids — or 5,000 account ids — in a Sentry event is a payload,
+ * not a signal. `account_count` is the DISTINCT account cardinality and
+ * `account_id` is that one account when the count is exactly 1 (the real case at
+ * both call sites), `null` otherwise. Two bounded values, and they are what give
+ * an operator something to join on during a rollback; `row_count` alone said
+ * only "this lane failed for N rows".
  *
  * @param lane the `RefusalSource` for the single-row arm; for the set arm, the
  *             DISTINCT sources sorted and comma-joined (see `writeRefusalEvents`).
@@ -757,12 +766,23 @@ function captureLedgerWriteFault(
   try {
     Sentry.captureException(error, {
       level: 'error',
-      // THREE TAGS, EXACTLY. `subsystem` is the facet that separates a ledger
+      // FOUR TAGS, EXACTLY. `subsystem` is the facet that separates a ledger
       // fault from a decision fault; `refusal_lane` says which lane; `flag` is
       // the NAME of the lever, never its value — `flag=false` would tell an
-      // operator nothing about which switch to reach for. A fourth tag is a
-      // fourth facet nobody agreed to.
-      tags: { subsystem: 'refusal_ledger', refusal_lane: lane, flag: REFUSAL_LEDGER_FLAG },
+      // operator nothing about which switch to reach for; `fault` is the CLASS,
+      // on this module's own `fault=` convention (`unmapped_block_reason` and
+      // `unmapped_block_reason_overflow` above) and the rule in
+      // `docs/runbooks/beta-launch-alerting.md`. Without it a `policy_gate_held`
+      // WRITE fault and a `policy_gate_held` VOCABULARY fault
+      // (`withLedgerAttribution` in `worker/jobs/response-generation/persist.ts`,
+      // `fault=ledger_vocabulary`) carry byte-identical tag sets, and only
+      // `extra` separates them — which a Sentry alert rule cannot filter on.
+      tags: {
+        subsystem: 'refusal_ledger',
+        refusal_lane: lane,
+        fault: 'ledger_write',
+        flag: REFUSAL_LEDGER_FLAG,
+      },
       extra,
     });
   } catch {
@@ -895,8 +915,10 @@ export async function writeRefusalEvent(
       DO NOTHING
     `;
   } catch (error) {
+    // FOUR KEYS, AND NO `refusal_source`: the lane already rides the
+    // `refusal_lane` TAG, where an alert rule can filter on it, and a second
+    // copy under `extra` is only a place for the two to disagree.
     captureLedgerWriteFault(error, input.refusalSource, {
-      refusal_source: input.refusalSource,
       subject_type: input.subjectType,
       subject_id: input.subjectId,
       account_id: input.accountId,
@@ -1090,14 +1112,29 @@ export async function writeRefusalEvents(
     // 127 and is 1 in practice — both call sites pass a single lane — but the
     // input type permits a mixed array and the tag must not lie about one.
     const lanes = [...new Set(inputs.map((row) => row.refusalSource))].sort().join(',');
-    // `row_count` and `refusal_lanes`, AND NOTHING ELSE. Never a per-row subject
-    // id: `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000) Refusals in one
-    // build. `refusal_lanes` duplicates the TAG on purpose — a Sentry tag value
-    // truncates at 200 characters and `extra` does not, so `extra` is the durable
-    // copy for a cohort spanning every lane.
+    // THE TENANT AXIS IS COMPUTED THE SAME WAY, from `inputs` and inside the
+    // catch, for the same reason. DISTINCT accounts: the cardinality is the
+    // bounded fact, and the single id is emitted only when there IS exactly one —
+    // which is the real case at both call sites, since a build belongs to one
+    // account. A joined list of up to 5,000 ids is a payload, not a signal, so
+    // the mixed case degrades to `null` rather than growing.
+    const accountIds = [...new Set(inputs.map((row) => row.accountId))];
+    // The `?? null` is `noUncheckedIndexedAccess`, not defensiveness: an index
+    // read is `string | undefined` to the compiler even under the length check,
+    // and `undefined` is not a value `extra` may carry. A `!` would assert past
+    // the flag instead of answering it.
+    const soleAccountId = accountIds.length === 1 ? (accountIds[0] ?? null) : null;
+    // `row_count`, `account_id`, `account_count`, AND NOTHING ELSE. Never a
+    // per-row subject id: `ask_withheld` can propose up to `MAX_DATA_ROWS`
+    // (5,000) Refusals in one build. And no lane copy — `lanes` already rides the
+    // `refusal_lane` TAG, where an alert rule can filter on it; all seven lanes
+    // sorted and comma-joined is 108 characters against Sentry's 200-character
+    // tag limit, so the tag cannot lose a member and there is nothing for a
+    // duplicate under `extra` to protect.
     captureLedgerWriteFault(error, lanes, {
       row_count: inputs.length,
-      refusal_lanes: lanes,
+      account_id: soleAccountId,
+      account_count: accountIds.length,
     });
     // The SAME instance, on the single-row arm's terms. Attribution is not
     // recovery.

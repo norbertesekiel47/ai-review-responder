@@ -213,14 +213,21 @@ input being `readonly WriteRefusalEventInput[]`:
   comma-joined**. Sorting is what makes the tag deterministic — an input-order
   tag would open two Sentry issue facets for the same pair of lanes. Cardinality
   is bounded at 127 and is 1 in practice.
-- **`extra` is exactly `{ row_count, refusal_lanes }`, never per-row ids.**
-  `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000) Refusals in one
+- **`extra` is exactly `{ row_count, account_id, account_count }`, never per-row
+  ids.** `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000) Refusals in one
   build; 5,000 subject ids in a Sentry event is a payload, not a signal.
-  `refusal_lanes` is the same sorted comma-joined string as the tag. The
-  duplication is deliberate: a Sentry **tag** value truncates at 200 characters
-  and `extra` does not, so a cohort spanning every lane is the case where the
-  tag can lose a member. The key name was unspecified when T1 wrote the eval;
-  it was named on integrating T1 and the eval now pins it.
+  `account_id` is the single distinct value or `null`, `account_count` the
+  distinct count — both bounded.
+
+  > **Superseded by review round 1 (deviations D4, D10).** This section first
+  > specified `{ row_count, refusal_lanes }`, justifying the duplicated lane
+  > string by a Sentry tag truncating at 200 characters. All seven lanes sorted
+  > and joined is **108**, so that rationale was unreachable and three axes
+  > caught it independently; the tag already carries the lane and a tag is
+  > filterable where `extra` is not. The tenant identity replacing it answers a
+  > separate adversarial finding — the writer cannot see the batch or the run,
+  > and without an account a rolled-back set write leaves an operator nothing to
+  > join on.
 
 The empty-input return at `write.ts:891` stays **first**, before the flag read
 and before this block, exactly as it is today.
