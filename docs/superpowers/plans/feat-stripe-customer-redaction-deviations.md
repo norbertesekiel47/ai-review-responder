@@ -348,3 +348,48 @@ present; the gate matches VERBATIM and found ten missing. A check must
 reproduce the gate's rule, not a reasonable-looking equivalent.
 
 **Verdict:** ACCEPT (no code change; recorded for the next run)
+
+## D8 — the round-2 fixes ship without an adversarial pass, and the sidecar says so
+
+**What happened.** Red-team round 2 returned 11 findings — 3 P0, 6 P1, 2 P2 —
+against `02bb7700`. All eleven are now fixed. Nothing is `accepted-risk`; the
+owner adjudicated every P1 and both P2s as fix-rather-than-accept on 2026-09-04.
+
+**The two-round cap is spent, and there is no round 3.** Owner decision taken
+2026-09-03 and reaffirmed on resume 2026-09-04. So the fixes for round 2 have
+not themselves been attacked — including the fix for R03, which was itself the
+fix for round 1's guard finding. This branch's own history is the argument
+against that: round 1's P0 was a stale test stub, and round 2's P0 was the fix
+for round 1's guard finding. **Each round's fixes have contained the next
+round's P0. The chain is being stopped by decision, not by evidence.**
+
+**The sidecar reports the gap rather than hiding it.**
+`docs/reviews/red-team/feat-stripe-customer-redaction-17cab2/findings.json`
+keeps `head_sha` at `02bb7700` — the commit where the adversarial pass actually
+ran — and is NOT re-anchored to the fix HEAD. Consequently
+`red-team-status.mjs` FAILS, on three counts that are all true:
+`INCOMPLETE_ORACLE` (six inventory rows recorded `inconclusive/oracle`), an
+`intake_sha256` mismatch (surface amendment 5), and staleness (the tree moved
+because the fixes landed).
+
+Re-anchoring `head_sha` would have made the gate green by asserting a pass that
+never ran. That was offered and declined. **The `reviewed` transition therefore
+requires an explicit owner override, and the PR description repeats this
+paragraph.**
+
+**What the fixes carry instead.** Five of the eleven were mutation-verified
+during the fix pass — the defect reinstated, the specific new test watched to
+fail, then restored with a clean `git diff`: R03 (the old status-keyed
+predicate, 3 of 8 live-DB cases fail), R04 (the one-page sweep, 4 fail), R06
+(one summed saturation count, 2 fail), R08 (mutation M7 itself, 1 fail), R11
+(both substitutions, 1 each). R01, R02, R09 and R10 are documentation
+corrections hand-resolved against HEAD; R05 is a runbook rule row with no code
+to mutate; **R07's four log tests were not mutation-tested** — the one gap
+inside the gap, stated rather than glossed.
+
+**This is self-checking, not adversarial.** The same agent wrote the fix and the
+mutation that tests it, so it catches a fix that does nothing and cannot catch a
+fix that is confidently wrong in a way its author did not think of. That is
+precisely the failure mode D7 documents three times over on this branch.
+
+**Verdict:** ACCEPT, under the owner's explicit no-third-round decision

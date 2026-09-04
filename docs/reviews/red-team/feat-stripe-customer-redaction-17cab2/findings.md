@@ -1,16 +1,5 @@
 # Red team — `feat/stripe-customer-redaction` — ROUND 2 (final)
 
-> **Placement note.** The skill's canonical narrative path is
-> `docs/reviews/red-team/feat-stripe-customer-redaction-17cab2/findings.md`.
-> The harness refused a subagent write to that path ("subagents should return
-> findings as text, not write report files"), so this narrative is staged here
-> per the dispatching agent's instruction. The machine-parsed sidecar —
-> `docs/reviews/red-team/feat-stripe-customer-redaction-17cab2/findings.json` —
-> **was** written and validates against `red-team-status.mjs`. The invoking
-> agent must move this file over `findings.md` before the `reviewed` transition,
-> otherwise `findings.md` still holds round 1's narrative beside a round-2
-> sidecar.
-
 - **Mode:** feature · **Risk:** high · **Round:** 2 of 2 (cap spent)
 - **fork:** `b9fb96016cc025c151f17db4b39baf165cb80a13`
 - **merge-base:** `b9fb96016cc025c151f17db4b39baf165cb80a13`
@@ -20,7 +9,7 @@
 - **Round 1's report** (2 P0, 8 P1, 4 P2) is preserved in git history at commit
   `29a97f0d`; the checker derives exactly one report path per branch, so the
   round-2 sidecar replaces it in the working tree.
-- **Status: `OPEN_P0`** — 3 P0, 6 P1, 2 P2 · inventory 17 · 6 killed, 1 survivor
+- **Status at the time of the pass: `OPEN_P0`** — 3 P0, 6 P1, 2 P2 · inventory 17 · 6 killed, 1 survivor
   (reclassified `inconclusive`), 5 uncovered, 5 excluded, 0 skipped for budget.
 
 > Round 1 found the defects. Round 2 finds that **the fixes are individually
@@ -370,3 +359,70 @@ mutations; neither changes behaviour at HEAD.
 None recorded. All eleven findings are `open`. Three P0s block outright; on a
 high-risk run each of the six open P1s requires user adjudication, and the
 two-round cap is spent — there is no round 3 behind any of them.
+
+---
+
+# ADDENDUM — the fix pass, 2026-09-04
+
+**Every one of the eleven findings is FIXED.** The owner adjudicated all six P1s
+and both P2s as fix-rather-than-accept on 2026-09-04, so no finding is
+`accepted-risk` and the `authorizations` array stays empty.
+
+| id | sev | where it was closed |
+|---|---|---|
+| R01 | P0 | `ecf4c224` — `CONTEXT.md:170-171` re-resolved; ordering, lock and coupling claims corrected, detachment added to the definition |
+| R02 | P0 | `ecf4c224` — all four `docs/directory.md` rows |
+| R03 | P0 | the R03 commit — predicate keys on `purge_started_at` / `purge_cancelled_at`, **plus** the behavioural live-DB suite |
+| R04 | P1 | `ecf4c224` — bounded pagination, retryable `bounded_pagination_exhausted` |
+| R05 | P1 | `3170d108` — `beta-launch-alerting.md` rule 7 + two §1 bullets |
+| R06 | P1 | `ecf4c224` — two statements, two counts, two saturation entries |
+| R07 | P1 | `3170d108` — four tests for the outcome log line |
+| R08 | P1 | `3170d108` — a factory that throws, pinning the property M7 broke |
+| R09 | P1 | `3170d108` — D6's false infeasibility reason corrected; the decision stands |
+| R10 | P2 | `3170d108` — D6 and the allowlist note no longer overstate the probe |
+| R11 | P2 | `3170d108` — window column and threshold boundary pinned |
+
+## Why `head_sha` still says `02bb7700`, and why this sidecar still FAILS
+
+`head_sha` is **deliberately not re-anchored** to the fix HEAD. `02bb7700` is
+where the round-2 adversarial pass actually ran. Moving it would make
+`red-team-status.mjs` pass by asserting an adversarial pass that never happened
+— the "confident prose that is in fact the defect" pattern D7 names, encoded as
+machine-readable evidence. Owner decision 2026-09-04.
+
+So the checker reports three failures, and **all three are true**:
+
+1. `INCOMPLETE_ORACLE` — six inventory rows (M7, U01–U04, T06) were recorded
+   `inconclusive/oracle`. Every one names a coverage gap this pass has now
+   closed, and each closure was verified by reinstating its defect and watching
+   the new test fail. But **that verification is self-checking, not
+   adversarial**, and the inventory records what the PASS observed, not what the
+   fixer later claims. The rows stand as written.
+2. `intake_sha256` mismatch — surface amendment 5 (owner-approved 2026-09-04)
+   added the R03 behavioural test file and `beta-launch-alerting.md`. The
+   evidence genuinely predates the amended intake.
+3. Staleness — the tree moved, because the fixes landed.
+
+**The fixes ship unattacked. That is the gap, and it is reported rather than
+hidden.** The two-round cap is spent by design and the owner declined a third
+round twice (2026-09-03 and again on resume 2026-09-04). Deviation D8 carries
+the same statement in the branch's durable record, and the PR description
+repeats it.
+
+## What the fixes carry instead of an adversarial pass
+
+Five of the eleven were mutation-verified during the fix pass — each defect
+reinstated, the specific new test watched to fail, then restored with a clean
+`git diff`:
+
+| finding | mutation reinstated | result |
+|---|---|---|
+| R03 | the old `status IN ('purge_scheduled','purged')` predicate | 3 of 8 live-DB cases fail |
+| R04 | the one-page sweep that ignored `has_more` | 4 tests fail |
+| R06 | one summed saturation count instead of two | 2 tests fail |
+| R08 | M7 — `resolveStripe()` hoisted above the null check | 1 test fails |
+| R11 | `received_at` for `processed_at`; `>` for `>=` | 1 test each fails |
+
+R01, R02, R09 and R10 are documentation corrections, hand-resolved against HEAD.
+R05 is a runbook rule row with no code to mutate. R07's four log tests were not
+mutation-tested — the one gap inside the gap, stated rather than glossed.

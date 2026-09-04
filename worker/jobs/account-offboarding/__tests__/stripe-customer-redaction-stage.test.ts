@@ -87,8 +87,8 @@ let logSpy: ReturnType<typeof vi.spyOn>;
 /** Every structured line the stage's logger emitted this test. */
 function logLines(): string[] {
   return logSpy.mock.calls
-    .map((call) => call[0])
-    .filter((first): first is string => typeof first === 'string');
+    .map((call: unknown[]) => call[0])
+    .filter((first: unknown): first is string => typeof first === 'string');
 }
 
 beforeEach(() => {
