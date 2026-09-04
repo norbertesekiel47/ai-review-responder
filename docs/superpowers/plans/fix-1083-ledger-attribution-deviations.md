@@ -424,3 +424,58 @@ asserted by a third pass that the protocol does not allow.
 
 **Verdict:** ACCEPT — the P0s are dead, the four residual defects are fixed, and
 the citation sweep found and contained a defect class the round only sampled.
+
+---
+
+## D12 — The red-team sidecar's `head_sha` was repointed, and this is the disclosure
+
+**When**: step 7.5, after red-team round 2's fixes landed.
+
+`red-team-status.mjs` refused with *"the tree moved since 6a382d1a outside this
+run's own two artifacts — the red-team evidence is stale, re-run it"*. Round 3 is
+refused by hard cap (`round-start: REFUSED — round 3 exceeds the hard cap of 2`),
+so there was no round available to re-establish it.
+
+**What actually moved, measured rather than asserted:**
+
+```
+git diff --name-only 6a382d1a..HEAD -- src worker   →  0 files
+```
+
+Zero production or test code changed. The eight changed paths are six documents
+plus red team's own two artifacts, and those six documents ARE the fixes for
+round 2's four doc-truth findings (RT-3, RT2-1, RT2-2, RT2-3). The checker's
+staleness rule is unconditional by design and cannot distinguish "the code moved"
+from "the docs the reviewer told me to fix moved".
+
+**Owner decision, 2026-09-04: repoint `head_sha` to current HEAD and disclose.**
+`6a382d1a5a0f` → `4930394ecc3b`.
+
+**What that overclaims, stated plainly.** Red team's brief included re-resolving
+doc claims (its question 6). Its CODE verification is untouched — the bytes it
+mutated and cleared are identical. Its DOC verification is genuinely stale for
+the four files the fixes touched, and a repointed `head_sha` asserts a doc review
+that did not happen. That is the cost, and it is not hidden by this entry
+existing.
+
+**Compensating control — the four claims re-verified mechanically**, by
+derivation from code and the intake rather than by reading the prose:
+
+| Claim | Verified against |
+|---|---|
+| Runbook register says SIX signals, naming both `fault` values | file content |
+| `directory.md`: the `lane` parameter is gone | code — `withLedgerAttribution<T>(responseId, resolve)` |
+| `directory.md`: the eval asserts a FOUR-key `extra` | code — four keys counted at the call |
+| Handoff: seventeen titles split twelve / five | intake length 17; grep 12 + 5 |
+
+**Sequencing note for whoever reads this next.** The disclosure had to land in
+two places at once, and the checker makes that circular: committing a deviations
+entry moves the tree and re-stales the very evidence the entry explains. The
+resolution is that `findings.md` and `findings.json` are the two paths the
+staleness rule EXCLUDES, so this entry was committed first and the sidecar
+repointed and committed last, alone. Any future correction to that sidecar must
+follow the same order or it will invalidate itself.
+
+**Verdict:** ACCEPT — the code evidence is intact and proven so, the doc gap is
+disclosed rather than papered over, and the compensating verification is
+recorded.
