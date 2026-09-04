@@ -77,3 +77,30 @@ gate. Run the live-DB lane yourself:
 
 And `codex exec` hangs reading stdin unless you redirect `< /dev/null`. That
 killed two dispatches on this run (deviations D12).
+
+## Phase cost
+
+Read off the ladder during the run. **Transcribed by hand, because
+`phase-cost.mjs` could no longer run**: step 8's worktree cleanup removes
+`.feature/`, which is where the ladder's timestamps live. **Run the cost
+read-back BEFORE the cleanup, not after** — the two step-8 bullets are in the
+wrong order for anyone who follows them literally.
+
+| Phase | Input | Output | Wall clock | Turns |
+|---|---|---|---|---|
+| plan approved | 10.0 M | 41 K | 72 min | 56 |
+| verified gate | 27.7 M | 84 K | 268 min | 97 |
+| review | 66.5 M | 132 K | 227 min | 146 |
+| review-ready | 7.2 M | 10 K | 10 min | 13 |
+
+**Review was the most expensive step, at roughly 60% of total input.** That is
+the right answer for this branch rather than a problem to trim: review is where
+every P0 was found, and the production code was never the weak part. What review
+actually bought — four passes, 33 findings, a cap that did not exist, and an
+assertion that passed on the clock — is recorded in
+`docs/reviews/fix-1105-unmapped-block-reason-signal/triage.md`.
+
+**The figure worth acting on is the gate step: 268 minutes.** A large part of it
+was gate runs that contended with in-flight review agents and produced FALSE REDs
+on suites this branch never touched, each then re-run. That is waste, and the
+lab-notes entry names the fix: never run the gate while an agent is in flight.

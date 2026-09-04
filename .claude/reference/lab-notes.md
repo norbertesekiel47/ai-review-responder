@@ -4944,6 +4944,16 @@ inside a transaction silently evaporates outside one. Seed helpers in this repo 
   HEAD-movement, but its practical payoff is avoiding false REDs. **Never run the
   gate while an agent is in flight.**
 
+### [2026-09-04] /feature step 8's own two bullets are in the wrong order — cleanup destroys the cost data
+- [2026-09-04] Step 8 lists worktree cleanup ABOVE the phase-cost read-back, and
+  following it literally loses the data: `feature-cleanup.sh --apply` removes the
+  worktree, `.feature/progress.json` goes with it, and `phase-cost.mjs` has no
+  ladder timestamps left to join against. #1105 hit this and had to transcribe
+  the table by hand out of the session transcript. → **Run
+  `phase-cost.mjs` BEFORE the cleanup.** Paste the table into the handoff doc
+  first; remove worktrees last. Everything else in step 8 is order-independent,
+  which is presumably why the ordering was never noticed.
+
 ### [2026-09-04] The prose-failure rules from #1082 did not hold — seven false self-claims on the next branch
 - [2026-09-04] The entry one section above records six false self-claims on
   #1082 and three rules meant to prevent them. #1105 read that entry, quoted it
