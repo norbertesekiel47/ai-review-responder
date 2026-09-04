@@ -324,3 +324,89 @@ The velocity window lives in the `sr-only` caption. A sighted reader sees the
 card header's "last 8 weeks", which was already there. So the only visible
 delta in the T4 evidence is T3's `reviews`. That is expected, not a shortfall:
 G1 was explicitly a screen-reader gap.
+
+### Owner ruling, 2026-09-04
+
+**Direction approved, and the `avg` overlap ruled IN.** Owner: *"Looks you can
+proceed and do the fixes accordingly."* T5 therefore carries G3, G6 **and** the
+pre-existing overlap, which is the one item in this run that is not one of the
+six gaps. It is recorded as an authorised addition, not silent drift.
+
+## T5 — the last two charts, and the pair that disagreed
+
+### G6: an anonymous chart is not the same as a silent one
+
+Both `Recent*` charts labelled every row and named neither chart. A row label
+names a ROW; a reader met five unattributed bars.
+
+**The fix is the pattern already in the codebase, not a new one.** Both now
+carry the `sr-only` `<table>` + `<caption>` that `VelocityChart` and
+`RankingChart` use, and the visual `<ul>` goes `aria-hidden` in the same move.
+That is what keeps G6's "must not make the rows speak twice" true: the data is
+announced once, from the table, and the list is decoration.
+
+All four charts now announce themselves the same way. Two mechanisms became
+one.
+
+### The first draft of those captions broke two tests, and the tests were right
+
+The captions initially repeated the visible sub-label verbatim
+(`Across N reviews in the selected period`). Two `AnalyticsContent` assertions
+went ambiguous — `getByText` found the visible `<p>` and the `sr-only`
+`<caption>`.
+
+That is not a test to work around. A duplicated `sr-only` sentence IS a reader
+hearing the line twice, which is the same defect G6 warns about wearing
+different clothes. Both captions were reworded to state the same fact in
+different words. `AnalyticsContent.test.tsx` is outside the edit surface, so the
+component was the only place the fix could go — and it was the correct place.
+
+The sentiment caption deliberately keeps **"most recent"** while the rating
+caption keeps **"selected period"**. That distinction is G4: the two charts
+genuinely cover different windows, and collapsing them into one phrase would
+misdescribe whichever chart the phrase did not come from.
+
+### G3: `weekRowLabel`, and why `weekShortLabel` could not be used directly
+
+The two velocity tables disagreed. The per-location one fell back to
+`Week ${index + 1}` and the stacked aggregate printed the raw ISO key
+`2026-06-01`.
+
+The cause is that **`weekShortLabel` THINS** — it returns `''` on odd indices so
+the x-axis does not crowd. That is right for an axis and wrong for a data table,
+where every row needs its own date. The per-location table was papering over
+the thinning with "Week 2"; the aggregate had never used the formatter at all.
+
+`weekRowLabel` (exported from `VelocityChart.tsx`) calls the same formatter at
+index 0 of 1, taking it — and its load-bearing UTC pin — without the thinning
+rule. **Its natural home is `velocity-math.ts`, which is outside this edit
+surface**, so an un-thinned sibling export could not be added there. Copying the
+three-line formatter would have copied the UTC pin with it and created a second
+owner for the thing #1088 exists to unify. Recorded as follow-up.
+
+`VelocityDatum` now documents what its two string fields actually are: `id` is
+the week-start ISO and the table's source; `label` is the THINNED axis label.
+That contract was implicit and is what let the two tables drift.
+
+### G3's second half: the stacked chart drew no x labels at all
+
+A sighted reader got eight bars over an unlabelled axis. It now draws them with
+the same thinning rule, y position and anchor as its per-location twin.
+
+### The `avg` overlap — authorised, and fixed in place
+
+The label names the average line, so moving it off that line would break what it
+points at. It gains a card-coloured stroke painted UNDER the glyphs
+(`paint-order: stroke`), which gives the text its own ground without moving it.
+Verified in a fresh 390px render.
+
+### One more pre-existing inconsistency, recorded and NOT touched
+
+`RANKING_COLORS` in `chart-tokens.ts` hard-codes six hex literals while
+`tokens.css` declares `--rw-chart-1…6`, and the two disagree past the first
+entry (`--rw-chart-2` is red; `RANKING_COLORS[1]` is green). The Console design
+doc names the `--rw-chart-*` rotation as the sanctioned class-level palette
+exemption, so the literals are the copy that drifted. `chart-tokens.ts` IS in
+this edit surface, but this is a token-ownership question, not a readability
+one, and the invariant says a change there must be deliberate and named.
+Recorded for a separate ticket.
