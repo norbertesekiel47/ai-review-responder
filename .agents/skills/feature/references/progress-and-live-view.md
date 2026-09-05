@@ -27,10 +27,9 @@ Eight steps map to the workflow sections in `SKILL.md`:
 | 6 | `review` | every finding carries `ACCEPT` or `REJECT` |
 | 7 | `ready` | the review-ready report is delivered |
 
-Marking a step `done` opens the next one automatically. Use `skipped` for a
-step a lane does not run — a `trivial` lane skips `armed` and `plan`. Use
-`blocked` when the run stops at an authority boundary; the terminal note
-carries the reason.
+Marking a step `done` opens the next one automatically. The ladder belongs to
+guarded runs; lightweight runs create no ladder. Use `blocked` when the run
+stops at an authority boundary; the terminal note carries the reason.
 
 The percentage is derived, never stored. Each step contributes one eighth.
 An active step contributes half, except `execute`, which contributes its own
@@ -53,6 +52,11 @@ two. Use `render` when nothing changed — on resume, or when the user asks
 where the run stands.
 
 ### Phase cost
+
+Initialize native Codex runs with `progress.mjs init ... --runtime codex`.
+Their phase-cost output explicitly says unavailable; this helper does not
+read native Codex usage. Never substitute another Claude session's bill.
+The accounting below applies only to Claude runs.
 
 Marking a step `done` also prints that step's token bill, and `cost` (or the
 standalone `scripts/phase-cost.mjs`) prints the whole table:
@@ -86,21 +90,22 @@ so the orphan is harmless.
 
 ## Review transcript
 
-Codex output is not copied into the transcript. `attach-codex` records a
-pointer to the codex-companion job files, and the live view reads verdict,
-findings and log tail from those files. The companion stays the single owner
-of its own output, so a running job streams into the page without any
-polling on this side.
+Native Codex reviews use `attach-review --id <agent-or-session-id> --report
+<report.md>` after completion. It stores the reviewer ID and report in the
+durable transcript, so snapshots and resume need no companion installation.
+Root turns use `say --actor codex`; a ladder initialized with runtime codex
+also selects that actor by default.
 
-Claude's own turns and triage verdicts have no other sink, so they are
-written here.
+For Claude codex-companion jobs only, `attach-codex --job <exact-id>` records
+a pointer to the job files. Never use `--latest`: it can select a different
+run. Root turns and triage verdicts are written here in either runtime.
 
 ```bash
 L=".agents/skills/feature/scripts/review-log.mjs"
 
 node $L round-start --axis plan-skeptic
 node $L say --text "Plan rev 2 sent. 9 tracer bullets, surface locked to 4 files."
-node $L attach-codex --latest --axis plan-skeptic
+node $L attach-review --id <reviewer-id> --report <completed-report.md>
 node $L finding --id F1 --severity high --title "Veto window keys on sent_at" --at "worker/jobs/publisher/veto-window.ts:212"
 node $L triage --id F1 --verdict ACCEPT --reason "Reproduced: delivery lag opens a silent 15-min gap."
 node $L round-end --verdict REVISE
@@ -153,8 +158,9 @@ node .agents/skills/feature/scripts/live-view.mjs snapshot
 This writes `.feature/live/snapshot.html` — the same page with the data
 inlined and every machine-local path stripped. The file is an
 Artifact-compatible fragment: no doctype, `html`, `head` or `body` tags.
-Publish it with the Artifact tool to give the user a shareable record of the
-review. Do that once the rounds close, not per round.
+In Codex, open the snapshot with `open_in_codex` and provide its absolute file
+link. External publishing is optional and requires an available authorized
+publishing capability. Do this once the rounds close, not per round.
 
 The page renders identically from either source. A published snapshot never
 polls.

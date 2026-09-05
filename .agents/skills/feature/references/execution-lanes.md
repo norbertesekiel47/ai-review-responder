@@ -41,13 +41,16 @@ closed, never waives.
 
 - Resolve at most the material unknowns needed for a compact intake — six
   fields, posted once, no sign-off at normal risk.
+  The fields are goal, non-goals, observable behavior, allowed files, verification,
+  and reversible assumptions. This brief stays in the task; it is not the
+  guarded JSON schema or an armed `.feature/intake.json`.
 - Branch in the current checkout. Use a sibling worktree only when another
   feature is in flight there, when the checkout is dirty in files the change
   must touch, or when starting from a long-lived branch. Isolation is a tool,
   not a ceremony; the arming scripts are not run on this lane at normal risk.
-- Implement in the root context. No plan document, no delegation.
+- Implement in the root context. No plan document or implementation delegation.
 - Gate with the pre-push subset plus the full test run
-  (`lint`, `typecheck`, `test`, plus `build` when the surface includes ui).
+  (`lint`, `typecheck`, `test`, and `build`, as required by AGENTS.md).
 - Perform one fresh spec/correctness review after the gate.
 - Claude lane: `/feature-small` owns this lane end to end at normal risk;
   small work at high risk stays in the full router with an abbreviated intake.

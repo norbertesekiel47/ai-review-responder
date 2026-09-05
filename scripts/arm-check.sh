@@ -37,13 +37,14 @@ mkdir -p .feature/logs .feature/live .feature/review-staging
 PROGRESS_MJS=".agents/skills/feature/scripts/progress.mjs"
 if [ ! -f .feature/progress.json ]; then
   if [ -f "$PROGRESS_MJS" ] && command -v node >/dev/null 2>&1; then
-    LADDER_RISK=$(jq -r '.classification // "normal"' .feature/intake.json)
+    LADDER_RISK=$(jq -r '.risk // .classification // "normal"' .feature/intake.json)
     [ "$LADDER_RISK" = "high" ] || LADDER_RISK="normal"
     LADDER_SURFACE=$(jq -r '.surface // "backend"' .feature/intake.json)
     case "$LADDER_SURFACE" in ui|backend|mixed) ;; *) LADDER_SURFACE="backend" ;; esac
     LADDER_SIZE=$(jq -r '.size // "standard"' .feature/intake.json)
     case "$LADDER_SIZE" in trivial|small|standard|epic) ;; *) LADDER_SIZE="standard" ;; esac
-    node "$PROGRESS_MJS" init --size "$LADDER_SIZE" --risk "$LADDER_RISK" --surface "$LADDER_SURFACE" >/dev/null \
+    LADDER_RUNTIME=${FEATURE_RUNTIME:-${CODEX_THREAD_ID:+codex}}
+    node "$PROGRESS_MJS" init --size "$LADDER_SIZE" --risk "$LADDER_RISK" --surface "$LADDER_SURFACE" --runtime "${LADDER_RUNTIME:-claude}" >/dev/null \
       && node "$PROGRESS_MJS" step intake done --note "ladder auto-initialized by arm-check" >/dev/null \
       && echo "ladder: .feature/progress.json initialized from the intake (no parent ladder carried)"
   else

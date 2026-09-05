@@ -30,6 +30,14 @@ longer occur (the seam it named is gone).
 
 ## Dispatching a Codex round
 
+In native Codex, use the available subagent tools for independent reviews and
+record the returned agent ID. Resume that same agent only to verify its prior
+findings. Use `review-log.mjs attach-review --id <id> --report <report.md>`
+after completion. Use the companion's `attach-codex --job <id>` only for a
+review actually dispatched through the Claude codex-companion integration.
+Never select a job with `--latest`. The CLI examples below are a fallback
+when native subagent coordination is unavailable.
+
 Measured from the feat/1008 plan rounds (`~/.codex/sessions`, 2026-08-29):
 **7,272,916 input tokens for 56,233 output** across two waves — 129:1 — on one
 small feature. Codex itself was fast (waves of 6 m 55 s and 5 m 19 s). The cost

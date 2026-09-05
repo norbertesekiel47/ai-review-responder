@@ -4,29 +4,36 @@
 #
 #   bash scripts/feature-setup.sh <path-to-locked-intake.json>
 #
-# 1. installs the intake contract twice: a COMMITTED audit-trail copy at
+# 1. installs the intake contract twice: an uncommitted audit-trail copy at
 #    docs/superpowers/plans/<branch>-intake.json, and the ephemeral arming
 #    copy at .feature/intake.json (gitignored BY DESIGN — a committed
 #    .feature/ intake would follow the merge onto main and arm every future
 #    main session; see #512);
-# 2. deletes the parent-checkout draft (one authoritative owner);
+# 2. preserves the input draft (commit and cleanup are separate actions);
 # 3. proves enforcement is armed (scripts/arm-check.sh);
 # 4. reports cross-worktree surface overlaps (scripts/feature-surface-check.sh);
 # 5. initializes .feature/state.json (phase=worktree_ready) via
 #    scripts/feature-state.sh — the machine-readable phase record
 #    /feature-resume reads first.
-set -uo pipefail
+set -euo pipefail
 
 # Preflight: every tool the workflow's hooks/scripts require, checked up
 # front with an actionable error instead of a mid-run 127.
-for BIN in git jq pnpm shasum grep node; do
+for BIN in git jq pnpm shasum grep node python3; do
   command -v "$BIN" >/dev/null 2>&1 || {
     echo "PREFLIGHT FAILED: required tool '$BIN' not found on PATH — install it before arming."
     exit 1
   }
 done
 
-SRC=${1:?usage: feature-setup.sh <path-to-locked-intake.json>}
+SRC=${1:?usage: feature-setup.sh <path-to-locked-intake.json> [--runtime codex|claude]}
+shift
+RUNTIME=${FEATURE_RUNTIME:-${CODEX_THREAD_ID:+codex}}
+RUNTIME=${RUNTIME:-claude}
+if [ "${1:-}" = --runtime ] && [ $# -eq 2 ]; then RUNTIME=$2; shift 2; fi
+if [ $# -ne 0 ]; then echo "usage: feature-setup.sh <intake> [--runtime codex|claude]" >&2; exit 2; fi
+case "$RUNTIME" in codex|claude) ;; *) echo "runtime must be codex or claude" >&2; exit 2 ;; esac
+SRC=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "$SRC")
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 
@@ -52,7 +59,7 @@ fi
 # themselves at match time — so a pre-escaped Next.js dynamic segment
 # ('\[id\]', '[[]id[]]') matches NOTHING anywhere: the hook blocks writes to a
 # path the intake explicitly lists, and the audit goes red at PR time. Refuse
-# BEFORE anything is committed. Same predicate as scripts/arm-check.sh.
+# before installing either copy. Same predicate as scripts/arm-check.sh.
 BAD_SPELLINGS=$(jq -r '.allowed_edit_surface[]? | select(test("\\\\\\[|\\\\\\]|\\[\\[\\]|\\[\\]\\]"))' "$SRC")
 if [ -n "$BAD_SPELLINGS" ]; then
   echo "intake allowed_edit_surface pre-escapes a bracket — write the PLAIN path (e.g. src/app/api/u/[token]/route.ts):"
@@ -64,19 +71,11 @@ fi
 SLUG=$(printf '%s' "$BRANCH" | tr '/' '-')
 DOCS_COPY="docs/superpowers/plans/${SLUG}-intake.json"
 mkdir -p "$(dirname "$DOCS_COPY")" .feature/logs .feature/live
-cp "$SRC" "$DOCS_COPY"
-cp "$SRC" .feature/intake.json
+if [ "$SRC" != "$ROOT/$DOCS_COPY" ]; then cp "$SRC" "$DOCS_COPY"; fi
+if [ "$SRC" != "$ROOT/.feature/intake.json" ]; then cp "$SRC" .feature/intake.json; fi
+echo "intake installed: $DOCS_COPY (uncommitted) + .feature/intake.json; input preserved"
 
-# Remove the parent draft only after both copies exist — and only when it is
-# actually a different file than the docs copy we just wrote.
-SRC_ABS=$(cd "$(dirname "$SRC")" && pwd)/$(basename "$SRC")
-[ "$SRC_ABS" != "$ROOT/$DOCS_COPY" ] && rm -f "$SRC_ABS"
-
-git add "$DOCS_COPY"
-git commit -q -m "chore(feature): intake contract for ${BRANCH}" -- "$DOCS_COPY"
-echo "intake installed: $DOCS_COPY (committed) + .feature/intake.json (arming copy)"
-
-bash scripts/arm-check.sh || exit 1
+FEATURE_RUNTIME="$RUNTIME" bash scripts/arm-check.sh || exit 1
 
 # Carry the parent checkout's step ladder into the armed worktree (steps 0–1
 # ran there). arm-check auto-initialized a stub when none existed; the parent
@@ -85,15 +84,13 @@ bash scripts/arm-check.sh || exit 1
 PARENT_ROOT=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
 if [ -n "$PARENT_ROOT" ] && [ "$PARENT_ROOT" != "$ROOT" ] \
    && [ -f "$PARENT_ROOT/.feature/progress.json" ]; then
-  node .agents/skills/feature/scripts/progress.mjs carry "$PARENT_ROOT" \
+  node .agents/skills/feature/scripts/progress.mjs carry "$PARENT_ROOT" --runtime "$RUNTIME" \
     || echo "ladder: carry from $PARENT_ROOT failed — keeping the auto-initialized stub."
 fi
 
-# Speed lane build 2: write the worktree-scoped autonomy profile so
-# execution runs without permission prompts (acceptEdits + workflow command
-# allowlist; the shipping boundary still prompts). Worktree-only, gitignored;
-# opt out with FEATURE_AUTONOMY_PROFILE=off.
-bash scripts/feature-autonomy-profile.sh \
+# Claude alone uses the worktree-scoped profile. Native Codex retains its
+# configured sandbox and approval policy. Opt out with FEATURE_AUTONOMY_PROFILE=off.
+FEATURE_RUNTIME="$RUNTIME" bash scripts/feature-autonomy-profile.sh \
   || echo "autonomy profile not written — runs will prompt per action (slower, still correct)."
 
 bash scripts/feature-state.sh set-phase worktree_ready

@@ -42,8 +42,9 @@ two versions that disagree.
 - **No backwards-compatibility shim without a named external consumer.** This
   is a pre-launch codebase — delete the old path and update the callers.
 - **Look up, do not guess.** Version-specific API usage goes through Context7
-  or the version-matched bundled docs. Repository, issue and CI state goes
-  through `gh`. Memory is not a source for anything that can drift.
+  when available, version-matched bundled docs, or official documentation.
+  Repository, issue and CI state comes from Git and an available GitHub
+  connector or `gh`. Memory is not a source for anything that can drift.
 - **No success claim without evidence.** Green gate output whose fingerprint
   matches this worktree, or it did not happen. The Stop hook enforces it.
 

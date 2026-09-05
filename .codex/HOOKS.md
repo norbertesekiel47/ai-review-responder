@@ -9,7 +9,10 @@ compatibility decisions, validation, and remaining limits.
 The port reads Codex's JSON payload, supports `apply_patch` paths as well as
 legacy `tool_input.file_path`, and keeps the `.feature/intake.json` contract,
 worktree containment, dependency-justification check, and explicit escape
-hatch. It records the current Codex session ID in `.feature/sessions/`.
+hatch. It records the current Codex session ID in `.feature/sessions`.
+Patch rename destinations use the actual `*** Move to:` envelope. Paths are
+canonicalized with Python 3 before checking the intake, including `..` and
+symlinks, so a spelling change cannot turn a source edit into an allowed docs edit.
 
 The original Claude policy was valuable, but its input adapter only understood
 Claude tool payloads. The Codex port covers `apply_patch` and Bash tool input.
@@ -31,13 +34,18 @@ The migration policy is portable. The Codex adapter checks patch paths and
 Bash command text, and reads the authoritative
 `.claude/reference/migrations-log.md`. A missing or malformed log fails
 closed. New migrations remain allowed; applied migrations are blocked.
+Both sides of a patch rename are checked against the destination repository's
+log after canonicalizing the path.
 
 ## stop-gate.sh
 
 The green/stale gate policy is portable and valuable. The hook uses Codex's
 stop-hook payload and scans registered worktrees for armed runs. It blocks a
-missing, red, or stale `.feature/gate-status.json`; CI remains the stronger
-authoritative enforcement layer.
+missing or red `.feature/gate-status.json`, and requires a matching gate
+fingerprint from `gate-fingerprint.mjs check`. Changing uncommitted content
+invalidates evidence even when HEAD and the commit timestamp stay unchanged.
+Record evidence with `bash .agents/skills/feature/scripts/verified-gate.sh --review`.
+CI remains the stronger authoritative enforcement layer.
 
 ## typecheck-on-stop.sh
 
@@ -47,6 +55,11 @@ files still trigger the project typecheck but are excluded from ESLint's file
 arguments; untracked TypeScript files remain included. The Codex port derives
 the repository root from Git and uses the session ID from the stop payload. CI
 and pre-push checks remain the stronger enforcement layer.
+The cache hashes tracked diffs and untracked TypeScript contents. Its key binds
+the canonical repository root and session, preventing reuse across worktrees.
+Lint paths are refreshed after typecheck and missing paths are tolerated if a
+concurrent task deletes them. If content changes during verification, the hook
+does not cache a green result; the next stable state must be checked again.
 
 ## Code discovery
 
@@ -67,5 +80,6 @@ confirming its Codex hook contract.
 The current hook definition has been reviewed and trusted in Codex. After any
 change to `.codex/hooks.json` or `.codex/hooks/*.sh`, review it again through
 Codex's `/hooks` UI because hooks are executable policy. Run
-`pnpm ci:agent-config` for static validation and keep CI plus pre-push
-enforcement in place.
+`pnpm ci:agent-config` for static validation and the hook/workflow regressions
+under `scripts/ci/__tests__/` after changes. Python 3, Node, jq, Git, and pnpm
+are required by the guards and setup. Keep CI plus pre-push enforcement in place.

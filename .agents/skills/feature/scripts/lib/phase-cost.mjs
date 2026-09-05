@@ -136,6 +136,16 @@ function windowsFrom(progress, now) {
 
 export function phaseCosts(root, progress, { now = Date.now() } = {}) {
   const windows = windowsFrom(progress, now);
+  if (progress?.runtime === 'codex' || (!progress?.runtime && process.env.CODEX_THREAD_ID)) {
+    return {
+      computedAt: new Date(now).toISOString(),
+      availability: 'unavailable',
+      reason: 'Native Codex per-phase usage is not exposed by this helper.',
+      roots: [root],
+      rows: windows.map((w) => ({ id: w.id, label: w.label, open: w.open, availability: 'unavailable' })),
+      total: null,
+    };
+  }
   const runStart = windows[0]?.from ?? now;
   const roots = [...new Set([root, mainWorktree(root)])];
   const turns = collectTurns({ roots, since: runStart, sessions: readSessions(root) });
@@ -184,6 +194,7 @@ function fmt(n) {
 }
 
 export function renderCostRow(row) {
+  if (row.availability === 'unavailable') return ` ${row.label}: usage unavailable in native Codex`;
   const flags = [];
   if (row.open) flags.push('so far');
   if (row.sessions > 1) flags.push(`${row.sessions} sessions summed`);
@@ -192,6 +203,7 @@ export function renderCostRow(row) {
 }
 
 export function renderCosts(report) {
+  if (report.availability === 'unavailable') return ` cost unavailable: ${report.reason}`;
   if (!report.rows.length) return ' cost: no closed steps yet';
   const lines = report.rows.map(renderCostRow);
   lines.push(

@@ -21,6 +21,11 @@ with an explicit `cd <worktree-root> && ...`.
 
 ## 2. Re-arm and validate
 
+For an identified normal-risk trivial/small run, reconstruct the compact brief
+and evidence from the current task and Git, then follow the lightweight route
+in `$feature`. Those lanes deliberately have no armed state; do not create one
+on resume. If the lane is unknown, resolve it before proceeding.
+
 From the worktree:
 
 ```bash
