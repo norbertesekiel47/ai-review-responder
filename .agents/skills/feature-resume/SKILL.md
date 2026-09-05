@@ -102,8 +102,7 @@ Do not reread every workflow section. Dispatch from reconciled state:
 
 | Current evidence | Next action |
 |---|---|
-| worktree armed, no approved plan, `small` | transition to `executing` and implement |
-| `worktree_ready`, `standard` or `high` | finish or obtain approval for the plan |
+| `worktree_ready`, any guarded run | finish or obtain approval for the plan before executing |
 | `plan_approved` | transition to `executing` and start the next tracer |
 | `executing`, incomplete tracer | continue that tracer only |
 | `executing`, implementation complete | run `verified-gate.sh --review` |

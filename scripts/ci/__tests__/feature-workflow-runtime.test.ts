@@ -55,6 +55,16 @@ describe('feature lane selection', () => {
 });
 
 describe('native Codex workflow', () => {
+  it('requires plan approval before a guarded small/high run can execute', () => {
+    mkdirSync(join(root, '.feature'));
+    writeFileSync(join(root, '.feature/intake.json'), JSON.stringify({ size: 'small', risk: 'high', surface: 'backend' }));
+    expect(run('bash', ['scripts/feature-state.sh', 'set-phase', 'worktree_ready']).status).toBe(0);
+    expect(feature('transition-state', 'executing').status).toBe(1);
+    expect(JSON.parse(readFileSync(join(root, '.feature/state.json'), 'utf8')).phase).toBe('worktree_ready');
+    expect(feature('transition-state', 'plan_approved').status).toBe(0);
+    expect(feature('transition-state', 'executing').status).toBe(0);
+  });
+
   it('prepares an armed run without committing, deleting the draft, or writing Claude permissions', () => {
     const originalHead = run('git', ['rev-parse', 'HEAD']).stdout;
     const draft = JSON.stringify({ size: 'standard', risk: 'high', surface: 'backend', allowed_edit_surface: ['src/allowed.ts'] });

@@ -34,7 +34,7 @@ if (!existsSync(statePath)) {
 const state = JSON.parse(readFileSync(statePath, 'utf8'));
 const currentPhase = state.phase;
 const allowed = {
-  worktree_ready: new Set(['worktree_ready', 'plan_approved', 'executing']),
+  worktree_ready: new Set(['worktree_ready', 'plan_approved']),
   plan_approved: new Set(['plan_approved', 'executing']),
   executing: new Set(['executing', 'gate_green']),
   gate_green: new Set(['gate_green', 'executing', 'reviewed']),
