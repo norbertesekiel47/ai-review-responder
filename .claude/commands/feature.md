@@ -161,16 +161,17 @@ and edit from here on.
 Then arm enforcement with ONE command:
 
 ```bash
-cd <worktree-root> && bash scripts/feature-setup.sh <path-to-locked-intake.json>
+cd <worktree-root> && bash scripts/feature-setup.sh <path-to-locked-intake.json> --runtime claude
 ```
 
-It installs both intake copies (committed audit copy + ephemeral
-`.feature/intake.json` arming copy), deletes the parent draft, proves the hooks
+It installs both intake copies (uncommitted audit copy + ephemeral
+`.feature/intake.json` arming copy), preserves the parent draft, proves the hooks
 are armed via `scripts/arm-check.sh` (any DISARMED output means STOP and
 report), writes the worktree-scoped autonomy profile so steps 4–7 run without
 permission prompts (the shipping boundary still prompts;
 `FEATURE_AUTONOMY_PROFILE=off` opts out), carries the ladder in, and prints
-cross-worktree surface overlaps.
+cross-worktree surface overlaps. Commit the audit copy at the normal authorized
+commit boundary; preparation itself creates no commit or deletion.
 
 On overlap, surface it BEFORE planning: agree a merge order, noted in both
 deviations files, or narrow a surface.

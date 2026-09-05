@@ -22,6 +22,10 @@ bundle before performing it:
 Approval for one action does not imply the next action. “Implement the feature”
 does not mean “deploy it.”
 
+An explicit scoped authorization persists across phases and resumes. Do not ask
+again for an action already authorized. Reversible intake preparation neither
+commits nor deletes the input; defer those actions to their actual boundary.
+
 ## Review-ready handoff
 
 Before asking for the next authority boundary, report:

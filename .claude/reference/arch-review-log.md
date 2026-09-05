@@ -1,5 +1,11 @@
 # Architecture review log
 
+2026-09-05 — **codex/agent-setup-reliability:** Harden Codex patch/Stop guards,
+reconcile lightweight and guarded feature lanes (including plan approval on
+resume), preserve intake drafts during setup, add native review/runtime handling,
+and reconcile context/MCP guidance. Governance-only: no production counter
+increment. Review and validation: `docs/reviews/codex-agent-setup-reliability/validation.md`.
+
 Entropy counter for the `/feature` workflow (feature.md step 8): every merged
 feature increments the counter. At **≥ 5 merges** since the last architecture
 pass, the orchestrator reminds the user to schedule an architecture review

@@ -21,6 +21,8 @@ Code.
 - Use `pnpm`.
 - Use `rg` for search.
 - Use `apply_patch` for manual edits.
+- Load relevant `CONTEXT.md` glossary entries and linked domain references on
+  demand. Do not read the entire glossary for every feature.
 - Preserve existing user changes. Do not run destructive git commands unless
   explicitly requested.
 - Before claiming behavior-affecting work is complete, run the narrowest

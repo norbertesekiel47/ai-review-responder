@@ -40,6 +40,7 @@ const SURFACES = ['ui', 'backend', 'mixed'];
 const TRACER_STATUSES = ['pending', 'active', 'done', 'blocked'];
 
 const USAGE = `usage:
+  progress.mjs route --size <${SIZES.join('|')}> --risk <${RISKS.join('|')}>
   progress.mjs init --size <${SIZES.join('|')}> --risk <${RISKS.join('|')}> --surface <${SURFACES.join('|')}>
   progress.mjs carry <parent-repo-root|parent progress.json>
   progress.mjs step <${STEP_IDS.join('|')}> <${STEP_STATUSES.join('|')}> [--note "..."]
@@ -111,6 +112,23 @@ const [command, ...rest] = process.argv.slice(2);
 const { flags, positional } = parseFlags(rest);
 
 switch (command) {
+  case 'route': {
+    const { size, risk } = flags;
+    if (!SIZES.includes(size)) fail(`--size must be one of ${SIZES.join('|')}`);
+    if (!RISKS.includes(risk)) fail(`--risk must be one of ${RISKS.join('|')}`);
+    const lane = size === 'epic' ? 'epic' : risk === 'high' || size === 'standard' ? 'guarded' : size;
+    console.log(JSON.stringify({
+      lane,
+      implement: lane !== 'epic',
+      arm: lane === 'guarded',
+      plan: lane === 'guarded' || lane === 'epic',
+      review: lane === 'epic' ? null : lane === 'trivial' ? 'root' : 'independent',
+      verification: lane === 'epic' ? [] : lane === 'guarded'
+        ? ['bash .agents/skills/feature/scripts/verified-gate.sh --review']
+        : ['pnpm lint', 'pnpm typecheck', 'pnpm test', 'pnpm build'],
+    }, null, 2));
+    break;
+  }
   case 'init': {
     const { size, risk, surface } = flags;
     if (!SIZES.includes(size)) fail(`--size must be one of ${SIZES.join('|')}`);
@@ -118,6 +136,8 @@ switch (command) {
     if (!SURFACES.includes(surface)) fail(`--surface must be one of ${SURFACES.join('|')}`);
 
     const existing = load();
+    const runtime = flags.runtime ?? existing?.runtime ?? (process.env.CODEX_THREAD_ID ? 'codex' : 'claude');
+    if (!['codex', 'claude'].includes(runtime)) fail('--runtime must be codex or claude');
     const steps = existing?.steps ?? emptySteps();
     // No note: both renderers already show the lane in their own header, so
     // a note here would repeat it beside step 0.
@@ -126,6 +146,7 @@ switch (command) {
 
     save({
       version: 1,
+      runtime,
       size,
       risk,
       surface,
@@ -157,6 +178,8 @@ switch (command) {
     }
 
     const carried = JSON.parse(readFileSync(sourcePath, 'utf8'));
+    const runtime = flags.runtime ?? carried.runtime ?? (process.env.CODEX_THREAD_ID ? 'codex' : 'claude');
+    if (!['codex', 'claude'].includes(runtime)) fail('--runtime must be codex or claude');
     const steps = { ...emptySteps(), ...(carried.steps ?? {}) };
     steps.armed = { status: 'done', note: 'ARMED', at: new Date().toISOString() };
     if (steps.plan?.status === 'pending') steps.plan = { status: 'active' };
@@ -164,6 +187,7 @@ switch (command) {
     save({
       version: 1,
       size: carried.size,
+      runtime,
       risk: carried.risk,
       surface: carried.surface,
       steps,

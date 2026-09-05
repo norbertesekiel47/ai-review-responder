@@ -1,25 +1,22 @@
 #!/usr/bin/env node
 
-// Owns .feature/review-transcript.jsonl — the two-sided Claude <-> Codex
-// review record.
+// Owns .feature/review-transcript.jsonl for native Codex and Claude reviews.
 //
 //   review-log.mjs round-start --axis <axis> [--round N]
 //   review-log.mjs say --text "..." [--actor claude] [--round N]
-//   review-log.mjs attach-codex --latest | --job <jobId> [--axis <axis>]
+//   review-log.mjs attach-review --id <reviewerId> --report <path> [--round N]
+//   review-log.mjs attach-codex --job <jobId> [--axis <axis>]
 //   review-log.mjs finding --id F1 --severity high --title "..." [--at file:line]
 //   review-log.mjs triage --id F1 --verdict ACCEPT|REJECT --reason "..."
 //   review-log.mjs round-end --verdict APPROVED|REVISE [--round N]
 //   review-log.mjs render
 //
-// Codex turns are NOT copied here. `attach-codex` records a pointer to the
-// codex-companion job files; the live view reads verdict, findings and log
-// tail from those files so the companion stays the single owner of its own
-// output. Claude's turns and triage verdicts have no other sink, so they are
-// written here.
+// Native reviews retain their reviewer ID and report here. Companion reviews
+// retain an exact job pointer; the live view reads that companion's files.
 
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import {
   buildSnapshot,
@@ -45,7 +42,8 @@ const SEVERITIES = ['high', 'medium', 'low'];
 const USAGE = `usage:
   review-log.mjs round-start --axis <${AXES.join('|')}> [--round N]
   review-log.mjs say --text "..." [--actor claude|codex] [--round N]
-  review-log.mjs attach-codex --latest | --job <jobId> [--axis <axis>] [--round N]
+  review-log.mjs attach-review --id <reviewerId> --report <path> [--round N]
+  review-log.mjs attach-codex --job <jobId> [--axis <axis>] [--round N]
   review-log.mjs finding --id F1 --severity <${SEVERITIES.join('|')}> --title "..." [--at file:line] [--round N]
   review-log.mjs triage --id F1 --verdict <${TRIAGE.join('|')}> --reason "..."
   review-log.mjs round-end --verdict <${VERDICTS.join('|')}> [--round N]
@@ -200,19 +198,36 @@ switch (command) {
 
   case 'say': {
     if (typeof flags.text !== 'string') fail('--text is required');
-    const actor = flags.actor === 'codex' ? 'codex' : 'claude';
+    const progressPath = join(dir, 'progress.json');
+    const runtime = existsSync(progressPath) ? JSON.parse(readFileSync(progressPath, 'utf8')).runtime : null;
+    const actor = flags.actor ?? runtime ?? (process.env.CODEX_THREAD_ID ? 'codex' : 'claude');
+    if (!['codex', 'claude'].includes(actor)) fail('--actor must be codex or claude');
     append({ kind: 'turn', round, actor, text: flags.text });
     console.log(`logged ${actor} turn in round ${round}`);
     break;
   }
 
+  case 'attach-review': {
+    if (typeof flags.id !== 'string' || !flags.id.trim()) fail('--id is required');
+    if (typeof flags.report !== 'string') fail('--report is required');
+    if (!all.some((entry) => entry.kind === 'round-start' && entry.round === round)) fail('start a review round first');
+    const reportPath = resolve(root, flags.report);
+    let report;
+    try { report = readFileSync(reportPath, 'utf8').trim(); }
+    catch { fail(`cannot read review report: ${reportPath}`); }
+    if (!report) fail('review report is empty');
+    append({ kind: 'turn', round, actor: 'codex', reviewerId: flags.id,
+      reportPath: relative(root, reportPath), text: `Reviewer ${flags.id}\n${report}` });
+    console.log(`attached native review ${flags.id} to round ${round}`);
+    break;
+  }
+
   case 'attach-codex': {
+    if (flags.latest || typeof flags.job !== 'string') fail('attach-codex requires an exact --job; --latest is ambiguous');
     const jobs = listCodexJobs(root);
     if (jobs.length === 0) fail(`no codex-companion jobs recorded for ${root}`);
 
-    const job = flags.latest === true || !flags.job
-      ? jobs[0]
-      : jobs.find((candidate) => candidate.id === flags.job);
+    const job = jobs.find((candidate) => candidate.id === flags.job);
     if (!job) fail(`codex job ${flags.job} not found for this worktree`);
 
     const codexDir = job.logFile ? join(job.logFile, '..') : null;

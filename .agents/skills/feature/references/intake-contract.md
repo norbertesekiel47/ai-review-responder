@@ -1,6 +1,8 @@
 # Intake contract
 
-Use one strict JSON object. Do not add prose fields or unknown keys.
+For guarded runs, use one strict JSON object. Do not add prose fields or unknown keys.
+Lightweight normal-risk runs use execution-lanes.md and do not install this
+arming contract; the compact small-change brief stays in the task.
 
 ```json
 {
@@ -81,7 +83,8 @@ them.
 ## Artifact policy
 
 - Trivial: do not create feature paperwork unless the user requests it.
-- Small: keep only the validated intake and machine state.
+- Small at normal risk: keep the compact brief and verification/review evidence
+  in the task; do not create armed intake or machine state. High risk uses guarded artifacts.
 - Standard: keep the intake and plan; create deviations only when needed.
 - High: keep the standard artifacts plus durable evidence for accepted review
   findings and operational risks.

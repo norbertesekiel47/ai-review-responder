@@ -26,8 +26,9 @@ Load every other reference by section, at the step that cites it — never a
 whole file up front. Trivial and small lanes open only the sections named
 above.
 
-Read `AGENTS.md`, `.claude/CLAUDE.md`, `CONTEXT.md`, and the closest relevant
-project references before making architectural assumptions.
+Read `AGENTS.md` and `.claude/CLAUDE.md`. Use their reference map to read only
+the relevant `CONTEXT.md` glossary entries and domain references before making
+architectural assumptions; do not load the entire glossary.
 
 This lane adds exactly one rule of its own:
 
@@ -39,7 +40,7 @@ This lane adds exactly one rule of its own:
 
 ## Durable state and live coordination
 
-Use the Codex task plan for live progress and the worktree for durable state.
+For guarded runs, use the Codex task plan for live progress and the worktree for durable state.
 The durable artifacts win after compaction or resume:
 
 - `.feature/intake.json` — machine-readable scope and acceptance contract.
@@ -64,18 +65,48 @@ boundary.
 
 ## Report progress at every phase boundary
 
-The user must never have to ask where the run stands. Read
+The user must never have to ask where the run stands. For guarded runs, read
 [progress-and-live-view.md](references/progress-and-live-view.md) before the
 first step, then:
 
 - Advance the step ladder as each workflow section below closes. The write
   commands print the block, so a boundary is one command.
-- Log every Claude turn and every triage verdict in the review transcript.
-  Point the transcript at each Codex job instead of copying its output.
+- Log root replies and triage verdicts in the review transcript. Attach native
+  Codex reviewer IDs and reports with `attach-review`; companion jobs use exact IDs.
 - Start the live view before the first review round. Publish its snapshot as
-  an Artifact once the rounds close.
+  a local HTML file in Codex once the rounds close.
 
 Both surfaces derive from durable state. Never report a phase from memory.
+
+## Select the lane before creating workflow state
+
+Classify size and risk using [execution-lanes.md](references/execution-lanes.md)
+§ Classification, then run the read-only router:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs route --size <size> --risk <risk>
+```
+
+Follow its `lane` result. High risk always selects `guarded`, except an epic,
+which remains planning-only. Never run guarded setup for a normal-risk small
+change merely because this skill was invoked.
+
+- `epic`: produce the domain model and dependency-ordered tickets; stop before
+  implementation or arming.
+- `trivial`: use the current safe feature branch, implement, run the relevant
+  test plus the router's verification commands, and perform a root review.
+  Create no intake, ladder, worktree, or fingerprint. Report and finish here.
+- `small`: state the six-field compact intake described in execution-lanes.md
+  once in the task, implement directly, run the router's verification commands,
+  and obtain one fresh spec/correctness review. Use a sibling worktree only for
+  the isolation conditions in that reference. Create no armed `.feature/intake.json`,
+  plan, or state-machine transition. Report and finish here.
+- `guarded`: follow steps 0–7 below. These steps do not apply to the two
+  lightweight lanes. A scope/risk increase returns here before further edits.
+
+For lightweight runs, preserve existing user changes and use a local feature
+branch when starting on main/staging. Honor the user's existing authorization;
+the shipping boundary applies to every lane.
 
 ## Workflow
 
@@ -97,15 +128,11 @@ at step 6).
 Open the ladder as soon as the three axes are fixed:
 
 ```bash
-node .agents/skills/feature/scripts/progress.mjs init --size <size> --risk <risk> --surface <surface>
+node .agents/skills/feature/scripts/progress.mjs init --size <size> --risk <risk> --surface <surface> --runtime codex
 ```
 
-Mark every step the chosen lane does not run as `skipped`, with the lane as
-the note. A `trivial` lane skips `armed` and `plan`.
-
-For an epic, produce a domain model and dependency-ordered investigation and
-implementation map, then stop. Each implementation ticket must fit a separate
-feature run with a tight edit surface.
+The guarded lane runs every ladder step. Lightweight and epic runs already
+returned from the router above and do not initialize this ladder.
 
 ### 1. Lock intent into an intake
 
@@ -130,21 +157,17 @@ node .agents/skills/feature/scripts/progress.mjs step intake done --note "<revis
 
 ### 2. Isolate and arm
 
-For `small`, `standard`, and `high` work, create the sibling worktree with
+For guarded work, create the sibling worktree with
 `pnpm worktree:new <branch>`. Do not create or switch branches when unrelated
 dirty changes make the target ambiguous.
 
-Setup also writes the worktree-scoped autonomy profile
-(`.claude/settings.local.json`: acceptEdits + workflow command allowlist) so
-execution runs without permission prompts; the shipping boundary still
-prompts. `FEATURE_AUTONOMY_PROFILE=off` opts out.
-
-Run the repository setup from the worktree only after warning that the current
-repository script creates an intake commit and removes the parent draft. That
-commit/removal requires explicit user authorization:
+Codex uses the app's configured sandbox and approval policy. Ensure the task
+has scoped write access to the sibling worktree; a Claude permission profile
+does not grant Codex access. Setup preserves the input draft and creates an
+uncommitted audit copy, so preparation needs no commit authorization:
 
 ```bash
-cd <worktree-root> && bash scripts/feature-setup.sh <approved-intake-path>
+cd <worktree-root> && bash scripts/feature-setup.sh <approved-intake-path> --runtime codex
 ```
 
 Require `scripts/arm-check.sh` to report `ARMED`. Prefix every shell command
@@ -159,11 +182,11 @@ the carried ladder (or carry it yourself on an older setup script):
 
 ```bash
 cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs render
-cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs carry <parent-repo-root>
+cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs carry <parent-repo-root> --runtime codex
 ```
 
 Every later progress, review-log, and live-view command runs from the
-worktree. A lane that uses no worktree skips this step instead.
+worktree.
 
 ### 3. Plan the change
 
@@ -200,7 +223,7 @@ Start the live view before the first plan-review round, then log the round:
 ```bash
 node .agents/skills/feature/scripts/live-view.mjs start
 node .agents/skills/feature/scripts/review-log.mjs round-start --axis plan-skeptic
-node .agents/skills/feature/scripts/review-log.mjs attach-codex --latest --axis plan-skeptic
+node .agents/skills/feature/scripts/review-log.mjs attach-review --id <reviewer-id> --report <completed-report.md>
 ```
 
 Register the tracer bullets and transition state through the guarded wrapper:
@@ -396,10 +419,10 @@ Order matters — the report commit moves `HEAD`, so it precedes the final gate:
 node .agents/skills/red-team/scripts/mutation-runner.mjs finalize
 ```
 
-4. **PAUSE for authorization before the report commit.** Listing `commit` in
-   `required_approvals` does not grant it — read
-   [shipping-boundaries.md](references/shipping-boundaries.md). Obtain a
-   separately recorded explicit authorization, then commit only
+4. Before the report commit, check existing authorization. Listing `commit`
+   in `required_approvals` does not grant it; an earlier explicit scoped
+   authorization does. Read [shipping-boundaries.md](references/shipping-boundaries.md)
+   and ask only if the action has not been authorized. Commit only
    `docs/reviews/red-team/<slug>/findings.md` and `findings.json`, plus the
    staged review reports copied from `.feature/review-staging/` into
    `docs/reviews/<branch>/`. The staging directory is gitignored, so a report
@@ -439,8 +462,9 @@ node .agents/skills/feature/scripts/live-view.mjs snapshot
 node .agents/skills/feature/scripts/live-view.mjs stop
 ```
 
-Publish the snapshot with the Artifact tool and give the user its link. The
-final progress block belongs in the report.
+Open the snapshot with `open_in_codex` when available and provide its absolute
+local file link. Do not require an unavailable publishing tool or publish it
+externally without authorization. The final progress block belongs in the report.
 
 ## Resume and recovery
 

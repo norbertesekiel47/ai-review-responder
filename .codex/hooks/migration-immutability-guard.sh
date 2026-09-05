@@ -10,7 +10,7 @@ TOOL_NAME=$(jq -r '.tool_name // empty' <<<"$INPUT" 2>/dev/null || true)
 COMMAND=$(jq -r '.tool_input.command // empty' <<<"$INPUT" 2>/dev/null || true)
 
 if [ "$TOOL_NAME" = "apply_patch" ]; then
-  PATHS=$(printf '%s\n' "$COMMAND" | sed -n -E 's/^\*\*\* (Add|Update|Delete|Move to) File: ?//p')
+  PATHS=$(printf '%s\n' "$COMMAND" | sed -n -E -e 's/^\*\*\* (Add|Update|Delete) File: ?//p' -e 's/^\*\*\* Move to: ?//p')
 elif [ -n "$COMMAND" ]; then
   PATHS=$(printf '%s\n' "$COMMAND" | grep -oE 'supabase/migrations/[0-9]+_[A-Za-z0-9_.-]+\.sql' || true)
 else
@@ -19,6 +19,7 @@ fi
 
 while IFS= read -r FILE_PATH; do
   [ -n "$FILE_PATH" ] || continue
+  FILE_PATH=$(python3 -c 'from pathlib import Path; import sys; print((Path(sys.argv[1]) / sys.argv[2]).resolve())' "$HOOK_CWD" "$FILE_PATH") || exit 2
   case "$FILE_PATH" in
     */supabase/migrations/*.sql|supabase/migrations/*.sql) ;;
     *) continue ;;
@@ -26,7 +27,9 @@ while IFS= read -r FILE_PATH; do
   BASE=$(basename "$FILE_PATH")
   NUM=$(printf '%s\n' "$BASE" | sed -n 's/^\([0-9][0-9]*\)_.*/\1/p')
   [ -n "$NUM" ] || continue
-  ROOT=$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null || true)
+  ANCHOR=$(dirname "$FILE_PATH")
+  while [ ! -d "$ANCHOR" ] && [ "$ANCHOR" != "/" ]; do ANCHOR=$(dirname "$ANCHOR"); done
+  ROOT=$(git -C "$ANCHOR" rev-parse --show-toplevel 2>/dev/null || true)
   [ -n "$ROOT" ] || continue
   LOG="$ROOT/.claude/reference/migrations-log.md"
   if [ ! -f "$LOG" ]; then

@@ -17,7 +17,7 @@ extract_paths() {
   local path
   if [ "$TOOL_NAME" = "apply_patch" ]; then
     printf '%s\n' "$COMMAND" \
-      | sed -n -E 's/^\*\*\* (Add|Update|Delete|Move to) File: ?//p'
+      | sed -n -E -e 's/^\*\*\* (Add|Update|Delete) File: ?//p' -e 's/^\*\*\* Move to: ?//p'
   else
     path=$(jq -r '.tool_input.file_path // empty' <<<"$INPUT" 2>/dev/null || true)
     [ -n "$path" ] && printf '%s\n' "$path"
@@ -37,18 +37,15 @@ repo_root_for() {
 }
 
 absolute_path_for() {
-  case "$1" in
-    /*) printf '%s\n' "$1" ;;
-    *) printf '%s/%s\n' "$HOOK_CWD" "$1" ;;
-  esac
+  python3 -c 'from pathlib import Path; import sys; print((Path(sys.argv[1]) / sys.argv[2]).resolve())' "$HOOK_CWD" "$1"
 }
 
 session_root=$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null || true)
 
 while IFS= read -r FILE_PATH; do
   [ -n "$FILE_PATH" ] || continue
-  ABS_PATH=$(absolute_path_for "$FILE_PATH")
-  TARGET_ROOT=$(repo_root_for "$FILE_PATH")
+  ABS_PATH=$(absolute_path_for "$FILE_PATH") || exit 2
+  TARGET_ROOT=$(repo_root_for "$ABS_PATH")
 
   # Preserve the always-on containment rule for worktree sessions.
   case "$session_root" in
@@ -63,8 +60,8 @@ while IFS= read -r FILE_PATH; do
   ROOT=""
   if [ -n "$TARGET_ROOT" ] && [ -f "$TARGET_ROOT/.feature/intake.json" ]; then
     ROOT="$TARGET_ROOT"
-  elif [ -f "$HOOK_CWD/.feature/intake.json" ]; then
-    ROOT=$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null || true)
+  elif [ -n "$session_root" ] && [ -f "$session_root/.feature/intake.json" ]; then
+    ROOT="$session_root"
   fi
   [ -n "$ROOT" ] || continue
 

@@ -2,3 +2,23 @@ sandbox_mode = "workspace-write"
 
 [features]
 hooks = true
+
+# Optional direct integrations: registration is not authentication. OAuth is
+# per developer; credentials never belong in this checked-in configuration.
+[mcp_servers.stripe]
+url = "https://mcp.stripe.com"
+required = false
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+
+[mcp_servers.sentry]
+url = "https://mcp.sentry.dev/mcp"
+required = false
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+required = false
+startup_timeout_sec = 15
+tool_timeout_sec = 60

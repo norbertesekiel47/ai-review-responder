@@ -20,6 +20,11 @@
 # per-run with FEATURE_AUTONOMY_PROFILE=off.
 set -uo pipefail
 
+if [ "${FEATURE_RUNTIME:-${CODEX_THREAD_ID:+codex}}" = codex ]; then
+  echo "Codex uses its configured sandbox and approval policy; no Claude permission profile is written."
+  exit 0
+fi
+
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 TARGET=".claude/settings.local.json"

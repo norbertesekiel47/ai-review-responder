@@ -85,6 +85,7 @@ Trunk-based: `main` is the source of truth. Two long-lived branches — `main` (
 - No `any` (JSONB carve-out excepted — use `unknown` and narrow). No silent catches. No string literals for subscription status, tier IDs, job names, or review status — import the constant from its single authoritative TS file.
 - No new top-level directories, no near-duplicate dependencies, no abstractions for a single caller, no npm/yarn lockfiles. Default is "no new file" — check `docs/directory.md` first (CI-complete for `worker/` + `src/lib/`: `ci:directory-map` fails on a production file with no row, or a row whose file is gone — a new file under those roots ships with its row in the same PR).
 - **Next.js 16 moved things** — APIs, conventions, and file structure differ from most training data. Before writing or debugging Next-specific code (routing, caching, `next.config`, server/client boundaries), read the matching guide under `node_modules/next/dist/docs/`; it is version-matched to the installed `next` and mirrors the structure of nextjs.org/docs. Next's own auto-generated `AGENTS.md` block is deliberately off (`agentRules: false`, #798) — this bullet is that guidance's single owner.
+- **Context and skill routing:** read relevant glossary entries in `CONTEXT.md`, not the whole glossary. Start RepWorth UI work with `repworth-brand-design`; add design/motion skills for a concrete need and preserve project tokens. Honor explicitly requested skills. Do not add a second progress ledger or completion workflow to `$feature`.
 - When deleting a doc or ticking a checklist item, fix its audit tick and grep the filename to clean every cross-reference in the same change.
 - **This file is shape-guarded** (`src/__tests__/claude-md-shape.test.ts`): "Where things live" rows ≤ 80 words, gotcha bullets ≤ 60, total ≤ 6,000. A row says WHERE to read + ≤ 3 one-clause traps; the WHY lives in `docs/directory.md` § folder, `CONTEXT.md`, or lab-notes.
 
@@ -217,18 +218,19 @@ decide *where new worker code goes*:
 
 ## MCP servers & CLIs
 
-**MCP servers** — load tool schemas via ToolSearch before calling; prefer the MCP over the matching CLI when both fit (structured results).
+**MCP servers** — discover tools actually exposed in this session (Codex: available definitions/`ALL_TOOLS`; Claude: ToolSearch). Prefer a fitting MCP; use the documented CLI or official docs if unavailable. Registration does not prove authentication. Codex's optional direct servers live in `.codex/config.toml`; OAuth uses `codex mcp login <name>`.
 
 | MCP | When |
 | --- | --- |
 | **Supabase** | DB queries, migrations, data debugging (remote HTTP MCP — auth before first use). For DB WRITES prefer `execute_sql` over inline `psql` one-liners — structured results and fewer shell-permission prompts |
 | **Railway** | Worker infra — deploys, logs, metrics, env vars, services |
-| **Stripe** | Billing inspection — Prices, subscriptions, events (remote HTTP MCP — OAuth via `/mcp` before first use) |
+| **Stripe** | Billing inspection — Prices, subscriptions, events; OAuth before first use |
 | **Vercel** | Frontend deploys, build logs, project status (remote HTTP MCP — auth before first use) |
-| **Context7** | Library/framework docs (BullMQ, Resend, Stripe, Next.js) before implementing |
+| **Context7** | Optional library docs; fall back to version-matched local or official docs |
+| **Sentry** | Incident investigation; separate from the application's Sentry SDK |
 | **claude-mem** | "Did we solve this before?" — cross-session memory / observations |
 
-Playwright (E2E via `pnpm test:e2e`) and Sentry (`@sentry/*` SDK + `worker/sentry.ts`) are **not** MCPs. Per-developer personal MCPs (Gmail, Drive, Calendar) may also be connected; not project tools.
+Playwright E2E runs via `pnpm test:e2e`. Personal MCPs (Gmail, Drive, Calendar) may also be connected; not project tools. Memory is supplementary: an observer outage must not veto coding tools.
 
 **CLIs** (in Bash):
 

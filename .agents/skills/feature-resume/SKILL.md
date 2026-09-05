@@ -21,6 +21,11 @@ with an explicit `cd <worktree-root> && ...`.
 
 ## 2. Re-arm and validate
 
+For an identified normal-risk trivial/small run, reconstruct the compact brief
+and evidence from the current task and Git, then follow the lightweight route
+in `$feature`. Those lanes deliberately have no armed state; do not create one
+on resume. If the lane is unknown, resolve it before proceeding.
+
 From the worktree:
 
 ```bash
@@ -97,8 +102,7 @@ Do not reread every workflow section. Dispatch from reconciled state:
 
 | Current evidence | Next action |
 |---|---|
-| worktree armed, no approved plan, `small` | transition to `executing` and implement |
-| `worktree_ready`, `standard` or `high` | finish or obtain approval for the plan |
+| `worktree_ready`, any guarded run | finish or obtain approval for the plan before executing |
 | `plan_approved` | transition to `executing` and start the next tracer |
 | `executing`, incomplete tracer | continue that tracer only |
 | `executing`, implementation complete | run `verified-gate.sh --review` |
