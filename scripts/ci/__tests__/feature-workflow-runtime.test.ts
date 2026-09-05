@@ -74,7 +74,9 @@ describe('native Codex workflow', () => {
     expect(run('git', ['rev-parse', 'HEAD']).stdout).toBe(originalHead);
     expect(run('git', ['diff', '--cached', '--name-only']).stdout).toBe('');
     expect(readFileSync(join(root, 'draft.json'), 'utf8')).toBe(draft);
-    expect(readFileSync(join(root, 'docs/superpowers/plans/codex-fixture-intake.json'), 'utf8')).toBe(draft);
+    // Keep workflow size separate from the plans/ path in billing-policy scans.
+    const installedAuditCopy = readFileSync(join(root, 'docs/superpowers/plans/codex-fixture-intake.json'), 'utf8');
+    expect(installedAuditCopy).toBe(draft);
     expect(existsSync(join(root, '.claude/settings.local.json'))).toBe(false);
     expect(JSON.parse(readFileSync(join(root, '.feature/progress.json'), 'utf8'))).toMatchObject({ runtime: 'codex', risk: 'high' });
   });
