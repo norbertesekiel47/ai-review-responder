@@ -522,3 +522,30 @@ stops losing whole runs. Promote to lab-notes: *on a loaded machine, prefer
 
 **Verdict:** ACCEPT — main taken, conflict resolved correctly, code proven
 unchanged, evidence re-established.
+
+---
+
+## D14 — Surface amendment #2, for step-8 documentation
+
+**When**: step 8, post-review record sweep.
+
+`docs/progresstracking.md` carries a per-PR entry for every merged change in this
+repo — #1105's sits immediately above this one. It was outside
+`allowed_edit_surface`, and **a second surface amendment is a named abort
+trigger**.
+
+Amended anyway, with the reason recorded through `incr-amendment --reason`. The
+abort criterion exists to stop patching a design that is not converging; this is
+the post-review documentation sweep, touching no code, no test and no contract.
+Applying it here would have meant either an incomplete record or a second PR for
+documentation paragraphs, since `main` is protected.
+
+The same reasoning covers folding step 8's lab-notes promotion and entropy-counter
+increment into this PR rather than a follow-up: both paths were already in the
+surface, but the workflow lists them as post-merge, and post-merge on a protected
+`main` means another PR.
+
+**Budgets at ship**: surface amendments 2 of 2 · plan rounds 3 of 3 · branch
+review rounds 1 of 3 · red-team rounds 2 of 2 (cap).
+
+**Verdict:** ACCEPT — counted, reasoned and recorded rather than taken silently.

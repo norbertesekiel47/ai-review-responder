@@ -5684,3 +5684,75 @@ Residual risk is a stale count in one runbook section, not behaviour.
 and 1 behind `main`, so `--ff-only` aborts and the runbook's reset path applies —
 but those 54 carry PR #1121's in-flight ride, and a force-push would destroy that
 branch's staging deployment while it is still open. Owner decision pending.
+
+---
+
+## #1083 — Ledger attribution moves onto the writer's side of the seam (PR #1129, 2026-09-04)
+
+Five of the seven **Refusal** lanes surfaced a ledger fault to Sentry as an
+ordinary job failure. #1079 had fixed two by wrapping their CALL SITES, and the
+ticket proposed extending that to the remaining seven. **This did the opposite.**
+
+A fault in `INSERT INTO refusal_events` is a property of *that statement*, and
+`write.ts` is its only owner (#1001). While attribution was a caller's job it sat
+on the far side of a seam that already existed — which is exactly why five lanes
+omitted it and nothing stopped a sixth. The deletion test settles it: remove
+`withLedgerAttribution` and the write-fault half reappears nowhere, the
+resolve-fault half at exactly one call site.
+
+So `captureLedgerWriteFault` (module-private, both write arms) takes the write
+fault — **zero new interface members, zero new parameters, all seven lanes by
+construction, and not one lane file edited**. `persist.ts` gives up work rather
+than taking it on: its `held_draft` wrapper deleted, the survivor narrowed to the
+`policy_gate_held` resolve, its single-value `lane` parameter removed.
+
+Not a behaviour change: every capture rethrows the **same error instance**. This
+is the propagating side of "facts propagate, observations swallow", not an
+exception to it. #1079's kill-switch containment intact.
+
+**What review bought — two P0s, both the same underlying error.** An assertion
+describing what the code does rather than what it must never do:
+
+1. `refusal_codes: inputs.map(r => r.refusalCode).join(',')` — gate prose,
+   unbounded, one per row — **survived 146/146 green**. The payload was asserted
+   by PRESENCE, which cannot fail on an added key. Both arms now compare an exact
+   sorted key list.
+2. The write fault and the vocabulary fault were **byte-identical in every tag**
+   on `policy_gate_held`, separated only by `extra` — which a Sentry alert rule
+   cannot filter on. Both now carry `fault=ledger_write` /
+   `fault=ledger_vocabulary`.
+
+Also: the set arm carried no tenant identity, so a rolled-back write left an
+operator "this lane failed for N rows" and nothing to join on — now
+`{ row_count, account_id, account_count }`, answered with the account rather than
+the batch, because a batch id needs a parameter and a parameter is something a
+caller can omit.
+
+**One rejected finding, owner decision**: no latch or cap on the capture. The
+module's two existing latches stop unbounded issue-GROUP scattering — their keys
+are distinct codes. This capture has one exception shape across seven bounded
+lanes, so Sentry groups it into a single counted issue, and a latch would hide
+whether an `error`-level write fault is still happening mid-incident.
+
+**A rationale nobody multiplied out**: `refusal_lanes` was duplicated into
+`extra` on the grounds that a Sentry tag truncates at 200 characters. All seven
+lanes joined is **108**. It reached a LOCKED `CONTEXT.md` entry, a docblock, a
+test comment and the plan before three review axes caught it independently.
+
+Evidence: 17 eval titles (12/5) · plan gate 3 Codex rounds → APPROVED · review
+wave 4 axes, 25 findings, 24 fixed · red team 2 rounds, 45 mutations, 29 killed,
+**CLEAR** · live-DB 39/39.
+
+**The sidecar's `head_sha` was repointed four times** and each is disclosed
+(D12, D13). `main` moved three times mid-ship; the production diff hashed
+identically across every rebase (`65880ba7`), so red team's rounds describe
+exactly this code. Round 3 is refused by hard cap, which is why the repoint
+exists at all.
+
+Follow-up: **#1127** — whether a ledger-attributed abort should short-circuit the
+retry ladder instead of re-spending the LLM draft and the moderation call. The
+`fault` tags added here are what make it answerable with data.
+
+**Deferred, not done: realigning `staging`.** The ride merged at `55ed16e4`; the
+re-sync waits on this PR merging, and `origin/staging` also carries other
+branches' in-flight rides.

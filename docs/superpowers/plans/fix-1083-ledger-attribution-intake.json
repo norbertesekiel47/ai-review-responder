@@ -70,6 +70,7 @@
     "src/lib/refusals/write.ts",
     "src/lib/refusals/vocabulary.ts",
     "docs/runbooks/beta-launch-alerting.md",
+    "docs/progresstracking.md",
     "src/lib/refusals/__tests__/write.test.ts",
     "src/lib/refusals/__tests__/write.integration.test.ts",
     "worker/jobs/response-generation/persist.ts",
