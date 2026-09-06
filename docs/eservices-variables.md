@@ -182,7 +182,7 @@ production runtime: `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_FOUNDING`,
 |---|---|---|
 | `NEXT_PUBLIC_APP_URL` | ✅ | |
 | `WORKER_PUBLIC_URL` | ✅ | public worker origin (webhook signature base); 10 code refs |
-| `WORKER_SERVICE_URL` | 🔸 | **Retired.** 0 code refs — superseded by `WORKER_PUBLIC_URL`. Commented out pending removal. |
+| `WORKER_SERVICE_URL` | 🔸 | **Retired and removed from `.env.example`** (2026-09-06). 0 code refs — superseded by `WORKER_PUBLIC_URL`. Do not re-add. |
 | `WORKER_SHUTDOWN_GRACE_MS` | ⬜ | optional — graceful-shutdown budget before hard exit |
 | `BOOT_STAGGER_ENABLED` | ⬜ | optional — staggers worker registrations at boot |
 
@@ -345,8 +345,9 @@ inventory is §2 and `.env.example`.
   `ONBOARDING_DEMO_DAILY_CENTS`, the poller/scheduler intervals, and 4 test vars.
   → **All added** (required ones as live keys, optional ones commented with notes).
 - **In `.env.example`, never read by code (vestigial):** `ENCRYPTION_KEY`,
-  `ENCRYPTION_KEY_VERSION`, `WORKER_SERVICE_URL`. → **Commented out** with a note;
-  remove fully once confirmed in a follow-up. (`DATABASE_URL` and the Phase-5
+  `ENCRYPTION_KEY_VERSION`, `WORKER_SERVICE_URL`. → **Commented out** with a note.
+  `WORKER_SERVICE_URL` was **deleted outright on 2026-09-06** — that is the
+  follow-up this line asked for; `ENCRYPTION_KEY*` stay commented. (`DATABASE_URL` and the Phase-5
   `GOOGLE_*` placeholders are *not* vestigial — kept intentionally.)
 - **False positive:** `X` — appears only inside a code comment.
 

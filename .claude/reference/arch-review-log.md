@@ -1,5 +1,14 @@
 # Architecture review log
 
+2026-09-06 — **docs/prune-worker-service-url-and-refresh-standup-state
+(pre-merge):** Delete the retired `WORKER_SERVICE_URL` (0 code refs since
+PR #186) from `.env.example` and from the `env:` blocks of `ci.yml` and
+`e2e.yml`; refresh `beta-production-standup.md` §0 from live reads. Governance
+touch is the two workflow `env:` lines only — no job, runner, trigger, required
+check, permission, or action pin changes, and the variable was read by nothing.
+No production module, migration, dependency, flag, or writer. The merge counter
+is unchanged until this branch is merged.
+
 2026-09-05 — **codex/fix-1076-1077-1048 (pre-merge):** Disclose historical
 policy-hold gaps and archival-event truncation; supply already-reviewed evidence
 from retained dated outreach attribution within the existing batch builder.
