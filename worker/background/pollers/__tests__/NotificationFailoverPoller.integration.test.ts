@@ -54,7 +54,8 @@ import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { OUTBOX_COMPLETION_REASON } from '@/lib/shared/outbox-completion-reason';
 import { markOutboxCompletedWithReason } from '@/lib/shared/outbox';
 import { sql } from '@/lib/db/server';
-import { runFailoverPollerOnce } from '../NotificationFailoverPoller';
+import { runFailoverPollerOnce, tryClaimAlert } from '../NotificationFailoverPoller';
+import { createWorkerLogger } from '@/lib/shared/logger';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -380,5 +381,114 @@ describeWithDb('NotificationFailoverPoller owner-unreachable arm (live Postgres)
     `;
     expect(won?.status).toBe('completed');
     expect(won?.completion_reason).toBe(OUTBOX_COMPLETION_REASON.OWNER_UNREACHABLE);
+  });
+
+  // ── tryClaimAlert: claim-before-send against real Postgres (#415) ──────────
+  // Drives the exported helper directly. The claim row is committed before the
+  // provider call; the provider call runs outside any tx; a failed send keeps
+  // the claim; two concurrent claimers produce exactly one send.
+  const CLAIM_TEMPLATE = 'approval_responsiveness_alert';
+  const CLAIM_RECIPIENT = 'admin@repworth.example.com';
+  const claimLogger = createWorkerLogger('[tryClaimAlert-int]');
+
+  async function claimRows(responseId: string): Promise<Array<{
+    id: string; sent_at: Date | null; failed_at: Date | null;
+    failure_reason: string | null; external_message_id: string | null;
+  }>> {
+    return sql<Array<{
+      id: string; sent_at: Date | null; failed_at: Date | null;
+      failure_reason: string | null; external_message_id: string | null;
+    }>>`
+      SELECT id, sent_at, failed_at, failure_reason, external_message_id
+      FROM notification_deliveries
+      WHERE response_id = ${responseId}::uuid AND template = ${CLAIM_TEMPLATE}
+      ORDER BY created_at ASC
+    `;
+  }
+
+  it('claim (a) success → exactly one row with sent_at and the provider message id', async () => {
+    const { responseId } = await seedDraft({ businessId: activeBusinessId, createdAtExpr: AGED });
+    const ctx = { accountId: tenant!.accountId, businessId: activeBusinessId, responseId };
+    const sendFn = vi.fn(async (claimId: string) => `msg-${claimId}`);
+
+    const outcome = await tryClaimAlert(responseId, CLAIM_TEMPLATE, CLAIM_RECIPIENT, sendFn, ctx, claimLogger);
+
+    expect(outcome).toBe('sent');
+    const rows = await claimRows(responseId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.sent_at).not.toBeNull();
+    expect(rows[0]!.external_message_id).toBe(`msg-${rows[0]!.id}`);
+    expect(sendFn).toHaveBeenCalledWith(rows[0]!.id);
+  });
+
+  it('claim (b) send failure → the claim row is KEPT with failed_at (never deleted)', async () => {
+    const { responseId } = await seedDraft({ businessId: activeBusinessId, createdAtExpr: AGED });
+    const ctx = { accountId: tenant!.accountId, businessId: activeBusinessId, responseId };
+    const sendFn = vi.fn(async () => { throw new Error('Resend API error: boom'); });
+
+    const outcome = await tryClaimAlert(responseId, CLAIM_TEMPLATE, CLAIM_RECIPIENT, sendFn, ctx, claimLogger);
+
+    expect(outcome).toBe('send_error');
+    const rows = await claimRows(responseId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.sent_at).toBeNull();
+    expect(rows[0]!.failed_at).not.toBeNull();
+    expect(rows[0]!.failure_reason).toContain('Resend API error');
+
+    // (c) the failed claim suppresses a retry inside the 24h window.
+    const retry = vi.fn(async () => 'never');
+    expect(await tryClaimAlert(responseId, CLAIM_TEMPLATE, CLAIM_RECIPIENT, retry, ctx, claimLogger)).toBe('deduped');
+    expect(retry).not.toHaveBeenCalled();
+    expect(await claimRows(responseId)).toHaveLength(1);
+  });
+
+  it('claim (d) a pre-existing UNSENT claim (1 min old) dedups; one aged past 24h does not and the new claim gets a new id', async () => {
+    const { responseId } = await seedDraft({ businessId: activeBusinessId, createdAtExpr: AGED });
+    const ctx = { accountId: tenant!.accountId, businessId: activeBusinessId, responseId };
+    const staleId = randomUUID();
+    await sql.unsafe(
+      `INSERT INTO notification_deliveries (id, account_id, business_id, response_id, channel, recipient, template, created_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'email', $5, $6, NOW() - INTERVAL '1 minute')`,
+      [staleId, tenant!.accountId, activeBusinessId, responseId, CLAIM_RECIPIENT, CLAIM_TEMPLATE],
+    );
+    const sendFn = vi.fn(async () => 'never');
+    expect(await tryClaimAlert(responseId, CLAIM_TEMPLATE, CLAIM_RECIPIENT, sendFn, ctx, claimLogger)).toBe('deduped');
+    expect(sendFn).not.toHaveBeenCalled();
+
+    // Age the unsent claim past the window → a NEW claim is inserted with a new id.
+    await sql`UPDATE notification_deliveries SET created_at = NOW() - INTERVAL '25 hours' WHERE id = ${staleId}::uuid`;
+    const sendFn2 = vi.fn(async (claimId: string) => `msg-${claimId}`);
+    expect(await tryClaimAlert(responseId, CLAIM_TEMPLATE, CLAIM_RECIPIENT, sendFn2, ctx, claimLogger)).toBe('sent');
+    const rows = await claimRows(responseId);
+    expect(rows).toHaveLength(2);
+    const fresh = rows.find((r) => r.id !== staleId)!;
+    expect(fresh.sent_at).not.toBeNull();
+    expect(sendFn2).toHaveBeenCalledWith(fresh.id);
+    expect(fresh.id).not.toBe(staleId);
+  });
+
+  it('claim (e) two concurrent claimers → loser dedups while the winner is still sending; exactly one send, one row', async () => {
+    const { responseId } = await seedDraft({ businessId: activeBusinessId, createdAtExpr: AGED });
+    const ctx = { accountId: tenant!.accountId, businessId: activeBusinessId, responseId };
+    let releaseSend: () => void = () => {};
+    const sendGate = new Promise<void>((resolve) => { releaseSend = resolve; });
+    const sendFn = vi.fn(async (claimId: string) => { await sendGate; return `msg-${claimId}`; });
+
+    const p1 = tryClaimAlert(responseId, CLAIM_TEMPLATE, CLAIM_RECIPIENT, sendFn, ctx, claimLogger);
+    const p2 = tryClaimAlert(responseId, CLAIM_TEMPLATE, CLAIM_RECIPIENT, sendFn, ctx, claimLogger);
+
+    // The loser settles FIRST — the winner's claim is committed (lock released)
+    // while its send is still pending on the gate.
+    const first = await Promise.race([p1, p2]);
+    expect(first).toBe('deduped');
+    expect(sendFn).toHaveBeenCalledOnce();
+
+    releaseSend();
+    const results = await Promise.all([p1, p2]);
+    expect(results.sort()).toEqual(['deduped', 'sent']);
+    expect(sendFn).toHaveBeenCalledOnce();
+    const rows = await claimRows(responseId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.sent_at).not.toBeNull();
   });
 });

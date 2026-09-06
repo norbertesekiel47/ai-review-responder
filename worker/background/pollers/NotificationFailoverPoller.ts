@@ -4,7 +4,7 @@ import { sql, jsonb } from '../../../src/lib/db/server';
 import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { sendInternalEmail } from '../../../src/lib/notifications/email';
 import { escapeHtml } from '../../../src/lib/shared/html';
-import { createWorkerLogger, toError } from '../../../src/lib/shared/logger';
+import { createWorkerLogger, toError, type WorkerLogger } from '../../../src/lib/shared/logger';
 import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
 import { createGuardedPoll } from '../guarded-poll';
 import {
@@ -55,40 +55,77 @@ function getIntervalMs(): number {
  *   3. Fresh uuidv7() — graceful fallback for pre-20a rows with no
  *      correlation payload.
  */
-type AlertOutcome = 'sent' | 'deduped' | 'send_error';
+export type AlertOutcome = 'sent' | 'deduped' | 'send_error';
 
 /**
- * Race-safe admin-alert claim helper.
+ * Resend idempotency key for ONE committed admin-alert claim. Keyed on the
+ * claim id (a fresh uuidv7 per claim), NOT on the (response, template,
+ * recipient) dedup tuple: the DB dedup window and Resend's key TTL are both
+ * 24 h but do not start together, so a tuple-derived key could hand a NEW
+ * claim the PREVIOUS claim's message id (or a payload conflict) at the window
+ * boundary. Per-claim keys decouple the two windows; the key's only job is to
+ * make a repeated send attempt for the SAME claim a no-op at the provider.
+ */
+export function adminAlertIdempotencyKey(claimId: string): string {
+  return `admin-alert:${claimId}`;
+}
+
+const FAILURE_REASON_MAX_CHARS = 500;
+
+/**
+ * Race-safe, claim-before-send admin-alert helper (#415).
  *
  * Two failover-poller processes (multi-instance deployments) can both pass a
  * time-windowed dedup SELECT and send duplicate admin emails. This helper
  * serializes per (response_id, template, recipient) via a transaction-scoped
- * advisory lock: the dedup re-check, the email send, and the delivery-row
- * insert all run INSIDE one `sql.begin` holding the lock. A second process
- * arriving concurrently waits for the lock, then sees the delivery row on
- * re-check and skips.
+ * advisory lock, but the lock — and the pooled connection — are held ONLY for
+ * the dedup re-check + claim INSERT. The provider call runs AFTER COMMIT, with
+ * no transaction and no lock open, so a slow or hung Resend round-trip can
+ * never pin a `sql` slot or block a concurrent poller.
  *
- * The email send happens inside the transaction — the connection is held
- * during the Resend/Twilio round-trip. Acceptable for the admin-alert
- * volume (low-throughput, seconds-level latency). Revisit if connection
- * pool exhaustion becomes observable.
+ * Sequence:
+ *   tx1  advisory lock → 24 h dedup SELECT → INSERT claim (sent_at NULL) → COMMIT
+ *   send `sendFn(claimId)` outside any tx; callers pass
+ *        `adminAlertIdempotencyKey(claimId)` to Resend
+ *   ok   UPDATE claim SET sent_at, external_message_id
+ *   fail UPDATE claim SET failed_at, failure_reason — the claim is KEPT
+ *
+ * Why a failed send KEEPS the claim (never deletes it): no thrown error proves
+ * non-acceptance. The Resend SDK folds transport failures — including a broken
+ * read of a SUCCESSFUL response — into `application_error`, and the 10 s
+ * `Promise.race` in send-email.ts cannot cancel the orphaned request, so the
+ * provider may still accept the email after we saw an error. Deleting the
+ * claim would permit a duplicate. Cost: a definite provider rejection now waits
+ * for the 24 h dedup window instead of the next 2 h cycle. Accepted for
+ * admin-only alerts.
+ *
+ * Accepted degradation: a crash between COMMIT and the send, ANY send failure,
+ * or a failed post-send bookkeeping UPDATE each leave a claim row (sent_at
+ * NULL) that suppresses this (response, template, recipient) alert for up to
+ * 24 h — the dedup SELECT deliberately has no sent_at filter. Only the
+ * owner-unreachable arm has an independent health check
+ * (`checkOwnerUnreachable`); the all-failed and responsiveness arms do not, so
+ * a suppressed alert on those two is lost for that window.
  *
  * Returns:
- *   'sent'       — we acquired the claim and the provider accepted the message
- *   'deduped'    — a prior alert in the 24h window already exists (no-op)
- *   'send_error' — the provider rejected the send (transaction rolled back;
- *                  next poll will retry since no delivery row persisted)
+ *   'sent'       — claim committed and the provider accepted the message
+ *   'deduped'    — a claim in the 24 h window already exists (no-op)
+ *   'send_error' — the claim tx failed (no claim, no send) OR the send threw
+ *                  (claim kept; failed_at/failure_reason recorded)
  */
-async function tryClaimAlert(
+export async function tryClaimAlert(
   responseId: string,
   template: string,
   recipient: string,
-  sendFn: () => Promise<string>,
+  sendFn: (claimId: string) => Promise<string>,
   ctx: { accountId: string; businessId: string; responseId: string },
+  logger: WorkerLogger,
 ): Promise<AlertOutcome> {
-  let outcome: AlertOutcome = 'deduped';
+  const claimId = uuidv7();
+
+  let claimed: boolean;
   try {
-    await sql.begin(async (tx) => {
+    claimed = await sql.begin(async (tx) => {
       await tx`
         SELECT pg_advisory_xact_lock(hashtext(${`${responseId}:${template}:${recipient}`}))
       `;
@@ -100,25 +137,74 @@ async function tryClaimAlert(
           AND created_at > NOW() - INTERVAL '24 hours'
         LIMIT 1
       `;
-      if (recentAlert) {
-        outcome = 'deduped';
-        return;
-      }
-      const messageId = await sendFn();
+      if (recentAlert) return false;
+      // Claim row: sent_at / external_message_id stay NULL until the send is
+      // confirmed. The row itself is the dedup, so it must be COMMITTED before
+      // the provider call.
       await tx`
         INSERT INTO notification_deliveries
-          (id, account_id, business_id, response_id, channel, recipient, template, sent_at, external_message_id)
+          (id, account_id, business_id, response_id, channel, recipient, template)
         VALUES (
-          ${uuidv7()}, ${ctx.accountId}, ${ctx.businessId}, ${ctx.responseId}, 'email',
-          ${recipient}, ${template}, NOW(), ${messageId}
+          ${claimId}, ${ctx.accountId}, ${ctx.businessId}, ${ctx.responseId}, 'email',
+          ${recipient}, ${template}
         )
       `;
-      outcome = 'sent';
+      return true;
     });
-  } catch {
-    outcome = 'send_error';
+  } catch (err: unknown) {
+    logger.error(
+      'Admin alert claim failed — no claim, no send',
+      { response_id: responseId, template },
+      toError(err),
+    );
+    return 'send_error';
   }
-  return outcome;
+  if (!claimed) return 'deduped';
+
+  // ── Outside any transaction from here on ──────────────────────────────
+  let messageId: string;
+  try {
+    messageId = await sendFn(claimId);
+  } catch (err: unknown) {
+    const error = toError(err);
+    logger.error(
+      'Admin alert send failed — claim kept (dedups for 24h)',
+      { response_id: responseId, template, claim_id: claimId, error_name: error.name },
+      error,
+    );
+    try {
+      await sql`
+        UPDATE notification_deliveries
+        SET failed_at = NOW(),
+            failure_reason = ${`${error.name}: ${error.message}`.slice(0, FAILURE_REASON_MAX_CHARS)}
+        WHERE id = ${claimId} AND business_id = ${ctx.businessId}
+      `;
+    } catch (bookkeepingErr: unknown) {
+      logger.error(
+        'Admin alert failure bookkeeping failed — claim still dedups',
+        { response_id: responseId, template, claim_id: claimId },
+        toError(bookkeepingErr),
+      );
+    }
+    return 'send_error';
+  }
+
+  try {
+    await sql`
+      UPDATE notification_deliveries
+      SET sent_at = NOW(), external_message_id = ${messageId}
+      WHERE id = ${claimId} AND business_id = ${ctx.businessId}
+    `;
+  } catch (err: unknown) {
+    // The email went out. The claim row stays with sent_at NULL, which still
+    // dedups for 24 h — fail-safe in the "never duplicate" direction.
+    logger.error(
+      'Admin alert sent but bookkeeping failed — claim still dedups',
+      { response_id: responseId, template, claim_id: claimId },
+      toError(err),
+    );
+  }
+  return 'sent';
 }
 
 async function recoverFailoverCorrelationId(responseId: string): Promise<string> {
@@ -280,20 +366,22 @@ async function processOwnerUnreachable(
         row.response_id,
         'admin_notification_owner_unreachable',
         adminEmail,
-        async () => {
+        async (claimId) => {
           const { messageId } = await sendInternalEmail({
             to: adminEmail,
             subject: `Owner unreachable: ${row.business_name} — no verified notification channel`,
             bodyHtml: `<p>A draft response to <strong>${escapeHtml(reviewerName)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong> cannot be delivered: the owner has <strong>no verified notification channel</strong>. Help them enroll one; the system auto-delivers once a channel is verified.</p><p><em>Response ID: ${row.response_id}</em></p>`,
             category: 'internal',
-          });
+            idempotencyKey: adminAlertIdempotencyKey(claimId),
+            });
           return messageId;
         },
         {
           accountId: row.account_id,
           businessId: row.business_id,
           responseId: row.response_id,
-        },
+          },
+      logger,
       );
       if (outcome === 'send_error') {
         logger.error('Failed to send owner-unreachable alert', { response_id: row.response_id });
@@ -360,27 +448,28 @@ export async function runFailoverPollerOnce(): Promise<void> {
       if (adminEmail) {
         // Serialize concurrent failover pollers (multi-instance deployments)
         // on the (response_id, template, recipient) key so only ONE worker
-        // fires the admin alert per 24h window. The advisory lock is held for
-        // the duration of the dedup-check + send + record, so a second worker
-        // arriving in the middle either waits or finds the row on re-check.
+        // fires the admin alert per 24h window. tryClaimAlert commits the
+        // claim row under an advisory lock, then sends OUTSIDE the tx (#415).
         const claimed = await tryClaimAlert(
           row.response_id,
           'admin_notification_failover',
           adminEmail,
-          async () => {
+          async (claimId) => {
             const { messageId } = await sendInternalEmail({
               to: adminEmail,
               subject: `Notification failure: ${row.business_name} — all delivery attempts failed`,
               bodyHtml: `<p>All approval email delivery attempts have failed for a response to <strong>${escapeHtml(row.reviewer_name)}</strong>'s ${row.star_rating}-star review of <strong>${escapeHtml(row.business_name)}</strong>.</p><p>The system will re-attempt delivery. Please check the Resend dashboard for bounce/complaint details.</p>`,
               category: 'internal',
-            });
+              idempotencyKey: adminAlertIdempotencyKey(claimId),
+              });
             return messageId;
           },
           {
             accountId: row.account_id,
             businessId: row.business_id,
             responseId: row.response_id,
-          },
+            },
+        logger,
         );
         if (claimed === 'send_error') {
           logger.error('Failed to send admin alert', { response_id: row.response_id });
@@ -488,7 +577,7 @@ export async function runFailoverPollerOnce(): Promise<void> {
         row.response_id,
         'approval_responsiveness_alert',
         adminEmail,
-        async () => {
+        async (claimId) => {
           const { messageId } = await sendInternalEmail({
             to: adminEmail,
             subject: `Approval stuck: ${row.business_name} — no response in 4+ hours`,
@@ -496,14 +585,16 @@ export async function runFailoverPollerOnce(): Promise<void> {
               <p>At least one enrolled channel was notified; the owner simply hasn't responded. Check the delivery log for partial failures. Consider a check-in call.</p>
               <p><em>Response ID: ${row.response_id}</em></p>`,
             category: 'internal',
-          });
+            idempotencyKey: adminAlertIdempotencyKey(claimId),
+            });
           return messageId;
         },
         {
           accountId: row.account_id,
           businessId: row.business_id,
           responseId: row.response_id,
-        },
+          },
+      logger,
       );
       if (outcome === 'sent') alertedCount++;
       if (outcome === 'send_error') {
