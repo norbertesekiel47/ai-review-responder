@@ -4966,3 +4966,137 @@ inside a transaction silently evaporates outside one. Seed helpers in this repo 
   defects are not reliably self-detectable by their author**, so the control has
   to be an independent reader with a mechanical sweep, budgeted into the work
   rather than added once something feels wrong.
+
+## 2026-09-04 — /feature #1083: the seam moved, and the evidence machinery fought back
+
+### [2026-09-04] The subagent barrier is about the WORKING TREE, not only HEAD
+
+`execution-lanes.md` forbids starting a gate while a step-4 subagent is in
+flight, and the reason it gives is the narrower one: a subagent returning
+mid-gate moves HEAD under the evidence. Subagents here commit nothing, so HEAD
+*cannot* move — which made the rule look inapplicable when a Stop hook demanded
+fresh gate evidence mid-dispatch.
+
+**It is not inapplicable. `git status --porcelain` showed a clean tree, so the
+gate looked safe; the agent then wrote `src/lib/refusals/write.ts` during the
+~2-minute run.** The `reclassify` row reported 367 production lines — exactly
+`253 + 114` from a file the gate was never meant to see — for a change that had
+not been committed.
+
+**A clean porcelain is a snapshot, not a lease.** Wait for the agent. If a hook
+demands evidence you cannot honestly produce, say so rather than producing it
+from a tree that is moving.
+
+### [2026-09-04] Docblocks here cite each other ACROSS function boundaries, so narrowing one stales prose in its callers
+
+Narrowing `withLedgerAttribution` in `worker/jobs/response-generation/persist.ts`
+staled two sentences in its own docblock — anticipated — and two more in
+`recordPolicyGateRefusal`'s, a *different* function that cited it. One claimed an
+`await` the narrowed wrapper no longer has; the other placed a guard "inside" a
+wrapper it now sits outside.
+
+**Grep the SYMBOL, not just the function you edited.** Review later found the
+same class again in `docs/directory.md`'s `persist.ts` row and in a live-DB suite
+already inside the edit lease — the lesson written down and then not applied.
+
+### [2026-09-04] A line number in a document that outlives one commit is a liability
+
+Red team found one stale citation (`write.ts:891`). A sweep resolving *every*
+`file:line` in the branch's docs against HEAD found **sixteen**, all in the plan.
+Every one still landed on a real line and none on the thing it named — which
+reads as correct and is therefore worse than a dangling reference.
+
+Wrapping two long tagged SQL templates in `try` blocks moved essentially every
+line the plan cited, and three of four handoff citations came to land in the
+*other* write arm.
+
+**Cite symbols in anything a later session reads.** The plan may keep its numbers
+under a header note — it records what was planned, and its citations were true
+when made — but the handoff must not. **And sweep: finding these one at a time is
+how you miss fifteen.**
+
+### [2026-09-04] `VITEST_WORKERS=1` beats retrying the gate on a loaded machine
+
+The local gate flaked **eight** times across seven *different* foreign test
+files. Every failure was vitest's 5000 ms default timeout, never an assertion,
+with 13,889 tests passing each run. Load averages sat between 12 and 26;
+`chroma-mcp` (claude-mem's vector store) held ~95% of a core and **restarts
+itself**, so killing it was necessary and not sufficient.
+
+`scripts/verify-gate.sh` exposes `VITEST_WORKERS` (default 4). Dropping to **1**
+passed first time and every time after. One worker is slower per run and faster
+overall, because it stops losing whole runs.
+
+**Two corollaries.** A *different* suite failing each run is the signature of
+contention, not of a defect — if it were the branch, it would be the same test.
+And check the test DB container is actually **up**: an
+`ECONNREFUSED 127.0.0.1:5499` presents as every integration suite failing at
+once, which looks alarming and is not. Docker Desktop stopping mid-run is enough
+to cause it.
+
+### [2026-09-04] Restoring a red-team mutation by re-invoking `mutate` re-plants it
+
+`mutation-runner.mjs mutate` with HEAD content appends a journal entry whose
+`original` is the **previous mutant**, so `finalize` correctly re-plants an
+intermediate mutant; repeated passes walk it backwards. The finalizer's
+foreign-content abort behaved exactly as designed and never overwrote content it
+had not written.
+
+**Restore with `git checkout -- <named paths>` and mark the entry restored.**
+Verify by **blob oid against HEAD**, not by porcelain alone.
+
+### [2026-09-04] A payload asserted by PRESENCE is not a closed payload
+
+The eval asserted a Sentry `extra` by checking every expected key was there.
+Red team added `refusal_codes: inputs.map(r => r.refusalCode).join(',')` — gate
+prose, unbounded, one per row — and it **survived the entire suite, 146/146
+green, both live-DB suites included**.
+
+A presence assertion cannot fail on an *added* key.
+`expect(Object.keys(extra).sort()).toEqual([...KEYS].sort())` can, in both
+directions. **Where a contract says "only these fields", assert the key SET.**
+
+### [2026-09-04] Two Sentry captures that differ only in `extra` are one signal to an alert rule
+
+The ledger's write fault and its vocabulary fault shared `subsystem`,
+`refusal_lane` and `flag` — byte-identical tag sets on the `policy_gate_held`
+lane — and were separated only by `extra`. **A Sentry alert rule can filter on
+tags and nothing else**, so the two classes the change existed to distinguish
+were indistinguishable to the only consumer that mattered.
+
+Both now carry `fault=ledger_write` / `fault=ledger_vocabulary`, which is this
+module's own convention (`fault=unmapped_block_reason`) and a rule stated in
+`beta-launch-alerting.md`. **If two faults must be told apart operationally, the
+discriminator belongs in a TAG.**
+
+### [2026-09-04] A plausible rationale nobody multiplied out, propagated into four files
+
+`refusal_lanes` was duplicated from a tag into `extra`, justified by "a Sentry
+tag value truncates at 200 characters". **All seven lanes sorted and joined is
+108.** The truncation was arithmetically unreachable.
+
+It reached a LOCKED `CONTEXT.md` entry, a production docblock, a test comment and
+the plan before anyone multiplied seven strings — and three independent review
+axes then caught it separately. **When a rationale rests on a number, compute the
+number.**
+
+### [2026-09-04] `red-team-status` staleness is unconditional, and the disclosure order is circular
+
+Any tree movement outside the pass's own `findings.md`/`findings.json`
+invalidates the evidence; `authorization` covers only `accepted-risk` findings,
+never staleness. Round 3 is refused by a hard cap. So fixing round 2's own
+findings **necessarily** stales the sidecar that reported them.
+
+Two things make this workable. **Prove what moved**:
+`git diff --name-only <sidecar-head>..HEAD -- src worker` returning 0 files, and
+a matching `git diff … | git hash-object --stdin` either side of a rebase, turns
+"the code is unchanged" from a claim into a fact — it held across three rebases
+here. **And commit in the right order**: the deviations entry explaining the
+repoint lands FIRST, the sidecar lands LAST and ALONE, because those two paths
+are the only ones excluded from the staleness diff. Reverse it and the
+explanation invalidates the thing it explains.
+
+Be honest about the residue: a repoint asserts a doc review that did not happen,
+since the pass re-resolves doc claims too. Re-verify those mechanically — derive
+them from code and the intake rather than reading the prose — and say so in both
+the deviations file and the report's own opening.

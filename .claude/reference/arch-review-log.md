@@ -12,11 +12,11 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 18** — last reset to 0 by the
+**Merges since last architecture pass: 19** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
-> **⚠️ THE THRESHOLD IS CROSSED (9 ≥ 5). An architecture pass is due.** Nobody
+> **⚠️ THE THRESHOLD IS CROSSED (19 ≥ 5). An architecture pass is due.** Nobody
 > may start one automatically — it is the owner's call, and this line is the
 > reminder the rule asks for.
 >
