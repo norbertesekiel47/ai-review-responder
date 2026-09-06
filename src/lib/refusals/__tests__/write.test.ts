@@ -26,7 +26,11 @@ import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TransactionSql } from 'postgres';
-import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
+import {
+  createMockSql,
+  mkTaggedResult,
+  type MockSqlHarness,
+} from '../../../../worker/__tests__/helpers/mock-sql';
 import {
   WARN_RETRY_COOLDOWN_MS,
   resetRefusalLedgerWarningForTests,
@@ -87,6 +91,34 @@ const resolvePolicyGateRefusalSpy = vi.hoisted(() =>
 vi.mock('../vocabulary', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../vocabulary')>();
   return { ...actual, resolvePolicyGateRefusal: resolvePolicyGateRefusalSpy };
+});
+
+/**
+ * `uuid`'s `v7` as a SPY, so an ID-GENERATION failure is expressible (#1083).
+ *
+ * WHY IT HAS TO BE A MOCK. `write.ts` imports `v7 as uuidv7` (`write.ts:73` as
+ * of this branch — the symbol is the durable citation, the line is not) and the
+ * single-row arm interpolates `${uuidv7()}::uuid` INSIDE its tagged template, so
+ * the call evaluates inside the guard the writer wraps around the statement. A
+ * later "tidy" to `const id = uuidv7();` above the `try` moves it out and leaves
+ * an id-generation failure unattributed — and every other title in this file
+ * still passes after that hoist. Only a throwing `v7` can see the difference.
+ *
+ * A PARTIAL mock with a DELEGATING default, on the `../vocabulary` precedent
+ * directly above: `uuid` exports more than `v7`, and every pre-existing case in
+ * this file wants real, distinct ids. A case that wants the failure reaches for
+ * `mockImplementationOnce`, which restores itself after the one call rather than
+ * leaking a throwing generator into whatever runs next.
+ */
+const uuidV7Spy = vi.hoisted(() => vi.fn<() => string>());
+
+vi.mock('uuid', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('uuid')>();
+  // Installed ONCE, here, on `persist.test.ts`'s precedent: this file resets the
+  // Sentry stubs per case but never the module mocks, so an implementation set
+  // in the factory is the one that survives.
+  uuidV7Spy.mockImplementation(() => actual.v7());
+  return { ...actual, v7: uuidV7Spy };
 });
 
 const MIGRATION_116 = 'supabase/migrations/116_refusal_events.sql';
@@ -1355,5 +1387,476 @@ describe('noteUnmappedBlockReasons', () => {
     } finally {
       sentryStub.captureMessage.mockImplementation(() => undefined);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LEDGER ATTRIBUTION — the writer attributes its own faults (#1083).
+//
+// THE SEAM MOVED, AND THAT IS THE WHOLE POINT OF THIS BLOCK. Attribution used
+// to live at the CALL SITE (`withLedgerAttribution` in
+// `worker/jobs/response-generation/persist.ts`), on the caller's side of a seam
+// this module already owned — which is exactly why five of the seven lanes
+// omitted it and nothing stopped an eighth omitting it next. These twelve cases
+// assert the property on the WRITER, where it covers every lane by construction.
+//
+// ATTRIBUTION IS NOT RECOVERY, and every case here re-asserts that. Each capture
+// is followed by a rethrow of THE SAME ERROR INSTANCE (`toBe`, never
+// `toThrow(/message/)`): the deciding transaction still aborts, no decision
+// commits without its required Refusal row, and no caller observes a different
+// error. `write.ts`'s own contract — "facts propagate, observations swallow" —
+// is unchanged; only the mechanism by which the fact is REPORTED is new.
+//
+// THE NEGATIVE CASES ALL CARRY A CONTROL, deliberately. "No capture happened" is
+// satisfied today by a writer that captures nothing at all, so an empty-input,
+// kill-switch or ON CONFLICT case with no positive half proves nothing and would
+// stay green under a deleted implementation. Each one therefore drives a real
+// failure first, asserts the capture, then clears the spy.
+// ---------------------------------------------------------------------------
+
+/** The `outreach_withheld` lane, exactly as `dispatch.ts` writes it. */
+function outreachWithheld(subjectId: string): WriteRefusalEventInput {
+  return {
+    accountId: '00000000-0000-4000-8000-0000000000a1',
+    businessId: '00000000-0000-4000-8000-0000000000b1',
+    refusalSource: 'outreach_withheld',
+    refusalCode: 'quiet_hours',
+    allRefusalCodes: null,
+    refusalCategory: 'wrong_moment',
+    subjectType: 'solicitation_outreach',
+    subjectId,
+    occurredAt: new Date('2026-08-30T12:00:00.000Z'),
+  };
+}
+
+/** One captured ledger fault, flattened out of the `captureException` call. */
+interface LedgerCapture {
+  error: unknown;
+  level?: string;
+  tags?: Record<string, string>;
+  extra?: Record<string, unknown>;
+}
+
+function ledgerCaptures(): LedgerCapture[] {
+  return (sentryStub.captureException.mock.calls as unknown[][]).map((call) => {
+    const options = (call[1] ?? {}) as Omit<LedgerCapture, 'error'>;
+    return { error: call[0], ...options };
+  });
+}
+
+/**
+ * Make the NEXT awaited statement reject with `error`.
+ *
+ * PRE-HANDLED, on the harness's own instruction. A rejected promise sitting in
+ * the return queue is unhandled until the statement awaits it, and a case whose
+ * queue entry is never consumed would surface as an unhandled rejection rather
+ * than as its own failure. The attached no-op `catch` does not stop the awaiting
+ * chain from rejecting — it only marks the rejection as observed.
+ */
+function queueStatementFailure(error: Error): void {
+  const rejected = Promise.reject(error);
+  rejected.catch(() => {});
+  harness.sqlReturnQueue.push(rejected);
+}
+
+/**
+ * The four keys a single-row capture may carry, AND NO OTHERS.
+ *
+ * ASSERTED AS AN EXACT SET, never as a subset. Round 1's red team added
+ * `refusal_codes: inputs.map(r => r.refusalCode).join(',')` to the set arm's
+ * `extra` and every one of the 146 cases stayed green — prose walked into a
+ * Sentry event and nothing here noticed. A `toMatchObject` or a per-key
+ * assertion cannot see an ADDED key; `Object.keys(...).sort()` compared to a
+ * pinned list is what closes the payload.
+ *
+ * `refusal_source` is deliberately ABSENT: the lane rides the `refusal_lane`
+ * TAG, which an alert rule can filter on, and a second copy under `extra` is
+ * only somewhere for the two to disagree.
+ */
+const SINGLE_ROW_EXTRA_KEYS = ['account_id', 'business_id', 'subject_id', 'subject_type'];
+
+/**
+ * The three keys a set-arm capture may carry, AND NO OTHERS. Same closed-set
+ * rule, same reason.
+ *
+ * `refusal_lanes` is deliberately ABSENT. It duplicated the tag under a
+ * truncation rationale that does not hold: all seven `REFUSAL_SOURCES` sorted
+ * and comma-joined is 108 characters against Sentry's 200-character tag limit,
+ * so the tag cannot lose a member and there is nothing for the copy to protect.
+ */
+const SET_ARM_EXTRA_KEYS = ['account_count', 'account_id', 'row_count'];
+
+describe('ledger attribution (#1083)', () => {
+  it('attributes a single-row write failure to the refusal ledger and rethrows the same error instance', async () => {
+    const boom = new Error('null value in column refusal_category violates not-null constraint');
+    queueStatementFailure(boom);
+
+    // THE SAME INSTANCE, asserted by identity. `toThrow(/message/)` would pass
+    // for a wrapper error carrying the original as `cause`, and a wrapper is
+    // precisely the control-flow change the intake forbids: no caller branches
+    // on this error today, and every one of them must keep observing what it
+    // observed before.
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).rejects.toBe(boom);
+
+    // The statement really was attempted — a writer that never reached the
+    // transaction would satisfy the rethrow half for the wrong reason.
+    expect(harness.sqlCalls).toHaveLength(1);
+
+    const [capture] = ledgerCaptures();
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+    expect(capture?.error, 'the capture carries the ORIGINAL error object').toBe(boom);
+    expect(capture?.level).toBe('error');
+  });
+
+  it('tags the single-row capture with the lane, the subsystem, the fault class and the kill-switch flag name', async () => {
+    // TWO LANES IN ONE CASE, and that is what makes the lane tag testable at
+    // all. A single-lane fixture is satisfied by a hard-coded literal — the
+    // exact defect that let five call sites go untagged — so the case drives the
+    // lane a caller actually varies and reads the tag back both times.
+    const first = new Error('23514: refusal_events_c4');
+    queueStatementFailure(first);
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).rejects.toBe(first);
+
+    const second = new Error('23514: refusal_events_c1');
+    queueStatementFailure(second);
+    await expect(writeRefusalEvent(tx(), autonomySuspended())).rejects.toBe(second);
+
+    const [held, suspended] = ledgerCaptures();
+    // FOUR TAGS, EXACTLY. `subsystem` is what an operator facets on to tell a
+    // ledger fault from a fault in the decision the Refusal was recording;
+    // `refusal_lane` is the facet that says WHICH lane; `flag` is how they find
+    // the lever; `fault` is the CLASS.
+    //
+    // `fault` IS THE ONE THIS TITLE GAINED, and it is not decoration. On
+    // `policy_gate_held` the WRITE fault here and the VOCABULARY fault raised by
+    // `withLedgerAttribution` (`worker/jobs/response-generation/persist.ts`,
+    // `fault=ledger_vocabulary`) otherwise carry byte-identical tag sets, leaving
+    // only `extra` to separate them — and a Sentry alert rule cannot filter on
+    // `extra`. The module already spells `fault=unmapped_block_reason` on its
+    // other transports, and `docs/runbooks/beta-launch-alerting.md` states the
+    // convention as a rule.
+    expect(held?.tags).toEqual({
+      subsystem: 'refusal_ledger',
+      refusal_lane: 'held_draft',
+      fault: 'ledger_write',
+      flag: REFUSAL_LEDGER_FLAG,
+    });
+    expect(suspended?.tags).toEqual({
+      subsystem: 'refusal_ledger',
+      refusal_lane: 'autonomy_suspended',
+      fault: 'ledger_write',
+      flag: REFUSAL_LEDGER_FLAG,
+    });
+    // The flag tag is the NAME of the switch, never its value: an operator
+    // reading `flag=false` learns nothing about which lever to pull.
+    expect(held?.tags?.flag).toBe('REFUSAL_LEDGER_ENABLED');
+  });
+
+  it('carries only closed enums and ids in the single-row capture extra', async () => {
+    // A LANE THAT HAS A CODE, chosen on purpose. `refusalCode` is free-ish text
+    // on several lanes — the gate reason verbatim — and it is the one field most
+    // likely to be swept into `extra` by a well-meaning implementation.
+    const boom = new Error('deadlock detected');
+    queueStatementFailure(boom);
+    const ask = askWithheld(askSubjectId(7));
+    await expect(writeRefusalEvent(tx(), ask)).rejects.toBe(boom);
+
+    const [capture] = ledgerCaptures();
+    expect(
+      Object.keys(capture?.extra ?? {}).sort(),
+      'the key set is CLOSED — an added key must fail here',
+    ).toEqual([...SINGLE_ROW_EXTRA_KEYS].sort());
+    expect(capture?.extra).toEqual({
+      subject_type: 'solicitation_ask',
+      subject_id: ask.subjectId,
+      account_id: ask.accountId,
+      business_id: ask.businessId,
+    });
+    // No prose, stated as a fact about the payload rather than about the keys:
+    // the lane code and its owner-facing category are both absent.
+    expect(JSON.stringify(capture?.extra)).not.toContain('no_consent');
+    expect(JSON.stringify(capture?.extra)).not.toContain('no_permission');
+
+    // THE ACCOUNT-WIDE LANE KEEPS THE SAME FOUR KEYS, with NULLs rather than
+    // omissions. A payload whose shape changes with the lane makes two Sentry
+    // events of one fault class, and an absent key reads as "not recorded"
+    // rather than as "account-wide, pointing at nothing".
+    sentryStub.captureException.mockClear();
+    const wide = new Error('deadlock detected');
+    queueStatementFailure(wide);
+    await expect(writeRefusalEvent(tx(), autonomySuspended())).rejects.toBe(wide);
+
+    const [accountWide] = ledgerCaptures();
+    expect(
+      Object.keys(accountWide?.extra ?? {}).sort(),
+      'the key set is CLOSED on the account-wide lane too',
+    ).toEqual([...SINGLE_ROW_EXTRA_KEYS].sort());
+    expect(accountWide?.extra).toMatchObject({
+      subject_type: null,
+      subject_id: null,
+      business_id: null,
+    });
+  });
+
+  it('attributes a set-arm write failure with the distinct sources sorted and comma-joined', async () => {
+    // THE FIXTURE IS UNSORTED, DUPLICATED AND MULTI-SOURCE, and each of those
+    // three properties kills a different wrong implementation. A single-source
+    // set passes under "tag the first row lane"; a pre-sorted one passes under
+    // "join in input order"; one without a repeat passes without de-duplication.
+    // `WriteRefusalEventInput` permits a mixed array even though both call sites
+    // pass one lane today, and an input-order tag would open two Sentry facets
+    // for the same pair of lanes.
+    const inputs = [
+      outreachWithheld(askSubjectId(1)),
+      askWithheld(askSubjectId(2)),
+      outreachWithheld(askSubjectId(3)),
+    ];
+    const boom = new Error('23514: refusal_events_c2');
+    queueStatementFailure(boom);
+
+    await expect(refusalWrite.writeRefusalEvents(tx(), inputs)).rejects.toBe(boom);
+
+    const [capture] = ledgerCaptures();
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+    expect(capture?.error).toBe(boom);
+    expect(capture?.tags).toEqual({
+      subsystem: 'refusal_ledger',
+      refusal_lane: 'ask_withheld,outreach_withheld',
+      fault: 'ledger_write',
+      flag: REFUSAL_LEDGER_FLAG,
+    });
+    expect(capture?.level).toBe('error');
+  });
+
+  it('carries row_count and never per-row subject ids in the set-arm capture extra', async () => {
+    // `ask_withheld` can propose up to `MAX_DATA_ROWS` (5,000) Refusals in one
+    // build. Five thousand subject ids in a Sentry event is a payload, not a
+    // signal — and it is unbounded input riding an error report.
+    const inputs = [1, 2, 3].map((index) => askWithheld(askSubjectId(index)));
+    const boom = new Error('could not serialize access due to concurrent update');
+    queueStatementFailure(boom);
+
+    await expect(refusalWrite.writeRefusalEvents(tx(), inputs)).rejects.toBe(boom);
+
+    const [capture] = ledgerCaptures();
+    const extra = capture?.extra ?? {};
+    // THE KEY SET IS CLOSED, and this assertion is the one that matters. Round
+    // 1's red team appended `refusal_codes: inputs.map(r => r.refusalCode)
+    // .join(',')` here and all 146 cases stayed green — a per-key assertion is
+    // blind to an ADDED key, and prose therefore walked into a Sentry event
+    // against the intake's own invariant. An added key must fail HERE.
+    expect(
+      Object.keys(extra).sort(),
+      'the key set is CLOSED — an added key must fail here',
+    ).toEqual([...SET_ARM_EXTRA_KEYS].sort());
+    expect(extra.row_count, 'the cohort SIZE is the bounded fact worth carrying').toBe(3);
+    // TENANT IDENTITY, BOUNDED. Without it a rollback leaves an operator with
+    // "this lane failed for N rows" and nothing to join on. The writer genuinely
+    // cannot see the batch or the run, but it can see the account: the DISTINCT
+    // cardinality always, and the single id only when the count is exactly 1 —
+    // which is the real case at both call sites, since a build belongs to one
+    // account. Never a joined list of up to 5,000 ids.
+    expect(extra.account_count, 'the DISTINCT account cardinality is always carried').toBe(1);
+    expect(extra.account_id, 'one distinct account means the id itself is emitted').toBe(
+      inputs[0]?.accountId,
+    );
+    // No lane copy. `refusal_lanes` used to ride here under a truncation
+    // rationale that is arithmetically false: all seven `REFUSAL_SOURCES` sorted
+    // and comma-joined is 108 characters against Sentry's 200-character tag
+    // limit, so the tag it was guarding cannot lose a member. The tag already
+    // carries the string, and only a tag is filterable in an alert rule.
+    expect(extra.refusal_lanes, 'the lane rides the TAG, never a second copy').toBeUndefined();
+
+    const serialized = JSON.stringify(extra);
+    for (const input of inputs) {
+      expect(serialized, 'no per-row subject id may ride the capture').not.toContain(
+        input.subjectId,
+      );
+    }
+
+    // THE MIXED COHORT DEGRADES TO `null`, IT DOES NOT GROW. Without this arm
+    // the pair is satisfied by `account_id: inputs[0].accountId` — "the first
+    // row's account", which LIES about a mixed set — and equally by a joined
+    // list, which is the unbounded payload the whole rule forbids. Both call
+    // sites pass one account today; the input type permits more.
+    sentryStub.captureException.mockClear();
+    const mixed = [
+      askWithheld(askSubjectId(4)),
+      { ...askWithheld(askSubjectId(5)), accountId: '00000000-0000-4000-8000-0000000000b2' },
+    ];
+    const second = new Error('deadlock detected');
+    queueStatementFailure(second);
+    await expect(refusalWrite.writeRefusalEvents(tx(), mixed)).rejects.toBe(second);
+
+    const mixedExtra = ledgerCaptures()[0]?.extra ?? {};
+    expect(Object.keys(mixedExtra).sort()).toEqual([...SET_ARM_EXTRA_KEYS].sort());
+    expect(mixedExtra.account_count, 'the cardinality is the fact that always holds').toBe(2);
+    expect(mixedExtra.account_id, 'more than one account means no single id to name').toBeNull();
+    expect(JSON.stringify(mixedExtra), 'never a joined list of ids').not.toContain(
+      '00000000-0000-4000-8000-0000000000b2',
+    );
+  });
+
+  it('does not capture when the set arm receives an empty input', async () => {
+    // THE CONTROL FIRST. Without it this title is satisfied by a writer that
+    // attributes nothing at all — which is exactly the state of the code the day
+    // this eval was written.
+    const boom = new Error('23505: refusal_events_pkey');
+    queueStatementFailure(boom);
+    await expect(
+      refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(1))]),
+    ).rejects.toBe(boom);
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+
+    sentryStub.captureException.mockClear();
+    harness.resetMockSql();
+
+    // The empty return runs BEFORE the flag read and before the guarded region,
+    // exactly as it does today. An INSERT of zero rows is not a decision, so
+    // there is no statement to fail and nothing to attribute.
+    await expect(refusalWrite.writeRefusalEvents(tx(), [])).resolves.toBeUndefined();
+    expect(harness.sqlCalls).toHaveLength(0);
+    expect(sentryStub.captureException).not.toHaveBeenCalled();
+  });
+
+  it('does not capture and cannot throw when the kill switch is off on either arm', async () => {
+    // #1079's containment guarantee, restated against the new code: both arms
+    // return BEFORE the guarded region, so nothing added here can run — let
+    // alone throw — into a caller transaction through the very lever the
+    // operator had already pulled.
+    const single = new Error('23514: refusal_events_c3');
+    queueStatementFailure(single);
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).rejects.toBe(single);
+
+    const set = new Error('23514: refusal_events_c5');
+    queueStatementFailure(set);
+    await expect(
+      refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(2))]),
+    ).rejects.toBe(set);
+    expect(sentryStub.captureException, 'the CONTROL: with the switch on, both arms attribute')
+      .toHaveBeenCalledTimes(2);
+
+    sentryStub.captureException.mockClear();
+    harness.resetMockSql();
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+
+    // NOTHING IS QUEUED, deliberately: with the switch off neither arm reaches
+    // the transaction, so there is no statement for a queued failure to meet.
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).resolves.toBeUndefined();
+    await expect(
+      refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(2))]),
+    ).resolves.toBeUndefined();
+
+    expect(harness.sqlCalls).toHaveLength(0);
+    expect(sentryStub.captureException).not.toHaveBeenCalled();
+  });
+
+  it('lets the original error win when the Sentry capture itself throws', async () => {
+    sentryStub.captureException.mockImplementation(() => {
+      throw new Error('sentry transport is down');
+    });
+
+    const boom = new Error('23514: refusal_events_c4');
+    queueStatementFailure(boom);
+
+    // A BROKEN REPORTER MUST NEVER REPLACE THE WRITER BUG IT WAS REPORTING. The
+    // capture carries its own inner `try/catch` for exactly this — the same
+    // shape `withLedgerAttribution` shipped with, and the same shape every
+    // transport in this module already uses.
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).rejects.toBe(boom);
+    expect(sentryStub.captureException, 'the capture was attempted').toHaveBeenCalledTimes(1);
+  });
+
+  it('does not capture when a duplicate Refusal is absorbed by ON CONFLICT DO NOTHING', async () => {
+    // THE CONTROL FIRST, on this block standing rule.
+    const boom = new Error('40001: could not serialize access');
+    queueStatementFailure(boom);
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).rejects.toBe(boom);
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+
+    sentryStub.captureException.mockClear();
+    harness.resetMockSql();
+
+    // A duplicate subject: the statement RUNS and affects zero rows. That is not
+    // an error, it is the partial index doing its job, and the transaction
+    // commits. An implementation that inspected the row count and reported a
+    // "silent" write would page an operator for correct behaviour.
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).resolves.toBeUndefined();
+
+    expect(harness.sqlCalls, 'the statement really was issued').toHaveLength(1);
+    expect(squash(harness.sqlCalls[0]!.text)).toContain('ON CONFLICT');
+    expect(sentryStub.captureException).not.toHaveBeenCalled();
+  });
+
+  it('attributes a set-arm row materialization failure and rethrows the same error instance', async () => {
+    // THE GUARD STARTS AT THE ROW MAP, NOT AT THE INSERT — plan round 1, finding
+    // F2, which is this ticket own defect reappearing one layer in. The set arm
+    // materializes its rows in a separate statement before the INSERT, and
+    // `input.occurredAt.toISOString()` is reachable there with a TYPE-VALID
+    // `Date`: `new Date(NaN)` satisfies `RefusalOccurredAt` and raises
+    // `RangeError: Invalid time value`. A guard around the statement alone lets
+    // that abort the deciding transaction with no ledger row AND no attribution.
+    const inputs = [askWithheld(askSubjectId(1), new Date(Number.NaN))];
+
+    const error: unknown = await refusalWrite
+      .writeRefusalEvents(tx(), inputs)
+      .then(() => null, (reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(RangeError);
+    expect(harness.sqlCalls, 'the fault is in the row MAP, before any statement').toHaveLength(0);
+
+    const [capture] = ledgerCaptures();
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+    expect(capture?.error, 'the SAME instance propagates').toBe(error);
+    // The lane tag is computed in the catch from `inputs`, never from `rows` —
+    // `rows` does not exist when materializing them is what failed.
+    expect(capture?.tags?.refusal_lane).toBe('ask_withheld');
+    expect(capture?.tags?.subsystem).toBe('refusal_ledger');
+  });
+
+  it('preserves the original error when the set-arm Sentry capture throws', async () => {
+    // ITS OWN CASE, not an inference from the single-row one (plan round 1,
+    // finding F3). One shared private reporter makes a divergent set-arm capture
+    // impossible IF the plan is followed — but an eval must fail on a wrong
+    // implementation whatever the plan said, and a single-row-only reporter test
+    // does not.
+    sentryStub.captureException.mockImplementation(() => {
+      throw new Error('sentry transport is down');
+    });
+
+    const boom = new Error('23514: refusal_events_c1');
+    queueStatementFailure(boom);
+
+    await expect(
+      refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(1))]),
+    ).rejects.toBe(boom);
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+  });
+
+  it('attributes a single-row id generation failure and rethrows the same error instance', async () => {
+    // THIS CASE EXISTS TO FAIL ON A HOIST, and that is its entire purpose.
+    // `write.ts` interpolates `${uuidv7()}::uuid` inside the tagged template, so
+    // the call is evaluated when the tag function is invoked — INSIDE the guard.
+    // A later tidy to `const id = uuidv7();` above the `try` moves it out and
+    // leaves this fault unattributed, while all fifteen other titles here stay
+    // green. A prose rule no test enforces is not a rule (plan round 2, R2-c).
+    const boom = new Error('crypto entropy source unavailable');
+    uuidV7Spy.mockImplementationOnce(() => {
+      throw boom;
+    });
+
+    await expect(writeRefusalEvent(tx(), heldDraft(askSubjectId(1)))).rejects.toBe(boom);
+
+    // No statement reached the transaction: the id is interpolated before the
+    // tag function runs, so the failure is inside the guard and ahead of the
+    // query. That placement is what the assertion below is really about.
+    expect(harness.sqlCalls).toHaveLength(0);
+
+    const [capture] = ledgerCaptures();
+    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
+    expect(capture?.error).toBe(boom);
+    expect(capture?.tags?.refusal_lane).toBe('held_draft');
+    expect(capture?.tags?.subsystem).toBe('refusal_ledger');
   });
 });

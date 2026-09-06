@@ -85,14 +85,18 @@ const poison = { heldDraftCategory: null as string | null, breakC5: false };
  *
  * DISTINCT FROM THE TWO CONSTRAINT CASES, and the distinction is the whole
  * point. Those inject a real `23514`, which poisons the Postgres transaction —
- * so the rollback they observe comes from Postgres and would happen even if
- * `withLedgerAttribution` SWALLOWED the error. Red-team round 2 proved exactly
- * that: swapping its `throw error` for a swallow survived all 75 tests, and the
- * A/B showed a swallowed plain error COMMITS the response row with no Refusal.
+ * so the rollback they observe comes from Postgres and would happen even if the
+ * ledger-write fault were SWALLOWED on its way out. Red-team round 2 proved
+ * exactly that: planting a swallow survived all 75 tests, and the A/B showed a
+ * swallowed plain error COMMITS the response row with no Refusal.
  *
  * A plain `Error` leaves the transaction healthy, so the only thing that can
- * roll it back is the rethrow. That makes this the one oracle guarding an
- * invariant #4 dependency the round-1 fix introduced.
+ * roll it back is the error reaching `persistResponseAndNotify` uncaught. That
+ * makes this the one oracle guarding an invariant #4 dependency the round-1 fix
+ * introduced. The reporter on that path is `captureLedgerWriteFault`, inside
+ * `writeRefusalEvent` (#1083) — NOT `withLedgerAttribution`, which no longer
+ * wraps a write on either lane. It captures and rethrows THE SAME INSTANCE, so
+ * "attribution is not recovery" is the property this oracle pins.
  */
 const ledgerPoison = { throwOnLane: null as null | 'held_draft' | 'policy_gate_held' };
 
@@ -165,8 +169,14 @@ vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
 /**
  * A PARTIAL `@sentry/node` mock — two functions replaced, everything else real.
  *
- * `withLedgerAttribution`'s capture is the branch's whole observability claim,
- * and without a spy "tagged subsystem=refusal_ledger" is unverifiable: with no
+ * THE LEDGER CAPTURES ARE THE BRANCH'S WHOLE OBSERVABILITY CLAIM, and there are
+ * two of them on two different reporters: `captureLedgerWriteFault` inside
+ * `writeRefusalEvent` owns every WRITE fault on every lane (#1083), and
+ * `withLedgerAttribution` in `persist.ts` owns only the `policy_gate_held`
+ * VOCABULARY resolve. They are disjoint by position and are told apart by the
+ * `fault` tag (`ledger_write` versus `ledger_vocabulary`).
+ *
+ * Without a spy "tagged subsystem=refusal_ledger" is unverifiable: with no
  * DSN configured the real `captureException` returns an event id and drops the
  * envelope, so a capture that never carried the tags is indistinguishable from
  * one that did. `write.test.ts` is the house precedent for the hoisted stub;
@@ -936,11 +946,14 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
   });
 
   it('a plain ledger error is rethrown rather than swallowed, so the response row rolls back on both lanes', async () => {
-    // The oracle for `withLedgerAttribution`'s rethrow. A plain `Error` leaves
-    // the Postgres transaction HEALTHY, so nothing but the rethrow can roll it
-    // back — unlike the two constraint cases, whose `23514` poisons the
-    // transaction and would roll back even under a swallow. Red-team round 2
-    // planted that swallow and it survived all 75 tests; this is what kills it.
+    // The oracle for the ledger WRITE fault's rethrow — `captureLedgerWriteFault`
+    // inside `writeRefusalEvent` (#1083), not `withLedgerAttribution`, which
+    // wraps only the `policy_gate_held` vocabulary resolve and no write on either
+    // lane. A plain `Error` leaves the Postgres transaction HEALTHY, so nothing
+    // but the rethrow can roll it back — unlike the two constraint cases, whose
+    // `23514` poisons the transaction and would roll back even under a swallow.
+    // Red-team round 2 planted that swallow and it survived all 75 tests; this is
+    // what kills it.
     for (const [lane, moderation] of [
       ['held_draft', HIGH_MODERATION],
       ['policy_gate_held', CLEAN_MODERATION],

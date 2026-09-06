@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "The write sits inside the response-persist transaction (worker/jobs/response-generation/persist.ts), the one transaction invariant #4 requires to stay atomic.",
+    "It touches the publisher auto-policy downgrade path, which decides whether a response reaches Google.",
+    "It touches auto-approval suspension (src/lib/auto-approval/suspension.ts), an account-wide autonomy control.",
+    "It changes src/lib/refusals/write.ts, the single owner of every refusal_events statement.",
+    "A defect here can abort a decision transaction, and the ledger is deliberately not best-effort (#1001)."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Every Refusal-ledger write fault reaches Sentry tagged subsystem=refusal_ledger with its lane, so an operator can tell a ledger fault from a fault in the decision the Refusal was recording, and can find the REFUSAL_LEDGER_ENABLED lever.",
+  "non_goals": [
+    "Changing whether a ledger abort short-circuits the retry ladder, or what happens to the decision it failed to record. That is the ticket's second, separable piece and ships as its own follow-up ticket.",
+    "Changing any control flow. Every attributed error is rethrown unchanged; no transaction that aborts today commits after this change, and none that commits today aborts.",
+    "Making the ledger best-effort, or adding any swallow. #1001 requires the row to land in the deciding transaction.",
+    "Adding a migration, a refusal_events column, a RefusalSource member, or a RefusalCategory member.",
+    "Changing the Restraint tab, src/lib/refusals/read.ts, or any owner-facing surface.",
+    "Changing the kill switch's semantics, its warning latch, or the unmapped-block-reason signal shipped by #1105.",
+    "Fixing the five lanes that index a category map directly (MAP[reason] yielding undefined). That fault class is named in write.ts and is a separate ticket."
+  ],
+  "user_visible_behavior": [
+    "Operational, not owner-facing. A ledger write failure in any of the seven lanes now opens a Sentry issue tagged subsystem=refusal_ledger, refusal_lane=<the RefusalSource>, flag=REFUSAL_LEDGER_ENABLED. Today five lanes surface it as an untagged worker job failure indistinguishable from a fault in the decision itself.",
+    "A held_draft write failure raises exactly one Sentry event, not two. The duplicate call-site wrapper is removed.",
+    "A policy_gate_held vocabulary fault stays attributed and is now distinguishable from a write fault at the same lane, because the surviving call-site wrapper covers only resolvePolicyGateRefusal.",
+    "No change to any owner-visible page, notification, or API response."
+  ],
+  "invariants": [
+    "Control flow is unchanged: every capture rethrows the same error instance, so the deciding transaction still aborts and no decision commits without its required Refusal row.",
+    "With REFUSAL_LEDGER_ENABLED=false, no ledger code path throws into a caller's transaction. The kill switch containment shipped by #1079 must survive: both write arms return before the new try/catch, and persist.ts guard 4 returns before the resolve.",
+    "A failing reporter never replaces the real error. Every Sentry capture carries its own try/catch, as withLedgerAttribution does at persist.ts:1047-1055 with its capture at persist.ts:1048.",
+    "Sentry extra and tags carry only closed enums and UUIDs. No review text, no response text, no refusal_code prose, no unbounded per-row id lists.",
+    "src/lib/refusals/write.ts remains the only writer of refusal_events, single-row and set-based.",
+    "No production module under src/lib/ imports from worker/.",
+    "Invariant #15 holds: the DB client stays an explicit parameter and write.ts imports no singleton.",
+    "REFUSAL_SOURCES stays seven members in migration 116's order; vocabulary.ts is untouched."
+  ],
+  "edge_cases": [
+    "writeRefusalEvents receives inputs whose refusalSource values differ. The type permits it although both call sites pass one lane. The refusal_lane tag is the distinct sources, sorted, comma-joined. Bounded at 127 combinations.",
+    "writeRefusalEvents receives an empty array. It returns before any statement and before the kill-switch read, so no capture is possible. Unchanged by this work.",
+    "The kill switch is off. Both arms return before the statement, so the new try/catch never runs and cannot throw. The #1079 containment guarantee is preserved.",
+    "Sentry.captureException itself throws. The inner catch swallows it and the original error propagates unchanged.",
+    "A duplicate Refusal hits ON CONFLICT DO NOTHING. That is not an error, no capture occurs, and the transaction commits.",
+    "policy_gate_held resolves to null, meaning a veto member vetoes the row. The narrowed wrapper returns null, the writer is never called, and no capture occurs.",
+    "resolvePolicyGateRefusal throws with the flag ON. The narrowed wrapper attributes it as a vocabulary fault and rethrows; the writer is never reached.",
+    "resolvePolicyGateRefusal throws with the flag OFF. Unreachable: persist.ts guard 4 returns first. A test asserts the persist still commits.",
+    "Two lanes write in one transaction. Each capture is independent; the first throw aborts the transaction, so at most one write fault is captured per transaction.",
+    "The set arm fails on a 5,000-row insert. extra carries row_count and the distinct sources only, never the 5,000 subject ids.",
+    "The set arm fails while MATERIALIZING rows rather than while executing the statement. A type-valid new Date(NaN) makes toISOString() raise RangeError, and uuidv7 can fail the same way. The guard therefore starts at the row map, not at the INSERT, and the lane tag is computed in the catch from inputs rather than from the rows that may not exist. Round 1 finding F2.",
+    "The single-row arm fails while generating its id. uuidv7() is interpolated inside the tagged template, so it evaluates within the guard already. Hoisting it above the try would move it out, and the plan forbids that explicitly."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/jobs/response-generation/persist.ts:1039 withLedgerAttribution — the shipped shape this change generalizes: capture, guard the capture, rethrow the same instance, change no control flow.",
+    "src/lib/refusals/write.ts:504 and :643 — the module's existing Sentry capture style, its own guard, and its tag vocabulary.",
+    "src/lib/refusals/write.ts:116 isRefusalLedgerEnabled — the pure flag predicate that must keep returning before any new code.",
+    "src/lib/shared/sentry-scrub.ts scrubSentryEvent — the beforeSend scrubber every event passes.",
+    "src/lib/audit/log.ts — the one-helper-one-INSERT model write.ts already follows.",
+    "docs/adr/0023-refusal-log-owner-safe-projection.md — the ledger's owner-safe boundary."
+  ],
+  "test_seams": [
+    "src/lib/refusals/write.ts writeRefusalEvent(tx, input) — the single-row arm.",
+    "src/lib/refusals/write.ts writeRefusalEvents(tx, inputs) — the set arm.",
+    "worker/jobs/response-generation/persist.ts recordPolicyGateRefusal — reached through the persist entry point its suite already drives.",
+    "@sentry/node captureException, mocked, asserting tags and extra.",
+    "src/lib/refusals/write.ts resetRefusalLedgerWarningForTests — the existing latch reset."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/refusals/write.ts",
+    "src/lib/refusals/vocabulary.ts",
+    "docs/runbooks/beta-launch-alerting.md",
+    "docs/progresstracking.md",
+    "src/lib/refusals/__tests__/write.test.ts",
+    "src/lib/refusals/__tests__/write.integration.test.ts",
+    "worker/jobs/response-generation/persist.ts",
+    "worker/jobs/response-generation/__tests__/persist.test.ts",
+    "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+    "CONTEXT.md",
+    "docs/directory.md",
+    ".claude/reference/arch-review-log.md",
+    ".claude/reference/lab-notes.md",
+    "docs/superpowers/plans/fix-1083-ledger-attribution*",
+    "docs/reviews/fix-1083-ledger-attribution/**",
+    "docs/reviews/red-team/fix-1083-ledger-attribution/**"
+  ],
+  "tests_to_add": [
+    "attributes a single-row write failure to the refusal ledger and rethrows the same error instance",
+    "tags the single-row capture with the lane, the subsystem, the fault class and the kill-switch flag name",
+    "tags the policy gate vocabulary fault with its own fault class",
+    "carries only closed enums and ids in the single-row capture extra",
+    "attributes a set-arm write failure with the distinct sources sorted and comma-joined",
+    "carries row_count and never per-row subject ids in the set-arm capture extra",
+    "does not capture when the set arm receives an empty input",
+    "does not capture and cannot throw when the kill switch is off on either arm",
+    "lets the original error win when the Sentry capture itself throws",
+    "does not capture when a duplicate Refusal is absorbed by ON CONFLICT DO NOTHING",
+    "attributes a policy gate vocabulary fault without also attributing a write fault",
+    "raises exactly one capture for a held draft write failure",
+    "raises exactly one capture for a policy gate write failure",
+    "attributes a set-arm row materialization failure and rethrows the same error instance",
+    "preserves the original error when the set-arm Sentry capture throws",
+    "attributes a single-row id generation failure and rethrows the same error instance",
+    "commits the response persist when the policy gate resolver would throw and the kill switch is off"
+  ],
+  "verification_commands": [
+    "pnpm ci:directory-map",
+    "pnpm ci:tenant-scope"
+  ],
+  "estimated_prod_lines": 180,
+  "estimated_test_lines": 450,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the single squash-merge commit. The change is additive telemetry with no schema, no migration, no contract and no control-flow change, so a revert restores the prior behaviour exactly. If a fault is seen in production before a revert lands, REFUSAL_LEDGER_ENABLED=false remains the operational lever and both write arms still return before any new code, so the kill switch also disables the new captures.",
+  "observability": [
+    "A Sentry issue tagged subsystem=refusal_ledger with a refusal_lane facet is the success signal. Its absence where a worker job fails is the silent-failure signal.",
+    "The existing structured log line from createWorkerLogger remains the durable transport; the Sentry capture is the pageable one.",
+    "A refusal_lane facet appearing for a lane other than held_draft or policy_gate_held is the first proof the change works, because no such tag can exist today."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}
