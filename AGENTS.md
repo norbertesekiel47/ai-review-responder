@@ -55,6 +55,18 @@ ownership rule and "how to add" procedure are in
   explicitly requested.
 - Before claiming behavior-affecting work is complete, run the narrowest
   relevant test plus `pnpm build`.
+- For every feature or bug fix with browser-observable behavior, use Computer
+  Use to exercise the affected user journey end to end before claiming it
+  verified, including relevant error paths and desktop/mobile layouts. This
+  applies to every `$feature` lane and supplements automated checks.
+- Use a local app or staging with designated test accounts/data; confirm the
+  running app contains the change. For worker/webhook flows, also verify the
+  backend outcome. Follow `docs/runbooks/e2e-local-setup.md` for test setup.
+- Report the browser target, steps, expected/observed results, and sanitized
+  screenshot evidence. If Computer Use, login, or the required environment is
+  unavailable, state the blocker; do not claim browser verification or silently
+  substitute another tool. For changes with no browser journey, explain why
+  browser testing does not apply and run the relevant integration checks.
 
 ## Codex-specific wiring
 
