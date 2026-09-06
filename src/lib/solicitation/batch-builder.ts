@@ -552,7 +552,7 @@ async function loadCandidateWindow(
         AND o.attributed_at IS NOT NULL
         AND o.attributed_review_id IS NOT NULL
         AND r.review_date IS NOT NULL
-        AND r.status <> ${REVIEW_STATUS.DELETED}
+        AND r.status IS DISTINCT FROM ${REVIEW_STATUS.DELETED}
       ORDER BY o.contact_id, o.attributed_at DESC, o.id DESC
     `;
   }

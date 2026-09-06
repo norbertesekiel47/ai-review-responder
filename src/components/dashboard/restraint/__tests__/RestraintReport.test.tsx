@@ -432,8 +432,9 @@ describe('RestraintReport', () => {
     // call this branch load-bearing and no fixture exercised it. The tab OMITS
     // the line rather than naming a date it does not have.
     expect(container.textContent).not.toContain('We have been watching since');
-    // Non-vacuous: the other disclosures still render.
-    expect(container.textContent).toContain('This is your whole account');
+    // Singular queries require each disclosure once, catching duplicates as
+    // well as omissions without pinning the number of legitimate disclosures.
+    expect(screen.getByText(/This is your whole account\./)).toBeInTheDocument();
     // OMISSION IS AN ABSENT ELEMENT, not merely absent text. `note()` decides
     // which lines are dropped, and returning an empty string instead of null
     // passed every case in this file — up to five blank paragraphs inside

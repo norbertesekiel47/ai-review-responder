@@ -2198,10 +2198,13 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   //
   // Retained attributed reviews drive already_reviewed through the real build.
 
-  it('withholds an attributed reviewer and records dated evidence plus one refusal on replay', async () => {
+  it.each(['new', null])('withholds an attributed reviewer and records dated evidence plus one refusal on replay (review status %s)', async (reviewStatus) => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const contactId = await seedContact(await seedCompletedUpload(), daysAgoUtc(1));
-    const evidence = await seedAttributedReview(contactId, { ageDays: 2 });
+    // The null-status case is outside the contact cooldown, so losing its
+    // attributed review would actually make the contact eligible to send.
+    const evidence = await seedAttributedReview(contactId, { ageDays: reviewStatus === null ? 90 : 2 });
+    await sql()`UPDATE reviews SET status = ${reviewStatus} WHERE id = ${evidence.reviewId}::uuid`;
     const batch = await seedBatch();
     expect(builtBatch(await build(batch))).toMatchObject({
       candidateCount: 1, sendCount: 0, withholdCount: 1,
