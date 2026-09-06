@@ -81,31 +81,58 @@ function escapeLiteral(char: string): string {
   return REGEXP_SPECIAL.test(char) ? `\\${char}` : char;
 }
 
+/** One compiled glob token: the regex fragment and how many glob chars it consumed. */
+interface GlobToken {
+  pattern: string;
+  advance: number;
+}
+
+/** A globstar (with or without its trailing slash), `*`, or `?` at `index`; null when the char is not a wildcard. */
+function wildcardToken(glob: string, index: number): GlobToken | null {
+  const char = glob[index];
+  if (char === '*' && glob[index + 1] === '*') {
+    const trailingSlash = glob[index + 2] === '/';
+    return { pattern: trailingSlash ? '(?:.*/)?' : '.*', advance: trailingSlash ? 3 : 2 };
+  }
+  if (char === '*') return { pattern: '[^/]*', advance: 1 };
+  if (char === '?') return { pattern: '[^/]', advance: 1 };
+  return null;
+}
+
+/**
+ * `{`, `,`, `}` while inside a brace group (or an opening `{` that has a
+ * closing `}` ahead), with the depth after the token; null when the char is
+ * not brace syntax at this depth, so it falls through to a literal.
+ */
+function braceToken(glob: string, index: number, depth: number): { pattern: string; depth: number } | null {
+  const char = glob[index];
+  if (char === '{' && glob.indexOf('}', index) !== -1) return { pattern: '(?:', depth: depth + 1 };
+  if (depth === 0) return null;
+  if (char === '}') return { pattern: ')', depth: depth - 1 };
+  if (char === ',') return { pattern: '|', depth };
+  return null;
+}
+
 /** Compiles one rule glob to an anchored RegExp (semantics in the header). */
 export function globToRegExp(glob: string): RegExp {
   let pattern = '';
   let braceDepth = 0;
-  for (let i = 0; i < glob.length; i += 1) {
-    const char = glob[i] ?? '';
-    if (char === '*' && glob[i + 1] === '*') {
-      const trailingSlash = glob[i + 2] === '/';
-      pattern += trailingSlash ? '(?:.*/)?' : '.*';
-      i += trailingSlash ? 2 : 1;
-    } else if (char === '*') {
-      pattern += '[^/]*';
-    } else if (char === '?') {
-      pattern += '[^/]';
-    } else if (char === '{' && glob.indexOf('}', i) !== -1) {
-      braceDepth += 1;
-      pattern += '(?:';
-    } else if (char === '}' && braceDepth > 0) {
-      braceDepth -= 1;
-      pattern += ')';
-    } else if (char === ',' && braceDepth > 0) {
-      pattern += '|';
-    } else {
-      pattern += escapeLiteral(char);
+  let index = 0;
+  while (index < glob.length) {
+    const wildcard = wildcardToken(glob, index);
+    if (wildcard) {
+      pattern += wildcard.pattern;
+      index += wildcard.advance;
+      continue;
     }
+    const brace = braceToken(glob, index, braceDepth);
+    if (brace) {
+      pattern += brace.pattern;
+      braceDepth = brace.depth;
+    } else {
+      pattern += escapeLiteral(glob[index] ?? '');
+    }
+    index += 1;
   }
   return new RegExp(`^${pattern}$`);
 }
