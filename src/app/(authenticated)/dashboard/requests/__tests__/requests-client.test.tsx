@@ -221,6 +221,8 @@ describe('RequestsClient — batch absent and building', () => {
     for (const reason of WITHHOLD_REASONS) {
       expect(screen.getByText(reason)).toBeInTheDocument();
     }
+    expect(screen.getByText('Contacts with retained, dated reviews linked to earlier requests at this location are skipped.')).toBeInTheDocument();
+    expect(screen.queryByText(/coming soon.*match your contacts/i)).toBeNull();
     // Exactly one extra line when contacts already exist. The count is its own
     // element, so the sentence is asserted on the paragraph that carries it.
     const fact = screen.getByText(/1,240 contacts on file/i).closest('p');

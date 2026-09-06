@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "Changes the worker's solicitation batch eligibility and durable ask/refusal outcomes.",
+    "Adds tenant-scoped reads of attribution evidence and changes owner-facing coverage claims."
+  ],
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "Make solicitation restraint and its owner-facing coverage claims reflect recorded evidence, resolving GitHub issues 1076, 1077, and 1048.",
+  "non_goals": [
+    "No spontaneous reviewer name matching or cross-location identity matching.",
+    "No schema migration, activation timestamp, historical refusal backfill, or remote flag change.",
+    "No changes to withhold precedence, the six reason codes, or refusal category mappings.",
+    "No commit, push, deployment, merge, or GitHub issue mutation without authorization."
+  ],
+  "user_visible_behavior": [
+    "1076: retain a disclosure that automatic-policy holds were not recorded while automatic posting was off, including after it is enabled. Without an activation history, this conditional historical disclaimer does not expire automatically.",
+    "1077: explicitly disclose incomplete archival history when the bounded archival-event read omits older events; preserve the separate full refusal count and entry truncation disclosure.",
+    "1048: withhold a contact when earlier outreach at the same location has confirmed attribution to an extant review with a recorded review date. Use all retained attribution history, without applying the 14-day attribution or display windows again.",
+    "1048: persist the real review ID/date on the ask evidence and the existing ask_withheld/already_reviewed/wrong_moment Refusal on its run when the ledger is enabled.",
+    "1048: replace coming-soon copy with a qualified statement about reviews linked to earlier requests at this location, explicitly avoiding a never-ask-again promise."
+  ],
+  "invariants": [
+    "Refusal decisions and run outcomes remain atomic with batch construction; retries remain idempotent.",
+    "Consent and suppression retain precedence over already_reviewed; sentiment and rating never influence eligibility.",
+    "Every evidence lookup is scoped to the owning account, location, and bounded candidate IDs.",
+    "Missing or deleted review evidence and missing review dates are not replaced with invented IDs or dates.",
+    "The single refusal writer, ledger kill switch, outbox ownership, and existing lock ordering remain unchanged.",
+    "Archived-period reads stay bounded and retain newest-first selection; owner responses expose no raw refusal codes, moderation prose, or contact PII."
+  ],
+  "edge_cases": [
+    "Automatic posting on/off, empty and populated windows, account/location views, all selectable window sizes.",
+    "Exactly the archival-event limit versus limit plus one, a leading unpaired reactivation, and an omitted period intersecting the selected window.",
+    "A contact with attributed outreach older than the attribution display window is still withheld when dated review evidence survives.",
+    "Unattributed outreach, deleted linked review, null review date, sibling-location attribution, and another tenant's attribution do not create a matched review.",
+    "Multiple attributable reviews select one deterministically; consent/suppression still win; a replay produces no duplicate ask or refusal.",
+    "The ledger disabled path still withholds the ask without writing a Refusal."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/refusals/read.ts: getRefusalLog and its bounded reads.",
+    "src/components/dashboard/restraint/RestraintReport.tsx: policyGateLine and truncationLine.",
+    "src/components/dashboard/restraint/RestraintContent.tsx: payload validation.",
+    "src/lib/solicitation/batch-builder.ts: loadCandidateWindow, prior-send bulk lookup, toCandidate, atomic ask/refusal persistence.",
+    "src/lib/solicitation/attribution.ts: retained outreach attribution joined to reviews.",
+    "CONTEXT.md: Coverage start, Withhold reason, Attribution match; ADR 0023 owner-safe projection."
+  ],
+  "test_seams": [
+    "getRefusalLog through its live-database integration suite.",
+    "RestraintReport rendering and RestraintContent payload validation.",
+    "buildSolicitationBatch through its live-database integration suite, observing asks, evidence, runs, refusals, and replay results.",
+    "Requests UI rendering and local end-to-end browser journeys."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/refusals/read.ts",
+    "src/lib/refusals/__tests__/read.integration.test.ts",
+    "src/components/dashboard/restraint/RestraintReport.tsx",
+    "src/components/dashboard/restraint/RestraintContent.tsx",
+    "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+    "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+    "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+    "src/lib/solicitation/batch-builder.ts",
+    "src/lib/solicitation/__tests__/batch-builder.test.ts",
+    "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+    "src/app/(authenticated)/dashboard/requests/GhostPipeline.tsx",
+    "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+    "src/app/(authenticated)/dashboard/requests/__tests__/batch-report.test.tsx",
+    "CONTEXT.md",
+    "docs/currents.md",
+    "docs/progresstracking.md",
+    "docs/superpowers/plans/codex-fix-1076-1077-1048-*.json",
+    "docs/superpowers/plans/codex-fix-1076-1077-1048-*.md",
+    "docs/reviews/codex-fix-1076-1077-1048/*.md",
+    "docs/reviews/red-team/codex-fix-1076-1077-1048/*.md",
+    "docs/reviews/red-team/codex-fix-1076-1077-1048/*.json",
+    "docs/reviews/finding-checklists/*.md"
+  ],
+  "tests_to_add": [
+    "discloses historical policy-hold gaps after automatic posting is enabled",
+    "discloses archival truncation only when more than the event limit exists",
+    "qualifies archived periods when an older in-window period was omitted",
+    "rejects a malformed archival truncation field",
+    "withholds an attributed reviewer and records dated evidence plus one refusal on replay",
+    "uses retained attribution beyond the attribution display window",
+    "does not match attributed reviews from another account or sibling location",
+    "does not fabricate evidence for a deleted review or missing review date",
+    "preserves consent and suppression precedence for an attributed reviewer",
+    "withholds an attributed reviewer while the refusal ledger is disabled"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run src/lib/refusals/__tests__/read.integration.test.ts src/lib/solicitation/__tests__/batch-builder.integration.test.ts src/lib/solicitation/__tests__/batch-builder.test.ts src/components/dashboard/restraint/__tests__ src/app/api/dashboard/__tests__/refusals-route.test.ts",
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit"
+  ],
+  "estimated_prod_lines": 140,
+  "estimated_test_lines": 300,
+  "dependencies_added": [],
+  "rollback_plan": "Revert this change through the normal deployment process after separate authorization; existing immutable asks and refusals remain historical facts. No remote migration or flag rollback is needed.",
+  "observability": [
+    "Batch reason counts show already_reviewed; stored evidence identifies its review and date; the run has the corresponding refusal when recording is enabled.",
+    "The Restraint tab visibly qualifies historical policy gaps and bounded archival history."
+  ],
+  "required_approvals": ["commit", "push", "pull_request", "staging_deploy", "merge", "production_deploy"],
+  "open_questions": []
+}

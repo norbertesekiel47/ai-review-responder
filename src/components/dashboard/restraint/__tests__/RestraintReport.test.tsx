@@ -95,6 +95,7 @@ function logWith(
     coverageStart: '2026-05-04T00:00:00.000Z',
     archivedLocations: null,
     archivedPeriods: [],
+    archivedPeriodsTruncated: false,
     truncated: false,
     window: '30d',
     scope: 'account',
@@ -348,18 +349,26 @@ describe('RestraintReport', () => {
     expect(screen.getByText('We have been watching since May 4, 2026.')).toBeInTheDocument();
   });
 
-  it('RestraintReport omits the policy-gate disclosure line while auto-approval is enabled', () => {
-    const { container } = renderReport(
-      logWith([{ category: 'unsafe_content' }], { autoApprovalEnabled: true }),
+  it.each([{ entries: [] }, { entries: [{ category: 'unsafe_content' as const }] }])('discloses historical policy-hold gaps after automatic posting is enabled ($entries)', ({ entries }) => {
+    renderReport(
+      logWith(entries, { autoApprovalEnabled: true }),
     );
 
-    expect(container.textContent).not.toContain('only recorded once automatic posting is switched on');
-    // Non-vacuous: the other disclosure lines still render, so the assertion is
-    // about this line and not about the block being absent.
+    expect(screen.getByText(/Replies held by automatic policy checks while automatic posting was off are not included/)).toBeInTheDocument();
     expect(screen.getByText('We have been watching since May 4, 2026.')).toBeInTheDocument();
   });
 
   // ── Archived locations and archived periods ────────────────────────────
+
+  it.each([{ archivedPeriods: [] }, { archivedPeriods: [{ archivedAt: '2026-08-05T00:00:00.000Z', reactivatedAt: null }] }])('qualifies archived periods when an older in-window period was omitted ($archivedPeriods)', ({ archivedPeriods }) => {
+    renderReport(logWith([], { scope: 'location', archivedPeriods, archivedPeriodsTruncated: true }));
+    expect(screen.getByText('Older archive history is not shown. Some archived periods may be missing or may have started earlier than shown.')).toBeInTheDocument();
+  });
+
+  it('omits the archive-history qualifier when all archival events were read', () => {
+    renderReport(logWith([], { scope: 'location', archivedPeriodsTruncated: false }));
+    expect(screen.queryByText(/Older archive history is not shown/)).not.toBeInTheDocument();
+  });
 
   it('RestraintReport renders the archived-location footnote with no link and no instruction', () => {
     renderReport(logWith(
@@ -431,11 +440,9 @@ describe('RestraintReport', () => {
     // The COUNT, not a per-node emptiness check. `not.toBe('')` is one
     // character wide — a note returning ' ' renders the same blank paragraph
     // and passes — and the loop is vacuous-safe only by fixture (red team F37).
-    // One line survives here: the scope sentence. The ledger is recording, the
-    // window is not truncated, auto-approval is on and nothing is archived, so
-    // every other builder returns null — which is what makes this the case that
-    // catches an omitted line rendering as a blank paragraph.
-    expect(container.querySelectorAll('.rst-note')).toHaveLength(1);
+    // Scope and the historical policy qualification survive; all remaining
+    // contingent lines are absent, rather than rendering empty paragraphs.
+    expect(container.querySelectorAll('.rst-note')).toHaveLength(2);
   });
 
   it('says how many rows it is showing when the window holds more than the read returned', () => {

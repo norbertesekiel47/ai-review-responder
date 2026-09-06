@@ -112,6 +112,8 @@ export interface RefusalLog {
   archivedLocations: ArchivedLocationSummary | null;
   /** Location scope only; [] in an account scope. */
   archivedPeriods: ArchivedPeriod[];
+  /** Older archival events were omitted; reported periods may be incomplete. */
+  archivedPeriodsTruncated: boolean;
   /**
    * `total > entries.length` — the window holds more than this read returned.
    *
@@ -151,8 +153,9 @@ export const ENTRY_LIMIT = 200;
  * The rows are taken NEWEST first and reversed in TypeScript, because pairing
  * needs ascending order and an ascending `LIMIT` would keep the oldest events
  * and drop the ones nearest the window — the exact inversion of what the caller
- * asks for. Truncation degrades gracefully: a `location_reactivated` with no
- * surviving `location_archived` before it is already skipped by the pairing.
+ * asks for. One extra event detects truncation, which the owner sees via
+ * `archivedPeriodsTruncated`: pairing alone cannot disclose an omitted period
+ * or an archive start that predates the retained events (#1077).
  */
 export const ARCHIVAL_EVENT_LIMIT = 200;
 
@@ -441,23 +444,25 @@ export async function getRefusalLog(
   // sweeps, so this history outlives the 180-day ledger retention — which is
   // why the read is bounded by `ARCHIVAL_EVENT_LIMIT` and reversed rather than
   // ordered ascending in SQL.
-  const archivedPeriods = scope.kind === 'location'
-    ? pairArchivedPeriods(
-        (await sql<{ event_type: 'location_archived' | 'location_reactivated'; created_at: Date }[]>`
+  const archivalEvents = scope.kind === 'location'
+    ? await sql<{ event_type: 'location_archived' | 'location_reactivated'; created_at: Date }[]>`
           SELECT l.event_type, l.created_at
           FROM account_audit_log l
           WHERE l.account_id = ${scope.accountId}
             AND l.location_id = ${scope.businessId}
             AND l.event_type IN ('location_archived', 'location_reactivated')
-          ORDER BY l.created_at DESC
-          LIMIT ${ARCHIVAL_EVENT_LIMIT}
-        `)
-          .map((row) => ({ eventType: row.event_type, at: row.created_at }))
-          .reverse(),
-        windowStart,
-        windowEnd,
-      )
+          ORDER BY l.created_at DESC, l.id DESC
+          LIMIT ${ARCHIVAL_EVENT_LIMIT + 1}
+        `
     : [];
+  const archivedPeriodsTruncated = archivalEvents.length > ARCHIVAL_EVENT_LIMIT;
+  const archivedPeriods = pairArchivedPeriods(
+    archivalEvents.slice(0, ARCHIVAL_EVENT_LIMIT)
+      .map((row) => ({ eventType: row.event_type, at: row.created_at }))
+      .reverse(),
+    windowStart,
+    windowEnd,
+  );
 
   // The TRUE total, counted rather than derived. `entries` is capped at
   // `ENTRY_LIMIT`, so `entries.length` under-reports exactly when the window has
@@ -521,6 +526,7 @@ export async function getRefusalLog(
         }
       : null,
     archivedPeriods,
+    archivedPeriodsTruncated,
     truncated: total > entries.length,
   };
 }

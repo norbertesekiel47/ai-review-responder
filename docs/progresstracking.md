@@ -5756,3 +5756,29 @@ retry ladder instead of re-spending the LLM draft and the moderation call. The
 **Deferred, not done: realigning `staging`.** The ride merged at `55ed16e4`; the
 re-sync waits on this PR merging, and `origin/staging` also carries other
 branches' in-flight rides.
+
+## 2026-09-05 — Restraint evidence fixes #1076/#1077/#1048 (local, pre-merge)
+
+Owner approved persistent historical coverage disclosure, explicit archival
+truncation disclosure, and narrow same-location outreach attribution.
+
+- `RestraintReport.tsx`: retains a conditional historical policy-hold warning
+  after automatic posting is on, with no fabricated activation timestamp.
+- `src/lib/refusals/read.ts`: reads one sentinel beyond the 200 archival-event
+  cap and returns `archivedPeriodsTruncated`; `RestraintContent.tsx` validates
+  the required field. The report qualifies omitted periods and uncertain starts.
+- `batch-builder.ts`: supplies `matchedReview` from retained, dated, non-deleted
+  review evidence tied to prior outreach at this account/location. The existing
+  policy precedence and atomic ask/run/refusal persistence remain authoritative.
+- `GhostPipeline.tsx`: explains the retained-evidence scope rather than promising
+  that all previous reviewers can be identified.
+- Existing component, API, and live-database suites cover the cap boundary,
+  omitted periods, malformed payloads, attribution evidence, tenant boundaries,
+  deletion/date edge cases, precedence, and retry behavior.
+
+Plan skeptic's accepted correction: provider soft deletion preserves the review
+row and attribution FK, so use the existing `REVIEW_STATUS.DELETED` exclusion
+as well as requiring an extant row. No new schema, dependency, environment
+variable, or category is needed. `CONTEXT.md` records the precise scope.
+This entry describes local work; verification results and unresolved browser
+or review prerequisites belong to this branch's review record, not a ship claim.

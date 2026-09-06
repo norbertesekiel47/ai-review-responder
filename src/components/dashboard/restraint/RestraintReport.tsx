@@ -165,9 +165,16 @@ function truncationLine(log: RestraintPayload): string | null {
   return `Showing the ${log.entries.length} most recent of ${log.total}. The count above is the full window.`;
 }
 
-function policyGateLine(autoApprovalEnabled: boolean): string | null {
-  if (autoApprovalEnabled) return null;
+function policyGateLine(autoApprovalEnabled: boolean): string {
+  // No activation history exists, so the current flag cannot prove coverage
+  // across the selected window, even after automatic posting is enabled.
+  if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.';
   return 'One kind of decision — a reply an automatic policy check holds — is only recorded once automatic posting is switched on. It is off for your account today.';
+}
+
+function archivalTruncationLine(log: RestraintPayload): string | null {
+  if (!log.archivedPeriodsTruncated) return null;
+  return 'Older archive history is not shown. Some archived periods may be missing or may have started earlier than shown.';
 }
 
 /**
@@ -332,6 +339,7 @@ export function RestraintReport({ log, tabs, periodToolbar }: Props) {
     note(policyGateLine(log.autoApprovalEnabled), null),
     // Tabular figures: the one line that renders two counts.
     note(archivedFootnote(log.archivedLocations), 'footnote'),
+    note(archivalTruncationLine(log), null),
     ...log.archivedPeriods.map((period) => note(archivedPeriodLine(period), null)),
   ].filter((entry): entry is Note => entry !== null);
 

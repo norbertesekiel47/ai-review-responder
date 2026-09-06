@@ -886,6 +886,7 @@ describeWithDb(
       // One OPEN period: nothing ever reactivated.
       expect(log.archivedPeriods).toHaveLength(1);
       expect(log.archivedPeriods[0]?.reactivatedAt).toBeNull();
+      expect(log.archivedPeriodsTruncated).toBe(true);
 
       // ARCHIVAL_EVENT_LIMIT + 1 rows were seeded one hour apart, so the cap
       // drops exactly the oldest. Unbounded, the period would date from the
@@ -894,6 +895,40 @@ describeWithDb(
       const started = Date.parse(log.archivedPeriods[0]?.archivedAt ?? '');
       expect(started - oldest).toBeGreaterThan(30 * 60 * 1000);
       expect(started - oldest).toBeLessThan(90 * 60 * 1000);
+    });
+
+    it.each([0, ARCHIVAL_EVENT_LIMIT, ARCHIVAL_EVENT_LIMIT + 1])('discloses archival truncation only when more than the event limit exists (%i)', async (eventCount) => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      await sql()`
+        INSERT INTO account_audit_log (id, account_id, location_id, event_type, created_at)
+        SELECT gen_random_uuid(), ${accountId}::uuid, ${businessId}::uuid,
+               CASE WHEN i % 2 = 0 THEN 'location_archived' ELSE 'location_reactivated' END,
+               NOW() - interval '20 days' + make_interval(hours => i)
+        FROM generate_series(0, ${eventCount - 1}) AS i
+      `;
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+      expect(log.archivedPeriodsTruncated).toBe(eventCount > ARCHIVAL_EVENT_LIMIT);
+      expect(log.total).toBe(0);
+      expect(log.truncated).toBe(false);
+      const account = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+      expect(account.archivedPeriodsTruncated).toBe(false);
+    });
+
+    it('qualifies archived periods when an older in-window period was omitted', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const oldest = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
+      await sql()`
+        INSERT INTO account_audit_log (id, account_id, location_id, event_type, created_at)
+        SELECT gen_random_uuid(), ${accountId}::uuid, ${businessId}::uuid,
+               CASE WHEN i % 2 = 0 THEN 'location_archived' ELSE 'location_reactivated' END,
+               ${oldest}::timestamptz + make_interval(hours => i)
+        FROM generate_series(0, ${ARCHIVAL_EVENT_LIMIT + 1}) AS i
+      `;
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+      expect(log.archivedPeriodsTruncated).toBe(true);
+      expect(log.archivedPeriods).toHaveLength(ARCHIVAL_EVENT_LIMIT / 2);
+      expect(log.archivedPeriods[0]?.archivedAt).toBe(new Date(oldest.getTime() + 2 * 60 * 60 * 1000).toISOString());
+      expect(log.total).toBe(0);
     });
 
     it('reads archived periods from account_audit_log and never re-derives a refusal from it', async () => {

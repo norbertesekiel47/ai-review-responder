@@ -7,7 +7,27 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-09-01 (**Refusal ledger — the write path is complete.** Quick summary immediately below. Prior entry: the ledger's slice 1.)
+Last updated: 2026-09-05 (Restraint evidence fixes #1076/#1077/#1048; local branch, not deployed.)
+
+## Quick summary — Restraint evidence (#1076/#1077/#1048, 2026-09-05; pre-merge)
+
+The Restraint tab qualifies historical automatic-policy gaps even after
+automatic posting is enabled. It also discloses when the bounded archival
+history omits older events, independently of refusal totals and entry limits.
+Neither fix invents an activation date or backfills a decision.
+
+Solicitation's `already_reviewed` gate uses retained, dated reviews linked to
+earlier outreach for the contact at this location. Deleted or undated reviews
+do not qualify; spontaneous reviewer matching is outside this change. Consent
+and suppression still take precedence, and the existing atomic ask/run/refusal
+writer records the decision. Owner copy states this narrower evidence rule.
+
+The shape stays in existing files: `src/lib/refusals/read.ts` owns the archival
+overflow fact, the two Restraint components validate and present it, and
+`src/lib/solicitation/batch-builder.ts` supplies matched review evidence.
+`GhostPipeline.tsx` owns the corrected Requests explanation. No migration,
+dependency, or feature flag is added. These changes remain local pending the
+guarded verification/review and separately authorized shipping steps.
 
 ## Quick summary — **Refusal ledger**: every lane now writes (2026-09-01, PRs #1034/#1044/#1042/#1043/#1049/#1055)
 

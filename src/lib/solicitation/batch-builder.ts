@@ -26,6 +26,7 @@ import {
 } from '@/lib/account-offboarding/gate';
 import { ASK_WITHHELD_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
 import { writeRefusalEvents } from '@/lib/refusals/write';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import {
   lockDispatchedOutboxAttemptIfOwned,
@@ -128,6 +129,12 @@ interface PriorSendRow {
   contact_id: string;
   prior_batch_id: string | null;
   prior_decision_at: string | null;
+}
+
+interface AttributedReviewRow {
+  contact_id: string;
+  review_id: string;
+  review_date: string;
 }
 
 interface ReadyPreparation {
@@ -348,6 +355,7 @@ async function prepareBatch(
 function toCandidate(
   row: CandidateWindowRow,
   priorSend: PriorSendRow | undefined,
+  attributedReview: AttributedReviewRow | undefined,
 ): AskCandidate {
   return {
     contactId: row.contact_id,
@@ -365,16 +373,9 @@ function toCandidate(
       row.suppression_source !== null && row.suppressed_at !== null
         ? { source: row.suppression_source, suppressedAt: row.suppressed_at }
         : null,
-    // HARD-CODED NULL, which starves `evaluateAsk`'s `already_reviewed` gate
-    // (`restraint-policy.ts:377`) so one of six closed withhold reasons can
-    // never fire. This is a MISSING PRODUCER, not a dead gate: the gate is
-    // correct and tested, and `ASK_WITHHELD_REFUSAL_CATEGORIES` already maps
-    // `already_reviewed -> wrong_moment`, so the Refusal lands with no ledger
-    // change the moment something sets this. Wiring it needs a matching design
-    // — which window, what an ambiguous match means, whether a sibling
-    // location counts — and that is #1048, not a line here. The owner-facing
-    // copy in `GhostPipeline.tsx` was corrected to stop promising it.
-    matchedReview: null,
+    matchedReview: attributedReview
+      ? { reviewId: attributedReview.review_id, reviewDate: attributedReview.review_date }
+      : null,
     priorBatch:
       priorSend !== undefined &&
       priorSend.prior_batch_id !== null &&
@@ -508,6 +509,7 @@ async function loadCandidateWindow(
 
   const contactIds = candidateWindow.map((candidate) => candidate.contact_id);
   let priorSends: PriorSendRow[] = [];
+  let attributedReviews: AttributedReviewRow[] = [];
   if (contactIds.length > 0) {
     priorSends = await tx<PriorSendRow[]>`
       SELECT DISTINCT ON (send_ask.contact_id)
@@ -523,14 +525,51 @@ async function loadCandidateWindow(
         send_ask.decided_at DESC,
         send_ask.id DESC
     `;
+    // Attribution is retained evidence, independent of the matcher and display
+    // windows. Populate candidates rather than filtering them so policy owns
+    // precedence and the authoritative withheld decision is still recorded.
+    attributedReviews = await tx<AttributedReviewRow[]>`
+      SELECT DISTINCT ON (o.contact_id)
+        o.contact_id::text AS contact_id,
+        r.id::text AS review_id,
+        r.review_date::text AS review_date
+      FROM solicitation_outreach o
+      JOIN solicitation_asks ask
+        ON ask.id = o.ask_id
+       AND ask.contact_id = o.contact_id
+       AND ask.batch_id = o.batch_id
+       AND ask.account_id = ${accountId}::uuid
+       AND ask.business_id = ${businessId}::uuid
+      JOIN solicitation_contacts c
+        ON c.id = o.contact_id
+       AND c.business_id = ${businessId}::uuid
+      JOIN reviews r
+        ON r.id = o.attributed_review_id
+       AND r.business_id = ${businessId}::uuid
+      WHERE o.account_id = ${accountId}::uuid
+        AND o.business_id = ${businessId}::uuid
+        AND o.contact_id = ANY(${contactIds}::uuid[])
+        AND o.attributed_at IS NOT NULL
+        AND o.attributed_review_id IS NOT NULL
+        AND r.review_date IS NOT NULL
+        AND r.status <> ${REVIEW_STATUS.DELETED}
+      ORDER BY o.contact_id, o.attributed_at DESC, o.id DESC
+    `;
   }
 
   const priorSendsByContact = new Map(
     priorSends.map((priorSend) => [priorSend.contact_id, priorSend]),
   );
+  const attributedReviewsByContact = new Map(
+    attributedReviews.map((review) => [review.contact_id, review]),
+  );
   return {
     candidates: candidateWindow.map((candidate) =>
-      toCandidate(candidate, priorSendsByContact.get(candidate.contact_id)),
+      toCandidate(
+        candidate,
+        priorSendsByContact.get(candidate.contact_id),
+        attributedReviewsByContact.get(candidate.contact_id),
+      ),
     ),
     poolCount,
   };

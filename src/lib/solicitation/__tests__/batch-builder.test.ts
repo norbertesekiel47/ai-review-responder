@@ -487,6 +487,8 @@ describe('solicitation batch candidate loader', () => {
         prior_batch_id: 'prior-batch-1',
         prior_decision_at: `${utcDaysAgo(7)}T00:00:00.000Z`,
       }]),
+      // No retained attributed review for this candidate.
+      mkTaggedResult([]),
       // The ask INSERT.
       mkTaggedResult([{ id: 'ask-1' }]),
       // #1010: the Refusal ledger's set-based INSERT, issued between the ask
@@ -650,7 +652,7 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
     );
   }
 
-  /** One send-decision candidate: window row, pool, prior sends, ask insert,
+  /** One send-decision candidate: window, pool, prior sends, reviews, ask insert,
    *  run link, built_at CAS. */
   function pushSendCandidateResults(): void {
     sqlReturnQueue.push(
@@ -663,6 +665,7 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
         suppressed_at: null,
       }]),
       mkTaggedResult([{ pool_count: 1 }]),
+      mkTaggedResult([]),
       mkTaggedResult([]),
       mkTaggedResult([{ id: 'ask-1' }]),
       mkTaggedResult([{ id: 'ask-1' }]),
