@@ -45,7 +45,7 @@ paste the brand context again.
 
 1. Open the Project.
 2. Find **Project knowledge** on the right.
-3. Click **Add content** → upload `docs/marketing/BRAND-KIT.md`.
+3. Click **Add content** → upload `docs/help/marketing/BRAND-KIT.md`.
 
 Ask an engineer to export that file for you, or open it in the repo and copy
 the whole thing into a text file named `BRAND-KIT.md`.
@@ -174,7 +174,7 @@ Re-check it:
 - Whenever prices change.
 - Whenever a roadmap item moves from "next" to "live".
 
-To update: edit `docs/marketing/BRAND-KIT.md`, then re-upload it to the
+To update: edit `docs/help/marketing/BRAND-KIT.md`, then re-upload it to the
 Project (remove the old file first). Update the "Last verified" date at the
 top.
 
