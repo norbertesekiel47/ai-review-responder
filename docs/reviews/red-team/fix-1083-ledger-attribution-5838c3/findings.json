@@ -5,7 +5,7 @@
   "branch": "fix/1083-ledger-attribution",
   "fork_sha": "91b32506a694954643e9523eae3901d784a348ca",
   "merge_base_sha": "91b32506a694954643e9523eae3901d784a348ca",
-  "head_sha": "cebfb9d1031502e91d638d10407595b1e84cfb7b",
+  "head_sha": "9c7db167f966909b95edbff2181b5f75336e3dd7",
   "intake_sha256": "1da0d8d18bc9fbe4dda9c2e2c2f691add4954cca5ebde169240fffc532b22da4",
   "risk": "high",
   "round": 2,
