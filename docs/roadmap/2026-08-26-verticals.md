@@ -153,7 +153,7 @@ grill item and a counsel touchpoint (forward-roadmap Phase 1).
 
 Vertical landing pages ("Reputation on autopilot for home services" etc.) —
 before building any, follow the standing rule: list existing marketing routes
-and what each covers (see `docs/marketing/` and the 2026-07-22
+and what each covers (see `docs/help/marketing/` and the 2026-07-22
 marketing-pages-agentic-refresh spec); extend, don't duplicate. Vertical
 proof points should use that vertical's ontology vocabulary once Phase 3
 ships ("arrival-time complaints down 40%"), not generic copy.
