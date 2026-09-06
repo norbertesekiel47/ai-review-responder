@@ -928,6 +928,10 @@ describeWithDb(
       expect(log.archivedPeriodsTruncated).toBe(true);
       expect(log.archivedPeriods).toHaveLength(ARCHIVAL_EVENT_LIMIT / 2);
       expect(log.archivedPeriods[0]?.archivedAt).toBe(new Date(oldest.getTime() + 2 * 60 * 60 * 1000).toISOString());
+      expect(log.archivedPeriods.at(-1)).toEqual({
+        archivedAt: new Date(oldest.getTime() + ARCHIVAL_EVENT_LIMIT * 60 * 60 * 1000).toISOString(),
+        reactivatedAt: new Date(oldest.getTime() + (ARCHIVAL_EVENT_LIMIT + 1) * 60 * 60 * 1000).toISOString(),
+      });
       expect(log.total).toBe(0);
     });
 
