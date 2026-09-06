@@ -213,7 +213,7 @@ monitored — keep a founder in every group. Nothing in code receives mail; ever
 | `notifications@` | Everyone | `RESEND_FROM_EMAIL` sender (Infisical manifest §12.3); replies land here | Every business day |
 | `legal@`, `socials@` | Everyone | Not referenced in code | — |
 | `alerts@` | Organization Members | `ADMIN_NOTIFICATION_EMAIL` + `CONTACT_NOTIFY_TO` (Railway prod). Resend sends as `notifications@` (DKIM on the root domain) — re-confirm one alert lands after any Zoho access change | Ops alert sink |
-| `unsubscribe@` | **Organization Members — must be Everyone** | `LIST_UNSUBSCRIBE_EMAIL` (marketing `List-Unsubscribe` mailto) | Daily on business days (CAN-SPAM). While access is not Everyone, an external recipient's opt-out mail is rejected — fix in Zoho admin, no code change |
+| `unsubscribe@` | Everyone (was Organization Members until 2026-09-06 — external opt-out mail bounced; keep it Everyone) | `LIST_UNSUBSCRIBE_EMAIL` (marketing `List-Unsubscribe` mailto). Not the Solicitation lane mailbox, which is `unsubscribe@feedback.<env>.repworth.net` | Daily on business days (CAN-SPAM) |
 | `noreply@` | not a Zoho group | Code default in `src/lib/notifications/contact-notify.ts` when `CONTACT_NOTIFY_TO` and `RESEND_FROM_EMAIL` are both unset | Never rely on it — prod sets `CONTACT_NOTIFY_TO` |
 
 Re-read the Zoho group list whenever an address is added to copy, and update this
