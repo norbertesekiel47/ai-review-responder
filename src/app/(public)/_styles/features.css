@@ -201,17 +201,27 @@
 }
 .feat-idx-row {
   display: grid;
-  grid-template-columns: 176px repeat(3, minmax(0, 1fr));
+  /* One cell per chapter in the group (`--idx-n`, set inline): the five job
+     groups hold one to four chapters, and a fixed three would leave the
+     ledger with blank cells in one row and an overflow in another. */
+  grid-template-columns: 176px repeat(var(--idx-n, 3), minmax(0, 1fr));
   border-top: 1px solid var(--rw-line);
 }
 .feat-idx-row:first-child { border-top: 0; }
 .feat-idx-grp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 24px 20px;
   font-size: 13px;
   color: var(--rw-ink2-mute);
   background: var(--rw-bone);
   border-right: 1px solid var(--rw-line);
 }
+/* The job name is the loudest thing in the cell (size, never weight); the
+   one-line lede under it says what the job is before the chapters list how. */
+.feat-idx-grp > span:first-child { font-size: 20px; color: var(--rw-ink2); }
+.feat-idx-grp-lede { line-height: 1.4; max-width: 18ch; }
 .feat-idx-cell {
   display: flex;
   flex-direction: column;
@@ -318,7 +328,7 @@
 
    `contain` is the right range because a group's body (~1800px+) is far taller
    than the scrollport, making that range exactly its scroll-through. Each
-   segment takes its own third.
+   segment takes its own share (one to four per group).
 
    Without `animation-timeline`, or under reduced motion, the fills stay solid
    and the ribbon is three static colour blocks. */
@@ -334,9 +344,13 @@
       animation: feat-grp-fill linear both;
       animation-timeline: --feat-grp;
     }
-    .feat-grp-ribbon > span:nth-child(1) > i { animation-range: contain 0% contain 33.333%; }
-    .feat-grp-ribbon > span:nth-child(2) > i { animation-range: contain 33.333% contain 66.667%; }
-    .feat-grp-ribbon > span:nth-child(3) > i { animation-range: contain 66.667% contain 100%; }
+    /* Groups hold one to four chapters (2026-09-06), so each segment takes
+       its own share from the inline `--seg-i` / `--seg-n` the component sets,
+       instead of the thirds the three-chapter groups used to assume. */
+    .feat-grp-ribbon > span > i {
+      animation-range: contain calc(var(--seg-i, 0) * 100% / var(--seg-n, 3))
+        contain calc((var(--seg-i, 0) + 1) * 100% / var(--seg-n, 3));
+    }
   }
 }
 
@@ -728,8 +742,9 @@
   .feat-ch.is-wide .feat-ch-ar { grid-column: 1; grid-row: 3; }
   .feat-ch-tx .rw-dl-h2 { max-width: 20ch; }
   .feat-two { grid-template-columns: 1fr; }
-  .feat-idx-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .feat-idx-grp { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--rw-line); padding: 12px 20px; }
+  .feat-idx-row { grid-template-columns: repeat(var(--idx-n, 3), minmax(0, 1fr)); }
+  .feat-idx-grp { grid-column: 1 / -1; flex-direction: row; align-items: baseline; gap: 12px; border-right: 0; border-bottom: 1px solid var(--rw-line); padding: 12px 20px; }
+  .feat-idx-grp-lede { max-width: none; }
   .feat-roi-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
@@ -747,7 +762,12 @@
   .feat-h1 { font-size: clamp(36px, 9.2vw, 44px); }
   .feat-cmp { grid-template-columns: 1fr; }
   .feat-idx-row { grid-template-columns: 1fr; }
-  .feat-idx-cell { border-right: 0; border-top: 1px solid var(--rw-line); }
+  /* Name over lede again on a phone (the baseline row wraps mid-lede), and
+     tighter cells: thirteen chapters at the desktop padding ran the index
+     past 2,200px on a 390px screen. */
+  .feat-idx-grp { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .feat-idx-cell { border-right: 0; border-top: 1px solid var(--rw-line); padding: 14px 20px 16px; }
+  .feat-idx-l { margin-top: 8px; font-size: 18px; }
   .feat-idx-cell:first-of-type { border-top: 0; }
   .feat-stat { padding: 20px 20px 18px 26px; }
   .feat-stat-n { font-size: 40px; }
@@ -755,6 +775,116 @@
   .feat-ch-grp { margin-left: 0; flex-basis: 100%; }
   .feat-ledger-row { grid-template-columns: 1fr auto; }
   .feat-ledger-time { grid-column: 1 / -1; }
+}
+
+/* ---------- 04 Review QR ---------- */
+.feat-qr-stage {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+/* The code sits in a bone well with a hairline — the print card's own
+   framing, not a shadow. Ink squares on paper: a QR is the one place the page
+   may be pure black-on-white, because that is what a scanner needs. */
+.feat-qr-glyph {
+  padding: 14px;
+  background: var(--rw-paper);
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+}
+.feat-qr-glyph svg { display: block; width: 100%; height: auto; fill: var(--rw-ink2); }
+.feat-qr-headline { font-size: 24px; line-height: 1.2; }
+.feat-qr-sub { font-size: 15px; line-height: 1.5; color: var(--rw-ink2-soft); margin-top: 8px; max-width: 34ch; }
+.feat-qr-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+}
+
+/* ---------- 05 Solicitor: the batch ---------- */
+.feat-ask-rows { display: grid; margin-top: 18px; }
+.feat-ask-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--rw-line);
+  font-size: 14px;
+}
+.feat-ask-row:first-child { border-top: 0; padding-top: 0; }
+.feat-ask-who { color: var(--rw-ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feat-ask-reason { font-size: 13px; color: var(--rw-ink2-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feat-ask-decision { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.feat-ask-decision i { width: 8px; height: 8px; border-radius: 50%; background: var(--rw-forest); }
+/* Withheld is a decision, not an error: a hollow dot, never a red one. */
+.feat-ask-decision.is-withheld { color: var(--rw-ink2-mute); }
+.feat-ask-decision.is-withheld i { background: transparent; border: 1px solid var(--rw-line-2); }
+
+/* ---------- 06 Insights: the monthly card ---------- */
+.feat-monthly-sections { display: grid; gap: 12px; margin-bottom: 16px; }
+.feat-monthly-section { padding-top: 12px; border-top: 1px solid var(--rw-line); }
+.feat-monthly-section:first-child { border-top: 0; padding-top: 0; }
+.feat-monthly-t { font-size: 16px; }
+.feat-monthly-s { font-size: 13px; line-height: 1.5; color: var(--rw-ink2-mute); margin-top: 4px; }
+
+/* ---------- 07 Dashboard: Rep Pulse + velocity ---------- */
+.feat-dash-pulse {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px 32px;
+  align-items: end;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--rw-line);
+}
+.feat-dash-score { font-size: 64px; line-height: 1; color: var(--rw-ink2); }
+.feat-dash-formula { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 8px; white-space: nowrap; }
+.feat-dash-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, auto)); gap: 16px 20px; margin: 0; }
+.feat-dash-kpis dt { font-size: 13px; color: var(--rw-ink2-mute); }
+.feat-dash-kpis dd { font-size: 20px; margin: 4px 0 0; }
+.feat-dash-lbl { font-size: 13px; color: var(--rw-ink2-mute); margin: 18px 0 10px; }
+.feat-dash-velocity {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  height: 96px;
+  margin-bottom: 14px;
+}
+.feat-dash-vcol { display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; min-width: 0; }
+/* The same fill choreography as the brief bars, turned vertical: `--fill-r`
+   is the share of the tallest week, `--fill-d` the stagger. */
+.feat-dash-vbar {
+  display: block;
+  flex: 1;
+  border-radius: 4px 4px 0 0;
+  background: var(--rw-teal-bar);
+  transform: scaleY(var(--fill-r, 1));
+  transform-origin: bottom;
+}
+.rw-dl-rv.is-in .feat-dash-vbar {
+  animation: feat-fill-y 0.9s cubic-bezier(0.22, 0.61, 0.36, 1) var(--fill-d, 0ms) backwards;
+}
+@keyframes feat-fill-y {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(var(--fill-r, 1)); }
+}
+.feat-dash-vlabel { font-size: 12px; color: var(--rw-ink2-mute); text-align: center; }
+
+/* ---------- 08 Restraint: reason dots are ink, not verdict colours ---------- */
+.feat-ledger-verdict.is-reason i { background: var(--rw-ink2); }
+
+@media (max-width: 680px) {
+  .feat-qr-stage { grid-template-columns: 1fr; justify-items: start; }
+  .feat-qr-glyph { width: 168px; }
+  .feat-ask-row { grid-template-columns: 1fr auto; }
+  .feat-ask-reason { grid-column: 1 / -1; white-space: normal; }
+  .feat-dash-pulse { grid-template-columns: 1fr; align-items: start; }
+  .feat-dash-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* ---------- Reduced motion: land on the final frame ---------- */
@@ -771,5 +901,6 @@
   .rw-feat-marquee-track { animation: none; }
   .rw-voice-bar { transform: none; animation: none !important; }
   .rw-brief-bar-fill { animation: none !important; }
+  .feat-dash-vbar { animation: none !important; }
   .rw-dl-rv.is-in .rw-sparkline-path { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
 }

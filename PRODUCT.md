@@ -66,11 +66,26 @@ they read as named characters, not verbs.
 **Shipped today**
 
 - Google Business Profile reviews only. One provider integration.
-- Three acting personas: **Reply** (drafts every response; the only agent that
+- Four acting personas: **Reply** (drafts every response; the only agent that
   can ever publish, and only inside bounds), **Guardian** (triages the negative
   lane by severity and escalates critical reviews to the owner; never acts
-  publicly — that is its whole identity), **Insights** (weekly digest; reports
-  only).
+  publicly — that is its whole identity), **Insights** (Monday weekly digest
+  and monthly impact report; reports only), **Solicitor** (email review
+  requests to the business's own customers in batches the owner approves —
+  consent attested at upload, send-or-withhold decided per ask with a reason,
+  one-click unsubscribe, permanent opt-outs; outbound only, never posts).
+  **Solicitor's present tense is an owner decision of 2026-09-06**, made on
+  the commitment to flip `SOLICITATION_WATCH_ENABLED` and
+  `SOLICITATION_SEND_ENABLED` on in production (both on in staging; see
+  `docs/runbooks/launch-flag-readiness.md`). Until that flip lands, the
+  marketing describes staging-proven behaviour.
+- The **Review QR**: one printable code per location that redirects a scan
+  straight to the Google review form. No landing page, no contact capture,
+  re-pointable server-side. Live in production, deliberately un-flagged.
+- The owner dashboard: **Rep Pulse** (0–100, `rating/5·70 + responseRate·30`,
+  no score while ramping), rating and volume trends, review velocity, weekly
+  recap, agent activity, and the **Restraint tab** (the refusal ledger: what
+  the system decided not to do, when, and why).
 - The **run spine** — every action every agent takes is recorded on an
   auditable trail, so "what did the system do, and why?" always has an answer.
   Not a black box.
@@ -87,18 +102,9 @@ they read as named characters, not verbs.
 
 **Not shipped — must never be claimed present-tense**
 
-- **Solicitor** (outbound review requests to the business's own customers, in
-  managed batches, with consent and suppression rules). Substantially built —
-  `src/lib/solicitation/`, `worker/jobs/solicitation-batch/`, consent and
-  suppression ledgers, RFC 8058 unsubscribe — but **inert in every
-  environment**. `SOLICITATION_WATCH_ENABLED` is off by default;
-  `SOLICITATION_SEND_ENABLED` "exists in no environment yet, so the generation
-  lane landed inert" and carries its own precondition, "do not flip anywhere
-  until #627 lands" (#627 split into #656/#657, both in flight as of
-  2026-08-03). **Correction of record:** the website reference doc on the
-  owner's Desktop lists Solicitor as Shipped and safe to state as fact. It is
-  not. Until those flags are on in production, Solicitor belongs in the
-  "what's next" treatment, never in the shipped fleet grid.
+- **Telegram and WhatsApp** as owner channels. Built; both flags off in
+  production. Marketing says "by email" until they flip.
+- **SMS** for anything. There is no SMS adapter; Solicitor sends email only.
 - **Committed future direction** (frame as future, never as available): CRM
   Manager agent, Social Media Manager agent, False/Fake Review Detection &
   Dispute agent, multi-platform expansion beyond a single review source.

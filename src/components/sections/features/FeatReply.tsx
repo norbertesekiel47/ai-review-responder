@@ -44,7 +44,7 @@ export function FeatReply({ innerRef }: { innerRef: RefObject<HTMLElement | null
             n="01"
             kicker="Reply · your drafter"
             bar="var(--rw-mist-bar)"
-            group="Your agent team"
+            group="Respond"
             title="Every reply written from scratch, never from a template."
             lede="Reply is the drafting agent. It reads the review, references what the customer mentioned, and writes in a voice that sounds like you. No “thanks for your feedback” filler."
           />

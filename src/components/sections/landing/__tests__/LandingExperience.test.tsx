@@ -25,6 +25,7 @@ vi.mock('../hero/HeroSection', () => ({ HeroSection: stubSection('hero').default
 vi.mock('../problem/ProblemSection', () => ({ ProblemSection: stubSection('problem').default }));
 vi.mock('../fleet/FleetSection', () => ({ FleetSection: stubSection('fleet').default }));
 vi.mock('../personas/PersonasSection', () => ({ PersonasSection: stubSection('personas').default }));
+vi.mock('../jobs/JobsSection', () => ({ JobsSection: stubSection('jobs').default }));
 vi.mock('../watchdogs/WatchdogsSection', () => ({
   WatchdogsSection: stubSection('watchdogs').default,
 }));

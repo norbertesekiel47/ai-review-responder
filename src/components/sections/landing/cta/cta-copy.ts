@@ -6,7 +6,9 @@
  * easiest place on the page to overclaim. The rules that bind here are the
  * same ones the rest of the landing copy follows:
  *
- *   - Google reviews are the shipped surface. Everything else in the fleet is
+ *   - Google is the shipped platform, and on it the fleet does five jobs:
+ *     respond, protect, request, brief, measure (jobs/jobs-copy.ts). The
+ *     committed-future agents (CRM, Social, disputes, other platforms) stay
  *     future tense, and the closing note says so rather than leaving the
  *     headline to imply otherwise.
  *   - Copilot means the owner approves everything. That is a fact about the
@@ -28,12 +30,12 @@
 export const EYEBROW = 'Early access';
 
 /** Closes on the page's actual argument — supervision — rather than urgency. */
-export const TITLE_LEAD = 'Hand your reviews to a fleet';
-export const TITLE_ACCENT = 'that answers to you.';
+export const TITLE_LEAD = 'Hand your reputation to';
+export const TITLE_ACCENT = 'a fleet that answers to you.';
 
 /** Flat string for `aria-label`, since the visible headline is split across
  *  spans and hand-broken lines. */
-export const TITLE_PLAIN = 'Hand your reviews to a fleet that answers to you.';
+export const TITLE_PLAIN = 'Hand your reputation to a fleet that answers to you.';
 
 export const SUBHEAD_LINES: readonly string[] = [
   'Start on Copilot, where nothing reaches Google without your say-so.',
@@ -43,6 +45,6 @@ export const SUBHEAD_LINES: readonly string[] = [
 /** The truth anchor, mirroring the hero's. Subordinate by design — it keeps
  *  the claim accurate without arguing with the headline above it. */
 export const SCOPE_NOTE_LINES: readonly string[] = [
-  'Google reviews today, on one location or many.',
+  'Google reviews today: answered, requested, and measured.',
   'The rest of the fleet arrives as it ships.',
 ];

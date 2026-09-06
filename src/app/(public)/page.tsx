@@ -6,9 +6,9 @@ import { LandingExperience } from '@/components/sections/landing/LandingExperien
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'RepWorth: Automated Google review responses',
+  title: 'RepWorth: The AI agent team for your reputation',
   description:
-    'RepWorth drafts on-brand replies to your Google reviews and posts them only after your approval, or inside the bounds you set. Reply to every review without the busywork.',
+    'A supervised fleet of AI agents answers your Google reviews in your voice, asks your customers for new ones, briefs you every Monday, and keeps the score. Nothing posts outside the gate you control.',
 };
 
 export default function LandingPage() {

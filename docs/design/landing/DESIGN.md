@@ -268,6 +268,16 @@ Role: the action layer and the oversight layer, distinguished by temperature.
 - `.rw-lp-flip .rw-lp-flip-face` is scoped deliberately — flattening the selector drops
   both faces into normal flow.
 
+### The five jobs (between personas and watchdogs)
+
+`jobs/JobsSection.tsx` + `jobs.css` + `jobs-copy.ts`. A hairline ledger, not a card
+grid: index + verb (display 200, `clamp(1.5rem, 2.6vw, 2.25rem)`) · claim + body · two
+meta cells ("Who does it", "Where you see it") under a column head that disappears ≤ 900px
+in favour of per-row labels. `data-tone` follows the page's temperature rule — acting
+agents gold, the watching layer and the run spine teal (the teal channels are copied from
+`--rw-lp-watch-accent`; keep them in step). Static: no controls, so nothing joins
+`focus-visible-marketing.test.ts`.
+
 ### Problem (section 6)
 
 Role: the kinetic essay + the reputation diagram (v0.2, owner-directed 2026-08-24).
@@ -452,9 +462,15 @@ The brief's §3.2 calls confusing shipped capability with roadmap "the one genui
 damaging mistake available here." Each `*-copy.ts` opens with its contract. Binding
 across all of them:
 
-- **Solicitor is NOT shipped.** Verified in code: `SOLICITATION_SEND_ENABLED` is in no
-  environment file. Dashed border, dimmed media, `COMING` tag, dashed unanimated
-  connector. Future tense everywhere.
+- **Solicitor is present tense since 2026-09-06** (owner decision, on the commitment to
+  flip `SOLICITATION_WATCH_ENABLED` + `SOLICITATION_SEND_ENABLED` on in production;
+  PRODUCT.md "Shipped today"). `status: 'live'` in `fleet-copy.ts` and
+  `personas-copy.ts`; the `'next'` treatment (dashed border, dimmed media, `COMING` tag,
+  dashed connector) stays wired for the next unshipped agent. Solicitor sends **email
+  only** and never posts — never name SMS, Telegram, or WhatsApp for it.
+- **The five jobs ledger (`jobs/`) is the balance device.** Respond, Protect, Request,
+  Brief, Measure get one equal row each. Do not let a job's row grow a card, a control,
+  or a bigger type step than its neighbours — equality is the argument.
 - **The Judge governs auto-posting only.** On Copilot the owner approves and the Judge is
   not in that path. Never "reviews everything that goes out".
 - **Guardian never acts publicly** — that is its whole identity.

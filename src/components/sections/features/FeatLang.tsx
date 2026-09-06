@@ -23,10 +23,10 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
       <div className="rw-dl-col">
         <div className="feat-ch is-split">
           <FeatIntro
-            n="07"
+            n="03"
             kicker="Reach"
             bar="var(--rw-sage-bar)"
-            group="Craft and proof"
+            group="Respond"
             title="Multilingual, automatically."
             lede="RepWorth detects the language of every review and responds in the same language. No setup, no toggles."
           >

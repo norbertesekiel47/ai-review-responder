@@ -813,3 +813,25 @@ as well as requiring an extant row. No new schema, dependency, environment
 variable, or category is needed. `CONTEXT.md` records the precise scope.
 This entry describes local work; verification results and unresolved browser
 or review prerequisites belong to this branch's review record, not a ship claim.
+
+## 2026-09-06 — Marketing pages rebalanced to the five jobs (local, pre-merge)
+
+Owner asked for the landing, how-it-works, and features pages to stop reading
+as a review-response tool and give even weight to responses, review requests
+(Solicitor + Review QR), the analytics dashboard, the briefs, and the
+agentic reputation-system positioning. Owner chose present tense for Solicitor
+(committing to the production flag flip) and structural changes over copy-only.
+
+- Landing: `src/components/sections/landing/jobs/` (JobsSection, jobs.css,
+  jobs-copy.ts) — the five-jobs ledger; copy files revised; Solicitor
+  `status: 'live'`; `PRODUCT_BLURB` and page metadata widened.
+- Features: `FeatQr`, `FeatSolicitor`, `FeatDashboard`, `FeatRestraint` added;
+  `FeatInsights` widened to weekly + monthly; chapters renumbered into five
+  job groups; ribbon and index generalized to variable group sizes.
+- How it works: `LOOPS` band + three FAQ entries; hero and lede reframed.
+- Docs: PRODUCT.md "Shipped today" (Solicitor, Review QR, dashboard, briefs),
+  BRAND-KIT §4/§6/§11/§14, CLAUDE-PROJECT-SETUP rule 1, landing DESIGN.md
+  contracts + component entry, measurements.md file list, brand-story.md.
+- Tests: FleetSection (no NEXT tag), new JobsSection test, FeaturesContent
+  and HowItWorksContent assertions for the new chapters and band.
+

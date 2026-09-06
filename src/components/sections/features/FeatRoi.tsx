@@ -26,9 +26,9 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
         <div className="feat-ch is-wide">
           <FeatIntro
             n="09"
-            kicker="Proof"
+            kicker="Proof · your numbers"
             bar="var(--rw-teal-bar)"
-            group="Craft and proof"
+            group="Measure"
             title="Numbers to show your accountant."
             lede={
               <>

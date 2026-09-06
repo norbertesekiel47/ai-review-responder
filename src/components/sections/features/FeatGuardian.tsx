@@ -27,10 +27,10 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
       <div className="rw-dl-col">
         <div className="feat-ch is-split">
           <FeatIntro
-            n="02"
+            n="10"
             kicker="Guardian · reviews of 3★ or less"
             bar="var(--rw-blush-bar)"
-            group="Your agent team"
+            group="Govern"
             title="Bad reviews get read before anyone answers."
             lede={
               <>

@@ -90,6 +90,7 @@ src/components/sections/landing/
   fleet/      {FleetSection.tsx, fleet.css, fleet-copy.ts,
                VideoLightbox.tsx, video-lightbox.css}
   personas/   {PersonasSection.tsx, personas.css, personas-copy.ts}
+  jobs/       {JobsSection.tsx, jobs.css, jobs-copy.ts}   the five-jobs ledger (2026-09-06)
   problem/    {ProblemSection.tsx, problem.css, problem-copy.ts}
   tiers/      {TiersSection.tsx, tiers.css, tiers-copy.ts}
   watchdogs/  {WatchdogsSection.tsx, watchdogs.css, watchdogs-copy.ts}

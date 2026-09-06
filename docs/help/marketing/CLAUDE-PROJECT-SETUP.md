@@ -63,10 +63,11 @@ your source of truth. Read it before every task.
 
 Hard rules, in priority order:
 
-1. Never claim an unshipped capability in present tense. Solicitor, CRM
-   Manager, Social Media Manager, fake-review disputes, and any platform
-   other than Google are FUTURE TENSE ONLY. If you are unsure whether
-   something ships today, ask me instead of guessing.
+1. Never claim an unshipped capability in present tense. CRM Manager,
+   Social Media Manager, fake-review disputes, and any platform other than
+   Google are FUTURE TENSE ONLY. Solicitor (email review requests) and the
+   Review QR are present tense. If you are unsure whether something ships
+   today, ask me instead of guessing.
 2. Never invent proof. No customer counts, testimonials, case studies,
    logos, press mentions, ratings, or performance metrics. RepWorth has
    none. Fabricating one is the worst failure available to you.

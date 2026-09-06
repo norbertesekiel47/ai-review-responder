@@ -27,10 +27,10 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
       <div className="rw-dl-col">
         <div className="feat-ch is-split">
           <FeatIntro
-            n="05"
+            n="12"
             kicker="Autopilot · within your rules"
             bar="var(--rw-gold-bar)"
-            group="Care and control"
+            group="Govern"
             title="Hands-off, inside your rules."
             lede="On Autopilot, replies to 4–5★ reviews that pass our safety checks can post themselves, but only inside rules you set. You choose 5★ only or 4–5★, a daily limit (1–50, default 10), and a 15- or 30-minute veto window, for your account or per location. Until the window closes, the reply is yours to stop with one tap. Negative reviews are never auto-posted."
           />

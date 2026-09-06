@@ -133,6 +133,45 @@ const HOOD = [
   { bar: 'var(--rw-ink2)', n: '06', title: 'Judge', sub: 'Reviews every auto-post; the Governor pauses Autopilot if trust slips.' },
 ];
 
+// The loops around the six-step reply pipeline. The pipeline answers one
+// review; these run on their own cadence and are what makes the page describe
+// a reputation system rather than a reply tool. Each card names the cadence,
+// what runs, and what the owner does — nothing here is a performance figure.
+const LOOPS = [
+  {
+    n: 'A',
+    bar: 'var(--rw-gold-bar)',
+    title: 'Request',
+    cadence: 'per batch · on the counter',
+    body: 'A printable QR code per location sends walk-ins straight to your Google review form. Solicitor asks past customers by email, in batches you approve: each ask decided send-or-withhold with a reason, one-click unsubscribe, and opt-outs that outlast any re-upload.',
+    you: 'You approve each batch, with seven days to do it. One tap halts a send.',
+  },
+  {
+    n: 'B',
+    bar: 'var(--rw-teal-bar)',
+    title: 'Brief',
+    cadence: 'every Monday · every month',
+    body: 'Insights sends the weekly report on Monday: what came in, what went out, what needs your eye, and one thing worth a look. A monthly impact report closes the month with the best review and the time saved.',
+    you: 'You read an email. There is nothing to log in to, and the same brief waits on your dashboard.',
+  },
+  {
+    n: 'C',
+    bar: 'var(--rw-sage-bar)',
+    title: 'Measure',
+    cadence: 'always current',
+    body: 'Rep Pulse turns your rating and response rate into one 0–100 score with a formula you can read. Around it: rating and volume trends, review velocity, the weekly recap, and what each agent did.',
+    you: 'You glance at one screen. No score is shown until there is enough history to be honest.',
+  },
+  {
+    n: 'D',
+    bar: 'var(--rw-ink2)',
+    title: 'Record',
+    cadence: 'every action, every agent',
+    body: 'Every step above lands on the run spine, and the Restraint tab lists what the system decided not to do, with the reason: a draft held, an ask withheld, an auto-post held back, autonomy paused.',
+    you: 'You ask “what did it do, and why?” and get an answer, for anything, at any time.',
+  },
+] as const;
+
 const GUARANTEES = [
   {
     title: 'Nothing posts without passing the gate',
@@ -155,6 +194,9 @@ const FAQ_ITEMS = [
   { q: 'How does it learn my voice?', a: 'From day one, drafts follow your Brand Voice settings: tone, staff names, products, facts to mention or avoid. Once you have edited and posted five replies, RepWorth starts matching your most recent edits too: your tone, length, and phrasing.' },
   { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge must be on duty for anything to post without your tap. If it can't review, pending auto-approved replies fall back to your normal approval queue." },
   { q: 'Which review platforms do you support?', a: "Today, Google only. That's where most of the volume sits. Other review platforms are on the roadmap." },
+  { q: 'How do I get more reviews?', a: 'Two ways. Print the QR code your dashboard generates for each location; a scan goes straight to your Google review form, with no page of ours in between. And let Solicitor ask past customers by email: you upload a visit list and attest the consent, it builds a batch and decides send-or-withhold for each person with a reason, and nothing sends until you approve the batch. Every email carries one-click unsubscribe, and an opt-out is permanent.' },
+  { q: 'What does the Monday brief contain?', a: 'What came in this week and what went out, how that compares with your recent average, the reviews that need your eye, an estimate of the time saved, and, when there is enough to say, one concrete suggestion drawn from what customers wrote. Once a month an impact report adds the best review of the month. Both arrive by email; you can turn the weekly one off in Settings.' },
+  { q: 'What does the dashboard show?', a: 'Rep Pulse, a 0–100 score built from your average rating (70 percent) and response rate (30 percent), which stays blank until there is enough history. Around it: rating and volume trends by week, review velocity, a weekly recap, what each agent did, and a Restraint tab listing everything RepWorth decided not to do, with the reason.' },
   { q: 'How do I connect my Google reviews?', a: 'You connect your Google Business Profile with your Google login through our review partner. RepWorth never sees your Google password. Replies post as “Response from the owner”. One location is one Google Business Profile listing.' },
   { q: 'What about my existing reviews?', a: 'When you connect, we offer to import your 100 most recent reviews from the past 12 months. You have 7 days to say yes. Imported reviews get no drafts unless you ask, and they are never auto-posted.' },
   { q: 'Where do approvals arrive?', a: 'By email today. The link works for 48 hours, and your dashboard always works. Approve, edit, or regenerate (up to 3 times a day per review), with no login and no app. Reviews with a star rating but no text still get a reply.' },
@@ -162,10 +204,10 @@ const FAQ_ITEMS = [
 ];
 
 const HERO_LINES = [
-  'One pipeline from',
-  'new review to',
-  'public reply, with a',
-  'gate in the middle.',
+  'One review in,',
+  'one reply out,',
+  'a whole system',
+  'running around it.',
 ];
 
 const STICKY_TOP = 116;
@@ -204,7 +246,9 @@ export function HowItWorksContent({
             </h1>
             <p className="hiw-lede hiw-fade d1">
               RepWorth watches your Google reviews, drafts each reply in your voice, and brings it
-              to a gate you control: your tap on Copilot, your policy on Autopilot.
+              to a gate you control: your tap on Copilot, your policy on Autopilot. Around that
+              loop it asks your customers for new reviews, briefs you every Monday, and keeps the
+              score on your dashboard, with every decision on one record.
             </p>
             <div className="hiw-ctas hiw-fade d2">
               {comingSoon ? null : showSignupCta ? (
@@ -345,6 +389,42 @@ export function HowItWorksContent({
         </div>
       </section>
 
+      {/* The loops around the pipeline */}
+      <section className="rw-dl-band is-paper hiw-loops-band" aria-labelledby="hiw-loops-h">
+        <div className="rw-dl-col">
+          <Reveal>
+            <div className="rw-dl-intro">
+              <h2 className="rw-dl-h2" id="hiw-loops-h">The loops that run around it.</h2>
+              <p>
+                The six steps answer one review. Four more loops run on their own clock: bringing
+                new reviews in, briefing you, keeping the score, and recording every decision.
+              </p>
+            </div>
+          </Reveal>
+          <Reveal scrub>
+            <div className="hiw-loops">
+              {LOOPS.map((loop) => (
+                <article key={loop.n} className="hiw-loop" style={{ ['--bar' as string]: loop.bar }}>
+                  <div className="hiw-loop-k">
+                    <span className="hiw-loop-n">Loop {loop.n}</span>
+                    <span className="hiw-loop-c">{loop.cadence}</span>
+                  </div>
+                  <h3 className="hiw-loop-t">{loop.title}</h3>
+                  <p className="hiw-loop-b">{loop.body}</p>
+                  <p className="hiw-loop-you">
+                    <span className="hiw-loop-you-l">What you do</span>
+                    {loop.you}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </Reveal>
+          <p className="rw-dl-fine hiw-fine-center">
+            Cadences are how the system is built, not measured results.
+          </p>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section className="rw-dl-band hiw-faq-band" aria-labelledby="hiw-faq-h">
         <div className="rw-dl-col">
@@ -392,7 +472,7 @@ export function HowItWorksContent({
             </h2>
             <p className="rw-dl-cta-sub">
               {showSignupCta
-                ? 'Connect your Google Business Profile and get your first drafts in minutes. Every reply waits for your tap until you say otherwise.'
+                ? 'Connect your Google Business Profile: first drafts, your review QR code, and your dashboard in minutes. Every reply waits for your tap until you say otherwise.'
                 : "Tell us about your business and we'll reach out when early access opens for your area."}
             </p>
             <div className="rw-dl-cta-more">

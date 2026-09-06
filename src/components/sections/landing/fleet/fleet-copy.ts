@@ -17,10 +17,11 @@
  *
  * `status: 'next'` is load-bearing, not decoration. Website design reference
  * §3.2: "Never place a future agent in the same grid, with the same styling,
- * as a shipped one." Solicitor is built but inert — SOLICITATION_SEND_ENABLED
- * is defined in no environment file, so it cannot send anywhere. It renders
- * dimmed, with a dashed connector and a NEXT tag. Do not promote it to 'live'
- * until that flag is actually on in production.
+ * as a shipped one." An agent with `status: 'next'` renders dimmed, with a
+ * dashed connector and a NEXT tag. Solicitor moved to 'live' on 2026-09-06
+ * (owner decision) on the commitment that the SOLICITATION_* flags flip on in
+ * production — PRODUCT.md "Shipped today" records it. The 'next' treatment
+ * stays wired for the next agent that joins before it ships.
  */
 
 export type AgentStatus = 'live' | 'next';
@@ -67,14 +68,14 @@ export const PERSONAS: readonly FleetAgent[] = [
   {
     id: 'insights',
     name: 'Insights',
-    role: 'Compiles the weekly digest. Reports only.',
+    role: 'Compiles the Monday brief and the monthly report. Reports only.',
     status: 'live',
   },
   {
     id: 'solicitor',
     name: 'Solicitor',
-    role: 'Will ask past customers for reviews, in managed batches, honouring every opt-out.',
-    status: 'next',
+    role: 'Asks your past customers for reviews by email, in batches you approve. Outbound only; never posts.',
+    status: 'live',
   },
 ];
 

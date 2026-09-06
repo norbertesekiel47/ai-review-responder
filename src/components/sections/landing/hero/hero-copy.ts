@@ -21,12 +21,14 @@
  *   - `SUBHEAD` describes architecture (one job per agent, supervising
  *     watchdogs), which is true of the system as built.
  *   - `SCOPE_NOTE` is the truth anchor and the ONLY present-tense scope claim
- *     in the hero. It is deliberately narrow: Google reviews. It must stay
- *     accurate to PRODUCT.md's "Google Business Profile reviews only".
+ *     in the hero. It names the five jobs the system does on Google today
+ *     (respond, protect, request, brief, measure — see jobs/jobs-copy.ts)
+ *     and stays narrow on the platform: Google Business Profile only.
  *
- * Do NOT name Solicitor, CRM, Social, or fake-review dispute agents here.
- * PRODUCT.md records Solicitor as built but inert in every environment
- * ("Correction of record"), and the rest as committed-future only.
+ * Do NOT name CRM, Social, or fake-review dispute agents here — PRODUCT.md
+ * records them as committed-future only. Solicitor is present tense since
+ * 2026-09-06 (owner decision; the SOLICITATION_* production flip is the
+ * precondition, see PRODUCT.md "Shipped today").
  *
  * ── Sizing ────────────────────────────────────────────────────────────────
  * The headline lines are set as blocks at desktop, so they must fit the
@@ -68,10 +70,12 @@ export const SUBHEAD_LINES = [
  * below the CTA) so the vision leads while the claim stays accurate.
  *
  * Hand-broken so today's scope and tomorrow's ambition sit on separate lines
- * and neither can be skim-read into the other. 213px and 252px against the
- * 416px max-width.
+ * and neither can be skim-read into the other. Line 1 was widened on
+ * 2026-09-06 from the reply-only claim to the five jobs; it may wrap to two
+ * lines inside the 416px max-width, which is acceptable — the break stays
+ * between today and tomorrow, never inside either.
  */
 export const SCOPE_NOTE_LINES = [
-  'Google reviews, end to end, today.',
+  'Google reviews: answered, requested, and measured, today.',
   'Growing to everywhere else you show up.',
 ] as const;

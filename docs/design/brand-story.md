@@ -15,9 +15,15 @@ social, decks). Visual identity is owned elsewhere — tokens by
   agent tends your reputation while you run your business, and *nothing goes
   public without passing a gate*. The gated pipeline (draft → moderate → judge
   → approve/veto) is the part no competitor's ad can honestly copy.
+- The system today, on Google: five jobs — **respond** (Reply), **protect**
+  (Guardian, with the Judge and Governor over anything that self-posts),
+  **request** (the Review QR and Solicitor's consented email batches),
+  **brief** (Insights: Monday report, monthly impact report), **measure**
+  (Rep Pulse, trends, velocity, the Restraint tab). Lead with the system, not
+  the reply.
 - Long-term vision: the best agentic online reputation platform — more
-  platforms beyond Google, more capabilities (soliciting reviews, flagging and
-  disputing false reviews, monitoring everywhere). Autonomy ladder:
+  platforms beyond Google, more capabilities (flagging and disputing false
+  reviews, CRM, social, monitoring everywhere). Autonomy ladder:
   Copilot → Guardian → Autopilot.
 
 **Tagline of record:** `The AI agent for your reputation`
@@ -61,10 +67,15 @@ Alternate emphases by audience:
 
 ## Messaging guardrails
 
-- **Roadmap honesty.** Unshipped capabilities (review solicitation, false-review
-  disputes, non-Google platforms) may be *visually* gestured at — dim nodes
+- **Roadmap honesty.** Unshipped capabilities (false-review disputes, CRM,
+  social, non-Google platforms) may be *visually* gestured at — dim nodes
   "warming up" — but never named in copy as present-tense shipped claims.
   Closing lines stay aspirational-but-true (e.g. "Reputation, handled.").
+  Review solicitation moved to present tense on 2026-09-06 (PRODUCT.md).
+- **Five jobs, even weight.** Since 2026-09-06 the landing, features, and
+  how-it-works pages give respond, request, brief, measure, and govern
+  comparable space. "One thing per ad" still holds for a single ad; a page
+  names the whole system. The reply pipeline is never the only job on a page.
 - **Expansion is verbs, not icons.** If roadmap capabilities appear as text,
   use two-word verb phrases ("Get reviews · Flag fakes · Watch everywhere") —
   verbs read as agency; icon grids read as a pricing page.
