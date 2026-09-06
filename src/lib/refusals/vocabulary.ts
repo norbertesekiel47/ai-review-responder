@@ -460,7 +460,6 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
 // see. Depth is the wrong goal here." Making these two private would also make
 // them the only lane vocabularies that are, and would put #1003's MANDATED
 // exhaustiveness test out of reach of the data it must assert.
-// fallow-ignore-next-line unused-export
 export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
   policy_not_enabled: null,
   rating_below_threshold: 'owner_review_required',
@@ -551,7 +550,6 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
 // Exported with no external importer, for the same reason as the map above —
 // `resolvePolicyGateRefusal` is its only runtime consumer, and the eval asserts
 // this locked order directly.
-// fallow-ignore-next-line unused-export
 export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
   // 1 — unsafe_content
   'moderation_flagged',
