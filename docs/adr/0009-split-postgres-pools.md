@@ -33,7 +33,7 @@ RepWorth runs every Postgres write through one shared postgres.js client (`sql`,
 `src/lib/db/server.ts`) pointed at the Supavisor transaction pooler
 (`DATABASE_POOL_URL`, `:6543`). Two forces converged on this client:
 
-1. **#505 (lab-notes 2026-07-18): fan-out > open connections wedges
+1. **#505 (`lab-notes/history/2026-07.md`, 2026-07-18): fan-out > open connections wedges
    permanently.** A concurrent `Promise.all` on ONE postgres.js client over the
    Supavisor **transaction** pooler pipelines multiple queries onto shared
    backend connections and wedges PERMANENTLY in `state=active,

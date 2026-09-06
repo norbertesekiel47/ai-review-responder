@@ -655,7 +655,7 @@ from the founder who onboarded them works far better than anything automated.
 - **Beta comp coupon** — the automatic 100%-off-for-3-months applied at checkout
   because the account came from an admin invite. There is no promo code to type
   and no code to give out. (Say "beta comp coupon", not "beta discount" or
-  "discount code" — `CONTEXT.md` locks the term and lists those as the phrasings
+  "discount code" — `docs/context/admin-invite-funnel.md` locks the term and lists those as the phrasings
   to avoid, because a *code* is something a customer types and this is
   server-selected.)
 

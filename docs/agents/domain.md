@@ -38,6 +38,8 @@ Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
         └── docs/adr/
 ```
 
+This repo uses the multi-context layout, with its contexts under `docs/context/` (not `src/<ctx>/`): `CONTEXT-MAP.md` is the entry point and lists every term under the context file that owns it; the root `CONTEXT.md` is a redirect stub.
+
 ## Use the glossary's vocabulary
 
 When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.

@@ -6,6 +6,8 @@ resume), preserve intake drafts during setup, add native review/runtime handling
 and reconcile context/MCP guidance. Governance-only: no production counter
 increment. Review and validation: `docs/reviews/codex-agent-setup-reliability/validation.md`.
 
+2026-09-05 — **docs/agent-context-restructure:** Split the reference layer for coding agents — lab-notes → `.claude/reference/lab-notes/` (19 topic pages + dated history), `docs/directory.md` → index + `docs/directory/` pages (audit reads all pages), `CONTEXT.md` → `CONTEXT-MAP.md` + `docs/context/`, currents/progresstracking archived at a 12,000-word cap; 18 path-scoped rules in `.claude/rules/` (Claude auto-loads; Codex runs `pnpm agent:rules`), `ci:agent-config` validates them, `src/__tests__/reference-shape.test.ts` enforces the caps, layout doc `docs/agents/context-layout.md`. Every move is line-set lossless. Governance-only: no production counter increment.
+
 Entropy counter for the `/feature` workflow (feature.md step 8): every merged
 feature increments the counter. At **≥ 5 merges** since the last architecture
 pass, the orchestrator reminds the user to schedule an architecture review

@@ -498,7 +498,7 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   // Proven by the #505 staging differential repro (6/6 concurrent iterations
   // wedged vs 0/6 sequential). Sequential naturally preserves the core checks'
   // shared-fate: a core-check rejection propagates and fails the cycle, and the
-  // poller's catch recycles the wedged-free client. See .claude/reference/lab-notes.md.
+  // poller's catch recycles the wedged-free client. See .claude/reference/lab-notes/postgres.md.
   // FIRST: a wedged connection is the failure that makes every other signal
   // below unreliable, so it is reported even if a later check throws.
   collect(await checkWedgedClientRead(sql, cfg));

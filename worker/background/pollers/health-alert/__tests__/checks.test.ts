@@ -738,7 +738,7 @@ describe('health-alert checks', () => {
   // poller cycle on the max:2 health client. Proven by the #505 staging
   // differential repro: the exact Promise.all bundle on max:2 wedged 6/6
   // iterations; the same 6 queries run sequentially wedged 0/6. Fix = one query
-  // in flight at a time so nothing pipelines. See .claude/reference/lab-notes.md.
+  // in flight at a time so nothing pipelines. See .claude/reference/lab-notes/postgres.md.
   //
   // SEAM HONESTY: this is a live-pooler pipelining effect a unit test CANNOT
   // reproduce (no faithful seam without the real Supavisor pooler). The

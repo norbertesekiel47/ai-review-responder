@@ -70,7 +70,7 @@ function renderRivalLineHtml(line: NamedRivalLine): string {
   }
 
   // The Auto-default rival is always disclosed as algorithmic; an owner's own
-  // pick is never presented as auto-selected (CONTEXT.md, Auto-default rival).
+  // pick is never presented as auto-selected (docs/context/competitor-delta.md, Auto-default rival).
   const prefix = line.source === 'auto_default' ? 'Auto-selected rival: ' : '';
 
   return `

@@ -111,7 +111,7 @@ export const STATUS_BADGE_VOCABULARIES = {
   }),
   suppressionScope: vocabulary<SuppressionScope>({
     labels: { global: 'Global', account: 'Account' },
-    // Global is the stronger record (it wins a double match — CONTEXT.md), so
+    // Global is the stronger record (it wins a double match — docs/context/solicitation-suppression-unsubscribe.md), so
     // it reads as ink rather than as one more grey chip.
     styles: { global: INK, account: GRAY },
   }),

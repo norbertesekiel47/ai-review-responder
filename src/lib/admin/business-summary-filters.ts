@@ -14,10 +14,10 @@
 //      total and the page can never disagree on the filtered set.
 //   3. `capByHealth` — the health filter's FILTER-THEN-CAP step: filter on the
 //      scored level, THEN slice the page. Never the other way round — the same
-//      rule the At-risk list follows (CONTEXT.md → At-risk list).
+//      rule the At-risk list follows (docs/context/core-accounts-channels-admin.md → At-risk list).
 //
 // The statements themselves stay in business-summary.ts, which remains the
-// single owner of the admin business query (CONTEXT.md → Business summary,
+// single owner of the admin business query (docs/context/core-accounts-channels-admin.md → Business summary,
 // LOCKED). This module exists so that owner reads as: resolve → filter →
 // rows → count → metrics → score → cap, each step named and unit-tested on
 // its own (`__tests__/business-summary-filters.test.ts`).

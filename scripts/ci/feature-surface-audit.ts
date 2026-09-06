@@ -18,7 +18,7 @@
 //   '/' → '-'. No committed intake → not a /feature-workflow branch → pass.
 // - With an intake: every file changed vs the fork point (merge-base with
 //   origin/<base branch>) must match allowed_edit_surface, the
-//   always-allowed process surfaces (docs/**, CONTEXT.md — mirroring the
+//   always-allowed process surfaces (docs/**, CONTEXT.md, CONTEXT-MAP.md — mirroring the
 //   edit-surface guard's exemptions), or be inside .feature/ (never
 //   committed anyway). Violations fail the audit with the file list.
 // - With an intake: every non-process allowed_edit_surface entry must match
@@ -65,7 +65,7 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${pattern}$`);
 }
 
-const ALWAYS_ALLOWED = [/^docs\//, /^CONTEXT\.md$/, /^\.feature\//];
+const ALWAYS_ALLOWED = [/^docs\//, /^CONTEXT\.md$/, /^CONTEXT-MAP\.md$/, /^\.feature\//];
 
 /**
  * A surface entry that pre-escapes a bracket for bash — `\[`, `\]`, `[[]`,

@@ -134,7 +134,7 @@ export type AskAttemptView =
     });
 
 /**
- * The Halt latch's closed reason set (CONTEXT.md **Halt latch**): one mechanism,
+ * The Halt latch's closed reason set (docs/context/solicitation-send-mode-approval-halt-lane.md **Halt latch**): one mechanism,
  * six reasons. Migration 091's `solicitation_batches_halt_consistency` CHECK —
  * unchanged by 108, which widened `solicitation_outreach` only, and widened by
  * 111 for `platform_halt` (#917) — is the database-side owner of the same

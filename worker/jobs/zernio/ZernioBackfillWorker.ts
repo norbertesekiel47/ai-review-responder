@@ -6,7 +6,7 @@
 // Idempotent via zernio_backfill_runs.completed_at IS NOT NULL sentinel.
 //
 // Selection: newest IMPORT_TARGET_COUNT reviews inside the Import window
-// (CONTEXT.md glossary) — createTime in [now − 12 months, live-ingest
+// (docs/context/core-reviews-responses.md glossary) — createTime in [now − 12 months, live-ingest
 // cutoff). The upper bound keeps lane ownership disjoint: the live lane
 // (webhook + recent poller) owns createTime >= cutoff, so nothing the
 // import stores can be a review the live lane owed a draft for (#674).
@@ -67,7 +67,7 @@ export interface ImportSelection {
 }
 
 /**
- * Pure selection over the Import window (CONTEXT.md glossary): keep reviews
+ * Pure selection over the Import window (docs/context/core-reviews-responses.md glossary): keep reviews
  * with floorMs <= createTime < upperCutoffMs (upper null = no bound, the
  * connected_at-null case), sort newest-first (defensive re-sort — Zernio's
  * ordering is verified but undocumented, spec §9), take the newest

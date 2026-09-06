@@ -397,7 +397,7 @@ describeWithDb(
       expect(suspension?.linkKind).toBe('auto-approval');
     });
 
-    // --- Scope: account vs location (invariant #8, CONTEXT.md Restraint tab) ---
+    // --- Scope: account vs location (invariant #8, docs/context/refusal-ledger.md Restraint tab) ---
 
     it('scopes an account read to account_id alone', async () => {
       const { accountId, businessId } = await seedAccountWithLocation();

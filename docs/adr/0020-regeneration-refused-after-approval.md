@@ -49,7 +49,7 @@ correction matters because the SHARING is load-bearing: reusing
 batchId)` partial unique index (migration 091,
 `job_outbox_generate_solicitation_asks_inflight`) yields "at most one
 regeneration in flight per batch", and why "regenerate all" cannot exist as a
-fan-out. That is the causal claim `CONTEXT.md` → **Ask regeneration** records as
+fan-out. That is the causal claim `docs/context/solicitation-send-mode-approval-halt-lane.md` → **Ask regeneration** records as
 LOCKED, and this ADR must not contradict it. The string
 `regenerate_solicitation_ask` survives in the repo only as a `requireAttempt`
 diagnostic label and as a deliberately fictitious test-fixture topic — neither
@@ -146,7 +146,7 @@ window", which is not a guarantee anyone can reason about.
 - **No migration, no schema change.** Backout is reverting the PR;
   `SOLICITATION_SEND_ENABLED` is off in every environment, so neither the
   shipped nor the reverted behaviour is customer-reachable today.
-- **Glossary**: the term **Ask regeneration** is coined in `CONTEXT.md`
+- **Glossary**: the term **Ask regeneration** is coined in `docs/context/solicitation-send-mode-approval-halt-lane.md`
   alongside **Owner approval** and **Ask exclusion**, and **Owner approval**'s
   conditional sentence is replaced by the unconditional one.
 
@@ -201,7 +201,7 @@ is a different act.
 row inside the veto window is not post-approval regeneration: it removes a
 message, it never replaces bytes, so it collides with neither this ADR nor
 #860's `non_goals`. It moves only toward restraint — the same argument
-`CONTEXT.md` → **Ask exclusion** already makes for pre-approval deselection.
+`docs/context/solicitation-send-mode-approval-halt-lane.md` → **Ask exclusion** already makes for pre-approval deselection.
 #872 records the reviewer's claims (no per-ask approval state, no migration, no
 coordination class `haltBatch` does not already force) as claims **to be
 validated, not assumed**, and it needs its own grill and plan before any code.

@@ -83,7 +83,7 @@ launchable now with zero autonomy flags.
 | Capability | Status | Pointer |
 |---|---|---|
 | Insights persona — weekly digest (`WeeklySummaryWorker`) | ✅ Built | WS5 |
-| Competitor snapshots — normalized `competitor_snapshots` rows (full SerpAPI local pack, migrations 084/085), weekly digest gap line, owner-picked Named rival + deterministic Auto-default rival | ✅ Built (watch-mode probe) | design §9.2, `CONTEXT.md` "Competitor Delta" |
+| Competitor snapshots — normalized `competitor_snapshots` rows (full SerpAPI local pack, migrations 084/085), weekly digest gap line, owner-picked Named rival + deterministic Auto-default rival | ✅ Built (watch-mode probe) | design §9.2, `docs/context/competitor-delta.md` "Competitor Delta" |
 | Ranking tracking (SerpAPI, active-subscription-only) | ✅ Built | invariant #11 |
 | Dashboard KPI stack — per-location + per-account aggregate; Review-time anchor for reputation metrics; response rate; timeSaved | ✅ Built | `src/lib/dashboard/`, `src/lib/kpi/fragments.ts`, ADR 0019 |
 | Review-topic ontology (classify complaints/praise into per-vertical operational topics; trend lines like "arrival-time sentiment fell 3 months straight") | ❌ Not built — sentiment is star-derived only | roadmap Phase 3 |
@@ -149,7 +149,7 @@ every LLM call) · DB admission chokepoint (#773) · worker crash-net with
 transient-DB classification · health alerting (`HealthAlertPoller`, Sentry) ·
 PostHog analytics with server-side dispatch · structured logging with
 sanitizer · RLS + tenant-scope + ~15 CI audit scripts · BotID/WAF edge
-protection · eval-in-CI. Details: `.claude/CLAUDE.md` and `docs/directory.md`.
+protection · eval-in-CI. Details: `.claude/CLAUDE.md` and `docs/directory.md` (index) + `docs/directory/` pages.
 
 ## 3. Environment reality (do not oversell)
 

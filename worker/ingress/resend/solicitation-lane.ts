@@ -385,7 +385,7 @@ type LaneOutcome = Committed | UnattributedSuppressed | Ignored;
 /**
  * The three ledger sources this lane can write, BOUND to the canonical union
  * rather than re-spelled. `src/lib/solicitation/suppression.ts` is the single
- * owner of the vocabulary (CONTEXT.md: "never string literals at call sites"), so
+ * owner of the vocabulary (docs/context/solicitation-suppression-unsubscribe.md: "never string literals at call sites"), so
  * `Extract` makes a change to that union surface here instead of silently
  * leaving a second, unowned enumeration behind.
  */

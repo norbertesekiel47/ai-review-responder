@@ -395,7 +395,7 @@ describeWithDb(
       // The source the body was rendered from goes with it. Nulling only the
       // prose would delete the sentence and keep contact_first_name and
       // visit_note — the third-party PII the sentence was assembled from — which
-      // is not the data minimization CONTEXT.md's Body redaction entry promises.
+      // is not the data minimization docs/context/solicitation-send-mode-batch-and-delivery-seam.md's Body redaction entry promises.
       expect(JSON.parse(row.interpolation_inputs)).toEqual({});
       // Redaction is not a delete: the metadata row and its send proof stay.
       expect(row.sent_at).not.toBeNull();

@@ -27,7 +27,7 @@ whole file up front. Trivial and small lanes open only the sections named
 above.
 
 Read `AGENTS.md` and `.claude/CLAUDE.md`. Use their reference map to read only
-the relevant `CONTEXT.md` glossary entries and domain references before making
+the relevant glossary entries (`CONTEXT-MAP.md` → `docs/context/`) and domain references before making
 architectural assumptions; do not load the entire glossary.
 
 This lane adds exactly one rule of its own:

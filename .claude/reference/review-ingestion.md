@@ -145,7 +145,7 @@ ingests or generates a draft.
 `ZernioBackfillWorker` (topic `zernio_initial_backfill`) is the consented
 Review import executor — NOT a backfill that answers anything. Selection is
 the pure `selectImportWindow`: newest **100** reviews with `createTime ∈
-[now − 12 months, live-ingest cutoff)`; the CONTEXT.md glossary owns both the
+[now − 12 months, live-ingest cutoff)`; the `docs/context/core-reviews-responses.md` glossary owns both the
 **Import window** and **Live-ingest cutoff** terms. The cutoff
 (`liveIngestCutoff` in `zernio-ingest-shared.ts`, shared with
 `ZernioRecentReviewPoller`) makes lane ownership disjoint by construction:
@@ -184,7 +184,7 @@ nothing, import unbounded above.
   (target met / floor passed) are trusted only while ordering is clean; a
   non-descending page disables both for the run and it pages to feed end,
   best-effort (the staging sandbox feed IS non-descending in practice — see
-  lab-notes). Cap exhausted with `nextPageToken` set and <100 in-window →
+  `lab-notes/zernio.md`). Cap exhausted with `nextPageToken` set and <100 in-window →
   **terminal** `ZernioImportPaginationCapExhaustedError` (failed outbox row +
   Sentry; NO `review_exceptions` row — distinct from the ingest worker's
   `zernio_pagination_cap_exhausted` exception path); `completed_at` stays
@@ -484,7 +484,9 @@ from real reviews or from the canned fixture. CHECK constraint enforces
 **Reads must filter `archived`.** Any `ORDER BY created_at DESC LIMIT 1`
 on `onboarding_demos` MUST also filter `generation_status <> 'archived'`
 because the 23505-archived loser can have a newer `created_at` than the
-winning completed row. See lab-notes for the full rationale.
+winning completed row. See `lab-notes/history/2026-05.md` § "Page-level reads
+must filter `archived` when the table has 23505 race-loser archives" for the
+full rationale.
 
 **Curated fallback bypasses dedup entirely.** When SerpAPI fails OR no
 review meets the `positive-with-moderate-tail` anchor (no review with

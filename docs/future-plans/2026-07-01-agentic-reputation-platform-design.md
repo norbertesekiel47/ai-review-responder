@@ -492,8 +492,8 @@ run):
   strictly per-location on the primary tracked keyword; empty states
   omit/tease/degrade. Persistence: normalized `competitor_snapshots` rows
   (full ~20 pack, `is_self` row included, nullable rating/reviews, keyed
-  by business + keyword + search location). Glossary: `CONTEXT.md`
-  "Competitor Delta".
+  by business + keyword + search location). Glossary:
+  `docs/context/competitor-delta.md` "Competitor Delta".
 - **Probe: Voice Report Card.** Owner-facing screen rendering what
   `src/lib/responses/voice-learning.ts` has already learned from the owner's
   reply edits (register traits + activation meter). Zero new data collection.

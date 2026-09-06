@@ -340,7 +340,7 @@ export function parseBusinessListFilters(params: URLSearchParams): BusinessSumma
  * a health filter takes the UNPAGINATED path — every row under `search`/
  * `status`, metrics for all of them, score, FILTER on level, THEN slice
  * `limit`/`offset` in TS. That is the same filter-then-cap order the At-risk
- * list uses (CONTEXT.md → At-risk list) and the same cost Overview already
+ * list uses (docs/context/core-accounts-channels-admin.md → At-risk list) and the same cost Overview already
  * pays on every render; fine at the capacity target (250 locations).
  *
  * The pure steps — request normalisation (`resolveBusinessListParams`), the
@@ -407,7 +407,7 @@ export async function getBusinessSummaries(
   //
   // Unpaginated (Overview), `page` is every business and the aggregate does the
   // same work it always did — that path reads every business row by design
-  // (CONTEXT.md → At-risk list, §5.1) and is not what this shape optimises.
+  // (docs/context/core-accounts-channels-admin.md → At-risk list, §5.1) and is not what this shape optimises.
   const businessRows = await sql<BusinessRow[]>`
     WITH page AS (
       SELECT b.id, b.account_id, b.name, b.category, a.subscription_status, b.last_sync_at

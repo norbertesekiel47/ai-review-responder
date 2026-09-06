@@ -137,7 +137,7 @@ function coverageLine(log: RestraintPayload): string | null {
  * Merging every write site does not start it; the flag does (#1013 D4).
  * Rendering one account-wide **Coverage start** without saying so would claim
  * account-created coverage for a lane that has never been able to write, which
- * `CONTEXT.md` forbids.
+ * `docs/context/refusal-ledger.md` forbids.
  */
 /**
  * The ledger is not recording at all.
@@ -221,7 +221,7 @@ function archivedPeriodLine(period: ArchivedPeriod): string {
  * An account-wide suspension carries `business_id IS NULL` (migration 116, C3),
  * and the per-location scope admits it, so ONE suspension appears under every
  * location once each AND once in the account total. A per-location sum therefore
- * LEGITIMATELY exceeds the account total. `CONTEXT.md` requires the tab to say
+ * LEGITIMATELY exceeds the account total. `docs/context/refusal-ledger.md` requires the tab to say
  * which number it shows; #1014's body claimed the two always reconcile, which is
  * false (deviation D3).
  */

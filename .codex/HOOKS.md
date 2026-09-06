@@ -61,6 +61,19 @@ Lint paths are refreshed after typecheck and missing paths are tolerated if a
 concurrent task deletes them. If content changes during verification, the hook
 does not cache a green result; the next stable state must be checked again.
 
+## Rule discovery
+
+Path-scoped rules live in `.claude/rules/*.md`; each file's `paths:`
+frontmatter names the globs it governs. Claude Code loads a rule on its own
+when it reads a matching file. Codex does not — nested instruction files load
+only along the root→cwd path, and a root launch loads none — so rule discovery
+is instruction-driven, not hook-enforced: before editing, run
+`pnpm agent:rules <every path you will edit>` (`scripts/agent-rules.ts`) and
+read every file it lists (`none` means no rule applies). No hook checks that
+you did; `pnpm ci:agent-config` validates the rules directory itself (frontmatter,
+live globs, the 800-word cap, and the AGENTS.md wiring). Layout and caps:
+`docs/agents/context-layout.md`.
+
 ## Code discovery
 
 Codebase discovery uses local repository tools (`rg`, direct source reads,

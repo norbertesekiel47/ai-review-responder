@@ -117,8 +117,10 @@ describe.each(GUARDS)('%s edit-surface-guard dynamic route segments', (_name, gu
     ).toBe(0);
   });
 
-  it('still exempts docs/ and .feature/ regardless of surface', () => {
+  it('still exempts docs/, .feature/, CONTEXT.md and CONTEXT-MAP.md regardless of surface', () => {
     expect(guardExitFor(guard, 'docs/anything.md')).toBe(0);
     expect(guardExitFor(guard, '.feature/intake.json')).toBe(0);
+    expect(guardExitFor(guard, 'CONTEXT.md')).toBe(0);
+    expect(guardExitFor(guard, 'CONTEXT-MAP.md')).toBe(0);
   });
 });

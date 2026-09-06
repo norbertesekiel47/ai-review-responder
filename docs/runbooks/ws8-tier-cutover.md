@@ -19,7 +19,7 @@ optional.
 > **section 6**. Staging is unaffected — it has had all three since 2026-07-16.
 > Do not read the sequence above as "nothing has run in prod"; re-introspect
 > before assuming. Detail: `.claude/reference/migrations-log.md` entries 077/105,
-> and lab-notes "Migration lockstep audit".
+> and lab-notes/migrations.md "Migration lockstep audit".
 
 There is no live-traffic compatibility reader, grandfathering map, or alternate
 migration order. Run every phase in staging first. After staging evidence is

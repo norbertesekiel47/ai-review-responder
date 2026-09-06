@@ -542,7 +542,7 @@ async function processExistingReview(
  * selects only createTime < the live-ingest cutoff (connected_at − grace),
  * the exact complement of the recent poller's isRecentForConnection, so a
  * review the live lane owes a draft for can never be stored first by the
- * import. See CONTEXT.md "Import window" / "Live-ingest cutoff" and spec
+ * import. See docs/context/core-reviews-responses.md "Import window" / "Live-ingest cutoff" and spec
  * §6.1. The live lane's own semantics are unchanged: an existing row with
  * a matching hash still returns 'unchanged' without enqueueing.
  *

@@ -2678,7 +2678,7 @@ Revisit triggers:
 
 - **115** — `qr_scan_analytics_event`: widens the `analytics_events`
   `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;
-  CONTEXT.md "QR redirect"). Constraint-only on the 106 pattern — no
+  `docs/context/review-qr.md` "QR redirect"). Constraint-only on the 106 pattern — no
   SchemaRequirement, no assertSchemaReady entry, no retention-policy row.
   Applied to **STAGING** (`kubdiqdhqbhwmqfditeg`) on **2026-08-26** and
   **PRODUCTION** (`udeyaqnvpojbwgoaxwdg`) on **2026-08-27**, staging first.

@@ -8,7 +8,7 @@
 // pin the SQL SPELLING every day; this suite proves the bucketing MEANS what
 // ADR 0019 decided, against real Postgres.
 //
-// Domain language (CONTEXT.md): the Review-time anchor is LEAST(review_date,
+// Domain language (docs/context/core-reviews-responses.md): the Review-time anchor is LEAST(review_date,
 // detected_at) — the timestamp reputation KPIs bucket on so a Review import (the
 // consented one-time storage of an owner's Google reviews, detected_at = import
 // time and review_date = the original Google timestamp) lands in its true

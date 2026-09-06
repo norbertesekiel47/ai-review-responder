@@ -91,7 +91,8 @@ works at feature scale, so an epic never runs steps 2–8:
 
 1. Invoke the `wayfinder` skill: investigation tickets for the unknowns,
    implementation tickets for the knowns, each declaring its blocking edges. Do
-   the domain-modeling work — `CONTEXT.md` terms, ADRs — at THIS level.
+   the domain-modeling work — glossary terms (`CONTEXT-MAP.md` → the owning
+   `docs/context/<context>.md`), ADRs — at THIS level.
 2. Size every implementation ticket to a single `/feature` run. A ticket that
    cannot declare a tight surface splits again.
 3. STOP. Each ticket ships through its own `/feature <ticket-ref>` run.
@@ -113,8 +114,10 @@ following it.
 
 Grill until every branch of the decision tree is resolved: edge cases, failure
 modes, what we are explicitly NOT building. Build the domain model inline —
-challenge terms against `CONTEXT.md`'s glossary, update it when we coin or
-sharpen a term, and capture reversed or hard-to-explain decisions as ADRs in
+challenge terms against the glossary (`CONTEXT-MAP.md` → the owning
+`docs/context/<context>.md`), update that context file — and the term's name
+in the map — when we coin or sharpen a term, and capture reversed or
+hard-to-explain decisions as ADRs in
 `docs/adr/` as they happen. Every later artifact uses the shared language
 verbatim. Never paraphrase a glossary term.
 
@@ -206,7 +209,8 @@ Then invoke `writing-plans`, structuring tasks as tickets:
   `@`-referenced precedent file beats a paragraph describing the same thing.
 - Each task is a **tracer bullet** — a thin vertical slice that runs end to
   end, never a horizontal layer.
-- Each task declares its **blocking edges**, uses `CONTEXT.md` terms verbatim,
+- Each task declares its **blocking edges**, uses the glossary's terms
+  (`docs/context/*.md`) verbatim,
   and stays inside `allowed_edit_surface`.
 - Mark the mutually independent tasks (no blocking edges AND disjoint file
   sets). Step 4 uses this for parallel dispatch.
@@ -309,8 +313,8 @@ bash scripts/feature-state.sh set-phase executing
 ```
 
 Invoke `subagent-driven-development` FROM this session: fresh per-task
-subagents against the worktree. Every task prompt includes the `CONTEXT.md`
-glossary excerpt, the task's spec slice and blocking-edge context, the
+subagents against the worktree. Every task prompt includes the glossary
+excerpt (the relevant `docs/context/*.md` terms), the task's spec slice and blocking-edge context, the
 precedent paths from `existing_patterns_to_follow`, and the failing eval tests
 this task turns green — code references, never prose descriptions of them. The
 full delegation contract is in `execution-lanes.md` § Delegation contract.
@@ -662,12 +666,16 @@ section becomes visible.
   checkout (dry run), review the plan, re-run with `--apply`. Never remove by
   hand with `--force`.
 - **Deviations promotion**: read the deviations file and promote every durable
-  lesson — root cause, test technique, library gotcha, constraint — into
-  `.claude/reference/lab-notes.md` or the CLAUDE.md gotchas. The deviations
+  lesson — root cause, test technique, library gotcha, constraint — into the
+  lab notes (`.claude/reference/lab-notes/README.md` § "How to add a lab
+  note": a dated entry in the newest `lab-notes/history/*.md`, plus the topic
+  page when a current rule changes), the area's `.claude/rules/<area>.md`
+  § Traps, or the CLAUDE.md gotchas. The deviations
   file stays as the historical record; the lesson must not live only there.
 - Invoke `document-feature` to sweep docs and reference inventories.
 - **Domain sweep**: apply `domain-modeling` once more — fold terms and
-  decisions that emerged during implementation back into `CONTEXT.md` and ADRs.
+  decisions that emerged during implementation back into the owning
+  `docs/context/<context>.md` (+ its `CONTEXT-MAP.md` row) and ADRs.
 - **Entropy counter**: increment the merge counter in
   `.claude/reference/arch-review-log.md`. At ≥ 5 merges since the last
   architecture pass, remind the owner to schedule one. Never start one

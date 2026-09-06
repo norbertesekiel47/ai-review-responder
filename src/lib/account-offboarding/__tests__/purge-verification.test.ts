@@ -413,9 +413,9 @@ describe('purge verification', () => {
     });
 
     it('pins the businesses OR-chain at 28 predicates, three of them non-residue', async () => {
-      // lab-notes "An exact count written into a comment is a maintenance
+      // lab-notes/history/2026-05.md "An exact count written into a comment is a maintenance
       // trap": #892 exists because 27 rotted. Replacing it with an unpinned 28
-      // would rot the same way, so the numbers docs/directory.md and the
+      // would rot the same way, so the numbers docs/directory/lib-account-offboarding.md and the
       // branch comments state are asserted here.
       const businesses = (await sentinelQueries())[1];
       expect(businesses, 'no businesses verification query emitted').toBeDefined();

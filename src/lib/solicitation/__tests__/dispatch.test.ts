@@ -719,7 +719,7 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
   });
 
   // Round-2 adversarial review, finding F2. tx2's terminal CAS is what persists
-  // `provider_message_id`, and CONTEXT.md's **Messaging adapter** entry makes
+  // `provider_message_id`, and docs/context/solicitation-send-mode-batch-and-delivery-seam.md's **Messaging adapter** entry makes
   // that id "the only join key the Solicitation lane can attribute a bounce or
   // complaint on". When the CAS matches no row the id did NOT persist, so a
   // `solicitation_sent` outcome recorded anyway is a value-ledger row with

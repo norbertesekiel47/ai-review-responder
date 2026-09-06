@@ -7,10 +7,15 @@ import { describe, expect, it } from 'vitest';
 // two sections turned into mini-specs: five "Where things live" rows were
 // 158–398 words each, and eight "Non-obvious gotchas" were 75–288 words. The
 // trim that day moved the WHY out — file-adjacent rules to a blockquote in
-// docs/directory.md § <folder>, LOCKED-term meanings to CONTEXT.md, gotcha
-// mechanics to .claude/reference/lab-notes.md — and kept, per row, WHERE to
-// read plus at most three one-clause traps; per gotcha, symptom → rule →
-// pointer.
+// the directory map, LOCKED-term meanings to the glossary, gotcha mechanics to
+// the lab notes — and kept, per row, WHERE to read plus at most three
+// one-clause traps; per gotcha, symptom → rule → pointer. The 2026-09-05
+// restructure split those homes into pages small enough to read whole
+// (docs/directory/<page>.md § <folder>, docs/context/<context>.md +
+// CONTEXT-MAP.md, .claude/reference/lab-notes/<topic>.md) and moved each
+// area's traps into a path-scoped rule (.claude/rules/<area>.md); the caps on
+// those pages live in reference-shape.test.ts, the layout in
+// docs/agents/context-layout.md.
 //
 // This test keeps that shape. It is a guard TEST rather than a `ci:*` script
 // on purpose (same reasoning as ci-audit-wiring.test.ts): removing it would be
@@ -32,8 +37,9 @@ export const TOTAL_MAX_WORDS = 6000;
 
 const IGNORE = /<!--\s*claude-md-cap-ignore:\s*(?!-->)\S/;
 const HOMES =
-  'move the WHY out: file-adjacent rules → a blockquote in docs/directory.md § <folder>; ' +
-  'LOCKED-term meanings → CONTEXT.md; mechanics → .claude/reference/lab-notes.md. ' +
+  'move the WHY out: file-adjacent rules → a blockquote in docs/directory/<page>.md § <folder>; ' +
+  'LOCKED-term meanings → docs/context/<context>.md (+ CONTEXT-MAP.md); ' +
+  'mechanics → .claude/reference/lab-notes/<topic>.md; area traps → .claude/rules/<area>.md. ' +
   'Keep WHERE to read + ≤3 one-clause traps + the pointer. Escape hatch: <!-- claude-md-cap-ignore: reason -->';
 
 function words(text: string): number {
