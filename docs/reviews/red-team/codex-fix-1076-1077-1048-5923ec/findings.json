@@ -5,11 +5,11 @@
   "branch": "codex/fix-1076-1077-1048",
   "fork_sha": "249389c7e16aa9b2efb0646f0f1b6b88410b017a",
   "merge_base_sha": "249389c7e16aa9b2efb0646f0f1b6b88410b017a",
-  "head_sha": "27069fef26fb001ec5133fa41ec893521a2722f2",
+  "head_sha": "baeda3e72477d47aa6f2598da3726ef5af837921",
   "intake_sha256": "13adaf198fc4916e7e597d97960e7037b904bee2285dbc1df23140e97af2f231",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-06T04:38:28.074Z",
+  "round": 2,
+  "generated_at": "2026-09-06T04:51:16.582Z",
   "inventory": [
     {
       "id": "RT-001",
@@ -184,7 +184,7 @@
       "test": "RequestsClient — batch absent and building > renders the ghost pipeline empty state with the contacts-on-file count when no batch exists",
       "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/app/(authenticated)/dashboard/requests/GhostPipeline.tsx: Contacts with retained, dated reviews linked to earlier requests at this location are skipped. -> Coming soon — matching contacts to reviews.. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/app/(authenticated)/dashboard/requests/GhostPipeline.tsx: Contacts with retained, dated reviews linked to earlier requests at this location are skipped. -> Coming soon — matching contacts to reviews.. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-026",
@@ -604,7 +604,7 @@
       "test": "RestraintContent > rejects a malformed archival truncation field",
       "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintContent.tsx: && typeof value.archivedPeriodsTruncated === 'boolean' -> && true. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintContent.tsx: && typeof value.archivedPeriodsTruncated === 'boolean' -> && true. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-086",
@@ -933,35 +933,35 @@
       "test": "RestraintReport > discloses historical policy-hold gaps after automatic posting is enabled ([])",
       "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx:   if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.'; ->   if (autoApprovalEnabled) return ''; . Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx:   if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.'; ->   if (autoApprovalEnabled) return ''; . Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-133",
       "test": "RestraintReport > discloses historical policy-hold gaps after automatic posting is enabled ([ { category: 'unsafe_content' } ])",
       "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx:   if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.'; ->   if (autoApprovalEnabled) return ''; . Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx:   if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.'; ->   if (autoApprovalEnabled) return ''; . Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-134",
       "test": "RestraintReport > qualifies archived periods when an older in-window period was omitted ([])",
       "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx: if (!log.archivedPeriodsTruncated) return null; -> if (log.archivedPeriodsTruncated) return null;. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round two at baeda3e72477d47aa6f2598da3726ef5af837921: individual HEAD baseline passed; 1 semantic mutation(s) failed at behavioral assertions; every baseline and mutant passed assert-one-test. Production target src/components/dashboard/restraint/RestraintReport.tsx. if (!log.archivedPeriodsTruncated) return null; -> if (!log.archivedPeriodsTruncated || log.scope === 'location') return null;. Each source was restored byte-for-byte; root finalizer closed all journal entries before report updates."
     },
     {
       "id": "RT-135",
       "test": "RestraintReport > qualifies archived periods when an older in-window period was omitted ([ { …(2) } ])",
       "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+      "outcome": "killed",
+      "reason": "Round two at baeda3e72477d47aa6f2598da3726ef5af837921: individual HEAD baseline passed; 1 semantic mutation(s) failed at behavioral assertions; every baseline and mutant passed assert-one-test. Production target src/components/dashboard/restraint/RestraintReport.tsx. if (!log.archivedPeriodsTruncated) return null; -> if (!log.archivedPeriodsTruncated || log.scope === 'location') return null;. Each source was restored byte-for-byte; root finalizer closed all journal entries before report updates."
     },
     {
       "id": "RT-136",
       "test": "RestraintReport > omits the archive-history qualifier when all archival events were read",
       "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+      "outcome": "killed",
+      "reason": "Round two at baeda3e72477d47aa6f2598da3726ef5af837921: individual HEAD baseline passed; 1 semantic mutation(s) failed at behavioral assertions; every baseline and mutant passed assert-one-test. Production target src/components/dashboard/restraint/RestraintReport.tsx. if (!log.archivedPeriodsTruncated) return null; -> if (!log.archivedPeriodsTruncated && log.scope !== 'location') return null;. Each source was restored byte-for-byte; root finalizer closed all journal entries before report updates."
     },
     {
       "id": "RT-137",
@@ -988,8 +988,8 @@
       "id": "RT-140",
       "test": "RestraintReport > omits the coverage line entirely when the ledger has no start date for this view",
       "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+      "outcome": "killed",
+      "reason": "Round two at baeda3e72477d47aa6f2598da3726ef5af837921: individual HEAD baseline passed; 2 semantic mutation(s) failed at behavioral assertions; every baseline and mutant passed assert-one-test. Production target src/components/dashboard/restraint/RestraintReport.tsx. if (!log.coverageStart) return null; -> if (!log.coverageStart) return '';; if (!log.coverageStart) return null; -> if (!log.coverageStart) return ' '; . Each source was restored byte-for-byte; root finalizer closed all journal entries before report updates."
     },
     {
       "id": "RT-141",
@@ -1297,14 +1297,14 @@
       "test": "solicitation batch builder against live local Postgres > withholds an attributed reviewer and records dated evidence plus one refusal on replay",
       "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: matchedReview: attributedReview -> matchedReview: false && attributedReview. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: matchedReview: attributedReview -> matchedReview: false && attributedReview. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-185",
       "test": "solicitation batch builder against live local Postgres > uses retained attribution beyond the attribution display window and picks the latest evidence",
       "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: ORDER BY o.contact_id, o.attributed_at DESC, o.id DESC -> ORDER BY o.contact_id, o.attributed_at ASC, o.id DESC. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: ORDER BY o.contact_id, o.attributed_at DESC, o.id DESC -> ORDER BY o.contact_id, o.attributed_at ASC, o.id DESC. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-186",
@@ -1318,14 +1318,14 @@
       "test": "solicitation batch builder against live local Postgres > does not fabricate evidence for a deleted review or missing review date (soft-delete)",
       "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.status <> ${REVIEW_STATUS.DELETED} -> AND r.status IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.status <> ${REVIEW_STATUS.DELETED} -> AND r.status IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-188",
       "test": "solicitation batch builder against live local Postgres > does not fabricate evidence for a deleted review or missing review date (null-date)",
       "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.review_date IS NOT NULL -> AND r.id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.review_date IS NOT NULL -> AND r.id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-189",
@@ -1339,14 +1339,14 @@
       "test": "solicitation batch builder against live local Postgres > does not match attributed reviews from another account or sibling location (sibling)",
       "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.business_id = ${businessId}::uuid -> AND r.business_id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.business_id = ${businessId}::uuid -> AND r.business_id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-191",
       "test": "solicitation batch builder against live local Postgres > does not match attributed reviews from another account or sibling location (another-account)",
       "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.business_id = ${businessId}::uuid -> AND r.business_id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.business_id = ${businessId}::uuid -> AND r.business_id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-192",
@@ -1367,7 +1367,7 @@
       "test": "solicitation batch builder against live local Postgres > withholds an attributed reviewer while the refusal ledger is disabled",
       "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: matchedReview: attributedReview -> matchedReview: false && attributedReview. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: matchedReview: attributedReview -> matchedReview: false && attributedReview. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-195",
@@ -1640,22 +1640,21 @@
       "test": "getRefusalLog against live local Postgres > discloses archival truncation only when more than the event limit exists (200)",
       "file": "src/lib/refusals/__tests__/read.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: archivalEvents.length > ARCHIVAL_EVENT_LIMIT -> archivalEvents.length >= ARCHIVAL_EVENT_LIMIT. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: archivalEvents.length > ARCHIVAL_EVENT_LIMIT -> archivalEvents.length >= ARCHIVAL_EVENT_LIMIT. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-234",
       "test": "getRefusalLog against live local Postgres > discloses archival truncation only when more than the event limit exists (201)",
       "file": "src/lib/refusals/__tests__/read.integration.test.ts",
       "outcome": "killed",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: LIMIT ${ARCHIVAL_EVENT_LIMIT + 1} -> LIMIT ${ARCHIVAL_EVENT_LIMIT}. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+      "reason": "Round-one evidence at 27069fef26fb001ec5133fa41ec893521a2722f2, carried forward for unchanged tested behavior in this scoped round: Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: LIMIT ${ARCHIVAL_EVENT_LIMIT + 1} -> LIMIT ${ARCHIVAL_EVENT_LIMIT}. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
     },
     {
       "id": "RT-235",
       "test": "getRefusalLog against live local Postgres > qualifies archived periods when an older in-window period was omitted",
       "file": "src/lib/refusals/__tests__/read.integration.test.ts",
-      "outcome": "survived-confirmed-P0",
-      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: archivalEvents.slice(0, ARCHIVAL_EVENT_LIMIT) -> archivalEvents.slice(1, ARCHIVAL_EVENT_LIMIT + 1). Mutant passed. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries.",
-      "finding_id": "RT-F01"
+      "outcome": "killed",
+      "reason": "Round two at baeda3e72477d47aa6f2598da3726ef5af837921: individual HEAD baseline passed; 1 semantic mutation(s) failed at behavioral assertions; every baseline and mutant passed assert-one-test. Production target src/lib/refusals/read.ts. archivalEvents.slice(0, ARCHIVAL_EVENT_LIMIT) -> archivalEvents.slice(1, ARCHIVAL_EVENT_LIMIT + 1). Each source was restored byte-for-byte; root finalizer closed all journal entries before report updates."
     },
     {
       "id": "RT-236",
@@ -1707,8 +1706,8 @@
       "title": "Archival overflow regression passes while a closed latest period becomes falsely open",
       "at": "src/lib/refusals/__tests__/read.integration.test.ts:929",
       "duty": 1,
-      "disposition": "open",
-      "reason": "Green individual baseline and green semantic mutant; assert-one-test confirmed one executed case in each. Assert the latest returned period and its recorded reactivation, or the complete expected paired cohort, so dropping the newest event is detected.",
+      "disposition": "fixed",
+      "reason": "Green individual baseline and green semantic mutant; assert-one-test confirmed one executed case in each. Assert the latest returned period and its recorded reactivation, or the complete expected paired cohort, so dropping the newest event is detected. FIX VERIFIED IN ROUND TWO: the identical slice(1, ARCHIVAL_EVENT_LIMIT + 1) mutant now fails the strengthened final-period archivedAt/reactivatedAt assertion after a passing individual baseline. No production correction was necessary; the test now detects the demonstrated defect.",
       "arbiter_reasoning": "The test seeds i=0..201, with an archive at every even i and a reactivation at every odd i. The descending 201-event SQL read returns i=201..1. Correct slice(0, 200), reversed, retains i=2..201 and returns 100 closed periods. Mutant slice(1, 201), reversed, retains i=1..200: pairArchivedPeriods ignores the leading reactivation at i=1 and emits 99 closed periods plus a falsely open final period at i=200. Both results have 100 periods and the same earliest archive at i=2, which are the only period facets asserted. The latest reactivation at i=201 is lost on the executed branch and the returned last reactivatedAt changes from its recorded date to null. This changes owner-visible history and is neither equivalent nor an unexecuted branch."
     },
     {
@@ -1717,26 +1716,26 @@
       "title": "Coverage omission test pins an incidental total paragraph count",
       "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:445",
       "duty": 2,
-      "disposition": "open",
-      "reason": "The changed .rst-note count changes from 1 to exactly 2 solely because a legitimate historical disclosure was added. An additional valid disclosure would fail the test even when coverage omission and absence of blank notes remain correct. Assert the absent coverage sentence and present required disclosures, then use a non-vacuous per-note trimmed-text check to reject blank rendered notes without pinning the total."
+      "disposition": "fixed",
+      "reason": "The changed .rst-note count changes from 1 to exactly 2 solely because a legitimate historical disclosure was added. An additional valid disclosure would fail the test even when coverage omission and absence of blank notes remain correct. Assert the absent coverage sentence and present required disclosures, then use a non-vacuous per-note trimmed-text check to reject blank rendered notes without pinning the total. FIX VERIFIED IN ROUND TWO: the exact count was removed, positive disclosure assertions remain, and non-vacuous trimmed note checks reject both an empty and a whitespace-only coverage note in separate journaled mutations."
     }
   ],
   "authorizations": [],
   "counts": {
     "inventory_total": 241,
-    "killed": 14,
-    "survived_confirmed_p0": 1,
+    "killed": 18,
+    "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
-    "skipped_budget": 226,
+    "skipped_budget": 223,
     "excluded": 0,
     "findings_total": 2,
-    "p0_open": 1,
-    "p1_open": 1,
+    "p0_open": 0,
+    "p1_open": 0,
     "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 2,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "INCOMPLETE_BUDGET"
 }
