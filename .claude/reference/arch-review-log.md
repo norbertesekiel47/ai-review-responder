@@ -1,5 +1,11 @@
 # Architecture review log
 
+2026-09-05 — **codex/fix-1076-1077-1048 (pre-merge):** Disclose historical
+policy-hold gaps and archival-event truncation; supply already-reviewed evidence
+from retained dated outreach attribution within the existing batch builder.
+No new production module, migration, dependency, flag, or writer. The merge
+counter is unchanged until this branch is merged.
+
 2026-09-05 — **codex/agent-setup-reliability:** Harden Codex patch/Stop guards,
 reconcile lightweight and guarded feature lanes (including plan approval on
 resume), preserve intake drafts during setup, add native review/runtime handling,

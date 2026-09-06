@@ -69,6 +69,7 @@
     "CONTEXT.md",
     "docs/currents.md",
     "docs/progresstracking.md",
+    ".claude/reference/arch-review-log.md",
     "docs/superpowers/plans/codex-fix-1076-1077-1048-*.json",
     "docs/superpowers/plans/codex-fix-1076-1077-1048-*.md",
     "docs/reviews/codex-fix-1076-1077-1048/*.md",

@@ -66,7 +66,7 @@ Refusal/run outcome, and capture sanitized screenshots. Follow
 | .claude/reference/lab-notes.md | No | Existing soft-delete precedent reused; contract clarification is in CONTEXT.md. |
 | .claude/CLAUDE.md | No | No architecture invariant or file-location change. |
 | docs/directory.md | No | No production file added, moved, or deleted. |
-| .claude/reference/arch-review-log.md | No | Pre-merge; no merge counter increment. |
+| .claude/reference/arch-review-log.md | Yes | Committed-tree merge-ledger audit requires an entry. Labeled pre-merge; counter unchanged. |
 
 ## Remaining guarded-workflow boundary
 
