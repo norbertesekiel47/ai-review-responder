@@ -1,0 +1,1742 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-codex-fix-1076-1077-1048-5923ec",
+  "branch": "codex/fix-1076-1077-1048",
+  "fork_sha": "249389c7e16aa9b2efb0646f0f1b6b88410b017a",
+  "merge_base_sha": "249389c7e16aa9b2efb0646f0f1b6b88410b017a",
+  "head_sha": "27069fef26fb001ec5133fa41ec893521a2722f2",
+  "intake_sha256": "13adaf198fc4916e7e597d97960e7037b904bee2285dbc1df23140e97af2f231",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-06T04:38:28.074Z",
+  "inventory": [
+    {
+      "id": "RT-001",
+      "test": "solicitation batch candidate loader > build_solicitation_batch treats delete_data offboarding as gate_closed before candidate evaluation",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-002",
+      "test": "solicitation batch candidate loader > rechecks delete_data offboarding in construction before reading contact history",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-003",
+      "test": "solicitation batch candidate loader > gate closure completion-CASes ownership before failing the active parent and deleting the unbuilt batch",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-004",
+      "test": "solicitation batch candidate loader > prepareBatch and constructBatch derive the closed-gate reason from one owner",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-005",
+      "test": "solicitation batch candidate loader > evaluateBatchGate runs before the activeParent row lock in prepareBatch",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-006",
+      "test": "solicitation batch candidate loader > candidate history query pre-aggregates visits and asks before the 5000-contact limit",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-007",
+      "test": "send-mode generation enqueue (EXEC D21) > does not enqueue generation when the batch has zero send asks",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-008",
+      "test": "send-mode generation enqueue (EXEC D21) > does not enqueue generation while SOLICITATION_SEND_ENABLED is off even when the batch has send asks",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-009",
+      "test": "send-mode generation enqueue (EXEC D21) > enqueues generate_solicitation_asks inside the built_at transaction after the CAS when the flag is on",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-010",
+      "test": "send-mode generation enqueue (EXEC D21) > batch build scopes the postal precondition read by business_id and account_id",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-011",
+      "test": "send-mode generation enqueue (EXEC D21) > send handoff is not_applicable when SOLICITATION_SEND_ENABLED is off",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-012",
+      "test": "solicitation_batch advisory lock > acquireSolicitationBatchLock is the single owner of the solicitation_batch advisory-lock key",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-013",
+      "test": "solicitation_batch advisory lock > constructBatch takes the advisory lock before the batch row lock",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-014",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals returns the window and the log for an account scope",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-015",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals returns the window and the log for a location scope",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-016",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals rejects a request for a location outside the caller's account",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-017",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals exercises the impersonation path without mocking requireRole",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-018",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals omits all_refusal_codes from the body at any depth",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-019",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals omits all_refusal_codes and moderation prose from the error arm",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-020",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals omits all_refusal_codes and moderation prose from its logs",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-021",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals reports autoApprovalEnabled as a payload boolean",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-022",
+      "test": "GET /api/dashboard/refusals > reports ledgerRecording so the tab cannot print a false zero while the ledger is off",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-023",
+      "test": "GET /api/dashboard/refusals > returns the scope the SERVER decided, not one the browser can infer",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-024",
+      "test": "GET /api/dashboard/refusals > GET /api/dashboard/refusals serves an owner whose subscription is past_due",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-025",
+      "test": "RequestsClient — batch absent and building > renders the ghost pipeline empty state with the contacts-on-file count when no batch exists",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/app/(authenticated)/dashboard/requests/GhostPipeline.tsx: Contacts with retained, dated reviews linked to earlier requests at this location are skipped. -> Coming soon — matching contacts to reviews.. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-026",
+      "test": "RequestsClient — batch absent and building > omits the contacts-on-file line when the location has no contacts",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-027",
+      "test": "RequestsClient — batch absent and building > renders the building state while built_at is null and stops polling at the ceiling",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-028",
+      "test": "RequestsClient — batch absent and building > renders a zero-queued funnel rather than the empty state when a built batch has no asks",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-029",
+      "test": "RequestsClient — loading, scope, failure > renders a busy loading state while the first fetch is in flight",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-030",
+      "test": "RequestsClient — loading, scope, failure > issues zero fetches in aggregate location scope",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-031",
+      "test": "RequestsClient — loading, scope, failure > offers a retry after a failed load without claiming nothing was sent or changed",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-032",
+      "test": "RequestsClient — loading, scope, failure > answers a 404 with cause-neutral copy that never blames the feature flag",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-033",
+      "test": "RequestsClient — loading, scope, failure > leaves a 401 to the dashboard auth redirect instead of showing an error",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-034",
+      "test": "RequestsClient — loading, scope, failure > discards a stale response and aborts the request when the location changes mid-poll",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-035",
+      "test": "RequestsClient — loading, scope, failure > hits the polling ceiling even when the very first fetch never resolves",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-036",
+      "test": "RequestsClient — contacts reachable from the header > links to the contacts upload surface from the header in the no batch state",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-037",
+      "test": "RequestsClient — contacts reachable from the header > links to the contacts upload surface from the header in the building state",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-038",
+      "test": "RequestsClient — contacts reachable from the header > links to the contacts upload surface from the header in the built state",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-039",
+      "test": "RequestsClient — contacts reachable from the header > links to the contacts upload surface from the header in the error state",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-040",
+      "test": "RequestsClient — contacts reachable from the header > links to the contacts upload surface from the header in the unavailable state",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-041",
+      "test": "RequestsClient — contacts reachable from the header > links to the contacts upload surface from the header in the aggregate scope state",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-042",
+      "test": "RequestsClient — completion announcement > re-announces a second building → built transition instead of going silent",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-043",
+      "test": "RequestsClient — completion announcement > stays silent for a batch that was already built when the screen opened",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-044",
+      "test": "RequestsClient — the approval lane and the live region > clears the lane sentence on a location switch so the next batch is still announced",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-045",
+      "test": "RequestsClient — the approval lane and the live region > never announces an in-flight approval against the location switched to",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-046",
+      "test": "RequestsClient — the approval lane and the live region > shows an unconfirmed write as an alert and refetches the authoritative state",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-047",
+      "test": "RequestsClient — toasts, tabs and the send-lane copy > raises a settled lane sentence as a success toast AND keeps it in the live region",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-048",
+      "test": "RequestsClient — toasts, tabs and the send-lane copy > never toasts an unconfirmed write — that sentence must not auto-dismiss",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-049",
+      "test": "RequestsClient — toasts, tabs and the send-lane copy > renders the Requests ↔ Contacts tab bar with Requests current",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-050",
+      "test": "RequestsClient — toasts, tabs and the send-lane copy > keys the header sentence on the send lane: \"would ask\" without one, \"is asking\" with one",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-051",
+      "test": "RequestsClient — toasts, tabs and the send-lane copy > does not claim \"nothing has been sent\" when polling gives up on a live send lane",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-052",
+      "test": "RequestsClient — the regenerate lane > keeps every deselection when a regeneration refetches the batch",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-053",
+      "test": "RequestsClient — the regenerate lane > reports that nothing changed when a regeneration settles without a new attempt",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-054",
+      "test": "RequestsClient — the regenerate lane > reports a settled regeneration that completed before the first refetch",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-055",
+      "test": "RequestsClient — the regenerate lane > keeps a built batch approvable when polling gives up on a regeneration",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-056",
+      "test": "RequestsClient — reviewed_at ping > pings reviewed once per batch, carrying the same location scope as the read",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-057",
+      "test": "RequestsClient — reviewed_at ping > pings the second batch after a location switch (the guard is keyed by batch, not a flag)",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-058",
+      "test": "RequestsClient — reviewed_at ping > defers the ping until the tab is visible, so it means a human looked",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-059",
+      "test": "RequestsClient — reviewed_at ping > reports a failed ping instead of swallowing it",
+      "file": "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-060",
+      "test": "RestraintPage > mounts the orchestrator and nothing else",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-061",
+      "test": "RestraintContent > RestraintContent fetches through useQuery and hand-rolls no keying, staleness or abort",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-062",
+      "test": "RestraintContent > RestraintContent issues one fetch per mount and takes its abort signal from the library",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-063",
+      "test": "RestraintContent > re-fetches when the window changes, so the query key carries its inputs",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-064",
+      "test": "RestraintContent > re-fetches when the location scope changes, not only the window",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-065",
+      "test": "RestraintContent > RestraintContent renders the shared dashboard state panel while loading",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-066",
+      "test": "RestraintContent > RestraintContent renders the shared dashboard state panel on error",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-067",
+      "test": "RestraintContent > RestraintContent explains a failure in its own words when the server sends no message",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-068",
+      "test": "RestraintContent > RestraintContent keeps the Analytics tab bar visible while loading",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-069",
+      "test": "RestraintContent > RestraintContent keeps the Analytics tab bar visible on error",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-070",
+      "test": "RestraintContent > renders the report on the success path with the scope the server sent",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-071",
+      "test": "RestraintContent > takes scope from the payload, not from its own location context",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-072",
+      "test": "RestraintContent > rejects a payload missing total rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-073",
+      "test": "RestraintContent > rejects a payload missing entries rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-074",
+      "test": "RestraintContent > rejects a payload missing windowStart rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-075",
+      "test": "RestraintContent > rejects a payload missing windowEnd rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-076",
+      "test": "RestraintContent > rejects a payload missing coverageStart rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-077",
+      "test": "RestraintContent > rejects a payload missing archivedLocations rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-078",
+      "test": "RestraintContent > rejects a payload missing archivedPeriods rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-079",
+      "test": "RestraintContent > rejects a payload missing archivedPeriodsTruncated rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-080",
+      "test": "RestraintContent > rejects a payload missing truncated rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-081",
+      "test": "RestraintContent > rejects a payload missing window rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-082",
+      "test": "RestraintContent > rejects a payload missing scope rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-083",
+      "test": "RestraintContent > rejects a payload missing autoApprovalEnabled rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-084",
+      "test": "RestraintContent > rejects a payload missing ledgerRecording rather than rendering a partial record",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-085",
+      "test": "RestraintContent > rejects a malformed archival truncation field",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintContent.tsx: && typeof value.archivedPeriodsTruncated === 'boolean' -> && true. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-086",
+      "test": "RestraintContent > rejects a payload whose entry.reviewId has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-087",
+      "test": "RestraintContent > rejects a payload whose entry.linkKind has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-088",
+      "test": "RestraintContent > rejects a payload whose archivedPeriods[].reactivatedAt has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-089",
+      "test": "RestraintContent > rejects a payload whose archivedLocations.refusalCount has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-090",
+      "test": "RestraintContent > rejects a payload whose truncated has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-091",
+      "test": "RestraintContent > rejects a payload whose entry.id has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-092",
+      "test": "RestraintContent > rejects a payload whose entry.category has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-093",
+      "test": "RestraintContent > rejects a payload whose entry.occurredAt has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-094",
+      "test": "RestraintContent > rejects a payload whose entry.subjectType has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-095",
+      "test": "RestraintContent > rejects a payload whose entry.subjectId has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-096",
+      "test": "RestraintContent > rejects a payload whose archivedPeriods[].archivedAt has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-097",
+      "test": "RestraintContent > rejects a payload whose archivedLocations.locationCount has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-098",
+      "test": "RestraintContent > rejects a payload whose coverageStart has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-099",
+      "test": "RestraintContent > rejects a payload whose windowStart has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-100",
+      "test": "RestraintContent > rejects a payload whose scope has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-101",
+      "test": "RestraintContent > rejects a payload whose autoApprovalEnabled has the wrong type",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-102",
+      "test": "RestraintContent > ACCEPTS a linkKind of review",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-103",
+      "test": "RestraintContent > ACCEPTS a linkKind of auto-approval",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-104",
+      "test": "RestraintContent > ACCEPTS a linkKind of contacts",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-105",
+      "test": "RestraintContent > ACCEPTS a linkKind of null",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-106",
+      "test": "RestraintContent > rejects a body that is not an object at all (an array)",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-107",
+      "test": "RestraintContent > rejects a body that is not an object at all (a string)",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-108",
+      "test": "RestraintContent > rejects a body that is not an object at all (a number)",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-109",
+      "test": "RestraintContent > rejects a null body with our own sentence, never a raw TypeError",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-110",
+      "test": "RestraintContent > ACCEPTS a category of unsafe_content",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-111",
+      "test": "RestraintContent > ACCEPTS a category of watchdog_unavailable",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-112",
+      "test": "RestraintContent > ACCEPTS a category of below_our_bar",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-113",
+      "test": "RestraintContent > ACCEPTS a category of no_permission",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-114",
+      "test": "RestraintContent > ACCEPTS a category of wrong_moment",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-115",
+      "test": "RestraintContent > ACCEPTS a category of autonomy_paused",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-116",
+      "test": "RestraintContent > ACCEPTS a category of missing_information",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-117",
+      "test": "RestraintContent > ACCEPTS a category of owner_review_required",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-118",
+      "test": "RestraintContent > ACCEPTS the legal nulls the DTO is built to carry",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-119",
+      "test": "RestraintContent > RestraintContent renders the restraint error card when the initial query fails without cached data",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-120",
+      "test": "RestraintReport > RestraintReport groups rows under one owner sentence per category across categories with several rows each",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-121",
+      "test": "RestraintReport > RestraintReport orders rows newest first within a category given an unsorted input",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-122",
+      "test": "RestraintReport > RestraintReport links a held draft to its review",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-123",
+      "test": "RestraintReport > RestraintReport links an autonomy_paused row to the auto-approval settings",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-124",
+      "test": "RestraintReport > RestraintReport links a no_permission row to the contacts list",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-125",
+      "test": "RestraintReport > RestraintReport renders no link for a category that carries none",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-126",
+      "test": "RestraintReport > RestraintReport keeps the row and drops only the link when the subject no longer resolves",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-127",
+      "test": "RestraintReport > RestraintReport does not link a policy_gate_held response that shares held_draft's unsafe_content category",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-128",
+      "test": "RestraintReport > RestraintReport shows no draft text, review text or moderation reason for a held draft",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-129",
+      "test": "RestraintReport > RestraintReport renders the window-scoped empty sentence and makes no claim about all time",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-130",
+      "test": "RestraintReport > RestraintReport makes no claim about all time in a populated window",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-131",
+      "test": "RestraintReport > RestraintReport renders the policy-gate disclosure line while auto-approval is disabled",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-132",
+      "test": "RestraintReport > discloses historical policy-hold gaps after automatic posting is enabled ([])",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx:   if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.'; ->   if (autoApprovalEnabled) return ''; . Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-133",
+      "test": "RestraintReport > discloses historical policy-hold gaps after automatic posting is enabled ([ { category: 'unsafe_content' } ])",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx:   if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.'; ->   if (autoApprovalEnabled) return ''; . Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-134",
+      "test": "RestraintReport > qualifies archived periods when an older in-window period was omitted ([])",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/components/dashboard/restraint/RestraintReport.tsx: if (!log.archivedPeriodsTruncated) return null; -> if (log.archivedPeriodsTruncated) return null;. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-135",
+      "test": "RestraintReport > qualifies archived periods when an older in-window period was omitted ([ { …(2) } ])",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-136",
+      "test": "RestraintReport > omits the archive-history qualifier when all archival events were read",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-137",
+      "test": "RestraintReport > RestraintReport renders the archived-location footnote with no link and no instruction",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-138",
+      "test": "RestraintReport > RestraintReport omits the archived-location footnote when the count is zero",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-139",
+      "test": "RestraintReport > RestraintReport renders one archived-period line per intersecting period in a location view",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-140",
+      "test": "RestraintReport > omits the coverage line entirely when the ledger has no start date for this view",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-141",
+      "test": "RestraintReport > says how many rows it is showing when the window holds more than the read returned",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-142",
+      "test": "RestraintReport > omits the truncation line when the window fits",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-143",
+      "test": "RestraintReport > says recording is paused when the ledger kill switch is off",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-144",
+      "test": "RestraintReport > omits the recording-paused line while the ledger is recording",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-145",
+      "test": "RestraintReport > uses singular phrasing for a single Refusal",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-146",
+      "test": "RestraintReport > marks the scope line and the footnote with their own note modifiers",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-147",
+      "test": "RestraintReport > renders every row shape as exactly its own two facts, and nothing else",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-148",
+      "test": "RestraintReport > gives every category its own owner-facing heading",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-149",
+      "test": "RestraintReport > gives every category its own owner-facing sentence",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-150",
+      "test": "RestraintReport > exposes the summary as a named region landmark",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-151",
+      "test": "RestraintReport > exposes every category section as a named region landmark too",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-152",
+      "test": "RestraintReport > uses singular phrasing for a single archived location",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-153",
+      "test": "RestraintReport > gives each repeated row link an accessible name that names its own row",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-154",
+      "test": "RestraintReport > RestraintReport states which number it shows when an account-wide suspension is in the window",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-155",
+      "test": "solicitation batch builder against live local Postgres > build_solicitation_batch atomically records decisions and completes the parent and owned outbox",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-156",
+      "test": "solicitation batch builder against live local Postgres > flag-on build with send asks enqueues one generation row and the real 091 index dedups a second enqueue",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-157",
+      "test": "solicitation batch builder against live local Postgres > builds an empty accumulated pool with a zero-unit batch outcome",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-158",
+      "test": "solicitation batch builder against live local Postgres > priorBatch reads only would-have-sent asks and never velocity_banked decisions",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-159",
+      "test": "solicitation batch builder against live local Postgres > concurrent location batches serialize so the later batch observes earlier would-have-sent history",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-160",
+      "test": "solicitation batch builder against live local Postgres > retry after committed construction does not create an extra parent or duplicate asks or child runs",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-161",
+      "test": "solicitation batch builder against live local Postgres > lockDispatchedOutboxAttemptIfOwned prevents a stale build attempt from creating a parent",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-162",
+      "test": "solicitation batch builder against live local Postgres > a dispatched builder serializes behind delete_data offboarding and closes without history effects",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-163",
+      "test": "solicitation batch builder against live local Postgres > build_solicitation_batch removes no-parent unbuilt work when the flag or subscription gate closes",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-164",
+      "test": "solicitation batch builder against live local Postgres > build_solicitation_batch gate closure after parent start completes the owned outbox and fails that parent as gate_closed",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-165",
+      "test": "solicitation batch builder against live local Postgres > build_solicitation_batch exhausted failure marks only the owned parent failed and keeps the unbuilt batch hidden",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-166",
+      "test": "solicitation batch builder against live local Postgres > repeated visit and evaluation histories remain buildable under a bounded statement timeout",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-167",
+      "test": "solicitation batch builder against live local Postgres > candidate windows are capped at 5000 and rotate by least-recently-evaluated ask",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-168",
+      "test": "solicitation batch builder against live local Postgres > consent_attested is no longer a tautology: a contact covered only by consent_attestation_v1 yields attested: false",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-169",
+      "test": "solicitation batch builder against live local Postgres > the §1.2 re-upload trap: re-uploading the identical CSV under v2 inserts zero visits AND leaves the contact send-eligible",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-170",
+      "test": "solicitation batch builder against live local Postgres > tenant scope: a consent row at business A does not make the same handle eligible at business B in the same account",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-171",
+      "test": "solicitation batch builder against live local Postgres > legacy pre-ledger contacts read as no_consent case (a): visits without a ledger row yield null evidence",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-172",
+      "test": "solicitation batch builder against live local Postgres > evidence shape: both no_consent cases round-trip through parseEvidence and satisfy migration 090's CHECK",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-173",
+      "test": "solicitation batch builder against live local Postgres > a suppressed candidate is withheld with reason 'suppressed' carrying the ledger source and timestamp as evidence",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-174",
+      "test": "solicitation batch builder against live local Postgres > a withheld-suppressed candidate does not consume BATCH_CAP",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-175",
+      "test": "solicitation batch builder against live local Postgres > batch build still produces a watch-mode batch when the location has no attested postal address",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-176",
+      "test": "solicitation batch builder against live local Postgres > batch build withholds the send handoff when the location has no attested postal address",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-177",
+      "test": "solicitation batch builder against live local Postgres > batch build withholds the send handoff when owner_email_bounced is TRUE",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-178",
+      "test": "solicitation batch builder against live local Postgres > batch build withholds the send handoff when the location has no canonical place id (#914)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-179",
+      "test": "solicitation batch builder against live local Postgres > postal_address_missing wins when the postal address is missing and owner email has bounced",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-180",
+      "test": "solicitation batch builder against live local Postgres > a withheld send handoff creates no generate_solicitation_asks outbox row",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-181",
+      "test": "solicitation batch builder against live local Postgres > withholding the send handoff does not change any per-candidate decision or reason count",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-182",
+      "test": "solicitation batch builder against live local Postgres > batch build performs the send handoff when the address is attested and the owner email is deliverable",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-183",
+      "test": "solicitation batch builder against live local Postgres > a send-handoff enqueue failure rolls back the batch build",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-184",
+      "test": "solicitation batch builder against live local Postgres > withholds an attributed reviewer and records dated evidence plus one refusal on replay",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: matchedReview: attributedReview -> matchedReview: false && attributedReview. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-185",
+      "test": "solicitation batch builder against live local Postgres > uses retained attribution beyond the attribution display window and picks the latest evidence",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: ORDER BY o.contact_id, o.attributed_at DESC, o.id DESC -> ORDER BY o.contact_id, o.attributed_at ASC, o.id DESC. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-186",
+      "test": "solicitation batch builder against live local Postgres > does not fabricate evidence for a deleted review or missing review date (physical-delete)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-187",
+      "test": "solicitation batch builder against live local Postgres > does not fabricate evidence for a deleted review or missing review date (soft-delete)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.status <> ${REVIEW_STATUS.DELETED} -> AND r.status IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-188",
+      "test": "solicitation batch builder against live local Postgres > does not fabricate evidence for a deleted review or missing review date (null-date)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.review_date IS NOT NULL -> AND r.id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-189",
+      "test": "solicitation batch builder against live local Postgres > does not fabricate evidence for a deleted review or missing review date (no-attribution)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-190",
+      "test": "solicitation batch builder against live local Postgres > does not match attributed reviews from another account or sibling location (sibling)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.business_id = ${businessId}::uuid -> AND r.business_id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-191",
+      "test": "solicitation batch builder against live local Postgres > does not match attributed reviews from another account or sibling location (another-account)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: AND r.business_id = ${businessId}::uuid -> AND r.business_id IS NOT NULL. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-192",
+      "test": "solicitation batch builder against live local Postgres > preserves consent and suppression precedence for an attributed reviewer (no_consent)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-193",
+      "test": "solicitation batch builder against live local Postgres > preserves consent and suppression precedence for an attributed reviewer (suppressed)",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-194",
+      "test": "solicitation batch builder against live local Postgres > withholds an attributed reviewer while the refusal ledger is disabled",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/solicitation/batch-builder.ts: matchedReview: attributedReview -> matchedReview: false && attributedReview. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-195",
+      "test": "solicitation batch builder against live local Postgres > a batch build writes one refusal_events row per withheld ask and none for a send decision",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-196",
+      "test": "solicitation batch builder against live local Postgres > a batch build writes no refusal_events row for a velocity_banked withhold",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-197",
+      "test": "solicitation batch builder against live local Postgres > a batch build stamps every ask Refusal with the batch's decidedAt, never with insert time",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-198",
+      "test": "solicitation batch builder against live local Postgres > an ask Refusal's occurred_at equals solicitation_asks.decided_at inside PostgreSQL at full microsecond precision",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-199",
+      "test": "solicitation batch builder against live local Postgres > a batch build that withholds nothing writes no refusal_events row",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-200",
+      "test": "solicitation batch builder against live local Postgres > two builds evaluating the same contact write two refusal_events rows, one per decision",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-201",
+      "test": "solicitation batch builder against live local Postgres > every ask_withheld refusal points to the exact solicitation_ask row whose decision it records",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-202",
+      "test": "solicitation batch builder against live local Postgres > a 5000-candidate batch of mapped withholds writes 5000 refusal_events rows in one INSERT",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-203",
+      "test": "solicitation batch builder against live local Postgres > every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-204",
+      "test": "solicitation batch builder against live local Postgres > every refusal_events row these three lanes write carries the account and location already in the lane's scope",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-205",
+      "test": "solicitation batch builder against live local Postgres > a ledger failure in the ask lane rolls back the whole batch build",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-206",
+      "test": "solicitation batch builder against live local Postgres > all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-207",
+      "test": "getRefusalLog against live local Postgres > renders the stored refusal_category and never re-derives it from refusal_code",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-208",
+      "test": "getRefusalLog against live local Postgres > never selects all_refusal_codes",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-209",
+      "test": "getRefusalLog against live local Postgres > distinguishes a non-null unresolved subject from a lane with no subject",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-210",
+      "test": "getRefusalLog against live local Postgres > scopes an account read to account_id alone",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-211",
+      "test": "getRefusalLog against live local Postgres > scopes a location read to account_id and (business_id = $2 OR business_id IS NULL)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-212",
+      "test": "getRefusalLog against live local Postgres > isolates one account's refusals from another account's in the same window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-213",
+      "test": "getRefusalLog against live local Postgres > isolates one location's refusals from a sibling location's in the same account",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-214",
+      "test": "getRefusalLog against live local Postgres > returns one row per location view for a single account-wide suspension",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-215",
+      "test": "getRefusalLog against live local Postgres > returns a single account-total row for a suspension and never multiplies it across locations",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-216",
+      "test": "getRefusalLog against live local Postgres > orders newest first within each category",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-217",
+      "test": "getRefusalLog against live local Postgres > returns an empty log without error when refusal_events holds no rows",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-218",
+      "test": "getRefusalLog against live local Postgres > excludes rows belonging to an archived location from the account total",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-219",
+      "test": "getRefusalLog against live local Postgres > excludes rows belonging to an archived location from a location total",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-220",
+      "test": "getRefusalLog against live local Postgres > returns no rows for a location that is archived",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-221",
+      "test": "getRefusalLog against live local Postgres > keys the review link on the LANE, so a policy_gate_held response with held_draft's category gets none",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-222",
+      "test": "getRefusalLog against live local Postgres > bounds the LOCATION arm at windowEnd, not only the account arm",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-223",
+      "test": "getRefusalLog against live local Postgres > bounds the ACCOUNT arm at windowStart, so a row older than the window is excluded",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-224",
+      "test": "getRefusalLog against live local Postgres > bounds the LOCATION arm at windowStart, on the entry list and on the total alike",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-225",
+      "test": "getRefusalLog against live local Postgres > resolves a review only when the response belongs to the same location",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-226",
+      "test": "getRefusalLog against live local Postgres > caps entries at ENTRY_LIMIT while total stays the true window count",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-227",
+      "test": "getRefusalLog against live local Postgres > counts archived-location refusals in the account footnote for the same window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-228",
+      "test": "getRefusalLog against live local Postgres > reports a zero archived-location footnote count when no archived location has refusals in the window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-229",
+      "test": "getRefusalLog against live local Postgres > reports no footnote at all in a location scope",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-230",
+      "test": "getRefusalLog against live local Postgres > returns archived periods that intersect the window and omits periods that do not",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-231",
+      "test": "getRefusalLog against live local Postgres > bounds the archival-event read and keeps the NEWEST events, not the oldest",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-232",
+      "test": "getRefusalLog against live local Postgres > discloses archival truncation only when more than the event limit exists (0)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-233",
+      "test": "getRefusalLog against live local Postgres > discloses archival truncation only when more than the event limit exists (200)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: archivalEvents.length > ARCHIVAL_EVENT_LIMIT -> archivalEvents.length >= ARCHIVAL_EVENT_LIMIT. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-234",
+      "test": "getRefusalLog against live local Postgres > discloses archival truncation only when more than the event limit exists (201)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: LIMIT ${ARCHIVAL_EVENT_LIMIT + 1} -> LIMIT ${ARCHIVAL_EVENT_LIMIT}. Mutant failed at the behavioral assertion. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries."
+    },
+    {
+      "id": "RT-235",
+      "test": "getRefusalLog against live local Postgres > qualifies archived periods when an older in-window period was omitted",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Individual baseline passed and assert-one-test confirmed exactly one executed case in both runs. Production mutation in src/lib/refusals/read.ts: archivalEvents.slice(0, ARCHIVAL_EVENT_LIMIT) -> archivalEvents.slice(1, ARCHIVAL_EVENT_LIMIT + 1). Mutant passed. Original bytes restored immediately; invoking-agent finalizer subsequently closed all journal entries.",
+      "finding_id": "RT-F01"
+    },
+    {
+      "id": "RT-236",
+      "test": "getRefusalLog against live local Postgres > reads archived periods from account_audit_log and never re-derives a refusal from it",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-237",
+      "test": "getRefusalLog against live local Postgres > clamps the account coverage start to accounts.created_at",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-238",
+      "test": "getRefusalLog against live local Postgres > clamps a location coverage start to businesses.created_at",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-239",
+      "test": "getRefusalLog against live local Postgres > returns windowStart clamped to accounts.created_at when the account was created inside the selected window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-240",
+      "test": "getRefusalLog against live local Postgres > excludes Refusals after windowEnd from entries and the archived-location footnote",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    },
+    {
+      "id": "RT-241",
+      "test": "batch build versus offboarding purge against live local Postgres > a concurrent batch build and offboarding purge contend on the advisory lock without deadlocking",
+      "file": "src/lib/solicitation/__tests__/batch-purge-concurrency.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Full changed-fixture and direct covering-caller inventory; not measured within the 30 runner invocation limit."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-F01",
+      "severity": "P0",
+      "title": "Archival overflow regression passes while a closed latest period becomes falsely open",
+      "at": "src/lib/refusals/__tests__/read.integration.test.ts:929",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "Green individual baseline and green semantic mutant; assert-one-test confirmed one executed case in each. Assert the latest returned period and its recorded reactivation, or the complete expected paired cohort, so dropping the newest event is detected.",
+      "arbiter_reasoning": "The test seeds i=0..201, with an archive at every even i and a reactivation at every odd i. The descending 201-event SQL read returns i=201..1. Correct slice(0, 200), reversed, retains i=2..201 and returns 100 closed periods. Mutant slice(1, 201), reversed, retains i=1..200: pairArchivedPeriods ignores the leading reactivation at i=1 and emits 99 closed periods plus a falsely open final period at i=200. Both results have 100 periods and the same earliest archive at i=2, which are the only period facets asserted. The latest reactivation at i=201 is lost on the executed branch and the returned last reactivatedAt changes from its recorded date to null. This changes owner-visible history and is neither equivalent nor an unexecuted branch."
+    },
+    {
+      "id": "RT-F02",
+      "severity": "P1",
+      "title": "Coverage omission test pins an incidental total paragraph count",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:445",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "The changed .rst-note count changes from 1 to exactly 2 solely because a legitimate historical disclosure was added. An additional valid disclosure would fail the test even when coverage omission and absence of blank notes remain correct. Assert the absent coverage sentence and present required disclosures, then use a non-vacuous per-note trimmed-text check to reject blank rendered notes without pinning the total."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 241,
+    "killed": 14,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 226,
+    "excluded": 0,
+    "findings_total": 2,
+    "p0_open": 1,
+    "p1_open": 1,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
