@@ -28,11 +28,14 @@ const PLANS: readonly PlanCopy[] = [
     tier: 'copilot',
     n: '01',
     name: 'Copilot',
-    tag: 'The agent team prepares every public action for your approval.',
+    tag: 'The whole agent team, with every public action and every request batch waiting for your approval.',
     features: [
       'Reply drafts personalized responses in your business voice',
       'Guardian holds negative and flagged reviews for you to see first',
-      'Insights sends you a weekly review brief',
+      'Solicitor asks past customers for reviews by email, in batches you approve',
+      'A printable review QR code for each location, straight to your Google review form',
+      'Insights sends you a weekly review brief and a monthly impact report',
+      'Your dashboard: Rep Pulse, rating and volume trends, and the Restraint tab',
       'You approve every reply before it posts',
       'Negative reviews are never auto-posted',
     ],
@@ -45,6 +48,7 @@ const PLANS: readonly PlanCopy[] = [
     features: [
       'Everything in Copilot',
       'Only 4–5★ replies that pass our safety checks may post automatically',
+      'Request batches that fit your policy may send on their own after the veto window',
       'Owner-set policy and veto window remain in control',
       'Safety checks, the Judge, and the Governor must all clear it',
       'Negative and flagged reviews are never auto-posted',
@@ -81,7 +85,10 @@ const MATRIX: readonly MatrixSection[] = [
     rows: [
       { label: 'Reply drafts personalized responses', values: [true, true] },
       { label: 'Guardian holds negative and flagged reviews', values: [true, true] },
-      { label: 'Insights sends a weekly brief', values: [true, true] },
+      { label: 'Solicitor asks past customers for reviews by email, in batches', values: [true, true] },
+      { label: 'Printable review QR code per location', values: [true, true] },
+      { label: 'Insights sends a weekly brief and a monthly impact report', values: [true, true] },
+      { label: 'Dashboard: Rep Pulse, trends, review velocity, Restraint tab', values: [true, true] },
     ],
   },
   {
@@ -92,6 +99,10 @@ const MATRIX: readonly MatrixSection[] = [
         values: ['You approve everything', 'You set the policy and the veto window'],
       },
       { label: 'Replies that may post on their own', values: [false, '4–5★, safety-checked only'] },
+      {
+        label: 'Request batches that may send on their own',
+        values: ['Every batch waits for your approval', 'Inside your policy, after the veto window'],
+      },
       { label: 'Negative reviews auto-posted', values: [false, false] },
     ],
   },
@@ -127,6 +138,10 @@ const BASE_FAQS: readonly FaqItem[] = [
   {
     q: 'Can I change plans later?',
     a: 'Yes. You can change plans from Billing. Eligible plan changes are previewed first and Stripe applies any required proration.',
+  },
+  {
+    q: 'Are review requests included on both plans?',
+    a: 'Yes. On both plans Solicitor builds each batch, decides send or withhold for each person with a reason, and the printable review QR code is included for every location. On Copilot every batch waits for your approval. On Autopilot a batch that fits your policy can send on its own after the veto window, and one tap still halts it.',
   },
   {
     q: 'What can Autopilot post without approval?',
