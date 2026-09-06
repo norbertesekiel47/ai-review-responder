@@ -89,6 +89,22 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('Email links expire after 48 hours'); // create-link.ts TTL
     expect(html).toContain('Other review platforms are on the roadmap.');
     expect(html).toContain('How do I connect my Google reviews?');
+    // The loops around the pipeline (2026-09-06): request, brief, measure, record.
+    expect(html).toContain('The loops that run around it.');
+    for (const loop of ['Request', 'Brief', 'Measure', 'Record']) {
+      expect(html).toContain(`<h3 class="hiw-loop-t">${loop}</h3>`);
+    }
+    expect(html).toContain('printable QR code per location');
+    expect(html).toContain('Solicitor asks past customers by email');
+    expect(html).toContain('Rep Pulse');
+    expect(html).toContain('Restraint tab');
+    expect(html).toContain('How do I get more reviews?');
+    expect(html).toContain('What does the Monday brief contain?');
+    expect(html).toContain('What does the dashboard show?');
+    expect(html).toContain('one reply out,');
+    expect(html).not.toContain('One pipeline from');
+    // Solicitor is email-only and present tense; no channel that is off in prod.
+    expect(html).not.toContain('SMS');
     expect(html).toContain('100 most recent reviews from the past 12 months'); // consented import window
     expect(html).toContain('safety-checked'); // Autopilot mock chip
     // The hero artifact is labelled a sample, and mocks no email.

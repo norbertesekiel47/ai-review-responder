@@ -88,21 +88,24 @@ beforeEach(() => {
 });
 
 describe('FleetSection', () => {
-  it('renders the constellation: six agents, the NEXT tag, and six measured wires', () => {
+  it('renders the constellation: six live agents, no NEXT tag, and six measured wires', () => {
     mockConstellation.mockReturnValue(true);
     const { container } = render(<FleetSection {...VIDEO_PROPS} />);
 
     expect(screen.getAllByRole('article')).toHaveLength(6);
-    expect(screen.getByText('Next')).toBeInTheDocument();
+    // Solicitor went live on 2026-09-06 (fleet-copy.ts contract), so no agent
+    // wears the roadmap tag and no connector is the dashed one.
+    expect(screen.queryByText('Next')).toBeNull();
     expect(screen.getByText('Judge reviews 100% of auto-posts')).toBeInTheDocument();
 
     // The arming signal fired (stubbed observer), so the stage assembles.
     expect(container.querySelector('.rw-lp-fleet-stage')).toHaveAttribute('data-armed', 'true');
 
-    // Six connectors measured — one per agent; Solicitor's is the dashed one.
+    // Six connectors measured — one per agent, all solid.
     const groups = container.querySelectorAll('.rw-lp-fleet-wires g');
     expect(groups).toHaveLength(6);
-    expect(container.querySelectorAll("g[data-status='next']")).toHaveLength(1);
+    expect(container.querySelectorAll("g[data-status='next']")).toHaveLength(0);
+    expect(container.querySelectorAll("g[data-status='live']")).toHaveLength(6);
   });
 
   it('a hovered node claims its wire (data-hot follows the pointer)', () => {

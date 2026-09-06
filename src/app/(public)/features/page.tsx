@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   // Bare name: the root layout's title template appends " · RepWorth".
   title: 'Features',
   description:
-    'The AI agent team for your reputation: Reply drafts in your voice, Guardian triages negative reviews, Autopilot posts within your policy, and a Judge reviews every auto-post.',
+    'One system, five jobs: Reply answers every Google review in your voice, Solicitor and a printable QR code bring new reviews in, Insights briefs you every Monday, the dashboard keeps the score, and two watchdogs govern anything that posts on its own.',
 };
 
 export default function FeaturesPage() {

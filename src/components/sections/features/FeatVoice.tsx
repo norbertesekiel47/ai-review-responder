@@ -24,10 +24,10 @@ export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null
       <div className="rw-dl-col">
         <div className="feat-ch is-flip">
           <FeatIntro
-            n="08"
+            n="02"
             kicker="Over time"
             bar="var(--rw-mist-bar)"
-            group="Craft and proof"
+            group="Respond"
             title="It learns your voice, edit by edit."
             lede="Every reply you edit and post teaches it. After your first five, drafts start matching your edits: your warmth level, your phrasing, the way you handle a complaint. The aim is drafts you approve untouched."
           />

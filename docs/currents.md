@@ -9,7 +9,37 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-05 (Restraint evidence fixes #1076/#1077/#1048; local branch, not deployed.)
+Last updated: 2026-09-06 (Marketing pages rebalanced to the five jobs; local branch, not deployed.)
+
+## Quick summary — Marketing pages: one system, five jobs (2026-09-06; pre-merge)
+
+The landing, features, and how-it-works pages no longer read as a reply tool.
+Each now gives comparable space to five jobs — respond, protect/govern,
+request, brief, measure — under the agentic frame (one agent per job, one
+permission each, every action on the run spine, two watchdogs, the autonomy
+dial).
+
+- **Landing**: a new `jobs/` ledger section between the personas and the
+  watchdogs (five equal rows). Hero scope note, problem essay, persona and
+  fleet cards, closing CTA, metadata, and the shared `PRODUCT_BLURB` widened
+  from "Google reviews" to the five jobs.
+- **Features**: 9 chapters in 3 role groups became 13 chapters in 5 job
+  groups (Respond · Request · Brief · Measure · Govern). New chapters: Review
+  QR, Solicitor, Dashboard (Rep Pulse formula from `REP_PULSE_WEIGHTS`),
+  Restraint. Insights pairs the weekly brief with the monthly impact report.
+  The group ribbon and index rows size to 1–4 chapters (`--seg-i/--seg-n`,
+  `--idx-n`).
+- **How it works**: the six-step pipeline stays; a new "loops around it" band
+  (Request · Brief · Measure · Record) and three FAQ entries follow it.
+- **Contract change (owner decision 2026-09-06)**: Solicitor is present tense
+  and `status: 'live'` in the fleet and persona data, on the commitment to
+  flip `SOLICITATION_WATCH_ENABLED` + `SOLICITATION_SEND_ENABLED` in
+  production (both on in staging). PRODUCT.md, BRAND-KIT §6, the Claude
+  project instructions, landing DESIGN.md, and brand-story.md were updated in
+  the same change; the Review QR (live, un-flagged) was added to every
+  shipped list. Owner channels stay "by email" — Telegram/WhatsApp are off in
+  prod and are not named.
+
 
 ## Quick summary — Restraint evidence (#1076/#1077/#1048, 2026-09-05; pre-merge)
 

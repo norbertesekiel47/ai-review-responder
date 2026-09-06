@@ -28,34 +28,59 @@ import { FeatWatchdogs } from './FeatWatchdogs';
 import { FeatVoice } from './FeatVoice';
 import { FeatInsights } from './FeatInsights';
 import { FeatRoi } from './FeatRoi';
+import { FeatQr } from './FeatQr';
+import { FeatSolicitor } from './FeatSolicitor';
+import { FeatDashboard } from './FeatDashboard';
+import { FeatRestraint } from './FeatRestraint';
 import { RoadmapBand } from './RoadmapBand';
 
 // `bar` is each chapter's colour bar token (bar-only accents, never text) —
 // the same dot the chapter header wears, so the index and the chapters agree.
+//
+// Groups are the five JOBS of the system (respond, request, brief, measure,
+// govern), not the three roles the page used to be cut by. The regroup
+// (2026-09-06) is what makes the catalogue read as a reputation system: the
+// reply pipeline is three chapters of thirteen, not seven of nine. Govern
+// closes the page on purpose — the gate is the signature beat of the brand
+// story, and it lands harder after the reader has seen everything it governs.
 const FEATURES = [
-  { id: 'f-reply',     n: '01', label: 'Reply',      sub: 'The drafter',       group: 'Your agent team',  bar: 'var(--rw-mist-bar)' },
-  { id: 'f-guardian',  n: '02', label: 'Guardian',   sub: 'Negative lane',     group: 'Your agent team',  bar: 'var(--rw-blush-bar)' },
-  { id: 'f-insights',  n: '03', label: 'Insights',   sub: 'Mondays',           group: 'Your agent team',  bar: 'var(--rw-teal-bar)' },
-  { id: 'f-gate',      n: '04', label: 'The Gate',   sub: 'Copilot',           group: 'Care and control', bar: 'var(--rw-sage-bar)' },
-  { id: 'f-autopilot', n: '05', label: 'Autopilot',  sub: 'Within your rules', group: 'Care and control', bar: 'var(--rw-gold-bar)' },
-  { id: 'f-watchdogs', n: '06', label: 'Watchdogs',  sub: 'Judge & Governor',  group: 'Care and control', bar: 'var(--rw-ink2)' },
-  { id: 'f-lang',      n: '07', label: 'Languages',  sub: 'Reach',             group: 'Craft and proof',  bar: 'var(--rw-sage-bar)' },
-  { id: 'f-voice',     n: '08', label: 'Voice',      sub: 'Over time',         group: 'Craft and proof',  bar: 'var(--rw-mist-bar)' },
-  { id: 'f-roi',       n: '09', label: 'Results',    sub: 'Proof',             group: 'Craft and proof',  bar: 'var(--rw-teal-bar)' },
+  { id: 'f-reply',     n: '01', label: 'Reply',      sub: 'The drafter',        group: 'Respond', bar: 'var(--rw-mist-bar)' },
+  { id: 'f-voice',     n: '02', label: 'Voice',      sub: 'Over time',          group: 'Respond', bar: 'var(--rw-mist-bar)' },
+  { id: 'f-lang',      n: '03', label: 'Languages',  sub: 'Reach',              group: 'Respond', bar: 'var(--rw-sage-bar)' },
+  { id: 'f-qr',        n: '04', label: 'Review QR',  sub: 'On the counter',     group: 'Request', bar: 'var(--rw-sage-bar)' },
+  { id: 'f-solicitor', n: '05', label: 'Solicitor',  sub: 'Managed batches',    group: 'Request', bar: 'var(--rw-gold-bar)' },
+  { id: 'f-insights',  n: '06', label: 'Insights',   sub: 'Mondays + monthly',  group: 'Brief',   bar: 'var(--rw-teal-bar)' },
+  { id: 'f-dashboard', n: '07', label: 'Dashboard',  sub: 'Rep Pulse',          group: 'Measure', bar: 'var(--rw-teal-bar)' },
+  { id: 'f-restraint', n: '08', label: 'Restraint',  sub: 'What it declined',   group: 'Measure', bar: 'var(--rw-ink2)' },
+  { id: 'f-roi',       n: '09', label: 'Results',    sub: 'Proof',              group: 'Measure', bar: 'var(--rw-teal-bar)' },
+  { id: 'f-guardian',  n: '10', label: 'Guardian',   sub: 'Negative lane',      group: 'Govern',  bar: 'var(--rw-blush-bar)' },
+  { id: 'f-gate',      n: '11', label: 'The Gate',   sub: 'Copilot',            group: 'Govern',  bar: 'var(--rw-sage-bar)' },
+  { id: 'f-autopilot', n: '12', label: 'Autopilot',  sub: 'Within your rules',  group: 'Govern',  bar: 'var(--rw-gold-bar)' },
+  { id: 'f-watchdogs', n: '13', label: 'Watchdogs',  sub: 'Judge & Governor',   group: 'Govern',  bar: 'var(--rw-ink2)' },
 ] as const;
 
 type ChapterId = (typeof FEATURES)[number]['id'];
 type ChapterRefs = Record<ChapterId, RefObject<HTMLElement | null>>;
 
-const FEATURE_GROUPS = ['Your agent team', 'Care and control', 'Craft and proof'] as const;
+const FEATURE_GROUPS = ['Respond', 'Request', 'Brief', 'Measure', 'Govern'] as const;
+
+// One line under each group name in the index, so the ledger says what the
+// job IS before listing the chapters that do it.
+const GROUP_LEDES: Record<(typeof FEATURE_GROUPS)[number], string> = {
+  Respond: 'Every review answered, in your voice',
+  Request: 'New reviews brought in, with consent',
+  Brief: 'What happened, in your inbox',
+  Measure: 'The score, the trend, the record',
+  Govern: 'Who can say no, and when',
+};
 
 // Hero h1, pre-broken into masked lines (the Daylight hero entrance: each line
 // rises out of its own overflow mask, +0.1s per line — the same move as
 // /how-it-works).
 const HERO_LINES = [
-  'A tireless agent',
-  'drafts a reply',
-  'to every review.',
+  'A team of agents',
+  'answers, asks,',
+  'briefs, measures.',
   'Nothing goes public',
   'without the gate.',
 ];
@@ -120,7 +145,7 @@ function HeroSection({
       <HeroWash />
       <div className="rw-dl-col feat-hero-col">
         <div>
-          <p className="feat-eyebrow feat-fade">Features · Your agent team</p>
+          <p className="feat-eyebrow feat-fade">Features · One system, five jobs</p>
           <h1 className="feat-h1" id="feat-h1">
             {HERO_LINES.map((line) => (
               <span key={line} className="rw-hero-line">
@@ -129,11 +154,12 @@ function HeroSection({
             ))}
           </h1>
           <p className="feat-lede feat-fade d1">
-            RepWorth runs a team of AI agents on your Google reviews. Reply drafts every response,
-            Guardian triages the bad ones, and Insights reports on Mondays. Two watchdogs, the
-            Judge and the Governor, oversee anything that posts on its own. You pick the autonomy:
-            approve every reply on Copilot, or let policy-cleared replies post themselves on
-            Autopilot.
+            RepWorth runs a team of AI agents on your reputation, starting with Google. Reply
+            answers every review in your voice. Solicitor and a printable QR code bring new
+            reviews in. Insights briefs you every Monday, and the dashboard keeps the score. Two
+            watchdogs, the Judge and the Governor, oversee anything that posts on its own, and
+            you set how far it goes: approve every reply on Copilot, or let policy-cleared
+            replies post themselves on Autopilot.
           </p>
           {/* The same door /how-it-works puts in its hero: the forest pill,
               then the pricing text link. Before this the hero had only the
@@ -212,12 +238,19 @@ function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
         <div className="feat-toc-head">
           <h2 className="feat-toc-name">Index</h2>
           <span className="feat-toc-rule" aria-hidden="true" />
-          <span>3 agents · 2 watchdogs · 2 modes</span>
+          <span>5 jobs · 4 agents · 2 watchdogs · 2 modes</span>
         </div>
         <div ref={tocRef} className="feat-idx">
           {FEATURE_GROUPS.map((group) => (
-            <div key={group} className="feat-idx-row">
-              <div className="feat-idx-grp">{group}</div>
+            <div
+              key={group}
+              className="feat-idx-row"
+              style={{ ['--idx-n' as string]: FEATURES.filter((f) => f.group === group).length }}
+            >
+              <div className="feat-idx-grp">
+                <span>{group}</span>
+                <span className="feat-idx-grp-lede">{GROUP_LEDES[group]}</span>
+              </div>
               {FEATURES.filter((f) => f.group === group).map((f) => (
                 <button
                   key={f.id}
@@ -242,8 +275,8 @@ function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
   );
 }
 
-// One of the three chapter groups the index already names, with a header that
-// pins while its three chapters scroll past and hands off to the next group.
+// One of the five chapter groups the index already names, with a header that
+// pins while its chapters scroll past and hands off to the next group.
 //
 // Why this and not the /how-it-works stacked deck: that deck needs near-uniform
 // card heights (its six steps span 481-538px, a 1.12x spread), one surface, and
@@ -252,6 +285,9 @@ function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
 // viewport, so it could never hold a pin. Stacking also reads as "ordered
 // stages of one thing", which is /how-it-works. This page is a catalogue, so
 // its sticky device says where you are rather than what comes next.
+//
+// Groups hold one to four chapters, so the ribbon takes `--seg-i`/`--seg-n`
+// per segment (features.css) instead of assuming thirds.
 //
 // The bar repeats `.feat-ch-grp`, which every chapter header row inside it
 // already carries, so it is aria-hidden: screen readers get the group per
@@ -271,8 +307,11 @@ function ChapterGroup({ group, children }: { group: string; children: ReactNode 
             turn as you scroll the group — the /how-it-works step ribbon, scoped
             to a group instead of the whole stack. */}
         <div className="feat-grp-ribbon">
-          {chapters.map((f) => (
-            <span key={f.id} style={{ ['--bar' as string]: f.bar }}>
+          {chapters.map((f, i) => (
+            <span
+              key={f.id}
+              style={{ ['--bar' as string]: f.bar, ['--seg-i' as string]: i, ['--seg-n' as string]: chapters.length }}
+            >
               <i />
             </span>
           ))}
@@ -304,7 +343,7 @@ function FeaturesCta({
           <h2>{showSignupCta ? 'Start with Copilot today.' : `${EARLY_ACCESS_CTA.label}.`}</h2>
           <p className="rw-dl-cta-sub">
             {showSignupCta
-              ? 'Connect your Google Business Profile and get your first drafts in minutes.'
+              ? 'Connect your Google Business Profile: first drafts, your review QR code, and your dashboard in minutes.'
               : "Tell us about your business and we'll reach out when early access opens for your area."}
           </p>
           <div className="rw-dl-cta-more">
@@ -390,20 +429,28 @@ export function FeaturesContent({
       />
       <FeatureIndex onJump={scrollTo} />
 
-      <ChapterGroup group="Your agent team">
+      <ChapterGroup group="Respond">
         <FeatReply innerRef={refs['f-reply']} />
-        <FeatGuardian innerRef={refs['f-guardian']} />
+        <FeatVoice innerRef={refs['f-voice']} />
+        <FeatLang innerRef={refs['f-lang']} />
+      </ChapterGroup>
+      <ChapterGroup group="Request">
+        <FeatQr innerRef={refs['f-qr']} />
+        <FeatSolicitor innerRef={refs['f-solicitor']} />
+      </ChapterGroup>
+      <ChapterGroup group="Brief">
         <FeatInsights innerRef={refs['f-insights']} />
       </ChapterGroup>
-      <ChapterGroup group="Care and control">
+      <ChapterGroup group="Measure">
+        <FeatDashboard innerRef={refs['f-dashboard']} />
+        <FeatRestraint innerRef={refs['f-restraint']} />
+        <FeatRoi innerRef={refs['f-roi']} />
+      </ChapterGroup>
+      <ChapterGroup group="Govern">
+        <FeatGuardian innerRef={refs['f-guardian']} />
         <FeatGate innerRef={refs['f-gate']} />
         <FeatAutopilot innerRef={refs['f-autopilot']} />
         <FeatWatchdogs innerRef={refs['f-watchdogs']} />
-      </ChapterGroup>
-      <ChapterGroup group="Craft and proof">
-        <FeatLang innerRef={refs['f-lang']} />
-        <FeatVoice innerRef={refs['f-voice']} />
-        <FeatRoi innerRef={refs['f-roi']} />
       </ChapterGroup>
       <RoadmapBand />
 

@@ -26,10 +26,10 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
       <div className="rw-dl-col">
         <div className="feat-ch is-flip">
           <FeatIntro
-            n="06"
+            n="13"
             kicker="Judge & Governor · oversight"
             bar="var(--rw-ink2)"
-            group="Care and control"
+            group="Govern"
             title="Two watchdogs check every reply that posts itself."
             lede="The Judge reviews every reply that posts without your tap, all 100% of them. It is a separate AI safety check with its own rulebook. If the Judge is unavailable, auto-posting stops on its own. The Governor watches the pattern instead. If a reply is flagged, or edits and vetoes pile up over a week, the Governor pauses Autopilot for your whole account and emails you. RepWorth support switches it back on after a review."
           />

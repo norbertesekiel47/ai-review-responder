@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   // Bare name: the root layout's title template appends " · RepWorth".
   title: 'How it works',
   description:
-    'Watch, triage, draft, gate, post, judge. On Copilot you approve every reply; on Autopilot, policy-cleared replies post after a veto window you control.',
+    'Watch, triage, draft, gate, post, judge: one review, end to end. Around it, Solicitor and a printable QR code bring new reviews in, Insights briefs you every Monday, and the dashboard keeps the score. On Copilot you approve every reply; on Autopilot, policy-cleared replies post after a veto window you control.',
 };
 
 export default function HowItWorksPage() {

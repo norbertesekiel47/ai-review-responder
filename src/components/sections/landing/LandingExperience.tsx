@@ -11,6 +11,7 @@ import { LandingFooter } from './footer/LandingFooter';
 import { FleetSection } from './fleet/FleetSection';
 import { FutureSection } from './future/FutureSection';
 import { HeroSection } from './hero/HeroSection';
+import { JobsSection } from './jobs/JobsSection';
 import { PersonasSection } from './personas/PersonasSection';
 import { ProblemSection } from './problem/ProblemSection';
 import { TiersSection } from './tiers/TiersSection';
@@ -22,6 +23,7 @@ import './fleet/fleet.css';
 import './fleet/video-lightbox.css';
 import './future/future.css';
 import './hero/hero.css';
+import './jobs/jobs.css';
 import './personas/personas.css';
 import './problem/problem.css';
 import './tiers/tiers.css';
@@ -286,6 +288,10 @@ function LandingChrome({
         />
 
         <PersonasSection />
+        {/* The five jobs: the reader has met the acting agents one by one;
+            this regroups them by job — respond, protect, request, brief,
+            measure — before the oversight layer is introduced. */}
+        <JobsSection />
 
         <WatchdogsSection />
 

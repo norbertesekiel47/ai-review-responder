@@ -88,8 +88,8 @@ Capitalize agent names so they read as named characters, not verbs.
 |---|---|---|---|
 | **Reply** | Drafts a response to every review as it lands, in the owner's voice. On Autopilot it can post the safe, positive ones inside the owner's rating band and daily cap. | The **only** agent that can publish, and only inside the owner's bounds. | Live |
 | **Guardian** | Triages the negative lane by severity. Flags and escalates critical reviews to the owner. | **Never acts publicly.** That is its whole identity. | Live |
-| **Insights** | A short weekly digest in plain language, every Monday. | Reports only. | Live |
-| **Solicitor** | *Will* ask past customers for reviews in managed batches, honouring every opt-out. Never posts publicly. | Outbound only, never posts. | **NOT SHIPPED — future tense only** |
+| **Insights** | A short weekly digest in plain language every Monday, plus a monthly impact report. Reports only. | Reports only. | Live |
+| **Solicitor** | Asks past customers for reviews by email, in batches the owner approves; every opt-out is permanent. Never posts publicly. | Outbound only, never posts. | Live (present tense since 2026-09-06 — conditional on the `SOLICITATION_*` production flip, see §6) |
 
 **Guardian trap:** never soften "never acts publicly" into "handles negative
 reviews." That implies it responds to them. It does not.
@@ -130,13 +130,27 @@ Present tense is reserved for what ships today. Everything else is "will."
 - Negative reviews are never auto-posted. High-severity moderation flags are
   held, never notified.
 - Multi-location, per-location overage billing, account-level digests.
-- Approval by email, Telegram, or WhatsApp. No login required to approve.
+- Approval by email. No login required to approve. (Telegram and WhatsApp are
+  built and **off in production** — do not name them until the channel flags
+  flip.)
+- **Review QR**: one printable code per location that redirects a scan
+  straight to the Google review form. No landing page, no contact capture.
+  Live and un-flagged.
+- **Solicitor**: email review requests in batches the owner approves, with
+  consent attestation, send-or-withhold reasons per ask, one-click
+  unsubscribe, and permanent opt-outs. **Present tense since 2026-09-06 by
+  owner decision**, on the commitment that `SOLICITATION_WATCH_ENABLED` and
+  `SOLICITATION_SEND_ENABLED` flip on in production (they are on in staging).
+  Email only — never say SMS or WhatsApp for asks.
+- The owner dashboard: Rep Pulse (0–100, `rating/5·70 + responseRate·30`,
+  blank while ramping), rating and volume trends, review velocity, weekly
+  recap, agent activity, and the Restraint tab (what the system declined to
+  do, with a reason).
+- Briefs: the Monday weekly report and the monthly impact report, by email.
 - Card-up-front 30-day trial — **flag-gated, confirm before advertising.**
 
 ### NOT shipped — never claim in present tense
 
-- **Solicitor.** Substantially built but **inert in every environment**. The
-  send flag exists in no environment file. Future tense only, always.
 - **Committed future direction** (frame as future, may be described
   concretely): CRM Manager agent, Social Media Manager agent, Fake Review
   Detection & Dispute agent, multi-platform expansion beyond Google.
@@ -241,7 +255,7 @@ Match this register. These are shipped, reviewed, and accurate.
 **Hero**
 > One fleet of agents. Your whole reputation.
 > Each agent has one job. Independent watchdogs supervise the ones that act.
-> Google reviews, end to end, today. Growing to everywhere else you show up.
+> Google reviews: answered, requested, and measured, today. Growing to everywhere else you show up.
 
 **The fleet**
 > The two above supervise the ones below. Nothing posts on its own unless they
@@ -256,6 +270,11 @@ Match this register. These are shipped, reviewed, and accurate.
 > Reply — Every review gets a response, in your voice.
 > Guardian — The bad ones reach a human. Always.
 > Insights — Every Monday, you know exactly what happened.
+> Solicitor — Asking your customers, so more reviews arrive.
+
+**The five jobs (landing ledger, 2026-09-06)**
+> Not a reply tool. A reputation department.
+> Respond · Protect · Request · Brief · Measure
 
 **Watchdogs**
 > Judge — Reviews the machine's work, not yours.
@@ -267,7 +286,7 @@ Match this register. These are shipped, reviewed, and accurate.
 > fraud-dispute process. The ambition is to be all of it.
 
 **Closing CTA**
-> Hand your reviews to a fleet that answers to you.
+> Hand your reputation to a fleet that answers to you.
 > Start on Copilot, where nothing reaches Google without your say-so.
 > Move to Autopilot when you want to, not before.
 
@@ -360,8 +379,11 @@ Audience variants:
 Run this on every piece before it ships.
 
 - [ ] No banned word from §10.
-- [ ] No present-tense claim about Solicitor, CRM, Social, disputes, or
-      non-Google platforms.
+- [ ] No present-tense claim about CRM, Social, disputes, or non-Google
+      platforms. (Solicitor and the Review QR are present tense; Solicitor's
+      asks are email only.)
+- [ ] Review responses are not the only job named. A piece longer than a
+      line names at least two of: request, brief, measure.
 - [ ] No invented metric, customer count, testimonial, or logo.
 - [ ] Agent names capitalized and used per §4. Guardian not called a tier.
 - [ ] Judge described as governing auto-posts only.

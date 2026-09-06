@@ -26,7 +26,7 @@ export const SUPPORT_EMAIL = 'support@repworth.net';
  * one product. It keeps the page's argument rather than a feature list:
  * "supervised" is the whole claim the page has spent nine sections earning,
  * and "Google reviews" is the shipped scope, stated plainly. It says nothing
- * about Solicitor, CRM, social or multi-platform, all of which are unbuilt —
+ * about CRM, social or multi-platform, all of which are unbuilt —
  * see future-copy.ts.
  */
 export const BLURB = PRODUCT_BLURB;

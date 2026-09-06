@@ -25,7 +25,9 @@ describe('FeaturesContent', () => {
     // Five pre-broken lines, each inside its own overflow mask — the same
     // entrance /how-it-works uses, so the two heroes move alike.
     expect(html.match(/class="rw-hero-line"/g)).toHaveLength(5);
-    expect(html).toContain('A tireless agent');
+    expect(html).toContain('A team of agents');
+    expect(html).toContain('answers, asks,');
+    expect(html).toContain('briefs, measures.');
     expect(html).toContain('without the gate.');
   });
 
@@ -112,10 +114,11 @@ describe('FeaturesContent', () => {
     expect(soon).not.toContain('href="/signup"');
   });
 
-  it('describes the lineup honestly (agents, watchdogs, modes)', () => {
+  it('describes the lineup honestly (jobs, agents, watchdogs, modes)', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    expect(html).toContain('3 agents · 2 watchdogs · 2 modes');
+    expect(html).toContain('5 jobs · 4 agents · 2 watchdogs · 2 modes');
+    expect(html).not.toContain('3 agents · 2 watchdogs');
     expect(html).not.toContain('Six features today');
     expect(html).not.toContain('6 live · 1 in testing');
   });
@@ -127,13 +130,87 @@ describe('FeaturesContent', () => {
     expect(html).toContain('preview');
   });
 
-  it('leads with the trusted-autonomy narrative', () => {
+  it('reads as one system with five jobs, closing on the gate', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
-    expect(html).toContain('tireless');
+    expect(html).toContain('One system, five jobs');
     expect(html).toContain('gate.');
-    expect(html).toContain('Your agent team');
-    expect(html).toContain('Care and control');
-    expect(html).toContain('Craft and proof');
+    // The five job groups, in page order; the old three role groups are gone.
+    const order = ['Respond', 'Request', 'Brief', 'Measure', 'Govern'].map((g) =>
+      html.indexOf(`<span class="feat-grp-name">${g}</span>`)
+    );
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    for (const stale of ['Your agent team', 'Care and control', 'Craft and proof']) {
+      expect(html).not.toContain(stale);
+    }
+  });
+
+  it('gives every job its own chapters, so the reply pipeline is a minority of the page', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const chapterIds = ['f-reply', 'f-voice', 'f-lang', 'f-qr', 'f-solicitor', 'f-insights', 'f-dashboard', 'f-restraint', 'f-roi', 'f-guardian', 'f-gate', 'f-autopilot', 'f-watchdogs'];
+    for (const id of chapterIds) expect(html).toContain(`id="${id}"`);
+    // Index rows size themselves to their group (1–4 chapters), never a fixed three.
+    expect(html).toContain('--idx-n:3');
+    expect(html).toContain('--idx-n:2');
+    expect(html).toContain('--idx-n:1');
+    expect(html).toContain('--idx-n:4');
+  });
+
+  it('presents the Review QR as live: one code per location, straight to Google, no page of ours', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const start = html.indexOf('id="f-qr"');
+    const qr = html.slice(start, html.indexOf('</section>', start));
+    expect(qr).toContain('Review QR · on the counter');
+    expect(qr).toContain('One identical code per location');
+    expect(qr).toContain('Google review form');
+    expect(qr).toContain('Sample QR code, not scannable');
+    expect(qr).not.toContain('landing page');
+    expect(qr).not.toMatch(/\bwill\b/);
+  });
+
+  it('presents Solicitor in present tense, email-only, consent-first, never posting', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const start = html.indexOf('id="f-solicitor"');
+    const sol = html.slice(start, html.indexOf('</section>', start));
+    expect(sol).toContain('Solicitor · managed batches');
+    expect(sol).toContain('Solicitor is the requesting agent');
+    expect(sol).toContain('One-click unsubscribe');
+    expect(sol).toContain('never posts anything publicly');
+    expect(sol).toContain('Withheld');
+    expect(sol).not.toContain('SMS');
+    expect(sol).not.toContain('text message');
+    expect(sol).not.toMatch(/\bwill\b/);
+  });
+
+  it('states the Rep Pulse formula from the product constants, with sample values labelled', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const start = html.indexOf('id="f-dashboard"');
+    const dash = html.slice(start, html.indexOf('</section>', start));
+    expect(dash).toContain('Dashboard · Rep Pulse');
+    expect(dash).toContain('rating ÷ 5 × 70 + response rate × 30');
+    expect(dash).toContain('Your dashboard · sample');
+    expect(dash).toContain('Review velocity');
+    expect(dash).toContain('until it has enough history');
+  });
+
+  it('shows the Restraint tab as the record of what the system declined to do', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const start = html.indexOf('id="f-restraint"');
+    const r = html.slice(start, html.indexOf('</section>', start));
+    expect(r).toContain('Restraint · what it declined');
+    expect(r).toContain('Owner review required');
+    expect(r).toContain('Watchdog unavailable');
+    expect(r).toContain('Illustrative entries');
+  });
+
+  it('pairs the weekly brief with the monthly impact report', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const start = html.indexOf('id="f-insights"');
+    const brief = html.slice(start, html.indexOf('</section>', start));
+    expect(brief).toContain('Weekly brief · sample');
+    expect(brief).toContain('Monthly impact report · sample');
+    expect(brief).toContain('Monthly Intelligence Brief');
+    expect(brief).toContain('Best Review of the Month');
   });
 
   it('states only claims true to the system (2026-08-16 truth pass)', () => {
@@ -179,7 +256,9 @@ describe('FeaturesContent', () => {
 
   it('keeps roadmap items as verb phrases, not shipped claims', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
-    expect(html).toContain('Get reviews · Flag fakes · Watch everywhere');
+    expect(html).toContain('Flag fakes · Watch everywhere · Compare with competitors');
+    // "Get reviews" shipped (Review QR + Solicitor), so it left the roadmap roster.
+    expect(html).not.toContain('Get reviews ·');
     expect(html).toContain('Coming soon');
     expect(html).toContain('preview');
   });

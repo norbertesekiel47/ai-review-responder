@@ -27,10 +27,10 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
       <div className="rw-dl-col">
         <div className="feat-ch is-wide">
           <FeatIntro
-            n="04"
+            n="11"
             kicker="Copilot · your control"
             bar="var(--rw-sage-bar)"
-            group="Care and control"
+            group="Govern"
             title="Every reply needs your sign-off."
             lede="On Copilot, every draft comes to you by email, with the review and the reply side-by-side. Tap approve, edit inline, or ask for a fresh draft. Nothing is posted without your go-ahead."
           />

@@ -11,10 +11,13 @@
  *   Guardian  — never acts publicly. That is its whole identity; softening it
  *               to "handles bad reviews" implies it responds to them.
  *   Insights  — reports only.
- *   Solicitor — sends outbound to the business's own customers; it never posts
- *               publicly. And it is NOT SHIPPED: SOLICITATION_SEND_ENABLED is
- *               defined in no environment file, so it cannot send anywhere.
- *               Every string about it is future tense on purpose.
+ *   Solicitor — sends outbound EMAIL to the business's own customers, in
+ *               batches the owner approves; it never posts publicly. Present
+ *               tense since 2026-09-06 (owner decision), conditional on the
+ *               SOLICITATION_* flags being on in production — PRODUCT.md
+ *               "Shipped today" records the flip. The Review QR (one printable
+ *               code per location, redirecting to the Google review form) is
+ *               live and un-flagged; it belongs in this card too.
  *
  * Source: website design reference §1.1, PRODUCT.md "Shipped today",
  * invariants #3 and #4.
@@ -76,7 +79,7 @@ export const PERSONAS: readonly Persona[] = [
     id: 'insights',
     name: 'Insights',
     tagline: 'Every Monday, you know exactly what happened.',
-    body: 'A short weekly digest in plain language: what came in, what went out, how the week compares with your recent average, and what needs your eye. No dashboard to go and check.',
+    body: 'A short weekly digest in plain language: what came in, what went out, how the week compares with your recent average, and what needs your eye. A monthly impact report closes each month, and the same brief sits on your dashboard.',
     publishes: 'reports',
     publishLabel: 'Reports only',
     status: 'live',
@@ -85,10 +88,10 @@ export const PERSONAS: readonly Persona[] = [
     id: 'solicitor',
     name: 'Solicitor',
     tagline: 'Asking your customers, so more reviews arrive.',
-    body: 'Most tools only react to whatever arrives. Solicitor will ask your real customers for reviews in managed batches, so volume and recency keep climbing. Consent is checked first, every opt-out is honoured, and it never posts anything publicly.',
+    body: 'Most tools only react to whatever arrives. Solicitor asks your real customers for reviews by email, in batches you approve first, so volume and recency keep climbing. Consent is checked, every opt-out is honoured for good, and a printable QR code per location catches the walk-ins. It never posts anything publicly.',
     publishes: 'outbound',
     publishLabel: 'Outbound only, never posts',
-    status: 'next',
+    status: 'live',
   },
 ];
 

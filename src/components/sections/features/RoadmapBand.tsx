@@ -31,11 +31,11 @@ export function RoadmapBand({ innerRef }: { innerRef?: RefObject<HTMLElement | n
             kicker="What's next · Coming soon"
             bar="var(--rw-sage-bar)"
             group="Roadmap"
-            title="The same agent, reaching further."
-            lede="Today RepWorth minds your Google reviews. The roster below is what the agent takes on next, previewed here as the neighborhood scorecard, drawn with sample data."
+            title="The same fleet, reaching further."
+            lede="Today RepWorth answers, requests, briefs, and measures on Google. The roster below is what the fleet takes on next, previewed here as the neighborhood scorecard, drawn with sample data."
           >
             <p className="feat-roadmap-roster">
-              Get reviews · Flag fakes · Watch everywhere · Compare with competitors
+              Flag fakes · Watch everywhere · Compare with competitors · Dispute the fake one-star
             </p>
           </FeatIntro>
 

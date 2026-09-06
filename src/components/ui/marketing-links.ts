@@ -48,4 +48,4 @@ export const EARLY_ACCESS_CTA = { label: 'Get early access', href: '/book-a-demo
  * "fleet" stays inside the landing page's own voice copy.
  */
 export const PRODUCT_BLURB =
-  'A supervised team of AI agents for your Google reviews. Every action is recorded, and nothing posts outside the gate you control.';
+  'A supervised team of AI agents for your reputation: they answer your Google reviews, ask your customers for new ones, brief you every Monday, and keep the score. Every action is recorded, and nothing posts outside the gate you control.';
