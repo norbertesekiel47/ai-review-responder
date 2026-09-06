@@ -25,8 +25,20 @@ let repo: string;
 let captureFile: string;
 let fakeMatcher: string;
 
+// git EXPORTS its repo-locating variables (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE,
+// …) into hook processes, and from a linked worktree GIT_DIR is set for the
+// pre-push hook. Inherited by this suite (lefthook → vitest --changed → spawnSync)
+// they retarget every `git` call below at the CALLER's repo: on 2026-09-05 the
+// `git init` + `config` + `commit 'base'` sequence below re-initialised a
+// worktree's gitdir, wrote `core.bare=true` and the fake identity into the
+// SHARED .git/config, and stacked eight "base" commits on the pushing branch.
+// Same scrub as edit-surface-guard.test.ts and feature-state-amendments.test.ts.
+const GIT_FREE_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
+) as NodeJS.ProcessEnv;
+
 function git(...args: string[]): void {
-  const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+  const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
   }
@@ -42,7 +54,7 @@ function runScript(env: Record<string, string> = {}): SpawnSyncReturns<string> {
   return spawnSync('bash', [SCRIPT], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, BLAST_RADIUS_MATCHER_CMD: fakeMatcher, ...env },
+    env: { ...GIT_FREE_ENV, BLAST_RADIUS_MATCHER_CMD: fakeMatcher, ...env },
   });
 }
 

@@ -21,6 +21,8 @@ paths:
 - No trap clauses were moved from `.claude/CLAUDE.md` for this area; the live-DB test gotchas (`pnpm test` is the gate, fallow coverage, `TEST_DATABASE_POOL_URL` fallback) are in `.claude/rules/live-db-tests.md`.
 - Do NOT add a `ci:*` script without wiring it into the `lint` job AND `lefthook.yml` — `ci-audit-wiring.test.ts` fails otherwise; `ci:fallow:coverage` is the one sanctioned lefthook exemption (`CI_ONLY_BY_DESIGN`).
 
+- A test that spawns `git` (or a script that calls git) in a throwaway repo MUST pass `env: GIT_FREE_ENV` (`process.env` minus every `GIT_*` key). Git exports `GIT_DIR` into hook processes; under lefthook `test-changed` from a worktree the test otherwise commits INTO the pushing branch and writes `core.bare=true` into the shared `.git/config` (2026-09-05, lab-notes/history/2026-09.md).
+
 ## Rules
 
 - Nothing was moved from `.claude/CLAUDE.md`.

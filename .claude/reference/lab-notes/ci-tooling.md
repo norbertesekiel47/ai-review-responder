@@ -43,3 +43,4 @@
 - history/2026-08-21-to-31.md § "2026-08-24 — #877 test-DB provisioning lock"
 - history/2026-09.md § "[2026-09-04] `VITEST_WORKERS=1` beats retrying the gate on a loaded machine"
 - See also migrations.md § "Test-DB provisioning: local and CI applied the same "shared recipe" to different schemas" (canonical, moved with the 2026-08-14 lockstep entry)
+- history/2026-09.md § "2026-09-05 — the pre-push hook rewrote the pushing branch: a test that spawns `git` without scrubbing `GIT_DIR`"
