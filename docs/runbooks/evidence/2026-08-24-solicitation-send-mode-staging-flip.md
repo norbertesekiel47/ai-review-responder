@@ -847,12 +847,13 @@ not see any approve button", 16:42:08).
 `solicitation_batches` cascades from `contact_csv_uploads`, `businesses` and
 `accounts`; `solicitation_asks` and `solicitation_outreach` cascade from
 `solicitation_contacts`. The only deletion that leaves a batch row standing
-with zero children is a delete of the contact rows themselves, and the only
-reachable path to that is the per-row **Delete** control on the contacts page
+with zero children is a delete of the contact rows themselves. Two by-hand
+paths reach that: the per-row **Delete** control on the contacts page
 (`ContactList.tsx` → `DELETE /api/dashboard/contacts/[id]` → `deleteContact`,
-the §5 hard delete). Vercel request logs from that day have expired, so the
-DELETE calls are not directly observable; every other path is excluded by the
-worker logs and the topology. The 16:40:09 batch — four rows held back as
+the §5 hard delete — the only in-product path), or a manual row delete in the
+Supabase console. Vercel request logs from that day have expired, so the two
+cannot be told apart from here; every automated path is excluded by the
+worker logs and the topology, and the Claude session issued no deletes. The 16:40:09 batch — four rows held back as
 over-contacted, no approve button — is the moment the owner cleared the list
 and re-uploaded.
 
