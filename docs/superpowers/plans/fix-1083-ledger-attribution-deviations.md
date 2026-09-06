@@ -549,3 +549,46 @@ surface, but the workflow lists them as post-merge, and post-merge on a protecte
 review rounds 1 of 3 · red-team rounds 2 of 2 (cap).
 
 **Verdict:** ACCEPT — counted, reasoned and recorded rather than taken silently.
+
+---
+
+## D15 — Amendment #2 voided the red-team evidence, and the hash was updated
+
+**When**: step 8, immediately after D14.
+
+`red-team-status` refused: *"intake_sha256 does not match .feature/intake.json —
+an amended intake voids the evidence"*. That rule is right in general — the pass
+is briefed against a specific contract, so changing the contract invalidates it.
+
+**What actually changed, measured:**
+
+```
+git diff 6a382d1a..HEAD -- …-intake.json
++    "docs/progresstracking.md",
+```
+
+**One line, in `allowed_edit_surface`.** No `goal`, no `invariant`, no
+`edge_case`, no `tests_to_add` entry, no `non_goal`, no `test_seam`. Nothing red
+team was briefed on, and nothing any of its 45 mutations exercised. The field it
+touches governs which paths this run may edit — a workflow constraint, not a
+property of the software.
+
+`intake_sha256` updated to match, in the same commit as the sidecar, disclosed
+here and in `findings.md`.
+
+**Honesty about the residue, and it is thinner than D12's.** D12 and D13 could
+prove code identity with a diff hash. This one cannot appeal to that, because the
+contract itself moved. What it can say is narrower and checkable: the movement is
+one string in one array, the array is the edit lease rather than the
+specification, and the diff above is the whole of it. A reader who disagrees with
+that judgement should read the diff, not this paragraph.
+
+**The cheaper alternative was considered and rejected**: drop the
+`progresstracking.md` entry from this PR, revert the amendment, and file the
+record separately. That keeps the evidence pristine at the cost of an incomplete
+per-PR record and a second PR for one documentation entry, on a protected `main`.
+The record matters more than the pristineness of a hash over a field the pass
+does not read.
+
+**Verdict:** ACCEPT — the amendment is inert with respect to everything red team
+tested, and the diff proving it is quoted above rather than summarised.
