@@ -2,7 +2,7 @@
 
 ## Summary
 
-- **Solicitation / CSV ingest** — the `csv_ingest` advisory-lock contract covers status transitions only: the offboarding purge hard-DELETEs `contact_csv_uploads` unlocked, so `writeTerminalUploadState` deliberately TOLERATES a 0-row terminal write rather than asserting (#582); the batch builder pools every contact of the business, so a staging smoke's funnel never equals its own CSV; `useReviewedPing` is `visibilityState`-gated so background automation never writes `reviewed_at`; the Suppression ledger's §1.2 lookup has ONE owner (`suppressionMatchSql`) and its `channel` is a PARAMETER on both reader and writer — a hardcoded literal on one side fails OPEN the day the channel enum grows (#643); the offboarding token scrub matches on `account_id` alone so its account-leading index is usable, with the `business_id` arm kept only in the purge VERIFIER as a cross-account tripwire
+- **Solicitation / CSV ingest** — the `csv_ingest` advisory-lock contract covers status transitions only: the offboarding purge hard-DELETEs `contact_csv_uploads` unlocked, so `writeTerminalUploadState` deliberately TOLERATES a 0-row terminal write rather than asserting (#582); the batch builder pools every contact of the business, so a staging smoke's funnel never equals its own CSV; `useReviewedPing` is `visibilityState`-gated so background automation never writes `reviewed_at`; the Suppression ledger's §1.2 lookup has ONE owner (`suppressionMatchSql`) and its `channel` is a PARAMETER on both reader and writer — a hardcoded literal on one side fails OPEN the day the channel enum grows (#643); the offboarding token scrub matches on `account_id` alone so its account-leading index is usable, with the `business_id` arm kept only in the purge VERIFIER as a cross-account tripwire; ingest merges a re-uploaded handle in place and `normalizeEmail` keeps `+tag` sub-addresses, so a plus-addressed re-seed is a NEW contact and only an identical re-upload trips `over_contacted`; the owner's per-row Delete (§5) cascades asks + outreach and leaves the batch row, which is the "batch with zero children" shape — read `pool_count` in the batch-build log before blaming an upload (#965)
 
 ## Canonical entries
 
@@ -27,3 +27,4 @@ _None yet — the Summary bullet is the current rule; see History for the dated 
 - history/2026-08-21-to-31.md § "[2026-08-22] Any fixture meaning "already happened today" must be pinned inside the UTC day"
 - history/2026-08-21-to-31.md § "2026-08-26 — #967 post-purge global opt-out"
 - history/2026-08-21-to-31.md § "2026-08-26 — feat-qr-review-request staging ride"
+- history/2026-09.md § "2026-09-06 — #965: "the upload erased the history" was the owner's Delete button, read from a log counter twelve days later"
