@@ -843,19 +843,34 @@ offboarding, no csv work. The Claude session issued only `SELECT`s in the
 window; the owner drove the dashboard by hand ("I reuploaded but I still do
 not see any approve button", 16:42:08).
 
-**What deleted them.** Staging's FK rules (`pg_constraint`, 2026-09-06):
-`solicitation_batches` cascades from `contact_csv_uploads`, `businesses` and
-`accounts`; `solicitation_asks` and `solicitation_outreach` cascade from
-`solicitation_contacts`. The only deletion that leaves a batch row standing
-with zero children is a delete of the contact rows themselves. Two by-hand
-paths reach that: the per-row **Delete** control on the contacts page
-(`ContactList.tsx` → `DELETE /api/dashboard/contacts/[id]` → `deleteContact`,
-the §5 hard delete — the only in-product path), or a manual row delete in the
-Supabase console. Vercel request logs from that day have expired, so the two
-cannot be told apart from here; every automated path is excluded by the
-worker logs and the topology, and the Claude session issued no deletes. The 16:40:09 batch — four rows held back as
+**What deleted them — observed directly.** Vercel's runtime logs for the
+staging UI still hold the requests (read 2026-09-06, `get_runtime_logs`,
+project `rep-worth`): eight `DELETE /api/dashboard/contacts/<id>` calls, all
+`204`, four between the 16:40:09 over-contacted batch and the 16:40:59 A2
+upload, four between the 16:41:04 A2 batch and the 17:04:58 A3 upload. The
+contact ids are uuidv7, so their prefixes date them to the upload that minted
+them.
+
+| UTC | Vercel runtime log (branch `staging`) | Contact minted by |
+|---|---|---|
+| 16:40:18 | `DELETE /api/dashboard/contacts/01a0399f-1281…` 204 | upload A (15:52) |
+| 16:40:20 | `DELETE /api/dashboard/contacts/01a0399f-13d7…` 204 | upload A |
+| 16:40:28 | `DELETE /api/dashboard/contacts/01a0399f-1502…` 204 | upload A |
+| 16:40:29 | `DELETE /api/dashboard/contacts/01a0399f-162c…` 204 | upload A |
+| 17:04:08 | `DELETE /api/dashboard/contacts/01a039cb-e389…` 204 | upload A2 (16:40:59) |
+| 17:04:14 | `DELETE /api/dashboard/contacts/01a039cb-e488…` 204 | upload A2 |
+| 17:04:22 | `DELETE /api/dashboard/contacts/01a039cb-e576…` 204 | upload A2 |
+| 17:04:32 | `DELETE /api/dashboard/contacts/01a039cb-e664…` 204 | upload A2 |
+
+That route is the per-row **Delete** control on the contacts page
+(`ContactList.tsx` → `deleteContact`, the §5 hard delete). Staging's FK rules
+(`pg_constraint`, 2026-09-06) explain the shape: `solicitation_batches`
+cascades from `contact_csv_uploads`, `businesses` and `accounts`;
+`solicitation_asks` and `solicitation_outreach` cascade from
+`solicitation_contacts`. A contact delete removes the asks and outreach and
+leaves the batch row standing. The 16:40:09 batch — four rows held back as
 over-contacted, no approve button — is the moment the owner cleared the list
-and re-uploaded.
+and re-uploaded; the same again before A3.
 
 **Two claims above are wrong and stay as written for the record:**
 
@@ -874,4 +889,4 @@ describe the owner's §5 hard delete, which is documented as erasure of the
 customer record (`ContactList.tsx`, `contacts-repo.ts` §7.1 consent sweep).
 Whether outreach history should outlive a per-contact delete is a design
 input to #617/#620, not a bug. Batch B's upload (03:17 Aug 26) deleted
-nothing because nobody deleted contacts before it.
+nothing because no contact was deleted before it.
