@@ -1,6 +1,6 @@
 // src/app/q/[businessId]/route.ts
 //
-// Public QR redirect (CONTEXT.md "QR redirect"): resolves a Review QR scan
+// Public QR redirect (docs/context/review-qr.md "QR redirect"): resolves a Review QR scan
 // server-side and 302s to the location's Google write-review deep link.
 // Hardened like src/app/r/google/[responseId]/route.ts, but stronger on the
 // destination: the URL is CONSTRUCTED from an isPlaceId-validated place id,

@@ -12,7 +12,7 @@
 # overlap. Exit 2 on any code overlap so the orchestrator must surface it.
 #
 # Noise control (learned from the first live run — 32 raw hits, ~0 signal):
-#   - process paths every feature touches are excluded (docs/**, CONTEXT.md,
+#   - process paths every feature touches are excluded (docs/**, CONTEXT.md, CONTEXT-MAP.md,
 #     .claude/**, .feature/**);
 #   - test-only globs (containing __tests__ or .test.) are counted, not
 #     listed — same-test-file collisions are real but rarely decision-worthy;
@@ -34,7 +34,7 @@ prefix_of() { printf '%s' "$1" | sed 's/[*?[].*$//'; }
 # Process artifacts every feature legitimately touches — not overlap signal.
 is_process_glob() {
   case "$1" in
-    docs/*|CONTEXT.md|.claude/*|.feature/*) return 0 ;;
+    docs/*|CONTEXT.md|CONTEXT-MAP.md|.claude/*|.feature/*) return 0 ;;
   esac
   return 1
 }

@@ -26,7 +26,8 @@ Assertion source: `worker/config/startup-assert.ts`.
 > credentials. **`MOCK_EXTERNAL_APIS` is `false` in CI** (NOT `true`): the test
 > suite expects it off and flips it to `'true'` per-test only where it exercises
 > the mock path (e.g. `src/lib/zernio/client/transport.ts`). Setting it globally
-> `true` breaks the Zernio real-path tests — see `lab-notes.md` (2026-05-24). DB
+> `true` breaks the Zernio real-path tests — see `lab-notes/history/2026-05.md`
+> (2026-05-24, "`MOCK_EXTERNAL_APIS=true` in CI breaks the Zernio real-path tests"). DB
 > integration + Playwright e2e are not gated yet (need `TEST_DATABASE_POOL_URL`).
 
 ---

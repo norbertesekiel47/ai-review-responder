@@ -549,7 +549,7 @@ process; for rule 9, every acked-for-age Stripe subscription event across every
 customer and event type. A first-seen trigger fires once, ever, and then stays
 silent through
 exactly the repetition that is the signal. See #697 and
-`.claude/reference/lab-notes.md` (2026-08-08).
+`.claude/reference/lab-notes/history/2026-08-08.md` § "#697 import consent analytics sink ship".
 
 **Rule 6 is a REPLACEMENT, not an addition (#967).** The other rules add
 coverage; this one restores coverage that #967 deliberately removed. That ticket
@@ -658,7 +658,8 @@ treatment runs of `scripts/wedge-repro.ts`, zero wedge) and ideally OP3
    (`BOOT_STAGGER_ENABLED` unset/default — do not set it to `false`).
 2. Railway → `repworth-staging` → worker service → Variables → **remove**
    `HEALTH_ALERT_POLL_INTERVAL_MS` entirely (don't set it to `300000`
-   explicitly — per the "Poller cadence" glossary rule in `CONTEXT.md`, the
+   explicitly — per the "Poller cadence" glossary rule in
+   `docs/context/core-platform-runtime.md`, the
    code default is the authoritative value; the env var is only a per-env
    override, and removing it is how you hand ownership back to the default).
 3. Redeploy/restart the staging worker so the env change takes effect.

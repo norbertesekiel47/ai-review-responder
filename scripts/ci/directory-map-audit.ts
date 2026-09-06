@@ -1,6 +1,6 @@
 // scripts/ci/directory-map-audit.ts
 //
-// Keeps docs/directory.md honest for the two surfaces where "does a helper
+// Keeps the directory map honest for the two surfaces where "does a helper
 // already exist?" decides whether a new file is a duplicate: `worker/` and
 // `src/lib/`. The map calls itself the source of truth for file paths, and the
 // "no new file — check docs/directory.md first" rule assumes it is complete;
@@ -8,9 +8,18 @@
 // under those two roots (all 11 account-offboarding workers, 18 of 19
 // publisher helpers, and root modules that CLAUDE.md names by hand).
 //
+// The map is MANY files: `docs/directory.md` is the index (architecture, flows,
+// the Pages table) and every folder inventory is a page under
+// `docs/directory/*.md`. Each file is parsed with its OWN heading stack — a
+// page that inventories `src/lib/` folders begins with the `## \`src/lib/\``
+// line, so its relative `### \`db/\`` resolves exactly as it did in the single
+// file, and a heading in one page can never leak into the next. Every row
+// carries the file it came from; findings name `file:line`.
+//
 // Two checks, no baseline:
 //   1. COVERAGE — every production `.ts`/`.tsx` under SCAN_DIRS (walk defaults:
-//      `__tests__/` and `*.test.*` excluded) must be named by at least one ROW.
+//      `__tests__/` and `*.test.*` excluded) must be named by at least one ROW
+//      in ANY of the map files.
 //   2. STALENESS — every row that resolves under SCAN_DIRS must name a file
 //      that exists (a rename or delete must fix its row in the same change).
 //
@@ -23,7 +32,7 @@
 //   not count, so a helper mentioned in passing under another folder's table
 //   cannot satisfy coverage for — or be flagged stale against — the wrong path.
 //
-// How a row's path resolves — against its SECTION:
+// How a row's path resolves — against its SECTION, within its FILE:
 //   - a heading's first code span is its folder token; `## \`src/lib/\`` is
 //     absolute, deeper headings resolve relative to the nearest ancestor
 //     heading that has a path (`### \`db/\`` → `src/lib/db/`) unless the token
@@ -31,17 +40,29 @@
 //   - a heading with no code span opens a section with NO path — rows in it
 //     count only when spelled absolutely;
 //   - a row span starting with `src/` or `worker/` is absolute; anything else
-//     is joined onto the section folder.
+//     is joined onto the section folder;
+//   - the heading stack is per file: a page that opens with a relative
+//     `### \`x/\`` (no `## \`src/lib/\`` / `## \`worker/\`` line above it in
+//     THAT file) resolves its rows to bare `x/…` paths — outside SCAN_DIRS, so
+//     they neither satisfy coverage nor get judged. The page's files then show
+//     up as UNMAPPED: the fix is the root heading, not a stack from a
+//     neighbouring page.
 //
 // Scope is `worker/` + `src/lib/` on purpose: `src/app/**` is route files the
 // framework names, `src/components/**` is ~135 presentational components, and
 // both are folder-level in the map by design. Widening is a SCAN_DIRS edit.
-import { readFile, stat } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { walk } from './lib/ratchet-harness';
 
-const MAP_PATH = 'docs/directory.md';
+/** The index: architecture, flows, and the Pages table. */
+export const MAP_INDEX = 'docs/directory.md';
+/** Every `*.md` under this directory is a page of the map. */
+export const MAP_PAGES_DIR = 'docs/directory';
+/** How the map is spelled in prose findings (the index plus its pages). */
+const MAP_SPELLING = `${MAP_INDEX} + ${MAP_PAGES_DIR}/*.md`;
 const SCAN_DIRS = ['worker', 'src/lib'] as const;
 
 /** A path token in a heading or row cell — the file/folder shapes the map uses. */
@@ -54,8 +75,16 @@ const ABSOLUTE_PREFIX = /^(?:src|worker)\//;
 export interface MappedRow {
   /** Repo-relative path the row resolves to. */
   path: string;
-  /** 1-based line in docs/directory.md. */
+  /** Repo-relative map file the row was read from (the index or one page). */
+  file: string;
+  /** 1-based line in `file`. */
   line: number;
+}
+
+/** One map file: its repo-relative path and its Markdown text. */
+export interface MapSource {
+  file: string;
+  text: string;
 }
 
 /** `{a,b}.ts` → `[a.ts, b.ts]`; a token with no braces is returned as-is. */
@@ -174,10 +203,12 @@ function rowBase(stack: readonly HeadingFrame[]): string | null {
 }
 
 /**
- * Every ROW in the map, resolved to a repo-relative path. Pure — unit-tested.
- * Duplicates are kept (two rows may name one file; coverage is a set check).
+ * Every ROW in ONE map file, resolved to a repo-relative path. Pure —
+ * unit-tested. Duplicates are kept (two rows may name one file; coverage is a
+ * set check). The heading stack starts empty for each call, so nothing from
+ * another file can resolve a relative heading here.
  */
-export function parseDirectoryMap(text: string): MappedRow[] {
+export function parseDirectoryMap(text: string, file: string = MAP_INDEX): MappedRow[] {
   const rows: MappedRow[] = [];
   const stack: HeadingFrame[] = [];
   const lines = text.split('\n');
@@ -187,9 +218,17 @@ export function parseDirectoryMap(text: string): MappedRow[] {
     const source = heading ? heading[2]! : firstCell(line);
     if (source === null) continue;
     const base = heading ? pushHeading(stack, heading[1]!.length, source) : rowBase(stack);
-    for (const path of pathsInText(source, base)) rows.push({ path, line: index + 1 });
+    for (const path of pathsInText(source, base)) rows.push({ path, file, line: index + 1 });
   }
   return rows;
+}
+
+/**
+ * Every ROW across the whole map: each file parsed with a FRESH heading stack
+ * (`parseDirectoryMap` per source), rows tagged with their file. Pure.
+ */
+export function parseDirectoryMapPages(sources: readonly MapSource[]): MappedRow[] {
+  return sources.flatMap((source) => parseDirectoryMap(source.text, source.file));
 }
 
 export interface EvaluateInput {
@@ -218,7 +257,7 @@ export function evaluateFindings(input: EvaluateInput): string[] {
   for (const file of [...input.files].sort()) {
     if (mapped.has(file)) continue;
     findings.push(
-      `${file} has no row in ${MAP_PATH} — add a \`| \`${file.split('/').pop()}\` | … |\` row under the section for its folder (${dirname(file)}/), or if the folder has no section yet, add one. The map is CI-complete for worker/ + src/lib/.`,
+      `${file} has no row in ${MAP_SPELLING} — add a \`| \`${file.split('/').pop()}\` | … |\` row under the section for its folder (${dirname(file)}/) in the page that owns it (see the Pages table in ${MAP_INDEX}), or if the folder has no section yet, add one. The map is CI-complete for worker/ + src/lib/.`,
     );
   }
   const seenStale = new Set<string>();
@@ -226,7 +265,7 @@ export function evaluateFindings(input: EvaluateInput): string[] {
     if (!isInScope(row.path) || input.exists(row.path) || seenStale.has(row.path)) continue;
     seenStale.add(row.path);
     findings.push(
-      `${MAP_PATH}:${row.line} names ${row.path}, which does not exist — the file was renamed or deleted; fix or remove the row.`,
+      `${row.file}:${row.line} names ${row.path}, which does not exist — the file was renamed or deleted; fix or remove the row.`,
     );
   }
   return findings;
@@ -258,19 +297,47 @@ export async function collectRowExistence(
   return (path) => existence.get(path) ?? false;
 }
 
+/**
+ * The map's files in read order: the index first, then every `*.md` directly
+ * under MAP_PAGES_DIR sorted by name. A missing pages directory is an empty
+ * page set (the index alone), not an error — coverage then reports what the
+ * index fails to name. Unit-tested against the real repo.
+ */
+export async function collectMapFiles(root: string): Promise<string[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(resolve(root, MAP_PAGES_DIR), { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    entries = [];
+  }
+  const pages = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => `${MAP_PAGES_DIR}/${entry.name}`)
+    .sort();
+  return [MAP_INDEX, ...pages];
+}
+
+/** Read every map file (`collectMapFiles`) into `MapSource`s, in that order. */
+export async function collectMapSources(root: string): Promise<MapSource[]> {
+  const files = await collectMapFiles(root);
+  return Promise.all(files.map(async (file) => ({ file, text: await readFile(resolve(root, file), 'utf8') })));
+}
+
 async function main(): Promise<void> {
   const root = process.cwd();
-  const [files, mapText] = await Promise.all([collectFiles(root), readFile(resolve(root, MAP_PATH), 'utf8')]);
-  const rows = parseDirectoryMap(mapText);
+  const [files, sources] = await Promise.all([collectFiles(root), collectMapSources(root)]);
+  const rows = parseDirectoryMapPages(sources);
   const exists = await collectRowExistence(root, rows);
   const findings = evaluateFindings({ files, rows, exists });
+  const mapFiles = sources.map((source) => source.file);
   if (findings.length > 0) {
-    console.error(`directory-map-audit: failed (${findings.length})`);
+    console.error(`directory-map-audit: failed (${findings.length}) — map read from ${mapFiles.length} files: ${mapFiles.join(', ')}`);
     for (const finding of findings) console.error(`  ${finding}`);
     process.exit(1);
   }
   console.log(
-    `directory-map-audit: passed (${files.size} files under ${SCAN_DIRS.join(', ')} each have a row in ${MAP_PATH}; no stale rows)`,
+    `directory-map-audit: passed (${files.size} files under ${SCAN_DIRS.join(', ')} each have a row across ${mapFiles.length} map files: ${mapFiles.join(', ')}; no stale rows)`,
   );
 }
 

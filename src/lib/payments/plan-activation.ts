@@ -69,7 +69,7 @@ type SqlExecutor = Sql | TransactionSql;
  * by `is_primary` at all (`resolveCheckoutContext`), which read the field off
  * whichever Business the caller happened to pass. `onboarded_by` is the ONLY
  * eligibility marker for both the Beta comp coupon and the self-serve trial
- * (CONTEXT.md "Beta comp coupon"), and it lives per-Business while both
+ * (docs/context/admin-invite-funnel.md "Beta comp coupon"), and it lives per-Business while both
  * decisions are per-Account — so "which Business" is the whole question, and it
  * has exactly one right answer: the primary, un-archived one.
  *
@@ -321,7 +321,7 @@ function resolveCheckoutCreateShape(
     throw new Error('Checkout owner email is required');
   }
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-  // Exactly two facts decide the comp, and only two (CONTEXT.md "Beta comp
+  // Exactly two facts decide the comp, and only two (docs/context/admin-invite-funnel.md "Beta comp
   // coupon"): the primary Business is admin-invited, AND the env var is set.
   // One binding, because `betaCompCouponId()` already returns `string | null` —
   // the second ternary and `?? null` this replaced were both unreachable, in

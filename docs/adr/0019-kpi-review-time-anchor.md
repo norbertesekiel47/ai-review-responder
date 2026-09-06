@@ -120,7 +120,7 @@ laundered.
 - **Response-rate card copy names its denominator.** #790 keeps the
   `detected_at` workflow semantics and makes the mixed-clock dashboard legible
   with the Decision 2 explanation. Other KPI card copy is unchanged.
-- **Glossary**: the term **Review-time anchor** is coined in `CONTEXT.md`
+- **Glossary**: the term **Review-time anchor** is coined in `docs/context/core-reviews-responses.md`
   alongside the Review-import cluster; the fragment doc comment in
   `src/lib/kpi/fragments.ts` cites this ADR.
 

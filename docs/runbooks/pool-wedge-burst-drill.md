@@ -4,7 +4,7 @@
 scripts landed — two-arm burst drill + branch-isolated differential)
 **Owner:** @norbertesekiel
 **Applies to:** (a) reproducing the pipelining connection wedge proven in
-`.claude/reference/lab-notes.md` (2026-07-18 entry) via a checked-in
+`.claude/reference/lab-notes/history/2026-07.md` (2026-07-18 entry, "#500 pool-wedge self-heal") via a checked-in
 differential, and (b) validating the design-burst capacity target from ADR
 0005's addendum / ticket #474 against the backlog-depth alert shipped in
 #480/#501 (already on `main`). Cross-linked from
@@ -44,7 +44,7 @@ downstream.
 ## Part A — Health-bundle differential (proves the wedge mechanism)
 
 **What it proves:** the checked-in `scripts/health-bundle-differential.ts`
-reproduces the exact differential recorded in lab-notes (2026-07-18): the real
+reproduces the exact differential recorded in `lab-notes/history/2026-07.md` (2026-07-18): the real
 6-query health-check bundle fired via `Promise.all` on a `max:2` postgres.js
 client wedges over the Supavisor transaction pooler; the same bundle run
 **sequentially** (the shipped `runHealthChecks`, i.e. the actual cure) does

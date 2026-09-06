@@ -61,7 +61,7 @@ import './requests.css';
  * WHAT THE OWNER READS. Every rendered Outreach row is listed WITH its subject
  * and body (intake `user_visible_behavior[0]`). That is not decoration: the
  * 15-minute veto window is an undo rather than a review window *because* the
- * owner has already read every message they approved (CONTEXT.md "Owner
+ * owner has already read every message they approved (docs/context/solicitation-send-mode-approval-halt-lane.md "Owner
  * approval"), and a panel showing a name and a status would falsify the stated
  * basis for the short window. `toRows` carries the copy through.
  *
@@ -384,7 +384,7 @@ export function vetoDeadlineCopy(
 }
 
 /**
- * The veto window is the product's undo (CONTEXT.md "Owner approval"), so the
+ * The veto window is the product's undo (docs/context/solicitation-send-mode-approval-halt-lane.md "Owner approval"), so the
  * owner is told exactly when it closes: an absolute time that never moves, and
  * a live remainder in a polite live region (UX audit D5). The clock starts null
  * so the server render carries the absolute time alone and the remainder

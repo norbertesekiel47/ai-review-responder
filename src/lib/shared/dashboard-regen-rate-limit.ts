@@ -17,7 +17,7 @@ import { createWorkerLogger } from '@/lib/shared/logger';
 //     a plain INSERT, not an LLM call, so it is not spend to bound
 //   - `solicitation/batch/regenerate` — the #860 per-ask lane
 //
-// `docs/directory.md` § `src/lib/shared/` lists the same four; a new entrypoint
+// `docs/directory/lib-db-config-shared.md` § `shared/` lists the same four; a new entrypoint
 // updates both. Two fixed-window layers keyed by the authenticated owner
 // account, on DISTINCT Redis keys: checkRateLimit is one counter per key, so a
 // single shared key would double-increment and corrupt the window.

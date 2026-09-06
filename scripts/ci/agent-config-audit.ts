@@ -6,6 +6,7 @@ import {
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { globToRegExp, loadRules, RULES_DIR, type Rule } from '../agent-rules';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PROJECT_SKILLS = [
@@ -42,6 +43,13 @@ const HOOK_SCRIPTS = [
   'typecheck-on-stop.sh',
 ] as const;
 const ALLOWED_FRONTMATTER_KEYS = new Set(['name', 'description']);
+// Path-scoped rules: one file per area, `paths:` frontmatter names the globs it
+// governs (`.claude/CLAUDE.md` → "Path-scoped rules"; layout and caps in
+// docs/agents/context-layout.md). Claude loads them on read; Codex runs
+// `pnpm agent:rules`, so AGENTS.md must say so.
+const RULE_MAX_WORDS = 800;
+const CONTEXT_LAYOUT_DOC = 'docs/agents/context-layout.md';
+const AGENTS_RULE_STRINGS = ['.claude/rules/', 'pnpm agent:rules'] as const;
 const failures: string[] = [];
 
 function read(relativePath: string): string {
@@ -321,10 +329,88 @@ function assertSharedSkillParityForAll(): void {
   for (const skill of SHARED_CLAUDE_SKILLS) assertSharedSkillParity(skill);
 }
 
-function reportResult(): void {
+function trackedFiles(): string[] {
+  const listed = spawnSync('git', ['ls-files'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (listed.status !== 0) {
+    fail(`git ls-files failed: ${listed.stderr.trim()}`);
+    return [];
+  }
+  return listed.stdout.split('\n').filter((line) => line.length > 0);
+}
+
+function wordCount(text: string): number {
+  return text.split(/\s+/).filter((word) => word.length > 0).length;
+}
+
+function assertRuleGlobs(file: string, paths: string[], tracked: string[]): void {
+  if (paths.length === 0) {
+    fail(`${file} frontmatter must list at least one \`paths:\` glob.`);
+    return;
+  }
+  for (const glob of paths) {
+    const pattern = globToRegExp(glob);
+    if (!tracked.some((candidate) => pattern.test(candidate))) {
+      fail(`${file} glob '${glob}' matches no tracked file (typo, or the area moved).`);
+    }
+  }
+}
+
+function assertRule(rule: Rule, tracked: string[]): void {
+  assertNotIgnored(rule.file, `${rule.file} is ignored and would disappear from a clean checkout.`);
+  if (!rule.frontmatter) {
+    fail(`${rule.file} is missing the \`---\npaths:\` frontmatter block.`);
+  } else {
+    assertRuleGlobs(rule.file, rule.frontmatter.paths, tracked);
+  }
+  const words = wordCount(rule.body);
+  if (words > RULE_MAX_WORDS) {
+    fail(
+      `${rule.file} is ${words} words; rules are capped at ${RULE_MAX_WORDS} — ` +
+        'move the overflow to its docs/context or lab-notes page and point at it.',
+    );
+  }
+}
+
+function assertRulesDirectory(): number {
+  const rulesDir = resolve(REPO_ROOT, RULES_DIR);
+  if (!existsSync(rulesDir)) {
+    fail(`Missing path-scoped rules directory: ${RULES_DIR}/`);
+    return 0;
+  }
+  assertNotIgnored(RULES_DIR, `${RULES_DIR}/ is ignored and would disappear from a clean checkout.`);
+  const rules = loadRules(RULES_DIR, REPO_ROOT);
+  if (rules.length === 0) fail(`${RULES_DIR}/ contains no *.md rule files.`);
+  const tracked = trackedFiles();
+  for (const rule of rules) assertRule(rule, tracked);
+  return rules.length;
+}
+
+function assertRuleWiring(): void {
+  const agents = read('AGENTS.md');
+  for (const needle of AGENTS_RULE_STRINGS) {
+    if (!agents.includes(needle)) {
+      fail(`AGENTS.md must mention \`${needle}\` — Codex learns the rules only by instruction.`);
+    }
+  }
+  if (!existsSync(resolve(REPO_ROOT, CONTEXT_LAYOUT_DOC))) {
+    fail(`Missing ${CONTEXT_LAYOUT_DOC} (the context-layout doc every rule pointer lands on).`);
+  }
+}
+
+function assertPathScopedRules(): number {
+  const count = assertRulesDirectory();
+  assertRuleWiring();
+  return count;
+}
+
+function reportResult(ruleCount: number): void {
   if (failures.length === 0) {
     console.log(
-      `agent-config-audit: passed (${PROJECT_SKILLS.length} skills, ${HOOK_SCRIPTS.length} hooks).`,
+      `agent-config-audit: passed (${PROJECT_SKILLS.length} skills, ${HOOK_SCRIPTS.length} hooks, ${ruleCount} rules).`,
     );
     return;
   }
@@ -341,7 +427,8 @@ function main(): void {
   assertSharedSkillParityForAll();
   assertCanonicalReferences();
   assertSkillLock();
-  reportResult();
+  const ruleCount = assertPathScopedRules();
+  reportResult(ruleCount);
 }
 
 main();

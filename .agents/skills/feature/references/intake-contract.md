@@ -12,7 +12,7 @@ arming contract; the compact small-change brief stays in the task.
   "risk_reasons": [],
   "surface": "backend",
   "db_touching": false,
-  "goal": "One observable outcome using CONTEXT.md terms",
+  "goal": "One observable outcome using glossary terms (docs/context/)",
   "non_goals": [],
   "user_visible_behavior": [],
   "invariants": [],

@@ -37,7 +37,7 @@ export interface CostGuardedResult<T> {
 // ACKNOWLEDGED DEBT (#628 → refactor ticket): pre-dates this branch, surfaced
 // here only because #628 threaded a task-scoped estimate through it. Its
 // branches ARE the reserve → spend → finalize/release matrix documented in
-// lab-notes ("Cost-guard fail-open/retry matrix"): transport failures
+// lab-notes/worker-crash-net-cost-guard.md ("Cost-guard fail-open/retry matrix"): transport failures
 // retryable, budget decisions terminal, finalize failures never job-retried.
 // Each branch is a distinct money-safety rule, so collapsing them to lower a
 // metric would hide exactly the distinctions that keep spend safe.

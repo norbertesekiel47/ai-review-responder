@@ -2,7 +2,7 @@
 //
 // T1 EVAL suite for #678 — the Generate door.
 //
-// **On-demand generation** (CONTEXT.md glossary, verbatim): owner-initiated LLM
+// **On-demand generation** (docs/context/core-reviews-responses.md glossary, verbatim): owner-initiated LLM
 // drafting from the **Reviews list** — `Generate` on a never-replied review,
 // `Regenerate` on an already-replied one — governed by four already-existing
 // layers: the per-owner-account rate limit (fails open), the per-review daily

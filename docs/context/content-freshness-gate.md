@@ -1,0 +1,5 @@
+_Context file of the RepWorth domain glossary — the index of contexts and the file that owns each term is [`CONTEXT-MAP.md`](../../CONTEXT-MAP.md)._
+
+## Content-freshness gate (locked 2026-08-09 — ADR 0017, tickets #724/#728)
+
+- **Content-freshness gate** — the lane-independent check at the persist boundary of response generation: under the review `FOR UPDATE` lock `persistResponseAndNotify` takes as its first statement, the current `review_content_hash` is re-read and compared with the hash the worker loaded before the LLM call. Both non-null and different → **skip-the-INSERT**: the job completes (never fails) with the one-owner completion reason **`stale_review_content`** (`OUTBOX_COMPLETION_REASON.STALE_REVIEW_CONTENT`), writing NOTHING — the `(review_id, version)` slot stays free for the colliding fresh job. A null hash on either side passes: it is a freshness check, not a provenance proof. The auto lane's stricter hash gate in `evaluateAutoApprovalCandidate` is unchanged defense in depth (invariant #3).

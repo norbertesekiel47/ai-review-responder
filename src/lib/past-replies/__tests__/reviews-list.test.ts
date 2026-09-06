@@ -3,7 +3,7 @@
 // T1 EVAL suite for #678 — the Reviews list half of the 52 locked titles,
 // authored VERBATIM before implementation.
 //
-// **Reviews list** (CONTEXT.md glossary, verbatim): the owner's single
+// **Reviews list** (docs/context/core-reviews-responses.md glossary, verbatim): the owner's single
 // inventory of every review for a location. NOT a new page —
 // `dashboard/reviews/history` is widened in place. Grouped `Unanswered` then
 // `Answered`, newest-first inside each group, `PAGE_SIZE` 50. Distinct from the

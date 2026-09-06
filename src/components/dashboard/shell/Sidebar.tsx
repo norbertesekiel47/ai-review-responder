@@ -83,7 +83,7 @@ const NAV_CHILDREN: Partial<
   reviews: [
     { href: '/dashboard/reviews', label: 'Needs Action' },
     // Same name as the tab it opens (UX audit D16) — never "Past replies",
-    // which names the pre-#671 surface (CONTEXT.md → Reviews list).
+    // which names the pre-#671 surface (docs/context/core-reviews-responses.md → Reviews list).
     { href: '/dashboard/reviews/history', label: 'All Reviews' },
   ],
   requests: [
@@ -196,7 +196,7 @@ export function Sidebar({ businessName, solicitationEnabled }: Props) {
             {activeNav === 'requests' && <NavChildren section="requests" />}
           </>
         )}
-        {/* **Review QR** is visible to EVERY owner (CONTEXT.md), but Requests
+        {/* **Review QR** is visible to EVERY owner (docs/context/review-qr.md), but Requests
             is gated on watch-mode, which is OFF in production. Nested under a
             hidden parent it had no entry point at all — the Settings row this
             change removed was its only one. So when the section that would

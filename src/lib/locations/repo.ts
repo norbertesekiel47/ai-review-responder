@@ -189,7 +189,7 @@ export interface QrRedirectRow {
 }
 
 /**
- * Pre-auth read for the public QR redirect (CONTEXT.md "QR redirect"): by
+ * Pre-auth read for the public QR redirect (docs/context/review-qr.md "QR redirect"): by
  * business UUID, JOINs accounts for the AUTHORITATIVE subscription status,
  * deliberately UNSCOPED — the scanner is anonymous and tenant scope is
  * unknowable before this read. Allowlisted statement-granular in

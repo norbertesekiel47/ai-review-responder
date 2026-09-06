@@ -1,6 +1,6 @@
 // src/app/api/_shared/channels/resolve-actor.ts
 //
-// The Channel actor seam (CONTEXT.md → "Channel actor"). Resolving WHO an
+// The Channel actor seam (docs/context/core-accounts-channels-admin.md → "Channel actor"). Resolving WHO an
 // enrollment action runs as is the only axis that varies between the admin and
 // owner portals' 12 channel routes; everything after it — flag gate, env gate,
 // token mint, advisory lock, enrollment mutation, cache invalidation — is

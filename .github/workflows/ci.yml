@@ -205,7 +205,7 @@ jobs:
         run: pnpm ci:agent-config
       - name: Run dropped-columns SQL reference audit
         run: pnpm ci:dropped-columns
-      - name: Run directory-map completeness audit (docs/directory.md vs worker/ + src/lib/)
+      - name: Run directory-map completeness audit (docs/directory.md + docs/directory/ vs worker/ + src/lib/)
         run: pnpm ci:directory-map
       # #893. Replaces four hand-written pins whose enumerated import lists
       # missed three fan-out subjects in the directory they were meant to cover.
@@ -340,7 +340,7 @@ jobs:
   # `pnpm install` with NO .git directory. Catches lifecycle scripts
   # (prepare/postinstall) that shell out to git and would abort the deploy.
   # GitHub CI and Vercel both build from a git checkout, so no other job sees
-  # this failure mode. See .claude/reference/lab-notes.md (2026-06-04).
+  # this failure mode. See .claude/reference/lab-notes/history/2026-06.md (2026-06-04).
   deploy-install:
     name: deploy-install
     runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
@@ -373,7 +373,7 @@ jobs:
   # sanctioned exception in src/__tests__/ci-audit-wiring.test.ts): its input
   # is a full `vitest run --coverage`, which has no place in a pre-push hook.
   # The faithful local reproduction is `pnpm test:coverage && pnpm
-  # ci:fallow:coverage` (lab-notes "fallow coverage DB-complete").
+  # ci:fallow:coverage` (lab-notes/ci-tooling.md "fallow coverage input is DB-complete").
   fallow:
     name: fallow
     runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}

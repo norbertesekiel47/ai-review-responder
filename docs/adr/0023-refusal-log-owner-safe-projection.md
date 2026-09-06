@@ -5,7 +5,7 @@
 Accepted — 2026-08-29. Records the decisions that govern what may cross from a
 **Refusal** to the owner's screen.
 
-Terms: `CONTEXT.md` → **Refusal**, **Refusal category**, **Refusal source**,
+Terms: `docs/context/refusal-ledger.md` → **Refusal**, **Refusal category**, **Refusal source**,
 **Restraint tab**. Schema: migration `116_refusal_events.sql` (locked in #1001).
 Map: #994.
 

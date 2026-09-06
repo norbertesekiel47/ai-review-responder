@@ -14,7 +14,7 @@
 //     is erased before transform. The props stay fully typed once Task 3 lands,
 //     without handing import-analysis a specifier to resolve.
 //
-// Copy discipline (CONTEXT.md **Halt latch**): "stop" is the ONE carved-out
+// Copy discipline (docs/context/solicitation-send-mode-approval-halt-lane.md **Halt latch**): "stop" is the ONE carved-out
 // owner-facing synonym. `pause`, `resume` and `cancel batch` stay banned
 // everywhere including copy, and every case asserts that.
 

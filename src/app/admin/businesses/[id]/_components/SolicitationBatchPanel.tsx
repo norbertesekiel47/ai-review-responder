@@ -6,7 +6,7 @@
 // both share `useAdminActionForm` instead of each keeping a private copy of the
 // same reducer — the modelling became a seam.
 //
-// COPY DISCIPLINE (CONTEXT.md **Halt latch**). "stop" is the ONE carved-out
+// COPY DISCIPLINE (docs/context/solicitation-send-mode-approval-halt-lane.md **Halt latch**). "stop" is the ONE carved-out
 // owner-facing synonym for `halt`; `pause`, `resume` and `cancel batch` are
 // banned everywhere INCLUDING copy, because each implies a reversibility the
 // latch does not have. Code-level names stay on the term — the mode member
@@ -270,7 +270,7 @@ export function SolicitationBatchPanel({
   }
 
   // `haltable`, not `stoppable`: the copy carve-out is one word wide and does
-  // not reach identifiers (CONTEXT.md **Halt latch**). Derived from the single
+  // not reach identifiers (docs/context/solicitation-send-mode-approval-halt-lane.md **Halt latch**). Derived from the single
   // refusal map, never from a second list of states.
   const whyNotHaltable = NON_ACTIONABLE_COPY[summary.batchState];
   const haltable = whyNotHaltable === null;

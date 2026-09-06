@@ -23,7 +23,8 @@ count + Stripe, i.e. a "one owner per fact" violation worth retiring.
    (+ remove `locations_paid` from `AccountWithLocations`, the reconcile SELECT/GROUP BY,
    and the `DriftFinding['type']` union — all added in PR B/B4).
 3. Migration: drop `accounts.locations_paid` (and any audit references).
-4. Update `.claude/reference/migrations-log.md` and `docs/directory.md`.
+4. Update `.claude/reference/migrations-log.md` and the `docs/directory/<page>.md` that
+   inventories each touched folder (the `docs/directory.md` Pages table maps folders to pages).
 
 No behavior depends on the column for billing today, so retirement is a clean,
 low-risk simplification once the dashboard badge is rederived.

@@ -1,0 +1,6 @@
+_Context file of the RepWorth domain glossary — the index of contexts and the file that owns each term is [`CONTEXT-MAP.md`](../../CONTEXT-MAP.md)._
+
+## Voice Report Card (locked 2026-07-24 — ticket #540, prototype #536)
+
+- **Voice Report Card**: the owner-facing section on `/settings/voice` reporting what voice learning inferred — five Register traits, each a plain-language claim backed by one before→after snippet from the owner's own edits. Derives on read from EXACTLY the corpus the prompt path uses (`getVoiceCorpusStatus`/`getApprovedResponsePairs`); below activation (5 posted owner-edited replies) it shows "N of 5" progress and never partial traits. Deterministic only — no LLM, nothing persisted, no flag/tier gate. *(coined in #536 prototype; locked in #540 grilling)*
+- **Register trait**: one of five deterministic voice patterns (greeting, length, sign-off, point of view, critical-review register) derived heuristically from `VoiceExample` pairs. Renders only when its pattern holds in a strict majority of applicable pairs with ≥2 conforming; Critical reviews is exempted (applicable = negative pairs per `classifySentiment`, detects at ≥1, claim scoped to its evidence when single). Undetected traits are omitted — the card never claims what wasn't learned. *(coined in #536 prototype; detection bar locked in #540 grilling)*

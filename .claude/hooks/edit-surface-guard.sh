@@ -110,7 +110,7 @@ esac
 # --- Rule 2: path must match allowed_edit_surface (or always-allowed) ---
 # Always allowed: process artifacts and docs.
 case "$REL_PATH" in
-  .feature/*|docs/*|CONTEXT.md) exit 0 ;;
+  .feature/*|docs/*|CONTEXT.md|CONTEXT-MAP.md) exit 0 ;;
 esac
 
 MATCHED=false

@@ -1,6 +1,6 @@
 // src/lib/reviews/on-demand-generate.ts
 //
-// The Generate transaction (the "On-demand generation" door, CONTEXT.md
+// The Generate transaction (the "On-demand generation" door, docs/context/core-reviews-responses.md
 // glossary): every in-transaction guard behind creating the FIRST draft for a
 // never-replied review — the review lock, the TOCTOU writable re-check, the
 // three sibling exclusions, orphan semantics, D-B version allocation, and the

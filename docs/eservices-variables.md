@@ -355,7 +355,7 @@ inventory is §2 and `.env.example`.
 ## 4. How to regenerate this scan
 
 ```bash
-EXCL="--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=coverage --exclude-dir=graphify-out --exclude-dir=.claude"
+EXCL="--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=coverage --exclude-dir=.claude"
 
 # every var read by code
 grep -rhoE "process\.env\.[A-Za-z_][A-Za-z0-9_]*|process\.env\[['\"][A-Za-z_][A-Za-z0-9_]*['\"]\]" $EXCL \

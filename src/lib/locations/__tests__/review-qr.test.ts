@@ -1,6 +1,6 @@
 // src/lib/locations/__tests__/review-qr.test.ts
 //
-// Task 1 eval suite for the review-qr module (CONTEXT.md "Review QR" /
+// Task 1 eval suite for the review-qr module (docs/context/review-qr.md "Review QR" /
 // "QR redirect") — authored FAILING before the module exists; Task 4 turns
 // it green.
 

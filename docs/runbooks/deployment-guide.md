@@ -591,7 +591,7 @@ MOCK_EXTERNAL_APIS=false
 > `railway config apply` is project-wide with omit-means-delete semantics — never run it
 > mid-cutover.
 >
-> Full timeline and root cause: lab-notes 2026-08-31 "Railway deploy configuration".
+> Full timeline and root cause: lab-notes/worker-startup-sentry.md "Railway deploy configuration" (2026-08-31).
 
 ### 5.2 Railway env vars
 
