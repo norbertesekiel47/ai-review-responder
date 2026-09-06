@@ -41,6 +41,22 @@ A reader who wants evidence untouched by this should read round 1 and round 2's
 findings as recorded, and treat the doc-claim column as verified by the
 orchestrator rather than by the pass.
 
+**`intake_sha256` was also updated** (deviations D15). Step 8 added
+`docs/progresstracking.md` to `allowed_edit_surface` so the per-PR record could
+be written, and the checker voids evidence on any intake change. The whole diff
+since this pass ran is:
+
+```
++    "docs/progresstracking.md",
+```
+
+One string, in the edit lease rather than the specification. No `goal`,
+`invariant`, `edge_case`, `tests_to_add` entry, `non_goal` or `test_seam` moved,
+and none of the 45 mutations exercised that field. **This claim is thinner than
+the `head_sha` one** — that could prove code identity with a diff hash, this
+cannot, because the contract itself moved. Read the diff above rather than this
+paragraph.
+
 ## Counts
 
 | | Round 1 | Round 2 |
