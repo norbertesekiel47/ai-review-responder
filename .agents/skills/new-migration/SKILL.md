@@ -12,8 +12,8 @@ The fix for an applied migration is always a NEW migration.
 
 Authoritative sources — this skill is the checklist, not the data:
 - `.claude/reference/migrations-log.md` — head/next number, full per-migration history, retention policy. **Read it before anything else.**
-- `.claude/reference/lab-notes.md` "Indexes / migrations" topic — the failure catalog behind the checklist below.
-- `.claude/CLAUDE.md` "Environments & branches" — lockstep rule + standing exceptions (e.g. 078 deliberately absent in prod until the WS8 cutover).
+- `.claude/reference/lab-notes/migrations.md` "Indexes / migrations" topic page — the Summary rule, the canonical "Migration lockstep audit", and (via its History pointers into `lab-notes/history/`) the failure catalog behind the checklist below.
+- `.claude/CLAUDE.md` "Environments & branches" — the lockstep rule. There is no standing exception (078 reached prod in the WS8 cutover); never re-derive lockstep from prose — introspect both databases, method in `lab-notes/migrations.md` "Migration lockstep audit".
 
 ## Workflow
 
@@ -24,19 +24,19 @@ Authoritative sources — this skill is the checklist, not the data:
    - Index/predicate expressions must be **IMMUTABLE**: `(created_at AT TIME ZONE 'UTC')::date`, never `created_at::date` (STABLE is rejected).
    - Any `ON CONFLICT` targeting a partial index must reference the predicate **byte-for-byte** or Postgres won't match the constraint.
    - **CHECK constraints pass NULL** — pair with `NOT NULL` and run NULL-safe preflight counts before adding a strict CHECK.
-   - Set `lock_timeout` for `ALTER TABLE` on hot tables; a hung ALTER is usually a lock queue behind a long-lived Supavisor session (cancel the stalled backend, verify clean, retry — lab-notes).
+   - Set `lock_timeout` for `ALTER TABLE` on hot tables; a hung ALTER is usually a lock queue behind a long-lived Supavisor session (cancel the stalled backend, verify clean, retry — `lab-notes/history/2026-07.md` § "A hung migration is a lock queue behind a long-lived pooled (Supavisor) session").
    - New table? Decide **RLS posture** (most tables: app-enforced scoping, no RLS; admin-only tables: deny-all RLS), add **tenant scoping** to queries, and add a row to the migrations-log **retention policy** table (or note why exempt).
    - **A new TENANT table forces a chain of four registries — list them in the intake up front, because no single document reveals it** (#1008 spent a surface amendment discovering them one CI audit at a time): `TENANT_TABLES` in `scripts/ci/tenant-tables.ts` — **TWO structures, the array AND the scope-column map; editing one typechecks clean and fails only the live-DB completeness test** → `docs/security/rls-inventory.md` (`rls-audit.test.ts` asserts `REQUIRED_RLS_TABLES === TENANT_TABLES`) → `TABLE_DISPOSITIONS` in `src/lib/account-offboarding/table-disposition.ts` → if `hard_delete`/`must_be_absent`, BOTH a `verificationQuery` arm in `purge-verification.ts` and an account-scoped DELETE in `runContentPurgeStage`. Plus an `arch-review-log.md` row for the merge itself.
    - **Verifying a CHECK by reading `pg_get_constraintdef` back? Assert what Postgres RENDERS, not what you wrote.** An implicit `CASE` fall-through always deparses as `ELSE NULL::boolean`, so `not.toContain('ELSE')` tests pg's deparser rather than your constraint. Assert its PRESENCE beside the `END … IS TRUE` wrapper — together they name the exact value the wrapper defeats.
-4. **Apply staging first, then prod**, same change window. Verify by **schema introspection** (`information_schema.columns` / `pg_indexes` for the objects created) — NEVER the Supabase migration ledger; `list_migrations` does not track RepWorth's `0xx` migrations (lab note 2026-06-20).
+4. **Apply staging first, then prod**, same change window. Verify by **schema introspection** (`information_schema.columns` / `pg_indexes` for the objects created) — NEVER the Supabase migration ledger; `list_migrations` does not track RepWorth's `0xx` migrations (`lab-notes/migrations.md` "Migration lockstep audit" § Method; first noted `lab-notes/history/2026-06.md` 2026-06-20).
 5. **Same-change bookkeeping** (skipping any of these is a bug):
    - Update `migrations-log.md`: bump the head line AND add the migration's entry.
-   - If the migration adds a JSONB column that production code will read via Postgres.js: add the parser site to `.claude/CLAUDE.md`'s PgBouncer JSONB carve-out list.
+   - If the migration adds a JSONB column that production code will read via Postgres.js: add the parser site to the allowlist in `lab-notes/postgres.md` "PgBouncer JSONB parse-site allowlist" (the authoritative list moved there from CLAUDE.md).
 6. **Gates**: `pnpm test`, `pnpm ci:rls-audit`, `pnpm ci:tenant-scope` (`.claude/CLAUDE.md` requires the last two for DB-touching changes).
 
 ## Common mistakes
 
 - Editing an applied migration "just to fix a typo" — blocked by hook; write head+1 instead.
 - Trusting `list_migrations` as proof of application — it returns wrong/empty results here; introspect the schema.
-- Applying to prod but not staging (or vice versa) — lockstep violation; the only sanctioned exception is documented in `.claude/CLAUDE.md` (078 until the WS8 cutover).
+- Applying to prod but not staging (or vice versa) — lockstep violation; there is no standing exception (`.claude/CLAUDE.md` "Environments & branches"; audit method in `lab-notes/migrations.md` "Migration lockstep audit").
 - Forgetting the migrations-log head bump — the immutability hook reads it, so a stale head silently un-protects the newest applied migration.

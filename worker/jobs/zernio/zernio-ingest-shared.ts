@@ -41,7 +41,7 @@ type SqlExecutor = postgres.Sql | TxClient;
 const FLAG_ON = (): boolean =>
   externalReplyImportEnabled();
 
-// ── Live-ingest cutoff (CONTEXT.md glossary) ─────────────────────────────
+// ── Live-ingest cutoff (docs/context/core-reviews-responses.md glossary) ─────────────────────────────
 // connected_at − grace: the instant from which the live lane (webhook +
 // recent poller) owns review handling. The recent poller processes only
 // createTime >= cutoff (isRecentForConnection); the consented Review import

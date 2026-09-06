@@ -1817,7 +1817,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   });
 
   it("a suppressed candidate is withheld with reason 'suppressed' carrying the ledger source and timestamp as evidence", async () => {
-    // Attestation never overrides suppression (CONTEXT.md): this contact has a
+    // Attestation never overrides suppression (docs/context/solicitation-suppression-unsubscribe.md): this contact has a
     // send-eligible consent row and a fresh visit, so without the ledger row it
     // sends. Consent and suppression are independent inputs — the recipient's
     // revocation is what turns it into a withhold.

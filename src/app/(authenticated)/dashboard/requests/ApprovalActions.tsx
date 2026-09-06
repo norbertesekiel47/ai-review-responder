@@ -17,7 +17,7 @@ import './requests.css';
  *
  * Which verb a Batch state offers is a lifecycle question and stays upstream
  * with the other exhaustive switches; this file only knows how a verb looks.
- * `halt` is the verb's name everywhere in code (CONTEXT.md "Halt latch"); the
+ * `halt` is the verb's name everywhere in code (docs/context/solicitation-send-mode-approval-halt-lane.md "Halt latch"); the
  * owner-facing word is "stop", the one carve-out that term allows.
  */
 

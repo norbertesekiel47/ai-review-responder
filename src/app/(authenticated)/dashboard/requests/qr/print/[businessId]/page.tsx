@@ -1,6 +1,6 @@
 // src/app/(authenticated)/dashboard/requests/qr/print/[businessId]/page.tsx
 //
-// Print view for one location's Review QR (CONTEXT.md "Review QR"). Tenant
+// Print view for one location's Review QR (docs/context/review-qr.md "Review QR"). Tenant
 // scope is structural: the lookup happens INSIDE the caller's account list,
 // so a foreign businessId is notFound(), never data. The @media print rule
 // isolates the sheet from the surrounding Console chrome (sidebar, topbar)

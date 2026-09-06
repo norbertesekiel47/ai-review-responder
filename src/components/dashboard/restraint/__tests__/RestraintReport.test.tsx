@@ -23,7 +23,7 @@
 //
 //   * RECONCILIATION. An account-wide suspension appears under every location
 //     once each and once in the account total, so a per-location sum may
-//     legitimately exceed the account total. CONTEXT.md requires the tab to
+//     legitimately exceed the account total. docs/context/refusal-ledger.md requires the tab to
 //     state WHICH number it shows (deviation D3).
 //
 // TWO CARRY-FORWARD CORRECTIONS ARE LOAD-BEARING HERE. SC-2: the grouping case

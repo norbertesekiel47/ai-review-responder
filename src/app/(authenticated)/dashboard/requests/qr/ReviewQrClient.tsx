@@ -1,6 +1,6 @@
 'use client';
 
-// Review QR settings client (CONTEXT.md "Review QR"): one card per
+// Review QR settings client (docs/context/review-qr.md "Review QR"): one card per
 // non-archived location. Eligible locations get the QR preview, the encoded
 // QR-redirect link, a PNG download, and a print-view link; ineligible ones
 // (non-canonical Google Place ID) get a plain-language card that says what to

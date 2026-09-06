@@ -11,7 +11,7 @@
 # blocks high-confidence write shapes whose TARGET is repo source, and
 # allows on ambiguity (feature.md's NO BASH WRITES rule covers the exotic
 # residue — bash -c strings, scripts that write internally, etc.). Exempt
-# targets mirror the edit-surface guard: .feature/, docs/, CONTEXT.md, plus
+# targets mirror the edit-surface guard: .feature/, docs/, CONTEXT.md, CONTEXT-MAP.md, plus
 # /tmp and /dev.
 set -uo pipefail
 # The token loops below split the command with unquoted expansion. Without -f
@@ -75,7 +75,7 @@ is_source_target() {
   esac
   # Exempt surfaces (mirror the edit-surface guard's always-allow).
   case "$T" in
-    .feature/*|docs/*|CONTEXT.md|*/.feature/*|*/docs/*|*/CONTEXT.md) return 1 ;;
+    .feature/*|docs/*|CONTEXT.md|CONTEXT-MAP.md|*/.feature/*|*/docs/*|*/CONTEXT.md|*/CONTEXT-MAP.md) return 1 ;;
   esac
   # Absolute path inside an armed root?
   local R

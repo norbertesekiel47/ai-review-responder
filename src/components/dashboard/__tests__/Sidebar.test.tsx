@@ -330,7 +330,7 @@ describe('Sidebar — section children', () => {
     expect(screen.queryByRole('link', { name: 'Requests' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Contacts' })).not.toBeInTheDocument();
     // Review QR is the DELIBERATE exception (owner decision 2026-09-03): it is
-    // visible to every owner per CONTEXT.md, so when its host section is absent
+    // visible to every owner per docs/context/review-qr.md, so when its host section is absent
     // it is promoted to a top-level row rather than disappearing with it. It is
     // a sibling of the nav rows here, never a child of a hidden parent.
     const qr = screen.getByRole('link', { name: 'Review QR' });
@@ -350,7 +350,7 @@ describe('Sidebar — section children', () => {
 });
 
 // Spec review, 2026-09-03. **Review QR** is visible to EVERY owner
-// (CONTEXT.md), but #1092 nested it under Requests, which is gated on
+// (docs/context/review-qr.md), but #1092 nested it under Requests, which is gated on
 // SOLICITATION_WATCH_ENABLED — OFF in production. The Settings row this change
 // removed was its only other entry point, so with the flag off the surface had
 // none at all. Owner decision: it stands alone when its host section is absent.

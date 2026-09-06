@@ -43,7 +43,7 @@ is_source_target() {
     case "$target" in "$root"/*) return 0 ;; esac
   done <<<"$ARMED_LIST"
   case "$target" in
-    .feature/*|docs/*|CONTEXT.md|*/.feature/*|*/docs/*|*/CONTEXT.md) return 1 ;;
+    .feature/*|docs/*|CONTEXT.md|CONTEXT-MAP.md|*/.feature/*|*/docs/*|*/CONTEXT.md|*/CONTEXT-MAP.md) return 1 ;;
     /dev/*|/tmp/*|/private/tmp/*|/var/folders/*) return 1 ;;
   esac
   case "$target" in

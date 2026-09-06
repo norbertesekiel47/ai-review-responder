@@ -604,7 +604,7 @@ describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
   });
 
   it('resolvePolicyGateRefusal throws on a code in neither the veto set nor the precedence list', () => {
-    // An unrecognised code is a FAULT, not a category (CONTEXT.md → Refusal
+    // An unrecognised code is a FAULT, not a category (docs/context/refusal-ledger.md → Refusal
     // category). A default would file an unmapped refusal under a
     // plausible-looking heading and the owner could not tell the difference.
     expect(() => resolve(['not_a_block_reason'])).toThrow(/not_a_block_reason/);

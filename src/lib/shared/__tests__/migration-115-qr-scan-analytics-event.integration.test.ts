@@ -1,5 +1,5 @@
 // Shape suite for migration 115 (feat-qr-review-request) — the QR scan
-// redirect analytics event (CONTEXT.md "QR redirect").
+// redirect analytics event (docs/context/review-qr.md "QR redirect").
 //
 // Text-shape PLUS two live assertions, following the 089 → 094 → 097 → 102 →
 // 106 precedent: the subject of the text assertions is the constraint list in

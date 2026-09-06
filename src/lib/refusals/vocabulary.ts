@@ -5,7 +5,7 @@
  * Design of record: map #994, schema locked in #1001, table shipped by #1008 as
  * `supabase/migrations/116_refusal_events.sql`. Plan:
  * `docs/superpowers/plans/feat-1009-refusal-ledger-write-path-plan.md` §1.
- * Terms: `CONTEXT.md` → **Refusal**, **Refusal source**, **Refusal category**,
+ * Terms: `docs/context/refusal-ledger.md` → **Refusal**, **Refusal source**, **Refusal category**,
  * **Restraint tab** (all four LOCKED).
  *
  * DELIBERATELY SHALLOW. A vocabulary is read by humans as often as it is
@@ -460,7 +460,6 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
 // see. Depth is the wrong goal here." Making these two private would also make
 // them the only lane vocabularies that are, and would put #1003's MANDATED
 // exhaustiveness test out of reach of the data it must assert.
-// fallow-ignore-next-line unused-export
 export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
   policy_not_enabled: null,
   rating_below_threshold: 'owner_review_required',
@@ -551,7 +550,6 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
 // Exported with no external importer, for the same reason as the map above —
 // `resolvePolicyGateRefusal` is its only runtime consumer, and the eval asserts
 // this locked order directly.
-// fallow-ignore-next-line unused-export
 export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
   // 1 — unsafe_content
   'moderation_flagged',

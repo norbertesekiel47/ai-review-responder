@@ -61,7 +61,7 @@ export function MobileTabBar({ solicitationEnabled }: Props) {
   /**
    * The third slot. With watch-mode ON it is Requests. With it OFF that section
    * does not exist, and **Review QR** takes the slot rather than the bar
-   * shrinking — the surface is visible to EVERY owner (CONTEXT.md), the sidebar
+   * shrinking — the surface is visible to EVERY owner (docs/context/review-qr.md), the sidebar
    * is hidden at this width, and #1092 removed its Settings entry, so without
    * this row it has no entry point on a phone at all (owner decision
    * 2026-09-03). Either way the bar stays five wide.

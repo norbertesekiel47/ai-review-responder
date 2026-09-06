@@ -1,6 +1,6 @@
 // src/lib/locations/review-qr.ts
 //
-// Review QR + QR redirect domain module (CONTEXT.md "Review QR" /
+// Review QR + QR redirect domain module (docs/context/review-qr.md "Review QR" /
 // "QR redirect"). Two callers cross this seam: the public /q/[businessId]
 // route (resolveQrRedirect) and the owner settings section
 // (getOwnerReviewQrLocations). sql arrives as a parameter (invariant #15).

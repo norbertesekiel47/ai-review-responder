@@ -431,8 +431,8 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(agentRunsDelete?.scope).toBe('tx');
     expect(sqlText).not.toContain('DELETE FROM agent_run_steps');
 
-    // #892 / lab-notes "An exact count written into a comment is a maintenance
-    // trap". docs/directory.md states 29 writer assignments against the
+    // #892 / lab-notes/history/2026-05.md "An exact count written into a comment is a maintenance
+    // trap". docs/directory/lib-account-offboarding.md states 29 writer assignments against the
     // verifier's 28 predicates — the whole point of #892 being that the old
     // number (27) had rotted unpinned. Pin the writer half here; the verifier
     // half is pinned in purge-verification.test.ts.

@@ -112,7 +112,7 @@ that causes the wedge:
   against the staging pooler, matching the sequential-bundle row of the
   differential repro above.
 
-See the lab note in `.claude/reference/lab-notes.md` (2026-07-18 entry) for
+See the lab note in `.claude/reference/lab-notes/history/2026-07.md` (2026-07-18 entry, "#500 pool-wedge self-heal") for
 the generalized idiom: run concurrent queries sequentially, or give each
 concurrent query its own connection (`max ≥ concurrency`).
 

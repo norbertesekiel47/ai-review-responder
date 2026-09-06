@@ -75,7 +75,7 @@ export function subscriptionAllowsDashboardRead(status: string): boolean {
 }
 
 /**
- * Whether a scan of a location's Review QR may 302 to Google (CONTEXT.md
+ * Whether a scan of a location's Review QR may 302 to Google (docs/context/review-qr.md
  * "QR redirect"). `past_due` deliberately stays live so a card failure never
  * kills a printed counter code mid-grace; `pending_payment` and `cancelled`
  * render the scanner-facing unavailable page. Same membership as

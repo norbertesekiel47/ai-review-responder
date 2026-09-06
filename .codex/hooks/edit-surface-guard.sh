@@ -80,7 +80,7 @@ while IFS= read -r FILE_PATH; do
 
   REL_PATH="${ABS_PATH#"$ROOT"/}"
   case "$REL_PATH" in
-    .feature/*|docs/*|CONTEXT.md) continue ;;
+    .feature/*|docs/*|CONTEXT.md|CONTEXT-MAP.md) continue ;;
   esac
 
   case "$REL_PATH" in

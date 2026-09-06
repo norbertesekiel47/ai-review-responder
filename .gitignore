@@ -48,7 +48,6 @@ next-env.d.ts
 
 # docs/ is tracked by default (private repo — specs, runbooks, ADRs, agent
 # docs are shared with the team). Ignore only generated/binary noise:
-docs/graphify-out/
 docs/superpowers/landingPageScreenshots/
 docs/**/*.docx
 docs/**/*.zip
@@ -134,7 +133,6 @@ poller_cursors.cursor
 # local-only tooling and scratch artifacts
 .claude-octopus/
 .graphify_query.py
-graphify-out/
 scripts/zernio-count-reviews.ts
 
 # Claude Code transient lock

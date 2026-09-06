@@ -84,7 +84,7 @@ continue: the handoff doc's claims are hints; git state is the truth.
 4. **Bootstrap state, in this order** (skip files that don't exist yet):
    - `docs/superpowers/plans/<branch>-handoff.md` — current step + pointers
    - `.feature/intake.json` — the locked scope contract (drift detector)
-   - the `CONTEXT.md` glossary excerpt the handoff references — RE-READ IT;
+   - the glossary excerpt (`docs/context/*.md`) the handoff references — RE-READ IT;
      a resumed session that skips this reintroduces exactly the language
      drift the workflow exists to prevent
    - the plan in `docs/superpowers/plans/`

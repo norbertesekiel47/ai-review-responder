@@ -143,7 +143,7 @@ the colliding-job paths.
   as of #729's extraction — cite the title, the line drifts).
 - The skip-reason token + structured log line are the intake's observability
   answer.
-- `CONTEXT.md` gains the **content-freshness gate** term when the behavior
+- `docs/context/content-freshness-gate.md` gains the **content-freshness gate** term when the behavior
   ships (glossary describes shipped behavior; this ADR is the decision
   record).
 

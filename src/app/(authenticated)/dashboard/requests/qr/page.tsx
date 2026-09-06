@@ -1,6 +1,6 @@
 // src/app/(authenticated)/dashboard/requests/qr/page.tsx
 //
-// The **Review QR** surface (CONTEXT.md "Review QR"): one card per non-archived
+// The **Review QR** surface (docs/context/review-qr.md "Review QR"): one card per non-archived
 // location. Moved here from /settings/review-qr by #1092; the old path
 // redirects.
 //
@@ -49,7 +49,7 @@ export default async function ReviewQrPage() {
           Requests surfaces (#1089).
 
           Gated because this page is NOT gated. Review QR is visible to every
-          owner (CONTEXT.md), while `/dashboard/requests` and its contacts child
+          owner (docs/context/review-qr.md), while `/dashboard/requests` and its contacts child
           both `notFound()` with watch-mode off — so an ungated bar would offer
           two dead pills. */}
       {solicitationWatchEnabled() && <RequestsTabs active="qr" />}

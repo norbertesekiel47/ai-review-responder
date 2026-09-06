@@ -28,7 +28,7 @@ and recorded three claims from #860's round-1 adversarial review as claims
 (`rendered`/`queued` → `cancelled`, `disposition_reason='owner_withdrawn'`)
 in every Batch state where the Halt latch would cancel that row
 (`veto_window`, `approved`, `sending`). It removes a message and never
-replaces one.** Glossary term: **Ask withdrawal** (`CONTEXT.md`).
+replaces one.** Glossary term: **Ask withdrawal** (`docs/context/solicitation-send-mode-approval-halt-lane.md`).
 
 Four properties make it a restraint act rather than a re-approval:
 
@@ -56,7 +56,7 @@ Four properties make it a restraint act rather than a re-approval:
 | # | Claim (from #860 round-1 review) | Verdict | Evidence |
 |---|---|---|---|
 | 1 | No per-ask approval state is needed | **Holds** | Migration 091's `solicitation_batches_approval_consistency` CHECK and the `solicitation_batches_one_active_send_per_business` partial index are written against batch-level columns only (`approved_at`, `approval_method`, `approved_by_user_id`, `send_closed_at`, `halted_at`). Cancelling one outreach row writes none of them; the batch remains the unit of approval. |
-| 2 | No migration is needed | **Does not hold — by choice, not necessity** | Migration 108's cancel arm admits `owner_excluded`, so a withdrawal *could* be stored without a schema change. It is not: `CONTEXT.md` locks **Ask exclusion** as an act written *in the approval transaction*, and a post-approval row carrying `owner_excluded` would misstate when and how it was cancelled — the audit argument the lane already uses to derive halt reasons server-side. Migration **109** re-spells 108's predicate verbatim plus `owner_withdrawn` under `cancelled`. Additive, re-runnable, rollback = re-apply 108's text (legal while no `owner_withdrawn` row exists; `SOLICITATION_SEND_ENABLED` is off everywhere). |
+| 2 | No migration is needed | **Does not hold — by choice, not necessity** | Migration 108's cancel arm admits `owner_excluded`, so a withdrawal *could* be stored without a schema change. It is not: `docs/context/solicitation-send-mode-approval-halt-lane.md` locks **Ask exclusion** as an act written *in the approval transaction*, and a post-approval row carrying `owner_excluded` would misstate when and how it was cancelled — the audit argument the lane already uses to derive halt reasons server-side. Migration **109** re-spells 108's predicate verbatim plus `owner_withdrawn` under `cancelled`. Additive, re-runnable, rollback = re-apply 108's text (legal while no `owner_withdrawn` row exists; `SOLICITATION_SEND_ENABLED` is off everywhere). |
 | 3 | No coordination class `haltBatch` does not already force | **Holds** | `haltBatch` (`src/lib/solicitation/approval.ts`) already cancels `rendered`/`queued` rows of an approved batch under the B11 lock order and excludes `sending`. The releaser (#630, unwritten) must therefore already re-check a row under the batch lock before dispatch and tolerate a `queued` row vanishing. Withdrawal is that hazard at smaller granularity — no new predicate, no new lock. |
 
 ### Also decided (the questions the reviewer did not address)

@@ -1,6 +1,6 @@
 // src/app/q/[businessId]/__tests__/route.test.ts
 //
-// Task 1 eval suite for the public QR redirect route (CONTEXT.md
+// Task 1 eval suite for the public QR redirect route (docs/context/review-qr.md
 // "QR redirect") — authored FAILING before the route exists; Task 5 turns it
 // green. The /r/google/[responseId] route-test pattern (vi.hoisted +
 // vi.mock('@/lib/db/server')), but the fake is call-indexed: call 0 is the

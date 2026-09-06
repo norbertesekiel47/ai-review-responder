@@ -172,10 +172,10 @@ describe('auditSurface', () => {
     ).toEqual(['src/lib/other/b.ts']);
   });
 
-  it('always allows the process surfaces (docs, CONTEXT.md, .feature)', () => {
+  it('always allows the process surfaces (docs, CONTEXT.md, CONTEXT-MAP.md, .feature)', () => {
     expect(
       auditSurface(
-        ['docs/superpowers/plans/x-intake.json', 'docs/reviews/x/spec.md', 'CONTEXT.md'],
+        ['docs/superpowers/plans/x-intake.json', 'docs/reviews/x/spec.md', 'CONTEXT.md', 'CONTEXT-MAP.md'],
         [],
       ),
     ).toEqual([]);

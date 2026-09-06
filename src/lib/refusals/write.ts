@@ -3,7 +3,7 @@
  * is this statement (map #994, schema locked in #1001, table shipped by #1008 as
  * `supabase/migrations/116_refusal_events.sql`). Plan:
  * `docs/superpowers/plans/feat-1009-refusal-ledger-write-path-plan.md` §1–§3.
- * Terms: `CONTEXT.md` → **Refusal**, **Refusal source**, **Refusal category**
+ * Terms: `docs/context/refusal-ledger.md` → **Refusal**, **Refusal source**, **Refusal category**
  * (LOCKED).
  *
  * MODELLED ON `src/lib/audit/log.ts`, and for the same reason: one helper, one

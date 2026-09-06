@@ -125,5 +125,8 @@ rm -rf .feature
 Read the cost table before deleting it. If a step cost more than the
 whole change was worth, say so in one line — that is the measurement the
 lane exists to produce. If the change taught a durable lesson, promote it
-to `.claude/reference/lab-notes.md` or the CLAUDE.md gotchas in the same
-sitting; there is no deviations file on this lane to carry it.
+to the lab notes (`.claude/reference/lab-notes/README.md` § "How to add a lab
+note": a dated entry in the newest `lab-notes/history/*.md`, plus the topic
+page when a current rule changes), the area's `.claude/rules/<area>.md`, or
+the CLAUDE.md gotchas in the same sitting; there is no deviations file on
+this lane to carry it.

@@ -1,7 +1,7 @@
 // Health-bundle differential (ticket #505, task T2) — the checked-in experiment
 // that isolates Promise.all-vs-sequential × pool-size on the REAL health-check
 // query mix and reproduces the Supavisor pooler pipelining CONNECTION WEDGE
-// (CONTEXT.md: `state=active, wait_event=ClientRead`).
+// (docs/context/core-platform-runtime.md: `state=active, wait_event=ClientRead`).
 //
 // It runs against an EPHEMERAL Supabase branch off staging where it is the SOLE
 // client (deviations D5): the ADR-0007 application_name-attribution problem
@@ -241,7 +241,7 @@ export function evaluateRun(arms: RunArms, residualSurvived: boolean): RunVerdic
 // ── read-only wedge-signature observer + cleanup (live DB) ─────────────────────
 
 /**
- * Sample the CONNECTION WEDGE signature (CONTEXT.md): backends stuck
+ * Sample the CONNECTION WEDGE signature (docs/context/core-platform-runtime.md): backends stuck
  * `state=active AND wait_event='ClientRead'`. Read-only, pid-only — query TEXT is
  * NEVER selected (no review/response content). On the sole-client branch, any such
  * backend other than the observer's own is provably one of the differential's.

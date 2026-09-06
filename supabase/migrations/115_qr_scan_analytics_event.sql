@@ -1,7 +1,7 @@
 -- 115_qr_scan_analytics_event.sql
 --
 -- Adds 'qr_scan_redirected' to the analytics_events event_name CHECK
--- (feat-qr-review-request; CONTEXT.md "QR redirect" — one event per
+-- (feat-qr-review-request; docs/context/review-qr.md "QR redirect" — one event per
 -- successful Review QR scan redirect). Constraint-only on the 106 precedent:
 -- no SchemaRequirement export, no assertSchemaReady entry, no
 -- retention-policy row (analytics_events already carries its posture).

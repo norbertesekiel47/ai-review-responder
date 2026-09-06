@@ -359,8 +359,8 @@ Pre-invite actions from these decisions:
   this before any prod incident, not after._
 - [ ] **`docs/runbooks/secrets-rotation-*.md`** (Spec 24) — at least the Stripe
   + Supabase rotation procedures.
-- [ ] **`CONTEXT.md`** at repo root (Spec 25) — human-readable wrapper for
-  CLAUDE.md.
+- [ ] **`CONTEXT-MAP.md`** at repo root + `docs/context/*.md` (Spec 25; the single-file
+  `CONTEXT.md` became a stub on 2026-09-05) — human-readable wrapper for CLAUDE.md.
 - [ ] **`docs/icp.md`** (Spec 01) — lock ICP / JTBD before writing launch copy.
 
 ---
@@ -406,7 +406,7 @@ Pre-invite actions from these decisions:
 `restartPolicyType` and `restartPolicyMaxRetries`, carrying over only
 build/start/healthcheck. `railway config apply` is project-wide with omit-means-delete
 semantics. Do it as its own change, with a reviewed `railway config plan`, never
-mid-cutover. Full note: lab-notes 2026-08-31 "Railway deploy configuration".
+mid-cutover. Full note: lab-notes/worker-startup-sentry.md "Railway deploy configuration" (2026-08-31).
 
 ## Post-launch (tracked separately — see `updates.md`)
 

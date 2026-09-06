@@ -47,6 +47,7 @@
     "ci:fallow": "fallow audit --gate new-only --fail-on-issues --base ${FALLOW_BASE:-origin/main}",
     "ci:fallow:coverage": "tsx scripts/ci/normalize-v8-coverage.ts && fallow audit --gate new-only --fail-on-issues --coverage coverage/coverage-final.json --base ${FALLOW_BASE:-origin/main}",
     "worker": "tsx worker/index.ts",
+    "agent:rules": "tsx scripts/agent-rules.ts",
     "feature:diff-coverage": "tsx scripts/diff-coverage.ts",
     "redis": "tsx scripts/redis.ts",
     "eval:llm": "tsx tests/llm-eval/run.ts",

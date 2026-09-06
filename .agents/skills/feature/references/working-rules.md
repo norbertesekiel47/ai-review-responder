@@ -9,7 +9,7 @@ two versions that disagree.
 
 - **Disk is the source of truth; conversation is disposable.** A locked
   decision lands in a file the moment it is locked — spec, plan, tickets,
-  `CONTEXT.md`, ADR. Never carry state forward in chat history.
+  `docs/context/<context>.md`, ADR. Never carry state forward in chat history.
 - **Never pull raw logs into context.** Command output goes to a file. Read
   back a pass/fail summary and the relevant tail.
 - **Subagents return summaries, not transcripts.** Full reports go to disk;
