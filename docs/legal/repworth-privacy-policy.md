@@ -91,7 +91,7 @@ Account and review data is retained while your subscription is active and then d
 
 ## 9. Your Rights
 
-You may request access to, correction of, or deletion of your personal data, including mobile number and notification opt-in status, by emailing info@repworth.net.
+You may request access to, correction of, or deletion of your personal data, including mobile number and notification opt-in status, by emailing support@repworth.net.
 
 ---
 
@@ -105,6 +105,6 @@ We will notify registered users of material changes when required. Continued use
 
 RepWorth
 
-Email: info@repworth.net
+Email: support@repworth.net
 
 Website: repworth.net

@@ -44,7 +44,7 @@ RepWorth may send service notifications when new reviews arrive, when drafts are
 
 If you provide a mobile phone number and opt in to WhatsApp notifications, you consent to receive recurring automated service messages from RepWorth. Consent is not a condition of purchase. Message frequency varies based on review volume. Message and data rates may apply.
 
-To opt out of WhatsApp, reply STOP. For help, reply HELP or contact info@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.
+To opt out of WhatsApp, reply STOP. For help, reply HELP or contact support@repworth.net. RepWorth does not share, sell, or rent mobile opt-in data or mobile numbers to third parties or affiliates for marketing or promotional purposes.
 
 ---
 
@@ -104,6 +104,6 @@ We will notify registered users of material changes to these Terms when required
 
 RepWorth
 
-Email: info@repworth.net
+Email: support@repworth.net
 
 Website: repworth.net

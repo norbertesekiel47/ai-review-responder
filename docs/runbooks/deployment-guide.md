@@ -196,6 +196,29 @@ environment (e.g. staging) you re-do this per project:
 - [ ] `RESEND_API_KEY` (`re_…`); `RESEND_WEBHOOK_SECRET` (`openssl rand -hex 32`) — configure the webhook URL in §6 once `WORKER_PUBLIC_URL` exists.
 - [ ] `docs/runbooks/email-deliverability.md` covers the warmup curve + bounce/complaint signals.
 
+#### Mailboxes on `repworth.net` (Zoho Mail) — owner of this fact
+
+The apex MX is Zoho (`mx.zoho.com`, `mx2`, `mx3`). Every address below is a Zoho
+**group**, read from the Zoho admin group list on 2026-09-06 (issue #352). "Zoho
+access" is who Zoho lets send **to** the group: any address printed to the public
+must be **Everyone**, or external mail bounces. Membership is what makes a group
+monitored — keep a founder in every group. Nothing in code receives mail; every
+`mailto:` is display text, so this table is the only record of what is behind it.
+
+| Address | Zoho access | Used by | Servicing |
+|---|---|---|---|
+| `support@` | Everyone | Legal copy (data access/deletion, WhatsApp HELP), error pages, contact page, channel bodies | Every business day; data-deletion requests inside the statutory window |
+| `billing@` | Everyone | Contact page | Every business day |
+| `security@` | Everyone | `/security` + `public/.well-known/security.txt` | Every business day; vulnerability reports |
+| `notifications@` | Everyone | `RESEND_FROM_EMAIL` sender (Infisical manifest §12.3); replies land here | Every business day |
+| `legal@`, `socials@` | Everyone | Not referenced in code | — |
+| `alerts@` | Organization Members | `ADMIN_NOTIFICATION_EMAIL` + `CONTACT_NOTIFY_TO` (Railway prod). Resend sends as `notifications@` (DKIM on the root domain) — re-confirm one alert lands after any Zoho access change | Ops alert sink |
+| `unsubscribe@` | **Organization Members — must be Everyone** | `LIST_UNSUBSCRIBE_EMAIL` (marketing `List-Unsubscribe` mailto) | Daily on business days (CAN-SPAM). While access is not Everyone, an external recipient's opt-out mail is rejected — fix in Zoho admin, no code change |
+| `noreply@` | not a Zoho group | Code default in `src/lib/notifications/contact-notify.ts` when `CONTACT_NOTIFY_TO` and `RESEND_FROM_EMAIL` are both unset | Never rely on it — prod sets `CONTACT_NOTIFY_TO` |
+
+Re-read the Zoho group list whenever an address is added to copy, and update this
+table in the same PR. `info@repworth.net` is not a group; PR #351 retired it.
+
 ### 1.3 Supabase production project
 
 > **Local dev DB must never be a deployed project.** `.env.local` `DATABASE_URL`,
