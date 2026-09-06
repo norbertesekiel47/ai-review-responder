@@ -1,6 +1,6 @@
 # RepWorth — Codex Context
 
-**The authoritative project context is [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — read it first.**
+**The authoritative project context is [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — read it first, then [`docs/agents/context-layout.md`](docs/agents/context-layout.md), the map of where context lives.**
 Everything there applies to Codex verbatim: what the project is, dev commands,
 CI & repo rules, environments/branches, the architecture invariants, working
 rules, the path-scoped rules, the "Where things live" reference map, tech
