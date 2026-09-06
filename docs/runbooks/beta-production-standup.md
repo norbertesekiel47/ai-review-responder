@@ -15,18 +15,36 @@
 
 ---
 
-## §0. Verified current state (live reads, 2026-08-10)
+## §0. Verified current state
 
-| Piece | State | Evidence |
-|---|---|---|
-| Vercel UI (`rep-worth` → repworth.net) | **Live** | serving prod since 2026-05 |
-| Prod Supabase `udeyaqnvpojbwgoaxwdg` | **Live, healthy** | full introspection audit 2026-08-14: 106 of 107 migrations applied — **only 078** is outstanding (below). 005/105/107 landed 2026-08-14; 077 was already applied |
-| Staging (full stack) | **Live, proven** | §II.2.8 gate + staging runbook evidence |
-| Railway prod worker (`repworth-worker`, project `ad641d0e-dc01-4250-b71c-db1beedb9c8c`) | **Never successfully deployed** | deployment-guide "Current cloud state (2026-07-28)" |
-| Railway prod queue Redis | **Not provisioned** | same |
-| Prod Sentry project | **Does not exist** (only `repworth-staging`) | same |
-| Prod Stripe webhook endpoint | **Does not exist** | §5.2 dependency table |
-| Prod worker env vars | 35 set; stale vs the current boot-gate set (below) | §5.2 callout + `startup-assert.ts` read 2026-08-10 |
+> **Refreshed 2026-09-06 (live reads).** The 2026-08-10 baseline below described a
+> production backend that did not exist yet. Phases B–H have since run. Four rows
+> were inverted by that execution and are corrected in place; the **Was (2026-08-10)**
+> column keeps the original reading so the later phase text still reads in order.
+> Two rows are **not** re-verified — see the note under the table.
+
+| Piece | State (2026-09-06) | Was (2026-08-10) | Evidence |
+|---|---|---|---|
+| Vercel UI (`rep-worth` → repworth.net) | **Live** | Live | serving prod since 2026-05; `https://repworth.net` → 200 |
+| Prod Supabase `udeyaqnvpojbwgoaxwdg` | ⚠️ **not re-verified** — see note | Live, healthy; 106 of 107 applied, only 078 outstanding | — |
+| Staging (full stack) | **Live, proven** | Live, proven | §II.2.8 gate + staging runbook evidence |
+| Railway prod worker (`repworth-worker`, project `ad641d0e-dc01-4250-b71c-db1beedb9c8c`) | **Online** — 1/1 replica, 0 crashed | Never successfully deployed | deployment `eade6192-fcd7-4992-9846-61def9c6b816` SUCCESS 2026-09-06T20:39:23Z; boot log carries `deployment_lane: production` |
+| Railway prod queue Redis | **Provisioned and online** — service `Redis`, volume attached | Not provisioned | service `f9573767-3694-4b5e-b7d4-d7fe6dc53da8`, env `production`, deployment `c4564c44-…` SUCCESS 2026-08-31T02:21:30Z |
+| Prod Sentry project | **Exists** — `repworth-production` | Does not exist (only `repworth-staging`) | org `repworth-nv` lists `repworth-production` + `repworth-staging`. `SENTRY_DSN` is now a **hard prod boot gate** (`assertAlertSinkEnv`), so the worker being Online is itself proof the DSN is set |
+| Prod Stripe webhook endpoint | **Exists, enabled** — 6 events → `https://worker.repworth.net/ingress/stripe` | Does not exist | `we_1UANVYIhPBLaM6xAfIMs3eMN`, `livemode: true`, `status: enabled`, created 2026-08-31T05:11:48Z, `api_version 2026-05-27.dahlia` |
+| Prod worker env vars | **Current** — satisfies the full boot-gate set | 35 set; stale vs the current boot-gate set (below) | the worker boots clean, and `assertWorkerStartupEnv` aborts startup on any missing gate. Exact count ⚠️ not re-counted |
+
+> **Two rows deliberately left unproven, 2026-09-06.**
+>
+> 1. **Prod Supabase migration state.** `supabase_migrations.schema_migrations` on
+>    `udeyaqnvpojbwgoaxwdg` holds only 10 rows, so **the ledger is not the schema**
+>    and no count may be read from it. CLAUDE.md is explicit: derive lockstep by
+>    **introspection**, never from the ledger or from a prose sentence. What the
+>    ledger *does* confirm is that **078 is applied** (`20260831070901`), which
+>    retires this row's "only 078 is outstanding" claim. A full re-audit belongs in
+>    its own pass.
+> 2. **Prod worker env var count.** The set is current — the boot gates prove that —
+>    but "35" was never re-counted, so no replacement number is asserted here.
 
 **Doc corrections established by this runbook (fix at the cited spots):**
 
@@ -45,6 +63,11 @@
    077, the strict code…" (`migrations-log.md` →  077/078 entries). Neither may
    be applied as an ordinary missing migration. CLAUDE.md's standing exception
    names both as of this revision.
+   > **Superseded 2026-09-06.** Both are applied and the exception is gone.
+   > 078 landed in prod at 2026-08-31T07:09Z (ledger version `20260831070901`);
+   > 077 was already there. CLAUDE.md now reads *"There is no standing migration
+   > exception — staging and prod are in full lockstep."* This item is history,
+   > not an instruction.
 3. The 2026-08-09 `ZERNIO_PUBLISHING_ENABLED` "discrepancy" is dissolved: both
    prior readings described a worker that had never run. The flag is set
    deliberately in Phase B; correct env-vars.md's stale "ON (prod,

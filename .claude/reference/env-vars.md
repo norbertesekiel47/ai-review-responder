@@ -573,7 +573,7 @@ Confirmed unused by the 2026-05-29 codebase scan (PR #186) and **commented out /
 |---|---|
 | `ENCRYPTION_KEY` | Vestigial. RepWorth's token security model is **SHA-256 hashing, not symmetric encryption** (approval tokens stored as hashes — invariant #5); no code reads these. Commented out in `.env.example`. |
 | `ENCRYPTION_KEY_VERSION` | Vestigial sibling of `ENCRYPTION_KEY` — same reason, same removal. |
-| `WORKER_SERVICE_URL` | Superseded by `WORKER_PUBLIC_URL` (see Worker Infrastructure above). |
+| `WORKER_SERVICE_URL` | Superseded by `WORKER_PUBLIC_URL` (see Worker Infrastructure above). **Deleted from `.env.example` 2026-09-06** — 0 code refs. |
 | `ADMIN_API_KEY` | Removed earlier (PR #154). `/api/admin/*` uses `requireRole(request, 'admin')`, not a static key. |
 
 ---

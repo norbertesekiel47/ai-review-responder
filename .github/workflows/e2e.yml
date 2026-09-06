@@ -42,7 +42,6 @@ env:
   CI: 'true'
   MOCK_EXTERNAL_APIS: 'false'
   NEXT_PUBLIC_APP_URL: http://localhost:3000
-  WORKER_SERVICE_URL: http://localhost:3001
   NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
   NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
   SUPABASE_URL: http://localhost:54321
