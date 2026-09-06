@@ -31,14 +31,8 @@ import './requests.css';
 const GATE_COPY: Record<WithholdReason, string> = {
   no_consent: 'Only contacts covered by the consent attestation you signed at upload are ever considered.',
   suppressed: 'Anyone marked never-contact is skipped, permanently.',
-  // NOT YET TRUE AS WRITTEN, and the copy says so rather than promising it
-  // (#1048). The gate itself is real and correct — `evaluateAsk` checks
-  // `matchedReview` at `restraint-policy.ts:377` — but `toCandidate`
-  // (`batch-builder.ts`) hard-codes `matchedReview: null`, so nothing ever
-  // feeds it and the reason cannot fire. Restore the plain promise in the same
-  // change that wires the producer, never before.
   already_reviewed:
-    'Coming soon — once we can match your contacts to existing reviews, anyone who already reviewed you will be skipped.',
+    'Contacts with retained, dated reviews linked to earlier requests at this location are skipped.',
   stale_visit: 'Visits older than the freshness window for your trade are left alone.',
   over_contacted: 'Nobody is asked twice inside the minimum gap between asks.',
   velocity_banked: 'Everyone past the batch cap is banked for the next batch, not dropped.',

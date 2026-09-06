@@ -174,6 +174,7 @@ function isRestraintPayload(value: unknown): value is RestraintPayload {
     && isArchivedLocations(value.archivedLocations)
     && Array.isArray(value.archivedPeriods)
     && value.archivedPeriods.every(isArchivedPeriod)
+    && typeof value.archivedPeriodsTruncated === 'boolean'
     && typeof value.truncated === 'boolean'
     && typeof value.window === 'string'
     && (value.scope === 'account' || value.scope === 'location')

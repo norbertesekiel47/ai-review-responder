@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
+import { insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import postgres from 'postgres';
@@ -8,6 +10,7 @@ import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import { startOrGetActiveRun } from '@/lib/agents/run-spine';
 import {
   cleanupTenantAccount,
+  seedLocation,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
@@ -464,8 +467,9 @@ async function seedPriorAsk(input: {
   status: 'send' | 'withhold';
   decidedAt: string;
   withheldReason?: 'velocity_banked';
-}): Promise<void> {
+}): Promise<{ askId: string; batchId: string }> {
   const historical = await seedBatch();
+  const askId = randomUUID();
   await sql()`
     UPDATE solicitation_batches
     SET created_at = ${input.decidedAt}::timestamptz - INTERVAL '1 second',
@@ -482,7 +486,7 @@ async function seedPriorAsk(input: {
       id, account_id, business_id, batch_id, contact_id, status,
       withheld_reason, evidence, decided_at
     ) VALUES (
-      ${randomUUID()}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
+      ${askId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
       ${historical.batchId}::uuid, ${input.contactId}::uuid, ${input.status},
       ${input.withheldReason ?? null},
       ${sql().json({
@@ -495,6 +499,46 @@ async function seedPriorAsk(input: {
       ${input.decidedAt}::timestamptz
     )
   `;
+  return { askId, batchId: historical.batchId };
+}
+
+/** Retained attribution uses the existing ask and outreach fixture seams. */
+async function seedAttributedReview(
+  contactId: string,
+  options: { reviewBusinessId?: string; ageDays?: number; reviewDate?: string | null } = {},
+): Promise<{ reviewId: string; outreachId: string; reviewDate: string | null }> {
+  const ageDays = options.ageDays ?? 60;
+  const prior = await seedPriorAsk({
+    contactId, status: 'send', decidedAt: `${daysAgoUtc(ageDays + 1)}T00:00:00Z`,
+  });
+  const outreachId = await insertOutreach(sql(), {
+    accountId: tenant!.accountId, businessId, ...prior, contactId,
+    deliveryStatus: 'sent',
+    queuedAt: sql()`NOW() - make_interval(days => ${ageDays + 1})`,
+    sentAt: sql()`NOW() - make_interval(days => ${ageDays + 1})`,
+  });
+  const reviewId = randomUUID();
+  const [review] = await sql()<{ review_date: string | null }[]>`
+    INSERT INTO reviews (
+      id, business_id, provider, provider_review_id, provider_review_name,
+      provider_location_name, reviewer_name, star_rating, review_text,
+      review_date, detected_at, status
+    ) VALUES (
+      ${reviewId}::uuid, ${options.reviewBusinessId ?? businessId}::uuid,
+      'zernio', ${reviewId}, ${`zernio://batch-1048/reviews/${reviewId}`},
+      'zernio://batch-1048/locations/1', 'Batch Candidate', 5, 'Fixture review',
+      ${options.reviewDate === undefined ? daysAgoUtc(ageDays) : options.reviewDate}::timestamptz,
+      NOW(), ${REVIEW_STATUS.NEW}
+    ) RETURNING review_date::text AS review_date
+  `;
+  await sql()`
+    UPDATE solicitation_outreach
+    SET attributed_review_id = ${reviewId}::uuid,
+        attributed_at = NOW() - make_interval(days => ${ageDays}),
+        attribution_rule = 'full_name', attribution_detail = '{}'::jsonb
+    WHERE id = ${outreachId}::uuid
+  `;
+  return { reviewId, outreachId, reviewDate: review!.review_date };
 }
 
 // ── #1010 T3 fixtures: the Refusal ledger ───────────────────────────────────
@@ -770,6 +814,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     // business-scoped DELETE below is one indexed statement; the cascades
     // that still fire probe already-empty child tables.
     await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
+    await sql()`DELETE FROM reviews WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
     await sql()`
       DELETE FROM agent_runs
@@ -2151,11 +2196,121 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   // whole accumulated pool — which is why it writes a SET rather than looping
   // the single-row helper.
   //
-  // `already_reviewed` is DELIBERATELY ABSENT from every case below and that is
-  // not an omission: `toCandidate` hard-codes `matchedReview: null`, so the gate
-  // is unreachable through `buildSolicitationBatch` today. The exhaustive case
-  // says so in one place and pins the map entry instead of pretending to drive
-  // it.
+  // Retained attributed reviews drive already_reviewed through the real build.
+
+  it.each(['new', null])('withholds an attributed reviewer and records dated evidence plus one refusal on replay (review status %s)', async (reviewStatus) => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const contactId = await seedContact(await seedCompletedUpload(), daysAgoUtc(1));
+    // The null-status case is outside the contact cooldown, so losing its
+    // attributed review would actually make the contact eligible to send.
+    const evidence = await seedAttributedReview(contactId, { ageDays: reviewStatus === null ? 90 : 2 });
+    await sql()`UPDATE reviews SET status = ${reviewStatus} WHERE id = ${evidence.reviewId}::uuid`;
+    const batch = await seedBatch();
+    expect(builtBatch(await build(batch))).toMatchObject({
+      candidateCount: 1, sendCount: 0, withholdCount: 1,
+      withheldByReason: { already_reviewed: 1, over_contacted: 0 },
+    });
+    const [ask] = await readAsks(batch.batchId);
+    expect(ask).toMatchObject({ contact_id: contactId, status: 'withhold', withheld_reason: 'already_reviewed' });
+    expect(parseAskEvidence(ask!.evidence)).toMatchObject({
+      reason: 'already_reviewed', review_id: evidence.reviewId, review_date: evidence.reviewDate,
+    });
+    const children = await sql()<{ id: string; status: string }[]>`
+      SELECT child.id, child.status FROM agent_runs child
+      JOIN solicitation_asks ask ON ask.agent_run_id = child.id
+      WHERE ask.batch_id = ${batch.batchId}::uuid
+    `;
+    expect(children).toEqual([{ id: expect.any(String), status: 'completed' }]);
+    const refusals = await readRefusals();
+    expect(refusals).toEqual([expect.objectContaining({
+      refusal_source: 'ask_withheld', refusal_code: 'already_reviewed',
+      refusal_category: 'wrong_moment', account_id: tenant!.accountId, business_id: businessId,
+    })]);
+    const [join] = await readAskRefusalJoins();
+    expect(join).toMatchObject({ ask_contact_id: contactId, exact: true });
+    await expect(build(batch)).resolves.toEqual({ status: 'stale' });
+    expect(await readAsks(batch.batchId)).toEqual([ask]);
+    expect(await readRefusals()).toEqual(refusals);
+    const repeatedChildren = await sql()`
+      SELECT child.id, child.status FROM agent_runs child
+      JOIN solicitation_asks ask ON ask.agent_run_id = child.id
+      WHERE ask.batch_id = ${batch.batchId}::uuid
+    `;
+    expect(repeatedChildren).toEqual(children);
+  });
+
+  it('uses retained attribution beyond the attribution display window and picks the latest evidence', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const contactId = await seedContact(await seedCompletedUpload(), daysAgoUtc(1));
+    await seedAttributedReview(contactId, { ageDays: 120 });
+    const latest = await seedAttributedReview(contactId, { ageDays: 90 });
+    const batch = await seedBatch();
+    expect(builtBatch(await build(batch)).withheldByReason.already_reviewed).toBe(1);
+    expect(parseAskEvidence((await readAsks(batch.batchId))[0]!.evidence)).toMatchObject({
+      review_id: latest.reviewId, review_date: latest.reviewDate,
+    });
+  });
+
+  it.each(['physical-delete', 'soft-delete', 'null-date', 'no-attribution'] as const)(
+    'does not fabricate evidence for a deleted review or missing review date (%s)', async (missing) => {
+      process.env.SOLICITATION_WATCH_ENABLED = 'true';
+      const contactId = await seedContact(await seedCompletedUpload(), daysAgoUtc(1));
+      const evidence = await seedAttributedReview(contactId, missing === 'null-date' ? { reviewDate: null } : {});
+      if (missing === 'physical-delete') {
+        await sql()`DELETE FROM reviews WHERE id = ${evidence.reviewId}::uuid`;
+      } else if (missing === 'soft-delete') {
+        await sql()`UPDATE reviews SET status = ${REVIEW_STATUS.DELETED} WHERE id = ${evidence.reviewId}::uuid`;
+      } else if (missing === 'no-attribution') {
+        await sql()`UPDATE solicitation_outreach SET attributed_review_id = NULL, attributed_at = NULL,
+          attribution_rule = NULL, attribution_detail = NULL WHERE id = ${evidence.outreachId}::uuid`;
+      }
+      const batch = await seedBatch();
+      expect(builtBatch(await build(batch))).toMatchObject({ sendCount: 1, withholdCount: 0 });
+      expect(parseAskEvidence((await readAsks(batch.batchId))[0]!.evidence)).not.toHaveProperty('review_id');
+      expect(await readRefusals()).toEqual([]);
+    },
+  );
+
+  it.each(['sibling', 'another-account'] as const)(
+    'does not match attributed reviews from another account or sibling location (%s)', async (scope) => {
+      process.env.SOLICITATION_WATCH_ENABLED = 'true';
+      const otherTenant = scope === 'another-account' ? await seedTenantAccount(sql()) : undefined;
+      const otherBusinessId = randomUUID();
+      await seedLocation(sql(), otherTenant?.accountId ?? tenant!.accountId, { businessId: otherBusinessId, isPrimary: false });
+      try {
+        const contactId = await seedContact(await seedCompletedUpload(), daysAgoUtc(1));
+        // The attribution FK permits a foreign review pointer; the read must abstain.
+        await seedAttributedReview(contactId, { reviewBusinessId: otherBusinessId });
+        expect(builtBatch(await build(await seedBatch()))).toMatchObject({ sendCount: 1, withholdCount: 0 });
+      } finally {
+        await sql()`DELETE FROM reviews WHERE business_id = ${otherBusinessId}::uuid`;
+        await sql()`DELETE FROM businesses WHERE id = ${otherBusinessId}::uuid`;
+        if (otherTenant) await cleanupTenantAccount(sql(), otherTenant);
+      }
+    },
+  );
+
+  it.each(['no_consent', 'suppressed'] as const)(
+    'preserves consent and suppression precedence for an attributed reviewer (%s)', async (reason) => {
+      process.env.SOLICITATION_WATCH_ENABLED = 'true';
+      const contactId = await seedContact(await seedCompletedUpload(), daysAgoUtc(1), { consent: reason !== 'no_consent' });
+      await seedAttributedReview(contactId);
+      await suppressHandle(contactEmail(contactId), 'complaint');
+      const batch = await seedBatch();
+      expect(builtBatch(await build(batch)).withheldByReason[reason]).toBe(1);
+      expect((await readAsks(batch.batchId))[0]!.withheld_reason).toBe(reason);
+      expect((await readRefusals())[0]!.refusal_code).toBe(reason);
+    },
+  );
+
+  it('withholds an attributed reviewer while the refusal ledger is disabled', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
+    const contactId = await seedContact(await seedCompletedUpload(), daysAgoUtc(1));
+    await seedAttributedReview(contactId);
+    expect(builtBatch(await build(await seedBatch())).withheldByReason.already_reviewed).toBe(1);
+    expect(await readRefusals()).toEqual([]);
+  });
 
   it('a batch build writes one refusal_events row per withheld ask and none for a send decision', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
@@ -2496,11 +2651,8 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     expect(joins).toHaveLength(4);
     expect(joins.map((join) => join.refusal_code)).not.toContain('velocity_banked');
 
-    // `already_reviewed` IS in the map and is NOT drivable here: `toCandidate`
-    // (`batch-builder.ts`) hard-codes `matchedReview: null`, so the gate cannot
-    // fire through `buildSolicitationBatch` today. Its entry is pinned rather
-    // than pretended — and the whole enum is checked for coverage, so a reason
-    // added upstream lands here as a failure rather than as silence.
+    // The retained-attribution cases above cover already_reviewed; this case
+    // drives the other gates. Keep the closed enum covered across both sets.
     expect(ASK_WITHHELD_REFUSAL_CATEGORIES.already_reviewed).toBe('wrong_moment');
     const covered = new Set<WithholdReason>([
       'no_consent',

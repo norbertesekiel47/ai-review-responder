@@ -177,6 +177,7 @@ function refusalLogFixture(): RefusalLog {
     coverageStart: '2026-05-01T00:00:00.000Z',
     archivedLocations: { refusalCount: 0, locationCount: 0 },
     archivedPeriods: [],
+    archivedPeriodsTruncated: false,
     truncated: false,
   };
 }

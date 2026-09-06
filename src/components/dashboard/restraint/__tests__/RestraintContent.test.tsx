@@ -64,6 +64,7 @@ const PAYLOAD = {
   coverageStart: '2026-05-04T00:00:00.000Z',
   archivedLocations: { refusalCount: 0, locationCount: 0 },
   archivedPeriods: [],
+  archivedPeriodsTruncated: false,
   truncated: false,
   window: '30d',
   scope: 'account',
@@ -354,6 +355,12 @@ describe('RestraintContent', () => {
       });
     },
   );
+
+  it('rejects a malformed archival truncation field', async () => {
+    vi.stubGlobal('fetch', jsonFetch({ ...PAYLOAD, archivedPeriodsTruncated: 'yes' }));
+    renderContent();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your restraint record came back incomplete');
+  });
 
   // The nested guards the top-level sweep cannot reach: a field of the right
   // NAME and the wrong TYPE, one per sub-guard.
