@@ -122,6 +122,16 @@ describe('PricingContent', () => {
     expect(html).toContain('Guardian holds negative and flagged reviews');
     expect(html).toContain('Insights sends you a weekly review brief');
     expect(html).toContain('You approve every reply before it posts');
+    // The five-jobs pass (2026-09-06): both plans name requests, the QR, and the
+    // dashboard; only Autopilot lets a request batch send on its own.
+    expect(html).toContain('Solicitor asks past customers for reviews by email, in batches you approve');
+    expect(html).toContain('printable review QR code');
+    expect(html).toContain('Rep Pulse');
+    expect(html).toContain('Request batches that fit your policy may send on their own after the veto window');
+    expect(html).toContain('Every batch waits for your approval');
+    expect(html).toContain('Are review requests included on both plans?');
+    expect(html).not.toContain('SMS');
+    expect(html).not.toContain('WhatsApp');
     expect(html).toContain('Only 4–5★ replies that pass our safety checks may post automatically');
     expect(html).toContain('Safety checks, the Judge, and the Governor must all clear it');
     expect(html).toContain('Negative and flagged reviews are never auto-posted');
@@ -156,7 +166,9 @@ describe('PricingContent', () => {
     // One <tbody> per section, headed by a rowgroup cell; every feature is a row header.
     expect(html.match(/<tbody>/g)).toHaveLength(4);
     expect(html.match(/<th scope="rowgroup" colSpan="3"/g)).toHaveLength(4);
-    expect(html.match(/<th scope="row" class="pr-matrix-cell first">/g)).toHaveLength(10);
+    // 14 rows since the five-jobs pass (2026-09-06): Solicitor, the review QR,
+    // the dashboard, and the request-batch autonomy row joined the matrix.
+    expect(html.match(/<th scope="row" class="pr-matrix-cell first">/g)).toHaveLength(14);
     expect(html).not.toContain('pr-matrix-grid');
     expect(html).not.toMatch(/<div class="pr-matrix-cell/);
 
