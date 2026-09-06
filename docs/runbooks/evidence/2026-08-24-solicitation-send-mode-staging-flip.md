@@ -816,3 +816,61 @@ revocation is the owner's remaining teardown action.
 - The env-vars registry rows for both lane flags were corrected the same day —
   they still claimed "the flag exists in no environment yet", which this
   campaign falsified. The registry now records ON-in-staging / prod-unset.
+
+### Addendum 2026-09-06 — #965 cause found: the contacts were deleted by hand, the upload deleted nothing
+
+Reconstructed from the Railway staging-worker logs (deployments `59e1faf1`,
+`940efede`, `66760eda`, all 2026-08-25 UTC, business `01a03992-4210…`), the
+session transcript, and the FK topology read from staging on 2026-09-06.
+
+| UTC | Event (worker log) | Contacts |
+|---|---|---|
+| 15:52:02 | upload `01a0399f-0df2…` (CSV A): `contacts_created 4, merged 0` | 4 |
+| 15:52:07 | batch A `01a0399f-175d…` built: `pool_count 4`, `send_count 4` | 4 |
+| 16:40:04 | upload `01a039ca-fdf1…` — **CSV A uploaded a second time**: `contacts_created 0, merged 0, duplicate_visits 4` | 4 |
+| 16:40:09 | batch `01a039cb-0f1d…` built: `pool_count 4`, **`over_contacted 4`**, `send_count 0` | 4 |
+| 16:40:59 | upload `01a039cb-cde7…` (CSV A2, `+a2` handles): `contacts_created 4, merged 0` | **4** |
+| 16:41:04 | batch A2 `01a039cb-e753…` built: `pool_count 4`, `over_contacted 0` | 4 |
+| 17:04:58 | upload `01a039e1-c4a5…` (CSV A3, `+a3` handles): `contacts_created 4, merged 0` | **4** |
+| 17:05:03 | batch A3 `01a039e1-dd42…` built: `pool_count 4` | 4 |
+
+`pool_count` is `count(*) FROM solicitation_contacts WHERE business_id = …`,
+logged by the batch builder. A2 created four NEW contacts and the pool was
+still four, so batch A's four contacts were gone before 16:40:59. A3 created
+four more and the pool was still four, so batch A2's contacts were gone before
+17:04:58. Between the builds the worker logged only pollers — no purge, no
+offboarding, no csv work. The Claude session issued only `SELECT`s in the
+window; the owner drove the dashboard by hand ("I reuploaded but I still do
+not see any approve button", 16:42:08).
+
+**What deleted them.** Staging's FK rules (`pg_constraint`, 2026-09-06):
+`solicitation_batches` cascades from `contact_csv_uploads`, `businesses` and
+`accounts`; `solicitation_asks` and `solicitation_outreach` cascade from
+`solicitation_contacts`. The only deletion that leaves a batch row standing
+with zero children is a delete of the contact rows themselves, and the only
+reachable path to that is the per-row **Delete** control on the contacts page
+(`ContactList.tsx` → `DELETE /api/dashboard/contacts/[id]` → `deleteContact`,
+the §5 hard delete). Vercel request logs from that day have expired, so the
+DELETE calls are not directly observable; every other path is excluded by the
+worker logs and the topology. The 16:40:09 batch — four rows held back as
+over-contacted, no approve button — is the moment the owner cleared the list
+and re-uploaded.
+
+**Two claims above are wrong and stay as written for the record:**
+
+- "an upload REPLACES the contact rows" (17:3x entry) — the 16:40:04 ingest
+  matched all four existing contacts (`created 0`, `duplicate_visits 4`) and
+  the next build withheld all four as `over_contacted`. Ingest merges in place;
+  MIN_GAP held.
+- "the upload normalizes `+tag` sub-addresses away" (17:21 entry) —
+  `normalizeEmail` only trims and lowercases. Gmail and Zoho fold `+tag` mail
+  into the base inbox, which is what was observed. A, A2 and A3 were three
+  distinct handle sets, which is why `over_contacted` did not fire across
+  them; it did fire on the identical re-upload.
+
+**Disposition.** Not a product defect. The four consequences listed on #965
+describe the owner's §5 hard delete, which is documented as erasure of the
+customer record (`ContactList.tsx`, `contacts-repo.ts` §7.1 consent sweep).
+Whether outreach history should outlive a per-contact delete is a design
+input to #617/#620, not a bug. Batch B's upload (03:17 Aug 26) deleted
+nothing because nobody deleted contacts before it.
