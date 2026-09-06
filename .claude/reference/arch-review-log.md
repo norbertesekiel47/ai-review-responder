@@ -1,5 +1,20 @@
 # Architecture review log
 
+2026-09-06 — **fix/415-failover-claim-before-send (pre-merge):** Move the
+`NotificationFailoverPoller` admin-alert claim to claim-before-send — the claim
+row commits under the advisory lock, Resend is called OUTSIDE the transaction
+with a per-claim idempotency key (`admin-alert:<claimId>`), and a failed send
+KEEPS the claim (the Resend SDK folds transport failures into
+`application_error`, so no thrown error proves non-acceptance). Behavior
+change: a definite rejection waits for the 24 h dedup window instead of the
+next 2 h cycle (admin-only alerts). The other three #415 sites
+(`edit-publish.ts`, `UpdateStripeOverageWorker.ts`,
+`CleanupAbandonedSignupsPoller.ts`) are recorded as DELIBERATE lock-across-call
+designs in `.claude/rules/worker-layout.md`; #413 closes as superseded by
+#505/#773/#500/#414. One production file, no migration, no dependency, no flag,
+no new writer. Grilled, then three Codex rounds to APPROVED. The merge counter
+is unchanged until this branch is merged.
+
 2026-09-06 — **docs/prune-worker-service-url-and-refresh-standup-state
 (pre-merge):** Delete the retired `WORKER_SERVICE_URL` (0 code refs since
 PR #186) from `.env.example` and from the `env:` blocks of `ci.yml` and

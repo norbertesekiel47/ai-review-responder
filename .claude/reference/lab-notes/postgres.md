@@ -2,7 +2,7 @@
 
 ## Summary
 
-- **Postgres.js / JSONB / PgBouncer** — JSONB string-wrapping, v3 double-encoding, statement_timeout, FOR UPDATE under PgBouncer; the AUTHORITATIVE production JSONB parse-site allowlist (2026-08-03); every error class reachable from a query carries a STRING `code` (`PostgresError`, `57014`, `CONNECTION_*`, Node `ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`) — narrow a swallow-catch on that shape, NEVER on `instanceof PostgresError`, which rethrows transient blips into the caller (#679, 2026-08-08); a BACKTICK inside a `--` SQL comment terminates the enclosing `sql``` template — prose only (no backticks, no `${`) or you get `TS1005` several lines from the line you edited (#665, 2026-08-18)
+- **Postgres.js / JSONB / PgBouncer** — JSONB string-wrapping, v3 double-encoding, statement_timeout, FOR UPDATE under PgBouncer; the AUTHORITATIVE production JSONB parse-site allowlist (2026-08-03); every error class reachable from a query carries a STRING `code` (`PostgresError`, `57014`, `CONNECTION_*`, Node `ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`) — narrow a swallow-catch on that shape, NEVER on `instanceof PostgresError`, which rethrows transient blips into the caller (#679, 2026-08-08); a BACKTICK inside a `--` SQL comment terminates the enclosing `sql``` template — prose only (no backticks, no `${`) or you get `TS1005` several lines from the line you edited (#665, 2026-08-18); three worker transactions hold a lock across an external call BY DESIGN and one (the admin-alert claim) was moved to claim-before-send — #413 closed as superseded by #505/#773/#500/#414 (2026-09-06)
 
 ## Canonical entries
 
@@ -89,6 +89,76 @@ Any new production JSONB field-to-parser site must be added HERE. Do **not** add
   isolate serves overlapping requests, so a fan-out of 2 wedged a pool of 3.
   Evidence: `docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md`
   (step B addendum, 520 requests, 631 observer samples).
+
+## 2026-09-06 — Locks across external calls (#415) and the scoped #413 closure
+
+- [2026-09-06] #415 listed four worker transactions that `await` an external
+  HTTP call while holding a pooled connection (and sometimes row locks). Three
+  are DELIBERATE and stay; the rule entry (`.claude/rules/worker-layout.md`
+  § Traps) names them, this entry owns the WHY:
+  - `worker/jobs/publisher/edit-publish.ts` — `reviews` + `responses FOR UPDATE`
+    across Zernio delete → post → (on 409) multi-page verify. The lock is what
+    stops `processReview` from superseding the candidate while Google's reply
+    slot is empty; releasing it first re-opens the "stale text reaches Google"
+    race the 2026-05-01 edit-existing-replies spec closed
+    (§ "Why holding locks through external I/O is acceptable here"). Bound:
+    ≈ 3 × 15 s Zernio timeouts plus the verify pages; rare (owner edits a
+    posted reply).
+  - `worker/jobs/billing/UpdateStripeOverageWorker.ts` — billing advisory lock
+    + `accounts FOR UPDATE` across a Stripe retrieve + ONE mutation. That lock
+    is the same-account serialization guarantee of record for the
+    operation-scoped Stripe idempotency keys (`worker/index.ts` boot comment;
+    `overage-account-lock.integration.test.ts`, mutation-checked 2026-09-02);
+    `concurrency: 1` and the single replica are defense in depth, not the
+    guarantee. Honest bound: 2–3 Stripe calls × 20 s × up to 3 attempts
+    ≈ 2–3 MINUTES worst case (the issue's "60 s" undercounted), at most one
+    connection of ten, and only on a location add/remove. Moving the call out
+    would flip the guarantee onto the detected-not-enforced single-replica
+    invariant — rejected 2026-09-06.
+  - `worker/background/pollers/CleanupAbandonedSignupsPoller.ts` — per-email
+    signup lock + `users FOR UPDATE` across Supabase `deleteUser` (10 s bound).
+    Releasing first lets a signup that completes in the gap have its Auth
+    identity deleted underneath it.
+- [2026-09-06] The fourth site, `NotificationFailoverPoller.tryClaimAlert`
+  (Resend inside the tx under an advisory lock), had no correctness reason and
+  moved to **claim-before-send**: tx1 = advisory lock → 24 h dedup SELECT →
+  INSERT claim (`sent_at NULL`) → COMMIT; then `sendFn(claimId)` outside any
+  tx; then `UPDATE sent_at/external_message_id`. Two rules came out of the
+  Codex review, both non-obvious:
+  - **A send exception does not prove non-delivery, so a failed send KEEPS the
+    claim.** The Resend SDK folds transport failures — including a broken read
+    of a SUCCESSFUL response — into `application_error`, `sendInternalEmail`
+    rethrows a generic `Error`, and the 10 s `Promise.race` in `send-email.ts`
+    cannot cancel the orphaned request. Any "delete the claim on definite
+    failure" branch is therefore a duplicate-send path. Cost accepted: a real
+    rejection waits for the 24 h window instead of the next 2 h cycle
+    (admin-only alerts).
+  - **Key the provider idempotency on the committed claim id, not on the dedup
+    tuple.** The DB dedup window and Resend's key TTL are both 24 h but do not
+    start together; a tuple-derived key can hand a NEW claim the previous
+    claim's message id (or a payload conflict) at the boundary.
+    `adminAlertIdempotencyKey(claimId)` decouples them.
+  - Accepted degradation: crash-in-gap / any send failure / failed post-send
+    UPDATE ⇒ that alert is suppressed ≤ 24 h. Only the owner-unreachable arm
+    has an independent health check (`checkOwnerUnreachable`);
+    `checkZeroDeliveryNotifications` does NOT cover the all-failed arm (it
+    requires zero delivery rows; all-failed requires failed ones), and nothing
+    covers the responsiveness arm.
+- [2026-09-06] #413 ("stale pooled connections wedge DB loops", filed
+  2026-06-27) closed as SUPERSEDED, scoped to the demonstrated incident. The
+  trigger was never stale sockets: #505 proved pipelining onto a busy
+  connection over the Supavisor transaction pooler (6/6 vs 0/6). Distinguish
+  four mechanisms when citing this: **prevention** — #773 admission at cap ==
+  pool, every shared client; **waiter deadline** — the gate's 30 s
+  `DbSlotTimeoutError` bounds how long a caller WAITS for a slot, it cancels
+  nothing; **recovery** — only the HealthAlertPoller's dedicated `max:2` client
+  is end+rebuilt on timeout (#500/#502), sequential checks (#505);
+  **containment** — #414's `createGuardedPoll` lets a timed-out cycle run
+  detached so the loop survives. Residual: a hung operation on the SHARED
+  client is not reclaimed by the app layer (tracked #477). Keepalive was never
+  the gap — postgres.js 3.4.9 defaults `keep_alive: 60`. Signal at closure:
+  Sentry 30 d, staging + prod, zero "timed out after" / `DbSlotTimeoutError`;
+  health alerts firing again.
 
 ## History
 
