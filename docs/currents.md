@@ -9,9 +9,9 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-06 (Landing section 5 is the route map; local branch, not deployed.)
+Last updated: 2026-09-06 (Landing section 5 is the route map.)
 
-## Quick summary — Landing "Where this is going" is a route map (2026-09-06; pre-merge)
+## Quick summary — Landing "Where this is going" is a route map (2026-09-06)
 
 Section 5 of the landing page no longer shows four "Planned" cards. It is an
 interactive survey chart: a generated dark-green ground, an SVG road, and

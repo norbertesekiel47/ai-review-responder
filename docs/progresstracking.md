@@ -835,7 +835,7 @@ agentic reputation-system positioning. Owner chose present tense for Solicitor
 - Tests: FleetSection (no NEXT tag), new JobsSection test, FeaturesContent
   and HowItWorksContent assertions for the new chapters and band.
 
-## 2026-09-06 — Landing section 5 became the route map (local, pre-merge)
+## 2026-09-06 — Landing section 5 became the route map
 
 Owner asked for the "Where this is going" cards to become an interactive
 illustrated roadmap in the spirit of an antique survey map: shipped work lit,
@@ -870,4 +870,6 @@ Round four: every TV grew ~15%, and the unbuilt stops stopped naming their
 features — each shows a short hint ("A second chance") and one teasing
 future-tense sentence; the phase markers and the legend's "not available
 yet" stay, and the stop-to-phase mapping lives in `future-copy.ts`.
+Round five: clouds past the horizon (two screen-blended plates, drifting).
+Rode `staging` throughout for owner review; merged to `main` via PR.
 
