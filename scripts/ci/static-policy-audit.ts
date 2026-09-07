@@ -750,13 +750,9 @@ export function scanSqlExecutorTagNames(file: string, text: string): PolicyFindi
 
 const NODE_ENV = 'NODE_ENV';
 
-// The one sanctioned exemption to the rule below. This poller's read is a
-// production-only guard on a destructive purge-window override; migrating it to
-// the deployment-lane owner is tracked by #614. Delete this entry — and the read
-// it protects — when #614 lands; nothing else may be added here.
-const NODE_ENV_READ_EXEMPT_FILES: ReadonlySet<string> = new Set([
-  'worker/background/pollers/AccountOffboardingPurgePoller.ts',
-]);
+// There is no exemption set. The one that existed (the purge poller's
+// production-only guard on the purge-window override) was deleted when #614
+// migrated that site to deploymentLane(); do not reintroduce one.
 
 const NODE_ENV_READ_DETAIL =
   'worker code must not ask NODE_ENV which deployment lane it is on (#611, ADR ' +
@@ -832,7 +828,6 @@ function bindingElementKey(element: ts.BindingElement): string | undefined {
 export function scanWorkerNodeEnvReads(file: string, text: string): PolicyFinding[] {
   const normalized = normalize(file);
   if (!/^worker[/\\]/.test(normalized)) return [];
-  if (NODE_ENV_READ_EXEMPT_FILES.has(normalized)) return [];
 
   const source = ts.createSourceFile(
     file,

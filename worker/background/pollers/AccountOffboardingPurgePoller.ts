@@ -1,5 +1,6 @@
 import { accountOffboardingEnabled } from '../../../src/lib/account-offboarding/flags';
 import { writeAccountAuditLog } from '../../../src/lib/audit/log';
+import { deploymentLane } from '../../../src/lib/config/deployment-lane';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import { enqueueAccountOffboardingPurge } from '../../../src/lib/account-offboarding/outbox';
@@ -46,8 +47,16 @@ function getBatchSize(): number {
 // at once (which would purge staging test data far earlier than intended).
 const MAX_PURGE_WINDOW_OVERRIDE_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
 
+// Refused on the production lane only. The lane is the Railway environment
+// name when set, else NODE_ENV (ADR 0013): the staging worker sets
+// NODE_ENV=production AND RAILWAY_ENVIRONMENT_NAME=staging, so a raw NODE_ENV
+// read refused the override on the one lane it exists for (#614). The claim
+// query below carries an active-token guard, so an honoured override can never
+// purge a row while a keep-my-data link is still valid.
+const PRODUCTION_LANE = 'production';
+
 export function getAccountOffboardingPurgeWindowOverrideMs(): number | null {
-  if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production') {
+  if (deploymentLane() === PRODUCTION_LANE) {
     return null;
   }
 
@@ -82,6 +91,11 @@ async function runAccountOffboardingPurgeInner(
 
   for (let i = 0; i < batchSize; i++) {
     const result = await sql.begin(async (tx) => {
+      // The active-token NOT EXISTS is unconditional (#614). On the normal arm
+      // it is a no-op: migration 056's token trigger pins expires_at <=
+      // purge_after <= NOW(). It only bites on the override arm, which widens
+      // this predicate without writing purge_after — so the 056
+      // `BEFORE UPDATE OF purge_after` trigger can never fire for it.
       const [candidate] = await tx<ClaimableOffboardingRow[]>`
         SELECT id, account_id, mode, status, purge_after
         FROM account_offboardings
@@ -94,6 +108,14 @@ async function runAccountOffboardingPurgeInner(
               ${purgeWindowOverrideMs}::int IS NOT NULL
               AND purge_after <= NOW() + (${purgeWindowOverrideMs}::int * INTERVAL '1 millisecond')
             )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM account_offboarding_tokens t
+            WHERE t.account_offboarding_id = account_offboardings.id
+              AND t.consumed_at IS NULL
+              AND t.revoked_at IS NULL
+              AND t.expires_at > NOW()
           )
           AND purge_cancelled_at IS NULL
           AND purge_started_at IS NULL
@@ -138,6 +160,14 @@ async function runAccountOffboardingPurgeInner(
               ${purgeWindowOverrideMs}::int IS NOT NULL
               AND purge_after <= NOW() + (${purgeWindowOverrideMs}::int * INTERVAL '1 millisecond')
             )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM account_offboarding_tokens t
+            WHERE t.account_offboarding_id = account_offboardings.id
+              AND t.consumed_at IS NULL
+              AND t.revoked_at IS NULL
+              AND t.expires_at > NOW()
           )
           AND purge_cancelled_at IS NULL
           AND purge_started_at IS NULL

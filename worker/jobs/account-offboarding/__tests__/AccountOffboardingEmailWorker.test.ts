@@ -98,6 +98,19 @@ function offboardingRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// The delete_data row as the handler first reads it (unlocked) AND as the #614
+// FOR UPDATE re-read inside ensureKeepMyDataToken sees it. Tests that reach the
+// token insert queue it twice: once for the outer read, once for the locked one.
+function deleteDataPendingRow(overrides: Record<string, unknown> = {}) {
+  return offboardingRow({
+    mode: 'delete_data',
+    status: 'pending',
+    access_ends_at: null,
+    purge_after: new Date('2026-07-06T00:00:00.000Z'),
+    ...overrides,
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.repworth.com';
@@ -207,6 +220,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([{
       id: accountOffboardingDeliveryId(OFFBOARDING_ID, 'delete_data_confirmation'),
     }]);
+    sqlReturnQueue.push([deleteDataPendingRow()]); // #614 locked re-read
     sqlReturnQueue.push([{ id: '44444444-4444-4444-8444-444444444444' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
@@ -515,6 +529,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([{ sent_at: null, external_message_id: null }]);
     sqlReturnQueue.push([{ id: deliveryId }]);
     sqlReturnQueue.push([{ id: deliveryId }]);
+    sqlReturnQueue.push([deleteDataPendingRow()]); // #614 locked re-read
     sqlReturnQueue.push([{ id: '44444444-4444-4444-8444-444444444444' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
@@ -551,6 +566,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([{ sent_at: null, external_message_id: null }]);
     sqlReturnQueue.push([{ id: deliveryId }]);
     sqlReturnQueue.push([{ id: deliveryId }]);
+    sqlReturnQueue.push([deleteDataPendingRow()]); // #614 locked re-read
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }]);
     sqlReturnQueue.push([]);
@@ -599,6 +615,7 @@ describe('AccountOffboardingEmailWorker', () => {
     sqlReturnQueue.push([{
       id: accountOffboardingDeliveryId(OFFBOARDING_ID, 'delete_data_confirmation'),
     }]);
+    sqlReturnQueue.push([deleteDataPendingRow()]); // #614 locked re-read
     sqlReturnQueue.push([{ id: '44444444-4444-4444-8444-444444444444' }]);
     sqlReturnQueue.push([]);
     sqlReturnQueue.push([]);
@@ -698,6 +715,63 @@ describe('AccountOffboardingEmailWorker', () => {
       'SESSION_COOKIE_SECRET not configured',
       4,
     );
+  });
+
+  // #614: the outer read is unlocked, so the purge poller's claim can commit
+  // between it and the token insert. The locked re-read must see the claim and
+  // refuse — no token, no send, delivery claim released, job rethrown so the
+  // retry's outer read fails the outbox row with the same reason.
+  it('does not issue a keep-my-data token when the purge claim lands between the unlocked read and the insert', async () => {
+    const deliveryId = accountOffboardingDeliveryId(OFFBOARDING_ID, 'delete_data_confirmation');
+    sqlReturnQueue.push([deleteDataPendingRow()]); // outer read: still unclaimed
+    sqlReturnQueue.push([{ id: deliveryId }]); // delivery claim
+    sqlReturnQueue.push([deleteDataPendingRow({
+      status: 'purge_scheduled',
+      purge_started_at: new Date('2026-07-05T23:59:59.000Z'), // claimed meanwhile
+    })]);
+
+    await expect(handleAccountOffboardingEmail(mockSql, makeJob({
+      email_type: 'delete_data_confirmation',
+    }))).rejects.toThrow('account_offboarding_purge_already_started');
+
+    const lockedRead = sqlCalls.find((call) =>
+      call.text.includes('FROM account_offboardings') && call.text.includes('FOR UPDATE'),
+    );
+    expect(lockedRead).toBeDefined();
+    expect(mockSql.begin).toHaveBeenCalled();
+    const lockIndex = sqlCalls.indexOf(lockedRead!);
+    const insertIndex = sqlCalls.findIndex((call) => call.text.includes('INSERT INTO account_offboarding_tokens'));
+    expect(insertIndex).toBe(-1);
+    expect(lockIndex).toBeGreaterThan(
+      sqlCalls.findIndex((call) => call.text.includes('INSERT INTO notification_deliveries')),
+    );
+    expect(mockSendInternalEmail).not.toHaveBeenCalled();
+    const deliveryRollbackCall = sqlCalls.find((call) => call.text.includes('DELETE FROM notification_deliveries'));
+    expect(deliveryRollbackCall?.values).toContain(deliveryId);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    expect(mockMarkOutboxCompleted).not.toHaveBeenCalled();
+  });
+
+  it('issues the keep-my-data token only after the locked re-read, inside one transaction', async () => {
+    sqlReturnQueue.push([deleteDataPendingRow()]);
+    sqlReturnQueue.push([{ id: accountOffboardingDeliveryId(OFFBOARDING_ID, 'delete_data_confirmation') }]);
+    sqlReturnQueue.push([deleteDataPendingRow()]);
+    sqlReturnQueue.push([{ id: '44444444-4444-4444-8444-444444444444' }]);
+    sqlReturnQueue.push([]);
+    sqlReturnQueue.push([]);
+
+    await handleAccountOffboardingEmail(mockSql, makeJob({
+      email_type: 'delete_data_confirmation',
+    }));
+
+    const lockIndex = sqlCalls.findIndex((call) =>
+      call.text.includes('FROM account_offboardings') && call.text.includes('FOR UPDATE'),
+    );
+    const insertIndex = sqlCalls.findIndex((call) => call.text.includes('INSERT INTO account_offboarding_tokens'));
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(insertIndex).toBeGreaterThan(lockIndex);
+    expect(mockSql.begin).toHaveBeenCalledTimes(1);
+    expect(mockSendInternalEmail).toHaveBeenCalledTimes(1);
   });
 
   it('does not send delete-data confirmation after purge has started', async () => {

@@ -60,6 +60,10 @@ const {
 
         if (template.includes('UPDATE account_offboarding_tokens') && template.includes('revoked_at = NOW()')) {
           testState.revokedTokenCount += 1;
+          testState.persistedOffboardingRow = {
+            ...testState.persistedOffboardingRow,
+            activeTokenExpiresAt: null,
+          };
           return Promise.resolve([]);
         }
       }
@@ -143,6 +147,9 @@ type PersistedOffboardingRow = ClaimableRow & {
   provider_dispositions: unknown[];
   failed_step: string | null;
   last_error: string | null;
+  // expires_at of one unconsumed, unrevoked keep-my-data token, or null when
+  // none exists. Models the #614 active-token NOT EXISTS in the claim predicate.
+  activeTokenExpiresAt: Date | null;
 };
 
 function makeClaimableRow(overrides: Partial<ClaimableRow> = {}): ClaimableRow {
@@ -169,14 +176,21 @@ function makePersistedOffboardingRow(
     provider_dispositions: overrides.provider_dispositions ?? [],
     failed_step: overrides.failed_step ?? 'purge',
     last_error: overrides.last_error ?? 'stale-error',
+    activeTokenExpiresAt: overrides.activeTokenExpiresAt ?? null,
   };
 }
 
+// Mirrors the poller's claim predicate, INCLUDING the override arm (the window
+// is widened by the effective override, never by writing purge_after) and the
+// #614 active-token guard. A mock that ignored the override would let a
+// future-dated fixture pass a "not claimed" assertion for the wrong reason.
 function rowMatchesPurgeClaimPredicate(row: PersistedOffboardingRow): boolean {
+  const windowMs = getAccountOffboardingPurgeWindowOverrideMs() ?? 0;
   return (
     row.mode === 'delete_data' &&
     row.status === 'purge_scheduled' &&
-    row.purge_after.getTime() <= Date.now() &&
+    row.purge_after.getTime() <= Date.now() + windowMs &&
+    !(row.activeTokenExpiresAt !== null && row.activeTokenExpiresAt.getTime() > Date.now()) &&
     row.purge_cancelled_at === null &&
     row.purge_started_at === null &&
     row.terminal_at === null &&
@@ -257,11 +271,13 @@ beforeEach(() => {
   delete process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS;
   delete process.env[browserPurgeWindowOverrideEnvKey()];
   delete process.env.VERCEL_ENV;
+  delete process.env.RAILWAY_ENVIRONMENT_NAME;
   vi.stubEnv('NODE_ENV', 'test');
   // The purge-window override now reads the memoized getWorkerConfig(); clear the
   // memo so each test's ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS value (set
-  // after this beforeEach) is parsed fresh (#6). NODE_ENV/VERCEL_ENV stay direct
-  // reads (exempt indicators #2) and are unaffected.
+  // after this beforeEach) is parsed fresh (#6). The lane guard reads
+  // RAILWAY_ENVIRONMENT_NAME/NODE_ENV directly through deploymentLane() (#614)
+  // and is unaffected by the memo.
   resetWorkerConfigForTests();
 });
 
@@ -299,6 +315,11 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(claimCall!.template).toContain("status = 'purge_scheduled'");
     expect(claimCall!.template).toContain('purge_after IS NOT NULL');
     expect(claimCall!.template).toContain('purge_after <= NOW()');
+    // #614: the active-token guard is unconditional — present on the claim
+    // SELECT and the claim UPDATE, not only on the override arm.
+    expect(claimCall!.template).toContain('NOT EXISTS');
+    expect(claimCall!.template).toContain('FROM account_offboarding_tokens t');
+    expect(claimCall!.template).toContain('t.expires_at > NOW()');
     expect(claimCall!.template).toContain('purge_cancelled_at IS NULL');
     expect(claimCall!.template).toContain('purge_started_at IS NULL');
     expect(claimCall!.template).toContain('terminal_at IS NULL');
@@ -322,6 +343,9 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(updateCall!.template).toContain('last_error = NULL');
     expect(updateCall!.template).toContain('purge_cancelled_at IS NULL');
     expect(updateCall!.template).toContain('purge_started_at IS NULL');
+    expect(updateCall!.template).toContain('NOT EXISTS');
+    expect(updateCall!.template).toContain('FROM account_offboarding_tokens t');
+    expect(updateCall!.template).toContain('t.expires_at > NOW()');
 
     const revokeCall = sqlCalls.find((call) =>
       call.scope === 'tx' &&
@@ -437,10 +461,63 @@ describe('AccountOffboardingPurgePoller', () => {
     expect(testState.revokedTokenCount).toBe(0);
   });
 
+  // #614: the override arm admits a future-dated row; a live keep-my-data token
+  // must keep it out. Three assertions on the SAME row, in order, so the token is
+  // proven to be the reason for the refusal — not the date.
+  it('never claims a row inside the override window while a keep-my-data token is live, and claims it once the token is revoked', async () => {
+    process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = String(2 * 60 * 60 * 1000);
+    resetWorkerConfigForTests();
+    const purgeAfter = new Date('2026-06-06T14:00:00.000Z'); // NOW() + 1h
+    const tokenExpiresAt = new Date('2026-06-06T13:30:00.000Z'); // NOW() + 30m, < purge_after
+
+    // (a) No token: the override window is what admits the future-dated row.
+    testState.persistedOffboardingRow = makePersistedOffboardingRow({ purge_after: purgeAfter });
+    await runAccountOffboardingPurgeOnce();
+    expect(mockEnqueueAccountOffboardingPurge).toHaveBeenCalledOnce();
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledOnce();
+
+    // (b) Same row, live token: refused. Nothing is revoked, audited, or enqueued.
+    mockEnqueueAccountOffboardingPurge.mockClear();
+    mockWriteAccountAuditLog.mockClear();
+    testState.revokedTokenCount = 0;
+    testState.persistedOffboardingRow = makePersistedOffboardingRow({
+      purge_after: purgeAfter,
+      activeTokenExpiresAt: tokenExpiresAt,
+    });
+    await runAccountOffboardingPurgeOnce();
+    expect(mockEnqueueAccountOffboardingPurge).not.toHaveBeenCalled();
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(testState.revokedTokenCount).toBe(0);
+    expect(testState.persistedOffboardingRow?.purge_started_at).toBeNull();
+
+    // (c) Token revoked (keep-my-data window over): claimable again.
+    testState.persistedOffboardingRow = {
+      ...testState.persistedOffboardingRow!,
+      activeTokenExpiresAt: null,
+    };
+    await runAccountOffboardingPurgeOnce();
+    expect(mockEnqueueAccountOffboardingPurge).toHaveBeenCalledOnce();
+    expect(testState.persistedOffboardingRow?.purge_started_at).not.toBeNull();
+  });
+
+  it('does not claim a future-dated row without the override, token or not', async () => {
+    testState.persistedOffboardingRow = makePersistedOffboardingRow({
+      purge_after: new Date('2026-06-06T14:00:00.000Z'),
+    });
+
+    await runAccountOffboardingPurgeOnce();
+
+    expect(mockEnqueueAccountOffboardingPurge).not.toHaveBeenCalled();
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
   // readWindowOverride() is migrated to the memoized getWorkerConfig(), so each
   // mid-test env mutation below is followed by resetWorkerConfigForTests() to
   // re-parse (production env is immutable, so this never happens in prod) (#6).
-  it('accepts the purge-window override only outside production and never via NEXT_PUBLIC env', () => {
+  // The lane guard itself is deploymentLane() === 'production' (#614, ADR 0013):
+  // Railway's environment name wins over NODE_ENV, so the staging worker
+  // (NODE_ENV=production + RAILWAY_ENVIRONMENT_NAME=staging) honours the override.
+  it('refuses the purge-window override on the production lane only, and never via NEXT_PUBLIC env', () => {
     process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = '86400000';
     process.env[browserPurgeWindowOverrideEnvKey()] = '123';
     vi.stubEnv('NODE_ENV', 'test');
@@ -451,15 +528,30 @@ describe('AccountOffboardingPurgePoller', () => {
     resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
 
+    // Local NODE_ENV=production with no Railway variable: refused, as before.
     process.env.ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS = '86400000';
     vi.stubEnv('NODE_ENV', 'production');
     resetWorkerConfigForTests();
     expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
 
+    // The staging Railway worker: honoured. This is the lane the override exists for.
+    vi.stubEnv('RAILWAY_ENVIRONMENT_NAME', 'staging');
+    resetWorkerConfigForTests();
+    expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(86_400_000);
+
+    // The production Railway worker (NODE_ENV unset there): refused.
+    vi.stubEnv('RAILWAY_ENVIRONMENT_NAME', 'production');
+    vi.stubEnv('NODE_ENV', '');
+    resetWorkerConfigForTests();
+    expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
+
+    // VERCEL_ENV is no longer consulted (accepted widening — the worker never
+    // runs on Vercel, and the active-token guard bounds what the override can do).
+    delete process.env.RAILWAY_ENVIRONMENT_NAME;
     vi.stubEnv('NODE_ENV', 'test');
     process.env.VERCEL_ENV = 'production';
     resetWorkerConfigForTests();
-    expect(getAccountOffboardingPurgeWindowOverrideMs()).toBeNull();
+    expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(86_400_000);
   });
 
   it('clamps the override to a 3-day maximum and rejects non-positive or non-numeric values', () => {

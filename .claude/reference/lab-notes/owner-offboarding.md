@@ -2,7 +2,7 @@
 
 ## Summary
 
-- **Owner offboarding** — `railway up` from a worktree ships stale worker code (`OutboxPoller: Unknown topic`); Stripe Basil/Dahlia moved `current_period_end` onto the subscription item; `approval_audit_log` has no `approval_link_id`/`user_agent` (mock-asserted SQL *text* hid the drift); keep-my-data must be exempt from the blanket `/api/account/*` owner-API proxy gate; the `purge_after` token-expiry trigger blocks shrinking the purge window while a keep-my-data token is live; **the purge VERIFIER is a gate, not a report** — it throws inside `finalizePurgeInTransaction`, so a blind predicate is an open gate and a newly-strict one BLOCKS a legitimate purge, and its `businesses` residue list has two shapes ("was cleared" vs "was set to X"), the second of which needs `IS DISTINCT FROM` on a nullable column or a nulled value passes silently — `archived_at IS NULL` is the only predicate that can catch a row the tombstone never touched at all (#665, 2026-08-18)
+- **Owner offboarding** — `railway up` from a worktree ships stale worker code (`OutboxPoller: Unknown topic`); Stripe Basil/Dahlia moved `current_period_end` onto the subscription item; `approval_audit_log` has no `approval_link_id`/`user_agent` (mock-asserted SQL *text* hid the drift); keep-my-data must be exempt from the blanket `/api/account/*` owner-API proxy gate; the `purge_after` token-expiry trigger blocks shrinking the purge window while a keep-my-data token is live, and the purge poller's claim carries its own active-token `NOT EXISTS` because the window override widens the predicate without writing `purge_after` (#614, history/2026-09.md); **the purge VERIFIER is a gate, not a report** — it throws inside `finalizePurgeInTransaction`, so a blind predicate is an open gate and a newly-strict one BLOCKS a legitimate purge, and its `businesses` residue list has two shapes ("was cleared" vs "was set to X"), the second of which needs `IS DISTINCT FROM` on a nullable column or a nulled value passes silently — `archived_at IS NULL` is the only predicate that can catch a row the tombstone never touched at all (#665, 2026-08-18)
 
 ## Canonical entries
 
@@ -23,3 +23,4 @@ _None yet — the Summary bullet is the current rule; see History for the dated 
 - history/2026-08-21-to-31.md § "2026-08-26 — #967 post-purge global opt-out"
 - history/2026-09.md § "[2026-09-02] A mocked characterization test over emitted SQL is BLIND to foreign keys — and can pin a bug as correct"
 - history/2026-09.md § "[2026-09-02] Deferred FKs make a delete order correct only INSIDE a transaction"
+- history/2026-09.md § "2026-09-06 — #614: a trigger on `UPDATE OF purge_after` guards nothing when the window is widened by a predicate"

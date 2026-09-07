@@ -140,7 +140,31 @@ The general lesson, which is the reusable part:
 > round.
 
 The underlying gap — that the override can widen a destructive claim predicate at
-all — is tracked as **#614**.
+all — was tracked as **#614**.
+
+**Resolution (2026-09-06, #614).** The site is now migrated, and the cautionary
+text above stays as the record of why it could not be migrated earlier. Three
+things changed together, in one PR:
+
+1. The claim SELECT and claim UPDATE in `AccountOffboardingPurgePoller.ts` carry
+   an unconditional active-token `NOT EXISTS` over `account_offboarding_tokens`
+   (`consumed_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()`). On the
+   normal arm it is a no-op — migration 056's token trigger pins
+   `expires_at <= purge_after <= NOW()` — and on the override arm it is the guard
+   the 056 `BEFORE UPDATE OF purge_after` trigger could never provide.
+2. With that guard in place, the override is refused on
+   `deploymentLane() === 'production'` and nothing else. `requiresProductionConfig()`
+   was still not the right predicate — it is true on every Railway lane, staging
+   included, which would keep the override dead on the one lane it exists for.
+   The `VERCEL_ENV` term was dropped: the worker never runs on Vercel, and the
+   widening it guarded against is now bounded by (1).
+3. The CI exemption below was deleted, so the rule has no exemption set at all.
+
+A fourth change closed a race the honoured override made reachable on staging:
+`AccountOffboardingEmailWorker.ensureKeepMyDataToken` now locks the parent row
+(`SELECT … FOR UPDATE` inside `sql.begin`) and re-validates before inserting the
+token, so a claim that commits between the handler's unlocked read and the insert
+cannot leave a live keep-my-data link on a purge already in flight.
 
 ## Consequences
 
@@ -175,12 +199,14 @@ all — is tracked as **#614**.
   legitimately iterates required-variable lists that way, and the rule must not
   fire on it.
 
-- **Removal trigger for the exemption.** Resolving **#614** — making the purge
-  override incapable of widening the claim predicate against a live keep-my-data
-  token — is what lets a future change delete both the CI exemption and the raw
-  `NODE_ENV`/`VERCEL_ENV` read behind it. Until then the exemption is the honest
-  record of a gap, and removing it without fixing #614 would trade a documented
-  gap for an undocumented one.
+- **The exemption is gone.** Resolving **#614** — making the purge override
+  incapable of widening the claim predicate against a live keep-my-data token —
+  is what allowed the same change to delete both the CI exemption and the raw
+  `NODE_ENV`/`VERCEL_ENV` read behind it (see "Resolution" above). The rule now
+  has no exemption set; `scripts/ci/static-policy-audit.ts` says so in place, and
+  `static-policy-audit.test.ts` pins that the poller's old guard is a finding on
+  the poller's own path. Do not reintroduce a set — a new site that needs one is a
+  new gap to document, not an allowlist entry.
 
 - **Operational follow-up.** The `health-alert-poller` cron monitor in Sentry
   carries a stale `production` environment created while staging mis-reported
