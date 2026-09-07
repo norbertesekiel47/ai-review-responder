@@ -823,10 +823,13 @@
 }
 
 /* ---------- the trail (≤ 900px) ----------
-   The chart is abandoned — 15 stops cannot share a phone-wide 16:9 frame —
-   for a vertical trail: same stops, same order, same three states, every
-   body visible. The ground stays as a faint backdrop so the section keeps
-   its world; the roads, fog, and horizon label go. */
+   The chart is abandoned — 15 stops cannot share a phone-wide frame — for a
+   vertical trail, and the trail is an ACCORDION (2026-09-06; with every body
+   open it ran ~2,300px, which the owner called "not functional"): one row per
+   stop — glyph on the trail line, marker, name, a chevron — and a tap opens
+   the hint under the row. Same stops, same order, same three states. The
+   ground stays as a faint backdrop so the section keeps its world; the
+   roads, fog, clouds and horizon label go. */
 @media (max-width: 900px) {
   /* The trail has no fade, so the section rhythm returns below it. */
   .rw-lp-future {
@@ -834,14 +837,14 @@
   }
   .rw-lp-future-map {
     aspect-ratio: auto;
-    padding: 1.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) 0;
+    padding: 0.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) 0;
   }
   .rw-lp-future-map::before,
   .rw-lp-future-map::after {
     display: none;
   }
   .rw-lp-future-ground-img {
-    opacity: 0.55;
+    opacity: 0.45;
   }
   .rw-lp-future-chart,
   .rw-lp-future-fog,
@@ -858,15 +861,14 @@
     inset: auto;
     display: flex;
     flex-direction: column;
-    gap: 1.125rem;
     padding-left: 0.25rem;
   }
   /* The trail line the bullets sit on. */
   .rw-lp-future-stops::before {
     content: '';
     position: absolute;
-    top: 0.5rem;
-    bottom: 0.5rem;
+    top: 1.25rem;
+    bottom: 1.25rem;
     left: 0.8125rem;
     border-left: 1px dashed rgb(var(--rw-lp-text-rgb) / 0.22);
   }
@@ -876,23 +878,34 @@
     top: auto;
     width: auto;
     height: auto;
-    display: grid;
-    grid-template-columns: 1.375rem minmax(0, 1fr);
-    column-gap: 0.875rem;
-    align-items: start;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
+  .rw-lp-future-stop-item:last-child {
+    border-bottom: 0;
+  }
+  /* The row: a full-width button, 44px+ tall. */
   .rw-lp-future-stop {
     position: relative;
-    display: contents;
+    display: grid;
+    grid-template-columns: 1.375rem minmax(0, 1fr) 1rem;
+    align-items: center;
+    column-gap: 0.875rem;
+    width: 100%;
+    max-width: none;
+    min-height: 3.25rem;
+    padding: 0.625rem 0;
+    border-radius: 0.5rem;
     transform: none;
   }
-  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop {
+  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop,
+  .rw-lp-future-stop-item[data-label='above'] .rw-lp-future-stop,
+  .rw-lp-future-stop-item[data-label='above'][data-active='true'] .rw-lp-future-stop {
+    flex-direction: row;
     transform: none;
   }
   .rw-lp-future-landmark {
     width: 1.375rem;
     height: 1.375rem;
-    margin-top: 0.125rem;
   }
   .rw-lp-future-landmark-img,
   .rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before {
@@ -909,15 +922,43 @@
   .rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-glyph {
     transform: translate(-50%, -50%) rotate(45deg);
   }
-  /* The on-chart label and the card merge: name and marker once, body under. */
+  /* Marker and name on one row, left-set. */
   .rw-lp-future-stop-label {
-    display: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: flex-start;
+    column-gap: 0.625rem;
+    row-gap: 0;
+    text-align: left;
   }
+  .rw-lp-future-stop-name {
+    font-size: 1rem;
+    text-shadow: none;
+    text-wrap: pretty;
+  }
+  /* The chevron: a bordered corner, turned when the row is open. */
+  .rw-lp-future-stop::after {
+    content: '';
+    width: 0.5rem;
+    height: 0.5rem;
+    justify-self: end;
+    margin-right: 0.25rem;
+    border-right: 1.5px solid rgb(var(--rw-lp-text-rgb) / 0.45);
+    border-bottom: 1.5px solid rgb(var(--rw-lp-text-rgb) / 0.45);
+    transform: translateY(-0.125rem) rotate(45deg);
+    transition: transform 0.2s ease-out;
+  }
+  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop::after {
+    transform: translateY(0.125rem) rotate(225deg);
+  }
+  /* The hint: static under the row, only while the row is open; the row
+     already shows the marker and the name, so the card shows the body alone. */
   .rw-lp-future-stop-card {
+    display: none;
     position: static;
-    grid-column: 2;
     width: auto;
-    padding: 0;
+    padding: 0 0 0.875rem 2.25rem;
     background: transparent;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -928,6 +969,9 @@
     transform: none;
     transition: none;
   }
+  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop-card {
+    display: block;
+  }
   .rw-lp-future-stop-item[data-anchor='mid'] .rw-lp-future-stop-card,
   .rw-lp-future-stop-item[data-anchor='below'] .rw-lp-future-stop-card,
   .rw-lp-future-stop-item[data-anchor='above'] .rw-lp-future-stop-card {
@@ -935,7 +979,12 @@
     bottom: auto;
     transform: none;
   }
+  .rw-lp-future-stop-card-marker,
   .rw-lp-future-stop-card-name {
-    font-size: 1.0625rem;
+    display: none;
+  }
+  .rw-lp-future-stop-card-body {
+    margin: 0;
+    font-size: 0.9375rem;
   }
 }

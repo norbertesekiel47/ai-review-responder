@@ -215,6 +215,18 @@ landmark's height and its label lands 80px from its glyph, on top of the next la
 2026-09-06 first cut). `hoverall.mjs`-style check: every stop must accept a hover at its
 centre; an obstructed stop means two buttons overlap.
 
+**Future — the phone trail is an accordion, and a tap must not move the row under the
+finger.** With every body open the trail ran ~2,300px at 390px and the owner called it
+"not functional"; rows with the hint closed run ~1,500px for the section. Two touch
+traps, both measured with Playwright taps on an iPhone 13 profile: (a) a tap fires
+pointerenter + click together, so the hover path must ignore `pointerType === 'touch'`
+or the card closes the instant it opens; (b) `blur` must NOT close the open row when
+focus moves to another stop — the close collapses the list under the finger between
+pointerdown and pointerup, and the click lands on whichever row slid into place (the
+second tap read as "nothing opened"). Blur closes only when `relatedTarget` leaves
+`.rw-lp-future-stops`. Focus opens a row only when no pointerdown preceded it (a ref),
+because Chromium reports a tap's focus as `:focus-visible` under touch.
+
 **Future — the chart arms on `amount: 'some'`, never a fraction.** Below 900px the same
 element is the trail, ~2,200px tall at 390px wide; `amount: 0.3` never fired there and the
 stops stayed at opacity 0. The bottom `margin` holds desktop arrival until the chart is
