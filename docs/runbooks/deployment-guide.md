@@ -179,6 +179,31 @@ at the apex `https://repworth.net`. Production domain map:
   - `repworth.net` (apex) → Vercel (Next.js UI + `/approve/<token>` links)
   - `worker.repworth.net` → Railway (Fastify worker, all `/ingress/*` webhooks)
   - `staging.repworth.net` → Vercel `staging` env (Part II)
+  - `admin.repworth.net` → Vercel project `admin-app` (**Admin app**, separate repo — §1.1.1)
+  - `admin.staging.repworth.net` → `admin-app`'s `staging` Custom Env (§1.1.1)
+
+#### §1.1.1 The Admin app's home (ADR 0024, ticket #1166)
+
+The **Admin app** is a separate deployable with its own repo and Vercel project. It
+is not part of this repo's lanes. It signs admins in with Supabase Auth and calls
+the **Admin API** (`src/app/api/admin/**`, which stays here) with a bearer.
+
+| Thing | Production | Staging |
+|---|---|---|
+| Repo | `RepWorth/admin-app` (private, `main` protected by ruleset `22481865`) | same repo, `staging` branch |
+| Vercel | project `admin-app` = `prj_ofJWgjS87xsApuw6f0s3p0OyzxKc`, branch `main` | Custom Env `staging` = `env_TL3MujrjZCSGGoRSj0LLnDA5KHjo`, branch `staging` |
+| Host | `admin.repworth.net` | `admin.staging.repworth.net` |
+| Supabase | project `udeyaqnvpojbwgoaxwdg` — **not issued until go-live** | project `kubdiqdhqbhwmqfditeg` |
+
+Both hosts are `CNAME → cname.vercel-dns.com`, DNS-only in Cloudflare, matching
+`staging.repworth.net`. TLS is `cert_AHM0E2mEnTxpO24gOjapOA4m`, covering both names.
+
+These two hostnames are the production and staging **CORS allowlist** values.
+
+> **The Admin app holds the Supabase URL + publishable (or anon) key and nothing
+> else** — ADR 0024 D1. Never a `service_role` key, never a `secret` key, never a
+> database URL. The Vercel GitHub App must be granted access to each new org repo
+> by hand; org-level installs here are scoped to selected repositories.
 
 - [ ] Add the `worker.` CNAME in your DNS panel once the Railway project exists (§5)
       — Railway gives you the target hostname. The staging *worker* can use the free
