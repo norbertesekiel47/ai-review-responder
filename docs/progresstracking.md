@@ -866,4 +866,8 @@ said 75rem, so a 1920px chart fetched a ~1200px variant), the ground upscaled
 2× and shipped at 3840px, `images.qualities` gains 88, landmarks served
 `unoptimized`; and the ink gap before the closing band → the section drops
 its bottom padding and the chart's fade is the hand-off.
+Round four: every TV grew ~15%, and the unbuilt stops stopped naming their
+features — each shows a short hint ("A second chance") and one teasing
+future-tense sentence; the phase markers and the legend's "not available
+yet" stay, and the stop-to-phase mapping lives in `future-copy.ts`.
 

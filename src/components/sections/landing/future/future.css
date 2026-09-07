@@ -25,7 +25,7 @@
   --rw-lp-future-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
   /* The landmark stage: the object stands on the road point, the label hangs
      below it. Sized in vw so the chart and its objects scale together. */
-  --rw-lp-landmark: clamp(3.25rem, 5.4vw, 6rem);
+  --rw-lp-landmark: clamp(3.75rem, 6.2vw, 7rem);
   --rw-lp-card-width: 18.5rem;
 
   position: relative;
@@ -401,7 +401,7 @@
   --rw-lp-landmark: 1.375rem;
 }
 .rw-lp-future-stop-item[data-state='shipped'] {
-  --rw-lp-landmark: clamp(4.25rem, 7.6vw, 8.5rem);
+  --rw-lp-landmark: clamp(4.75rem, 8.7vw, 9.75rem);
 }
 
 /* The button is the whole stop: landmark above the road point, label below

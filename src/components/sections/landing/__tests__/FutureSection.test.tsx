@@ -94,7 +94,8 @@ describe('future-copy — the honesty contract', () => {
         expect(stop.marker).toBe(SHIPPED_MARKER);
         continue;
       }
-      expect(stop.body.startsWith('Will ')).toBe(true);
+      // A hint, not a spec — but still a promise about the future.
+      expect(/\bwill\b/i.test(stop.body)).toBe(true);
       if (stop.state === 'planned') expect(stop.marker).toMatch(/^Phase \d$/);
       if (stop.state === 'horizon') expect(stop.marker).toBe(HORIZON_MARKER);
     }

@@ -33,6 +33,20 @@
  * (The agency tier left this list: the forward roadmap's Phase 8 names it, so
  * it is a horizon stop now.)
  *
+ * ── Unbuilt stops are HINTED, not named (owner decision 2026-09-06) ───────
+ * A planned or horizon stop never states the feature. Its `name` is a short
+ * tease ("A second chance"), its `body` one sentence that hints at the
+ * outcome without describing the mechanism, and its landmark is the only
+ * literal clue (a life ring, a cable, a card drawer). The roadmap itself
+ * stays in `docs/roadmap/2026-08-26-forward-roadmap.md`; the mapping from
+ * each stop `id` to its phase is the `marker` plus this comment:
+ *   connectors → Phase 1 event-triggered requests · recovery → Phase 2
+ *   recovery workflows · topics → Phase 3 review-topic ontology · truth →
+ *   Phase 4 Business Truth + policy · autonomy → Phase 5 per-action autonomy
+ *   · platforms → Phase 6 · impact → Phase 7 · api → Phase 8 · social /
+ *   disputes → the two former cards, sequenced later.
+ * Future tense still binds: every hint body carries "will".
+ *
  * ── The tag is load-bearing ───────────────────────────────────────────────
  * Every unbuilt stop carries its `marker` beside its name, so the roadmap
  * status survives a skim that never opens a stop. The legend states "Not
@@ -139,19 +153,19 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'connectors',
-    name: 'Connectors',
-    body: 'Will connect your booking or job system once, so a finished appointment becomes a review request on its own. No CSV step.',
+    name: 'Something is plugging in',
+    body: 'Your booking system will have something to say, and the ask will take care of itself.',
     state: 'planned',
     marker: 'Phase 1',
-    x: 1030,
-    y: 620,
-    label: 'below',
+    x: 1010,
+    y: 605,
+    label: 'above',
     landmark: '/future/stops/connectors.webp',
   },
   {
     id: 'recovery',
-    name: 'Recovery cases',
-    body: 'Will turn a negative review into a tracked case: a private follow-up drafted for your approval, the resolution recorded, the outcome measured.',
+    name: 'A second chance',
+    body: 'A bad review will not be the end of the story.',
     state: 'planned',
     marker: 'Phase 2',
     x: 1140,
@@ -161,8 +175,8 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'topics',
-    name: 'Review topics',
-    body: 'Will sort every review into the operational topics of your trade, so the digest can say which one is slipping, and at which location.',
+    name: 'What is slipping',
+    body: 'Your reviews will start telling you which part of the job is drifting, and where.',
     state: 'planned',
     marker: 'Phase 3',
     x: 1320,
@@ -172,8 +186,8 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'truth',
-    name: 'Business Truth',
-    body: 'Will hold your facts and your rules, so every draft is factually safe and carries a note on why it was written that way.',
+    name: 'Facts and rules',
+    body: 'The agents will know your business the way you do, and say why they wrote what they wrote.',
     state: 'planned',
     marker: 'Phase 4',
     x: 1450,
@@ -183,8 +197,8 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'autonomy',
-    name: 'Per-action autonomy',
-    body: 'Will let you grant full autonomy or ask-me per action: positive replies, negative replies, review requests, recovery outreach.',
+    name: 'Your hand on the dial',
+    body: 'You will decide exactly how much rope each agent gets, action by action.',
     state: 'planned',
     marker: 'Phase 5',
     x: 1550,
@@ -194,8 +208,8 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'platforms',
-    name: 'More platforms',
-    body: 'Will extend past Google to more review sites, maps and directories, each with its own rules encoded.',
+    name: 'More than one map',
+    body: 'Google will not be the only place the fleet keeps watch.',
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1700,
@@ -204,8 +218,8 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'impact',
-    name: 'Impact page',
-    body: 'Will show conservative, defensible numbers: reviews received, response coverage, requests converted, customers recovered.',
+    name: 'Numbers you can defend',
+    body: 'What the fleet did for you will be counted the conservative way.',
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1870,
@@ -214,18 +228,18 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'api',
-    name: 'API and agencies',
-    body: 'Will open a public API and MCP surface, and an agency tier for running many businesses under one roof.',
+    name: 'Doors for other tools',
+    body: 'Other software will be able to knock.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1900,
-    y: 760,
+    x: 1855,
+    y: 770,
     label: 'above',
   },
   {
     id: 'social',
-    name: 'Social media',
-    body: 'Will draft and schedule posts, answer comments and DMs, and hold one brand voice across every channel it touches.',
+    name: 'Beyond reviews',
+    body: 'The fleet will have more than reviews to speak for you.',
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1690,
@@ -234,8 +248,8 @@ export const STOPS: readonly RoadmapStop[] = [
   },
   {
     id: 'disputes',
-    name: 'Fake review disputes',
-    body: 'Will flag fraudulent or policy-violating reviews and drive the removal process with the platforms.',
+    name: 'The one that was never a customer',
+    body: 'Some reviews will get a second look.',
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1770,
@@ -267,7 +281,7 @@ export const LEAD_IN =
 /** The legend on the chart. The note is the section's disclaimer — it sits ON
  *  the map, so it cannot be scrolled past independently of the stops. */
 export const LEGEND_LABEL = 'The route';
-export const LEGEND_NOTE = 'Lit stops are live today. Everything past them is not available yet.';
+export const LEGEND_NOTE = 'Lit stops are live today. The rest are hints of what comes next, not available yet.';
 export const LEGEND_SHIPPED = 'Live today';
 export const LEGEND_PLANNED = 'Planned, in order';
 export const LEGEND_HORIZON = 'Sequenced later';

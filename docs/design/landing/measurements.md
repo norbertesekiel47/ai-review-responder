@@ -195,7 +195,7 @@ along a near-flat road across the full width and the owner called THAT "convolut
 and "cramped even though it's stretched out"). The road now climbs from bottom-left
 (y 720) over a crest (y 300), drops through a trough (y 730) and rises again to the
 horizon (y 320), so consecutive stops sit ~230 units apart ALONG the road instead of
-~130; the lit stops span x 170–890, the planned 1030–1550, the horizon past
+~130; the lit stops span x 170–890, the planned 1010–1550, the horizon past
 `HORIZON_X` (1590). Every stop carries `label: 'above' | 'below'` — chosen by hand
 for the outside of its bend, not by index parity, because parity put two neighbours'
 labels at the same height on the crest's shoulders (reply/solicitor, connectors/
