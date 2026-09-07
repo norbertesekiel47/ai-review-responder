@@ -16,6 +16,7 @@ paths:
 
 ## Traps
 
+- **A migration's guard suite EXECUTES the file; it never parses it.** Five red-team passes found nine P0s in a regex guard for migration 119 and none in the migration. Shape: `MIGRATION_SHAPE_FILES` + degrade → assert the degrade landed → apply verbatim via `db.unsafe` → diff the catalogue over EVERY `public` table. "Unchanged" needs a BEFORE — `has_table_privilege` is unconditionally true for a superuser, and the CI owner is one. Full story: lab-notes/migrations.md Summary.
 - **`ON CONFLICT` must match partial-index predicate BYTE-FOR-BYTE** or Postgres won't recognize the constraint. Expression indexes must use IMMUTABLE expressions: `(created_at AT TIME ZONE 'UTC')::date`, not `created_at::date` (STABLE is rejected in index predicates).
 
 ## Rules

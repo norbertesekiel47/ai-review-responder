@@ -9,7 +9,56 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-06 (Landing section 5 is the route map; admin MFA audit trail #468.)
+Last updated: 2026-09-07 (job_outbox carries deny-all RLS in both lanes; the last staging/prod RLS drift is closed.)
+
+## Quick summary — job_outbox deny-all RLS, and the staging/prod drift closes (2026-09-07, PR #1175)
+
+`job_outbox` — the Outbox job table, the dispatch spine every async workflow
+writes through — was the **only** table of the 54 in schema `public` whose RLS
+state differed between the two Supabase projects. Production had it on;
+staging had it off, with the public anon key holding all eight privileges.
+
+That was not a disclosure gap alone. `anon` held INSERT, and `OutboxPoller`
+dispatches whatever rows it finds to BullMQ without asking who wrote them, so
+anyone with the public staging anon key could enqueue an Outbox job of their
+choosing. It also held TRUNCATE, which row-level policies do not restrain at
+all.
+
+Migration 119 closes it in both lanes: RLS enabled, zero policies,
+`REVOKE ALL … FROM anon, authenticated`. The ALTER is guarded on
+`relrowsecurity` so the production apply — where the flag was already set —
+skipped it rather than taking `ACCESS EXCLUSIVE` on the busiest table in the
+schema to write a value it already held.
+
+**The drift is closed for the whole schema, not just this table.** One
+identical query over all 54 `public` tables — RLS flags, force flags, ACLs,
+policy counts — now returns the same md5 on both projects.
+
+**Provenance.** This is migration 107's deferred half. Production was
+provisioned with the Supabase `ensure_rls` DDL event trigger and acquired the
+posture for free; staging was created after Supabase dropped it and never did.
+107 removed the generator and left its output for a reviewed migration of its
+own.
+
+**The new shape**
+
+| File | What it is |
+|---|---|
+| `supabase/migrations/119_job_outbox_rls.sql` | the migration — guarded ALTER, REVOKE, table comment, one transaction |
+| `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts` | the boundary's guard. `ci:rls-audit` covers only `TENANT_TABLES`, and `job_outbox` is deliberately not a member, so this suite is the regression guard — the role 117's suite plays for `admin_audit_log` |
+| `scripts/ci/live-db-suites-audit.ts` | one line: the suite joins `MIGRATION_SHAPE_FILES`, because it now EXECUTES the migration rather than parsing it |
+
+**Why the test executes the migration.** Five independent red-team passes found
+nine P0s — every one in the guard, none in the migration. A regex approximation
+of a SQL lexer lost to a new construct each time. The suite now degrades the
+table to the pre-119 posture, proves that vulnerable state exists, applies the
+checked-in file verbatim, and diffs the catalogue across every `public` table.
+PostgreSQL is the parser.
+
+**Not done, tracked as #1176:** 21 production and 20 staging tables still hold
+client-role grants behind deny-all RLS, and `anon` holds TRUNCATE on 49 of 50
+tables. Inert today for the same reason production's `job_outbox` was inert —
+except for TRUNCATE, which that argument does not cover.
 
 ## Quick summary — Landing "Where this is going" is a route map (2026-09-06)
 
