@@ -188,15 +188,18 @@ fixed`, which a **transformed ancestor silently downgrades to `scroll`** — the
 `Reveal` is opacity-only and `Staged` has `rise={0}`. Both stay (the next fixed-attachment
 surface needs them), but nothing on the page depends on them today.
 
-**Future — fifteen stops fit one chart only because labels alternate sides.** The
+**Future — the road is a serpentine, and each stop names its own label side.** The
 stage is 2000×900 in `future-copy.ts` (20:9, full-bleed — the first cut was 1600×900
-inside the 75rem column and the owner called it cramped; the chart now runs edge to
-edge and the stops spread across it); the lit stops span x 170–860, the planned
-1005–1520, the horizon past `HORIZON_X` (1590). Adjacent lit/planned stops sit
-~130–175 units apart (≈95–125px at 1440), still narrower than a lit landmark
-(`--rw-lp-landmark`, up to 8.5rem lit / 6rem planned), so a stop's label goes below the road on even indexes and above the landmark on
-odd ones (`data-label`), and the road wanders ±50 units so neighbouring landmarks do not
-stack. A horizon stop has no landmark, so its stage collapses to 1.375rem — leave it at a
+inside the 75rem column and the owner called it cramped; the second spread the stops
+along a near-flat road across the full width and the owner called THAT "convoluted"
+and "cramped even though it's stretched out"). The road now climbs from bottom-left
+(y 720) over a crest (y 300), drops through a trough (y 730) and rises again to the
+horizon (y 320), so consecutive stops sit ~230 units apart ALONG the road instead of
+~130; the lit stops span x 170–890, the planned 1030–1550, the horizon past
+`HORIZON_X` (1590). Every stop carries `label: 'above' | 'below'` — chosen by hand
+for the outside of its bend, not by index parity, because parity put two neighbours'
+labels at the same height on the crest's shoulders (reply/solicitor, connectors/
+restraint, topics/truth on the first serpentine cut). A horizon stop has no landmark, so its stage collapses to 1.375rem — leave it at a
 landmark's height and its label lands 80px from its glyph, on top of the next label (the
 2026-09-06 first cut). `hoverall.mjs`-style check: every stop must accept a hover at its
 centre; an obstructed stop means two buttons overlap.
@@ -210,9 +213,12 @@ stops stayed at opacity 0. The bottom `margin` holds desktop arrival until the c
 stage, and the road is an SVG in the same coordinate space; the two only agree while the
 box keeps the viewBox's ratio. `aspect-ratio: 20 / 9` on `.rw-lp-future-map` is the
 contract — re-measure every stop before changing it. 20:9 and not 16:9 because at
-viewport width a 16:9 chart is 1080px tall on a 1920 screen. The road sits in the
-middle band (y 425–700): the bottom 6rem is a fade into the section ink, and a stop at
-y 740 put its label inside it.
+viewport width a 16:9 chart is 1080px tall on a 1920 screen. Every road point stays in
+y 300–740: the top and bottom 6rem (~100 units) are fades into the section ink, and a
+stop at y 740 with its label below put the label inside the fade. The section has NO
+bottom padding — the chart ends it and its fade is the hand-off to the closing band
+(an ink gap between them read as a hole, owner 2026-09-06); below 900px the trail has
+no fade, so the section gap returns there.
 
 **CTA — the clip choice is the framing fix.** `hero3reverseVideo.mp4` puts the character at
 x 58–85%, clear of the 45% copy column. `hero3Video.mp4` puts it at x 19–37%, *behind* the
@@ -435,7 +441,7 @@ contrast figures is now a floor, not a measurement.
 | `ctaVideo-{1600,960}.mp4` + poster | 515K/204K/115K from `hero3reverseVideo.mp4` (27MB) |
 | `repworth-explainer.mp4` + poster | 25MB, 2m26s, narrated. **Remuxed `+faststart`** — the moov atom was at the end, so playback would have blocked on the full 25MB download. Fetches 0 bytes until clicked. **Still has no captions** (probed 2026-08-04: video + audio streams only, and frames at 20s/75s carry no burned-in text). |
 | `problem/problem-diagram.{mp4,jpg}` | 108K/24K. The reputation diagram (2026-08-24): café + orbiting review artifacts, generated (Higgsfield, nano-banana still → seedance clip, agent still as style ref), 720×720, 10s seamless ping-pong loop, audio stripped, `+faststart`. Asset rules: `problem/problem-copy.ts`. |
-| `future/roadmap-ground{,-960}.jpg` | 143K/32K. The route map's chart ground (2026-09-06): a dark green survey chart, lamp-lit on the left, no text — generated (Runway, nano-banana-pro, the off-CRT still as style ref), 2752×1536 master downscaled with ffmpeg. Decorative; the road and stops carry the meaning. |
+| `future/roadmap-ground.jpg` | 1.0M, 3840×2143. The route map's chart ground (2026-09-06): a dark green survey chart, lamp-lit on the left, no text — generated (Runway, nano-banana-pro, the off-CRT still as style ref) at 2752×1536, then **upscaled 2× (Runway sublime, low detail invention) and downscaled to 3840** so a full-bleed 1920px viewport gets a 2× file on retina. The first cut shipped a 1920px file with `sizes="75rem"`, so the browser fetched a ~1200px variant for a 1920px-wide chart and the owner read the whole section as low-resolution; `sizes="100vw"` + `quality={88}` is the contract now, and `next/image` serves the resized variants (the 1.0M master never ships as-is). Decorative; the road and stops carry the meaning. |
 | `future/stops/*.webp` | 10 landmark cutouts, 253K total (7–52K each, ≤480px tall). Reply and Solicitor are the agent stills cut out; the other eight were generated on a flat dark-green ground against the same stills and cut out with a PIL corner flood-fill (`thresh 70`, 1px erode, 0.8px feather) — the Runway cutter kept only the television and dropped every second object (book, cable, ring, gate arm). Lit stops' screens are ON; planned stops' screens are OFF. No red or orange (the first gate arm and life ring were re-made). Which stop uses which: `future-copy.ts`. `future/off-crt.jpg` (13K, the old cards' unpowered set) was deleted with the cards. |
 
 **The masters are no longer in the repo.** `heroVideo.mp4` (23M), `hero2Video.mp4` (30M),

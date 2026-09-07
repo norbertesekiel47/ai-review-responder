@@ -32,11 +32,12 @@
   display: flex;
   flex-direction: column;
   /* As tall as its content plus the page's section rhythm — never bound to
-     the viewport (2026-08-16; docs/design/landing/measurements.md §2). */
-  padding: var(--rw-lp-section-gap, 6rem) 0;
-  background:
-    radial-gradient(ellipse 60% 45% at 50% 100%, rgb(var(--rw-lp-accent-rgb) / 0.07), transparent 70%),
-    var(--rw-lp-ink, #14201c);
+     the viewport (2026-08-16; docs/design/landing/measurements.md §2).
+     No bottom padding: the chart is full-bleed and ends the section, and its
+     own bottom fade is the hand-off to the closing band. A gap of ink
+     between the two read as a hole (owner, 2026-09-06). */
+  padding: var(--rw-lp-section-gap, 6rem) 0 0;
+  background: var(--rw-lp-ink, #14201c);
 }
 
 .rw-lp-future-inner {
@@ -704,9 +705,13 @@
    body visible. The ground stays as a faint backdrop so the section keeps
    its world; the roads, fog, and horizon label go. */
 @media (max-width: 900px) {
+  /* The trail has no fade, so the section rhythm returns below it. */
+  .rw-lp-future {
+    padding-bottom: var(--rw-lp-section-gap, 6rem);
+  }
   .rw-lp-future-map {
     aspect-ratio: auto;
-    padding: 1.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) 2rem;
+    padding: 1.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) 0;
   }
   .rw-lp-future-map::before,
   .rw-lp-future-map::after {

@@ -24,7 +24,7 @@ body; below 900px the chart becomes a vertical trail with every body visible.
 Honesty devices kept: on-chart "not available yet" legend, `Phase n` / `Later`
 markers beside every unbuilt name, future tense on every unbuilt body (pinned
 by `FutureSection.test.tsx`). Code: `src/components/sections/landing/future/`;
-assets: `public/future/roadmap-ground*.jpg`, `public/future/stops/*.webp`;
+assets: `public/future/roadmap-ground.jpg`, `public/future/stops/*.webp`;
 design contract: `docs/design/landing/DESIGN.md` § Future + `measurements.md`.
 
 ## Quick summary — Marketing pages: one system, five jobs (2026-09-06; pre-merge)

@@ -119,7 +119,7 @@ function Stop({
       data-active={active ? 'true' : 'false'}
       data-side={cardSide(stop)}
       data-anchor={cardAnchor(stop)}
-      data-label={index % 2 === 0 ? 'below' : 'above'}
+      data-label={stop.label}
       style={style}
       initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
       animate={armed ? { opacity: 1, y: 0 } : undefined}
@@ -148,7 +148,11 @@ function Stop({
               src={stop.landmark}
               alt=""
               fill
-              sizes="(max-width: 900px) 4rem, 7rem"
+              sizes="(max-width: 900px) 4rem, 9rem"
+              /* Served as authored: the cutouts are small WebPs with alpha
+                 (7–52K) and a second lossy pass through the optimizer
+                 softened their edges at 2×. */
+              unoptimized
               className="rw-lp-future-landmark-img"
             />
           ) : null}
@@ -277,7 +281,8 @@ export function FutureSection() {
             src="/future/roadmap-ground.jpg"
             alt=""
             fill
-            sizes="(max-width: 900px) 100vw, 75rem"
+            sizes="100vw"
+            quality={88}
             className="rw-lp-future-ground-img"
           />
         </m.div>

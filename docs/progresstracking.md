@@ -858,3 +858,12 @@ landmarks.
 - Verified in the browser at 1440 and 390 with Playwright: every stop accepts a
   hover at its centre, focus opens the card, no card open at rest.
 
+Owner review on staging, same day (three rounds): (1) the chart was cramped
+inside the 75rem column → it is full-bleed on a 20:9 stage; (2) the flat road
+still read cramped → a serpentine (crest, trough, rise) with hand-chosen
+label sides; (3) the ground looked low-resolution → `sizes="100vw"` (it had
+said 75rem, so a 1920px chart fetched a ~1200px variant), the ground upscaled
+2× and shipped at 3840px, `images.qualities` gains 88, landmarks served
+`unoptimized`; and the ink gap before the closing band → the section drops
+its bottom padding and the chart's fade is the hand-off.
+

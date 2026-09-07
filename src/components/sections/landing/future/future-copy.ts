@@ -42,9 +42,14 @@
  * ── Coordinates ───────────────────────────────────────────────────────────
  * `x`/`y` are positions on a 2000×900 stage (the chart's 20:9 frame, which
  * bleeds to the viewport edges — 2026-09-06 owner direction: "use the space
- * on the left and right"). The lit stops sit in the left two-fifths, under
- * the chart's lamp light; the fog starts at `HORIZON_X`. Below 900px the
- * stage is abandoned for a trail and the coordinates are ignored.
+ * on the left and right"). The road is a long serpentine — bottom-left, up
+ * over a crest, down through a trough, up again to the horizon — so
+ * consecutive stops sit ~230 units apart along it instead of ~130 on a
+ * flat line (owner: the flat road read "convoluted" and "cramped"). Keep
+ * every point in y 300–740: the top and bottom 100 units are fades. The lit
+ * stops sit in the left two-fifths, under the chart's lamp light; the fog
+ * starts at `HORIZON_X`. Below 900px the stage is abandoned for a trail and
+ * the coordinates are ignored.
  */
 
 export type StopState = 'shipped' | 'planned' | 'horizon';
@@ -59,6 +64,9 @@ export interface RoadmapStop {
   marker: string;
   x: number;
   y: number;
+  /** Which side of the road point the label sits. Chosen per stop so labels
+   *  stay on the OUTSIDE of each bend and clear of the top/bottom fades. */
+  label: 'above' | 'below';
   /** Path under /public for the landmark cutout; undefined renders the marker glyph. */
   landmark?: string;
 }
@@ -81,7 +89,8 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'shipped',
     marker: SHIPPED_MARKER,
     x: 170,
-    y: 690,
+    y: 720,
+    label: 'below',
     landmark: '/future/stops/spine.webp',
   },
   {
@@ -90,8 +99,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Reply drafts a response to every review. It is the only agent that can publish, and only inside your bounds.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 345,
-    y: 610,
+    x: 330,
+    y: 560,
+    label: 'below',
     landmark: '/future/stops/reply.webp',
   },
   {
@@ -100,8 +110,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Solicitor asks your past customers for reviews by email, in batches you approve first. Every opt-out is honoured for good.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 520,
-    y: 565,
+    x: 490,
+    y: 375,
+    label: 'below',
     landmark: '/future/stops/solicitor.webp',
   },
   {
@@ -111,7 +122,8 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'shipped',
     marker: SHIPPED_MARKER,
     x: 690,
-    y: 580,
+    y: 300,
+    label: 'above',
     landmark: '/future/stops/qr.webp',
   },
   {
@@ -120,8 +132,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'The refusal ledger: everything the agents decided not to do, when, and why.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 860,
-    y: 540,
+    x: 890,
+    y: 400,
+    label: 'below',
     landmark: '/future/stops/restraint.webp',
   },
   {
@@ -130,8 +143,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will connect your booking or job system once, so a finished appointment becomes a review request on its own. No CSV step.',
     state: 'planned',
     marker: 'Phase 1',
-    x: 1005,
-    y: 515,
+    x: 1030,
+    y: 620,
+    label: 'below',
     landmark: '/future/stops/connectors.webp',
   },
   {
@@ -140,8 +154,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will turn a negative review into a tracked case: a private follow-up drafted for your approval, the resolution recorded, the outcome measured.',
     state: 'planned',
     marker: 'Phase 2',
-    x: 1135,
-    y: 435,
+    x: 1140,
+    y: 730,
+    label: 'below',
     landmark: '/future/stops/recovery.webp',
   },
   {
@@ -150,8 +165,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will sort every review into the operational topics of your trade, so the digest can say which one is slipping, and at which location.',
     state: 'planned',
     marker: 'Phase 3',
-    x: 1265,
-    y: 530,
+    x: 1320,
+    y: 680,
+    label: 'above',
     landmark: '/future/stops/topics.webp',
   },
   {
@@ -160,8 +176,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will hold your facts and your rules, so every draft is factually safe and carries a note on why it was written that way.',
     state: 'planned',
     marker: 'Phase 4',
-    x: 1395,
-    y: 425,
+    x: 1450,
+    y: 500,
+    label: 'above',
     landmark: '/future/stops/truth.webp',
   },
   {
@@ -170,8 +187,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will let you grant full autonomy or ask-me per action: positive replies, negative replies, review requests, recovery outreach.',
     state: 'planned',
     marker: 'Phase 5',
-    x: 1520,
-    y: 525,
+    x: 1550,
+    y: 320,
+    label: 'above',
     landmark: '/future/stops/autonomy.webp',
   },
   {
@@ -180,8 +198,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will extend past Google to more review sites, maps and directories, each with its own rules encoded.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1665,
-    y: 500,
+    x: 1700,
+    y: 250,
+    label: 'below',
   },
   {
     id: 'impact',
@@ -189,8 +208,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will show conservative, defensible numbers: reviews received, response coverage, requests converted, customers recovered.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1845,
-    y: 300,
+    x: 1870,
+    y: 420,
+    label: 'above',
   },
   {
     id: 'api',
@@ -198,8 +218,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will open a public API and MCP surface, and an agency tier for running many businesses under one roof.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1905,
-    y: 630,
+    x: 1900,
+    y: 760,
+    label: 'above',
   },
   {
     id: 'social',
@@ -207,8 +228,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will draft and schedule posts, answer comments and DMs, and hold one brand voice across every channel it touches.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1705,
-    y: 700,
+    x: 1690,
+    y: 800,
+    label: 'above',
   },
   {
     id: 'disputes',
@@ -216,8 +238,9 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Will flag fraudulent or policy-violating reviews and drive the removal process with the platforms.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1785,
-    y: 400,
+    x: 1770,
+    y: 600,
+    label: 'below',
   },
 ];
 

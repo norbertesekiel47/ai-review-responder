@@ -6,6 +6,12 @@ import { buildContentSecurityPolicy } from './src/lib/security/csp.mjs';
 const nextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ['postgres'],
+  // Next 16 serves only the qualities listed here (default: 75 alone) and
+  // silently clamps any other `quality` prop to the nearest listed value. 88
+  // exists for the landing route map's full-bleed chart ground
+  // (`future/FutureSection.tsx`): at 75 the contour linework banded and the
+  // owner read the whole section as low-resolution.
+  images: { qualities: [75, 88] },
   // Agent instructions are hand-owned here (#798). Left at its default, Next
   // 16.3 upserts a managed `<!-- BEGIN:nextjs-agent-rules -->` block into the
   // tracked root `AGENTS.md` on every `next dev` that detects a coding agent,

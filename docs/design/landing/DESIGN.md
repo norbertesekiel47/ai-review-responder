@@ -450,7 +450,8 @@ style reference so they inherit the world: `public/problem/problem-diagram.{mp4,
 (the reputation diagram — a café orbited by review artifacts; 10s seamless ping-pong
 loop, 108KB, locked camera) and — until 2026-09-06 — `public/future/off-crt.jpg` (the
 unpowered set on the old future cards). The route map's assets replaced it: the chart
-ground `public/future/roadmap-ground{,-960}.jpg` and ten landmark cutouts under
+ground `public/future/roadmap-ground.jpg` (3840px, a 2× upscale of the 2752px generation)
+and ten landmark cutouts under
 `public/future/stops/` (Runway nano-banana-pro against the same stills; flat-ground
 cutouts via a PIL flood-fill, WebP with alpha). Asset rules for the diagram live in
 `problem/problem-copy.ts`, for the map in `future/future-copy.ts`.
