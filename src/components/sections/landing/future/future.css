@@ -831,17 +831,22 @@
    ground stays as a faint backdrop so the section keeps its world; the
    roads, fog, clouds and horizon label go. */
 @media (max-width: 900px) {
-  /* The trail has no fade, so the section rhythm returns below it. */
+  /* No section padding below the trail either: the ground fades into ink
+     under the last rows (the bottom fade stays on), and that fade is the
+     hand-off to the closing band — a block of plain ink after a hard edge
+     read as a gap (owner, 2026-09-06). */
   .rw-lp-future {
-    padding-bottom: var(--rw-lp-section-gap, 6rem);
+    padding-bottom: 0;
   }
   .rw-lp-future-map {
     aspect-ratio: auto;
-    padding: 0.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) 0;
+    padding: 0.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) clamp(4rem, 10vh, 6rem);
   }
-  .rw-lp-future-map::before,
-  .rw-lp-future-map::after {
+  .rw-lp-future-map::before {
     display: none;
+  }
+  .rw-lp-future-map::after {
+    height: clamp(5rem, 14vh, 8rem);
   }
   .rw-lp-future-ground-img {
     opacity: 0.45;
@@ -863,14 +868,17 @@
     flex-direction: column;
     padding-left: 0.25rem;
   }
-  /* The trail line the bullets sit on. */
+  /* The trail line the bullets sit on. It runs past the last stop and
+     thins out, so the route reads as continuing rather than stopping. */
   .rw-lp-future-stops::before {
     content: '';
     position: absolute;
     top: 1.25rem;
-    bottom: 1.25rem;
+    bottom: -3rem;
     left: 0.8125rem;
     border-left: 1px dashed rgb(var(--rw-lp-text-rgb) / 0.22);
+    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
   }
   .rw-lp-future-stop-item {
     position: relative;
@@ -933,7 +941,7 @@
     text-align: left;
   }
   .rw-lp-future-stop-name {
-    font-size: 1rem;
+    font-size: 0.9375rem;
     text-shadow: none;
     text-wrap: pretty;
   }
