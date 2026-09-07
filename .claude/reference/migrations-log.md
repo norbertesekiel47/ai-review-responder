@@ -2703,8 +2703,9 @@ Revisit triggers:
   **Applied to STAGING 2026-09-07T01:15Z** (Supabase MCP `execute_sql`, verified
   by introspection: `relrowsecurity` true / FORCE off, `pg_policies` count 0,
   both indexes, FK `confdeltype='a'`, `has_table_privilege` false for anon +
-  authenticated). **PRODUCTION: pending** — applied after the staging smoke,
-  before the PR leaves draft (plan §6.3).
+  authenticated). **Applied to PRODUCTION 2026-09-07T02:01Z**, same method,
+  same introspection result. Staging smoke first: eight admin rows in
+  `admin_audit_log` (PR #1148 body).
 - **115** — `qr_scan_analytics_event`: widens the `analytics_events`
   `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;
   `docs/context/review-qr.md` "QR redirect"). Constraint-only on the 106 pattern — no
