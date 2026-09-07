@@ -2678,7 +2678,23 @@ Revisit triggers:
   suite's requirement is an honest proof rather than the false-proof hazard
   105's, 108's, 110's and 111's entries describe.
 
-- **119** — `job_outbox` deny-all RLS (#1171). **LOCAL-ONLY.** No new relation,
+- **119** — `job_outbox` deny-all RLS (#1171). **Applied to STAGING
+  2026-09-07T11:42Z** (Supabase MCP `execute_sql`, project
+  `kubdiqdhqbhwmqfditeg`). **NOT YET IN PRODUCTION** — `udeyaqnvpojbwgoaxwdg`
+  still holds the pre-119 posture (RLS on since 2026-04-05, client grants
+  intact) and the lockstep is deliberately open until the promotion window.
+  Verified by introspection, never the ledger. Staging before → after:
+  `relrowsecurity` false → **true**; `relforcerowsecurity` false → false;
+  `pg_policies` 0 → 0; `anon` + `authenticated` 16 privileges → **none**;
+  `service_role` 8 → **8 unchanged**; owner `postgres` 8 → **8 unchanged**;
+  column ACLs 0 → 0; table comment present. Smoke, same window: the OWNER role
+  read 46 rows WITH RLS enabled — the direct proof that RLS does not block the
+  worker — `has_table_privilege('anon', …, 'SELECT'/'INSERT'/'TRUNCATE')` all
+  false, and `poller_heartbeats` showed `judge_sweep` cycling 30 s before the
+  probe, so the worker was alive across the change. (The full ACL on staging
+  carried `MAINTAIN`, confirming PostgreSQL 17 there against the container's 16
+  — the reason the suite derives its privilege list rather than spelling it.)
+  No new relation,
   column, index or constraint. One transaction: `BEGIN`, `SET LOCAL
   lock_timeout = '5s'`, a `DO` block issuing `ALTER TABLE job_outbox ENABLE ROW
   LEVEL SECURITY` **only when `relrowsecurity` is false**, `REVOKE ALL … FROM
