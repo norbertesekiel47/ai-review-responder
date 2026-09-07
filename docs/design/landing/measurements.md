@@ -243,7 +243,11 @@ keep a square box so the halo has room.
 ends with its own `--rw-lp-section-gap`; adding this section's meant two stacked gaps
 (~190px) between "See plans and pricing" and the eyebrow, which the owner read as a
 hole — and a single small gap still read as one, which is what led to the title-band
-overlay above. Below 1280px the header stacks and keeps `clamp(1rem, 3vh, 2rem)`.
+overlay above. Below 1280px the header stacks and keeps `clamp(1rem, 3vh, 2rem)`. The
+trail (≤ 900px) has NO section padding below it either since 2026-09-06: the ground
+fades into ink under the last rows (`::after`, 5–8rem) and the trail line runs 3rem past
+the last stop under a mask, so the route reads as continuing; a hard edge followed by
+a block of plain ink read as "ends abruptly" plus "a gap" on the owner's phone.
 
 **Future — a fixed 25:18 stage, not a fluid one.** Stops are placed in percentages of
 the stage, and the road is an SVG in the same coordinate space; the two only agree while
