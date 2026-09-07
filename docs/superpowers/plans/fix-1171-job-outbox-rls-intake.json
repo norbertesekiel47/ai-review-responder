@@ -40,16 +40,17 @@
     "The Supabase migration ledger does not track RepWorth's 0xx migrations. Application is proven by schema introspection only."
   ],
   "existing_patterns_to_follow": [
-    "supabase/migrations/118_poller_heartbeats.sql — the exact deny-all posture: ENABLE ROW LEVEL SECURITY, a comment stating zero policies is deliberate, then REVOKE ALL ... FROM anon, authenticated.",
-    "supabase/migrations/117_admin_audit_log.sql — the REVOKE precedent (RLS protects rows, not table privileges).",
-    "supabase/migrations/107_drop_legacy_ensure_rls_event_trigger.sql — the header that records why this drift exists and states that the job_outbox repair belongs in its own reviewed migration.",
-    "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts — live-DB suite shape: assertSchemaReady, no run-time DDL, catalogue reads against pg_class and pg_policies.",
-    ".claude/reference/migrations-log.md entry 118 — the log entry format, including the 'Why the REVOKE' paragraph."
+    "supabase/migrations/118_poller_heartbeats.sql \u2014 the exact deny-all posture: ENABLE ROW LEVEL SECURITY, a comment stating zero policies is deliberate, then REVOKE ALL ... FROM anon, authenticated.",
+    "supabase/migrations/117_admin_audit_log.sql \u2014 the REVOKE precedent (RLS protects rows, not table privileges).",
+    "supabase/migrations/107_drop_legacy_ensure_rls_event_trigger.sql \u2014 the header that records why this drift exists and states that the job_outbox repair belongs in its own reviewed migration.",
+    "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts \u2014 live-DB suite shape: assertSchemaReady, no run-time DDL, catalogue reads against pg_class and pg_policies.",
+    ".claude/reference/migrations-log.md entry 118 \u2014 the log entry format, including the 'Why the REVOKE' paragraph."
   ],
   "test_seams": [
     "pg_class.relrowsecurity and pg_class.relforcerowsecurity for job_outbox.",
     "pg_policies filtered to schemaname='public' and tablename='job_outbox'.",
-    "information_schema.role_table_grants for job_outbox across grantees."
+    "pg_class.relacl and pg_attribute.attacl for job_outbox, read through aclexplode. NOT information_schema.role_table_grants and NOT has_table_privilege: the local and CI table owner is the container superuser, for whom has_table_privilege is unconditionally true, so a red-team REVOKE ALL against the owner left relacl empty and the assertion still passed. The ACL is the ground truth a superuser's implicit privileges cannot mask, and reading it whole covers every privilege type rather than the two an enumeration named.",
+    "Top-level statements of the checked-in migration file, parsed by masking dollar-quoted bodies and string literals rather than matching lines."
   ],
   "allowed_edit_surface": [
     "supabase/migrations/119_job_outbox_rls.sql",
@@ -61,7 +62,7 @@
     "migration 119 enables row level security on job_outbox and defines zero policies",
     "migration 119 leaves FORCE row level security off so the owner-role worker keeps dispatching",
     "migration 119 revokes every anon and authenticated privilege on job_outbox",
-    "migration 119 leaves the job_outbox owner's privileges intact and denies the client roles"
+    "migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs"
   ],
   "verification_commands": [
     "pnpm ci:rls-audit",
@@ -70,10 +71,10 @@
   "estimated_prod_lines": 150,
   "estimated_test_lines": 260,
   "dependencies_added": [],
-  "rollback_plan": "The migration is not auto-reversible; an applied migration is immutable. To undo, write migration 120 with ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY and GRANT SELECT, INSERT, UPDATE, DELETE ON job_outbox TO anon, authenticated, and apply it staging first. Rollback is only warranted if worker dispatch stops, which would mean the owner-role assumption is wrong. The staging ride is the detector: if staging dispatch keeps working after apply, production is safe, because production has already run with RLS enabled since 2026-04-05.",
+  "rollback_plan": "Per-environment, because the two projects do NOT share a pre-119 baseline and a single symmetric rollback would drop production BELOW its own. Production's baseline is RLS ON with anon/authenticated holding the full Supabase default ACL (arwdDxtm); staging's is RLS OFF with that same ACL. An applied migration is immutable, so the undo is migration 120. To restore PRODUCTION: GRANT ALL ON job_outbox TO anon, authenticated (all eight privileges, not the four an earlier draft named) and leave RLS ENABLED -- never DISABLE it there, which would manufacture the staging vulnerability on production mid-incident. To restore STAGING: the same GRANT plus ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY. Apply staging first, as always. Rollback is warranted only if worker dispatch stops, which would mean the owner-role assumption is wrong; the staging ride is the detector. Note the empirical safety argument covers the ALTER only -- production has run RLS-on since 2026-04-05 but has never run it without the client grants, so the REVOKE is the statement carrying the residual risk.",
   "observability": [
     "OutboxPoller dispatch continues on the staging Railway worker after apply. Confirmed from the worker logs and from a non-zero dispatched count in job_outbox.",
-    "Post-apply introspection of pg_class, pg_policies, and information_schema.role_table_grants on both Supabase projects, recorded in the PR body.",
+    "Post-apply introspection of pg_class (relrowsecurity, relforcerowsecurity, relacl), pg_policies and pg_attribute.attacl on BOTH Supabase projects, recorded in the PR body. This is also the ONLY detector of a half-applied lockstep -- nothing automated notices one project left behind.",
     "A PostgREST probe with the staging anon key against /rest/v1/job_outbox returns a permission error instead of rows.",
     "worker/background/pollers/health-alert/checks.ts backlog alerting stays quiet, which would fire if dispatch stalled."
   ],

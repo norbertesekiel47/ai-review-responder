@@ -2679,13 +2679,27 @@ Revisit triggers:
   105's, 108's, 110's and 111's entries describe.
 
 - **119** — `job_outbox` deny-all RLS (#1171). **LOCAL-ONLY.** No new relation,
-  column, index or constraint: `ALTER TABLE job_outbox ENABLE ROW LEVEL
-  SECURITY` PLUS `REVOKE ALL … FROM anon, authenticated`, under
-  `SET lock_timeout = '5s'`, plus a `COMMENT ON TABLE`. Session-scoped, NOT
-  `SET LOCAL`: `scripts/test-db-setup.sh` applies each file through psql
-  outside a transaction block, where `SET LOCAL` warns and does nothing, and a
-  bound that vanishes in one application path is worse than none on the
-  busiest table in the schema (092/101 precedent, not 088/109/114's).
+  column, index or constraint. One transaction: `BEGIN`, `SET LOCAL
+  lock_timeout = '5s'`, a `DO` block issuing `ALTER TABLE job_outbox ENABLE ROW
+  LEVEL SECURITY` **only when `relrowsecurity` is false**, `REVOKE ALL … FROM
+  anon, authenticated`, a `COMMENT ON TABLE`, `COMMIT`.
+  **Why the ALTER is guarded.** It is NOT a lock-free no-op when the flag is
+  already set: `ATExecSetRowSecurity` has no early-out and
+  `AT_EnableRowSecurity` takes ACCESS EXCLUSIVE, so an unconditional statement
+  would block every write to the busiest table in the schema for up to the
+  lock_timeout on PRODUCTION, to update `pg_class` to the value it already
+  holds. `REVOKE` takes no relation lock, so the ALTER is the only lock this
+  migration acquires. Two review axes caught an earlier draft claiming "no-op"
+  while issuing it unconditionally.
+  **Why `BEGIN` + `SET LOCAL` and not a session `SET`.** Wrapping earns three
+  things: `SET LOCAL` is effective and leaks no session GUC, the lock window is
+  minimal, and the ALTER and REVOKE become ATOMIC — closing the tear where a
+  failure between them leaves row filtering on with the client grants live.
+  109 and 114 are the precedent (both wrap; 10 of the 11 `SET LOCAL` migrations
+  do). 088 is the sole unwrapped file and the only source of the `SET LOCAL can
+  only be used in transaction blocks` warning; an earlier draft read that one
+  warning as the rule and switched to a session `SET` on 092/101's precedent,
+  which was the weaker of the two answers.
   **The drift it closes.** `job_outbox` was the ONLY table of the 54 in schema
   `public` whose RLS state differed between the projects — prod
   `relrowsecurity` true, staging FALSE, zero policies on both — while `anon`
@@ -2699,37 +2713,69 @@ Revisit triggers:
   provisioned after Supabase dropped it, so prod acquired the posture for free
   and staging never did. Migration 107 removed the GENERATOR and deliberately
   left its past output alone, recording that the `job_outbox` repair was owed
-  its own reviewed migration. Convergence is UPWARD, toward the posture prod
-  has run without incident since 2026-04-05 — that five months is the strongest
-  safety evidence the change has.
+  its own reviewed migration. Convergence is UPWARD.
+  **What the five-month argument does and does NOT cover.** Production has run
+  RLS-on since 2026-04-05, but it has run it WITH the client grants — `anon`
+  and `authenticated` hold `arwdDxtm` there today. So the empirical evidence
+  covers the ALTER only; the post-119 posture has run in NO environment, and
+  the REVOKE is the statement carrying the residual risk. Four review axes
+  independently caught an earlier draft claiming prod had run "this exact
+  posture".
   **Why it cannot break the worker.** Nothing reaches `job_outbox` through
   supabase-js (`rg` for `from('job_outbox')` in `src` + `worker`: zero
   matches, 2026-09-07); every enqueue, claim, dispatch and sweep goes through
   Postgres.js as the table OWNER, and PostgreSQL exempts the owner from RLS
   unless FORCE is set. FORCE stays off, asserted in both catalogue and file
   text — setting it would deny the outbox to its only writer and stop every
-  async job in the platform.
+  async job in the platform. Independently confirmed against the live
+  catalogues: every application connection authenticates as `postgres`, which
+  BOTH owns the table AND holds BYPASSRLS, with no `.rpc(`, view, function,
+  trigger, publication or Edge Function over the table and zero column ACLs.
   **Why the REVOKE, and why exactly two roles.** RLS filters rows, not table
   privileges (117/118 precedent). The revoke names `anon` and `authenticated`
-  ONLY. The suite pins that there is exactly ONE `REVOKE` line and that it
-  mentions neither the owner, nor `service_role`, nor `PUBLIC`: the dangerous
-  mutation here is a WIDER revoke, not a missing one.
+  ONLY. The dangerous mutation here is a WIDER revoke, not a missing one, so
+  the suite parses top-level STATEMENTS and pins the revoke by EXACT match —
+  a line-anchored regex with a forbidden-name list was defeated by appending
+  `SELECT 1; REVOKE … FROM service_role;` to the same line, and by the
+  spellings `SERVICE_ROLE` and `Postgres`.
   **Registries: none change.** `job_outbox` stays in
   `REVIEWED_NOT_TENANT_SCOPED` and OUT of `TENANT_TABLES` (owner decision,
   2026-09-07). Membership also switches on `ci:tenant-scope`, which demands an
   `account_id`/`business_id` predicate on every binding; the table carries
-  neither column and 78 production files bind it, so membership would cost
-  dozens of allowlist entries and audit nothing real. `ci:rls-audit` therefore
-  does NOT cover this table, and the regression guard is
+  neither column and **55 production files BIND it in SQL** (78 reference the
+  identifier at all — the larger number was an `rg -c` file count and is not
+  the measure that matters), so membership would cost dozens of allowlist
+  entries and audit nothing real. `ci:rls-audit` therefore does NOT cover this
+  table, and the regression guard is
   `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts` —
   the role 117's suite plays for `admin_audit_log`.
-  **Known limit of the local guard.** `scripts/ci/test-db-bootstrap.sql` grants
-  `anon`/`authenticated` schema USAGE and nothing on any table, so a catalogue
-  privilege assertion is VACUOUS locally. The REVOKE's guard is the migration
-  file text (a DB-free case that can never silently skip); its proof in the two
-  real environments is post-apply introspection. `assertSchemaReady` likewise
-  cannot gate this suite — 119 creates no object for `SchemaRequirement` to
-  name — so the RLS case carries the "run pnpm test:db:setup" message itself.
+  **Why the privilege assertion reads `relacl`, not `has_table_privilege`.**
+  A red-team mutation ran `REVOKE ALL ON job_outbox FROM <owner>`, left
+  `relacl = {}`, and the first draft of that case still PASSED: the local and
+  CI owner is the container superuser (`POSTGRES_USER: test`), for whom
+  `has_table_privilege` is unconditionally true. The suite now reads
+  `pg_class.relacl` and `pg_attribute.attacl` through `aclexplode` and asserts
+  the client roles appear NOWHERE — the ACL is the ground truth a superuser's
+  implicit privileges cannot mask, and reading it whole covers every privilege
+  type instead of the two an enumeration named. That matters concretely:
+  `TRUNCATE` is exempt from row policies, so `GRANT TRUNCATE … TO
+  authenticated` would let a client role empty the dispatch spine with RLS on
+  and zero policies still true. Measured on the test container — under that
+  grant the old form returned `f, f` and passed; the new form returns
+  `authenticated | TRUNCATE | table` and fails.
+  **Known limits, stated.** Two cases cannot fail against REVERSION. The
+  catalogue privilege case is vacuous for the CURRENT state locally
+  (`scripts/ci/test-db-bootstrap.sql` grants the client roles schema USAGE and
+  nothing on any table) though NOT for the future-GRANT regression above, which
+  `pnpm test:db:setup` applies on every container. And the FORCE-off case is
+  green on a container 119 never touched, since `relforcerowsecurity` defaults
+  false; it guards a future statement, not this migration having run. The
+  REVOKE's environment-independent guard is the file-text case; its proof on
+  the two real projects is post-apply introspection, which is also the only
+  detector of a half-applied lockstep. No `assertSchemaReady` requirement: 119
+  creates no object for `SchemaRequirement` to name, which is migration 097's
+  situation exactly, and `schema-ready.ts` records that 097 gets no requirement
+  and inspects the migration SQL text instead.
 - **118** — `poller_heartbeats` (#949). **New table**, two columns, deny-all
   RLS (zero policies) PLUS `REVOKE ALL … FROM anon, authenticated`, no index
   beyond the primary key. Durable background-loop liveness: one row per poller,

@@ -35,9 +35,19 @@
 -- PostgreSQL exempts a table's owner from RLS unless FORCE is set. FORCE is
 -- deliberately NOT set here, and the accompanying suite asserts
 -- `relforcerowsecurity = false` — setting it would deny the outbox to its only
--- writer and stop every async job in the platform. `service_role` additionally
--- carries BYPASSRLS. The strongest evidence is empirical: production has run
--- this exact posture for five months.
+-- writer and stop every async job in the platform. Confirmed by review against
+-- the live catalogues: every application connection authenticates as
+-- `postgres`, which BOTH owns this table AND holds BYPASSRLS, and there is no
+-- supabase-js access, no `.rpc(`, no view, function, trigger, publication or
+-- Edge Function over `job_outbox`, and zero column ACLs.
+--
+-- The empirical half of that argument covers the ALTER ONLY. Production has
+-- run RLS-on since 2026-04-05, but it has run it WITH the client grants still
+-- in place — `anon` and `authenticated` hold `arwdDxtm` there today. The
+-- post-119 posture has therefore run in NO environment, and the REVOKE is the
+-- statement carrying whatever residual risk this migration has. Four review
+-- axes independently caught an earlier draft of this paragraph claiming
+-- production had run "this exact posture"; it had not.
 --
 -- WHY THE REVOKE
 -- RLS filters ROWS; it does not remove a table privilege (117/118 precedent).
@@ -54,39 +64,64 @@
 -- REGISTRIES: none change. `job_outbox` stays in `REVIEWED_NOT_TENANT_SCOPED`
 -- and OUT of `TENANT_TABLES` (owner decision, 2026-09-07): membership also
 -- switches on `ci:tenant-scope`, which demands an account_id/business_id
--- predicate on every binding, and the table carries neither column while 78
--- production files bind it. `ci:rls-audit` audits only `TENANT_TABLES`, so the
--- regression guard for this boundary is
+-- predicate on every binding, and the table carries neither column while 55
+-- production files BIND it in SQL (78 reference the identifier at all).
+-- `ci:rls-audit` audits only `TENANT_TABLES`, so the regression guard for this
+-- boundary is
 -- `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts`,
 -- exactly as 117's suite guards `admin_audit_log`.
 --
--- LOCKING
--- `job_outbox` is the busiest table in the schema and the ALTER takes an
--- ACCESS EXCLUSIVE lock. `lock_timeout` bounds the acquisition so the
--- statement fails fast rather than queueing behind a long-lived Supavisor
--- session and blocking every outbox write for the duration.
+-- LOCKING — why the ALTER is GUARDED rather than issued unconditionally
+-- `ALTER TABLE … ENABLE ROW LEVEL SECURITY` is NOT a lock-free no-op when the
+-- flag is already set: `ATExecSetRowSecurity` has no early-out and
+-- `AT_EnableRowSecurity` takes ACCESS EXCLUSIVE, so an unconditional statement
+-- would block every write to the busiest table in the schema for up to the
+-- lock_timeout on PRODUCTION, in exchange for updating `pg_class` to the value
+-- it already holds. `REVOKE` takes no relation lock at all. The ALTER is
+-- therefore the only lock this migration acquires, and guarding it on
+-- `relrowsecurity` makes the file a true no-op on production rather than an
+-- aspirational one. An earlier draft claimed "no-op" while issuing the ALTER
+-- unconditionally; two review axes caught it.
+--
+-- TRANSACTION — why `BEGIN` + `SET LOCAL` and not a session-level `SET`
+-- Wrapping earns three things at once: `SET LOCAL` is effective and does not
+-- leak a session GUC, the lock is held for the shortest possible window, and
+-- the ALTER and the REVOKE become ATOMIC — closing the tear where a failure
+-- between them leaves row filtering on with the client grants still live.
+-- 109 and 114 are the precedent (both wrap; 10 of the 11 `SET LOCAL`
+-- migrations do). 088 is the sole unwrapped file and the only source of the
+-- `SET LOCAL can only be used in transaction blocks` warning — an earlier
+-- draft read that one warning as the rule and switched to a session-level
+-- `SET` on 092/101's precedent, which was the weaker of the two answers.
 --
 -- IDEMPOTENT / LOCKSTEP
--- The ALTER is a no-op on production (already enabled) and does not error; it
--- is the substantive statement on staging and on the local test database. The
--- revoke is a real change on both projects. Apply staging FIRST, then
--- production, in the same change window. Verify by introspection
--- (`pg_class.relrowsecurity` / `pg_class.relforcerowsecurity` /
--- `pg_policies` count = 0 / `has_table_privilege`), NEVER the Supabase
--- migration ledger, which does not track this repo's 0xx migrations.
+-- Re-runnable everywhere. On production the guarded ALTER does nothing and the
+-- REVOKE is the substantive statement; on staging and the local test database
+-- both apply. Apply staging FIRST, then production, in the same change window.
+-- Verify by introspection (`pg_class.relrowsecurity` /
+-- `pg_class.relforcerowsecurity` / `pg_policies` count = 0 / `pg_class.relacl`
+-- via `aclexplode`), NEVER the Supabase migration ledger, which does not track
+-- this repo's 0xx migrations. Introspection is also the ONLY detector of a
+-- half-applied lockstep: nothing automated notices one project left behind.
 
--- Session-scoped, NOT `SET LOCAL`: `scripts/test-db-setup.sh` applies each
--- migration file through psql outside a transaction block, where `SET LOCAL`
--- warns and does nothing. A bound that silently disappears in one application
--- path is worse than no bound, and this statement takes ACCESS EXCLUSIVE on
--- the busiest table in the schema (092/101 precedent).
-SET lock_timeout = '5s';
+BEGIN;
 
-ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;
+SET LOCAL lock_timeout = '5s';
+
+DO $$
+BEGIN
+  IF NOT (
+    SELECT relrowsecurity FROM pg_class WHERE oid = 'public.job_outbox'::regclass
+  ) THEN
+    ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $$;
 
 -- Deliberately NO policies: deny-all. Server reaches the table through the
 -- RLS-bypassing owner role only.
 REVOKE ALL ON job_outbox FROM anon, authenticated;
 
 COMMENT ON TABLE job_outbox IS
-  'Transactional outbox (invariant #2): the platform dispatch spine. A state change and its follow-up job are written in ONE Postgres transaction; OutboxPoller dispatches pending rows to BullMQ. Platform-scoped — scoping rides the enqueuing transaction, so the table carries no tenant column and is REVIEWED_NOT_TENANT_SCOPED rather than a TENANT_TABLES member. Deny-all RLS since migration 119 (#1171), zero policies, client-role privileges revoked; FORCE is deliberately off because every writer connects as the table owner.';
+  'Transactional outbox (invariant #2): the platform dispatch spine. Deny-all RLS since migration 119 (#1171) — zero policies, client-role privileges revoked, FORCE deliberately off because every writer connects as the table owner.';
+
+COMMIT;

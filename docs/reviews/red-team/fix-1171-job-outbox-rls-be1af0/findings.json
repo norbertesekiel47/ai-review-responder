@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1171-job-outbox-rls-be1af0",
+  "branch": "fix-1171-job-outbox-rls",
+  "fork_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "merge_base_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "head_sha": "3a7d0ca9930ae60c5ebbafb25cd962675d751e78",
+  "intake_sha256": "f0c748c386b0714fcf8360f40e19a43624ba69542d66460872293d1c89bfac7e",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-07T08:45:00Z",
+  "inventory": [
+    {
+      "id": "INV-1",
+      "test": "job_outbox stays REVIEWED_NOT_TENANT_SCOPED and NOT a TENANT_TABLES member",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "F8: deleting the job_outbox entry from REVIEWED_NOT_TENANT_SCOPED in scripts/ci/tenant-tables.ts made the case fail."
+    },
+    {
+      "id": "INV-2",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "F1 (delete the REVOKE line) and F2 (widen it to include service_role) both failed the case. F6a (append a GRANT) and F7a (a wider revoke trailing a statement on one line) survived it; those are reported as RT-5 and RT-2 under duty 2."
+    },
+    {
+      "id": "INV-3",
+      "test": "migration 119 grants no policy and does not force row level security",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "F3 (append CREATE POLICY), F4 (append FORCE ROW LEVEL SECURITY) and F5 (delete the ENABLE line) all failed the case. F6b survived; reported as RT-5."
+    },
+    {
+      "id": "INV-4",
+      "test": "migration 119 enables row level security on job_outbox and defines zero policies",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "C1 (ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY) and C2 (CREATE POLICY rt_probe ... USING (true)) both failed the case against a clone of the at-head test database."
+    },
+    {
+      "id": "INV-5",
+      "test": "migration 119 leaves FORCE row level security off so the owner-role worker keeps dispatching",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "C3 (ALTER TABLE job_outbox FORCE ROW LEVEL SECURITY) failed the case."
+    },
+    {
+      "id": "INV-6",
+      "test": "migration 119 leaves the job_outbox owner's privileges intact and denies the client roles",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "C5 (REVOKE ALL ON job_outbox FROM the table owner) left pg_class.relacl at {} and the case still PASSED, because the container owner is the bootstrap superuser and has_table_privilege always returns true for a superuser. C4 (GRANT SELECT TO anon) did kill the client-role half, and F7b (a wider revoke naming service_role) also survived.",
+      "finding_id": "RT-1"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P0",
+      "title": "The owner-privilege arms cannot fail in any environment the suite runs in: the table owner is a superuser, so has_table_privilege is a constant - and the test comment, deviations D5 and the migrations-log all claim the opposite",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:238",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "The mutant is not equivalent: pg_class.relacl went from a populated ACL to {}, and a non-superuser owner would have lost every privilege on the outbox - the exact platform-stopping outcome the comment names as the mutation it guards. It is not on an unexecuted branch: the assertion issues the query and compares all eight fields on every run, and the same assertion correctly FAILED under C4 (GRANT SELECT TO anon). The survival is therefore caused by the oracle, not by an inert mutant. Root cause measured, not inferred: pg_roles.rolsuper is t for the owner role 'test' and has_table_privilege returns TRUE unconditionally for a superuser. Generality checked: the CI test job uses postgres:16 with POSTGRES_USER: test (.github/workflows/ci.yml:251), the same bootstrap superuser, and the suite runs in no other environment - on the two Supabase projects the owner is postgres with rolsuper=false, where the arms would be load-bearing, but the suite never runs there. Graded P0 on both P0 limbs: a proven-fake assertion (after D2 dropped the service_role arms, this owner half was the suite's only detector of a widened REVOKE, and ci:rls-audit does not cover job_outbox because REQUIRED_RLS_TABLES === TENANT_TABLES), and a false doc claim (the comment says 'NOT vacuous on any container'; D5 and the migrations-log 'Known limit of the local guard' both enumerate the vacuity limits and omit this one)."
+    },
+    {
+      "id": "RT-2",
+      "severity": "P1",
+      "title": "The one-REVOKE guard anchors on line starts, so a wider revoke can evade it - and it evades the catalogue case too, because D2 removed the service_role arms",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:117",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "F7 appended `SELECT 1; REVOKE ALL ON job_outbox FROM service_role;`: /^\\s*REVOKE\\b.*$/gim still matched exactly one line, revokes[0] still named none of postgres/service_role/PUBLIC, and both T2 and T6 passed. The regex pins incidental line structure rather than statement structure. Held at P1 rather than P0 because the specific mutant's live impact is bounded - production application traffic reaches Postgres as the owner postgres (pg_stat_activity), not as service_role - and the evading formatting is not one an author would write. Behavioural replacement: split on ';' and inspect statements, or assert service_role's resulting ACL in the two real environments as part of the post-apply introspection the intake already promises."
+    },
+    {
+      "id": "RT-3",
+      "severity": "P1",
+      "title": "\"production has run this exact posture for five months\" is false: production has run the RLS half only and has never run the REVOKE half",
+      "at": "supabase/migrations/119_job_outbox_rls.sql:39",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "anon and authenticated still hold SELECT and INSERT on production job_outbox today (introspected 2026-09-07), which the migration itself states 40 lines later and edge_cases[1] states again. The sentence is the paragraph's designated strongest safety evidence and it does not cover the one statement that could plausibly break the worker. P1 rather than P0 because the conclusion it supports is independently sound - production application traffic connects as the table owner postgres - and the arch-review-log and migrations-log formulations are correctly scoped to RLS state."
+    },
+    {
+      "id": "RT-4",
+      "severity": "P1",
+      "title": "The rollback plan disables RLS on production, leaving it looser than its pre-119 state; and no automated check would detect a half-applied lockstep",
+      "at": "docs/superpowers/plans/fix-1171-job-outbox-rls-intake.json:73",
+      "duty": 5,
+      "disposition": "open",
+      "reason": "Production has had relrowsecurity=true since 2026-04-05, so `ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY` plus re-granting anon INSERT would manufacture on production the exact staging vulnerability this branch closes, during an incident. The stated trigger (worker dispatch stops => the owner-role assumption is wrong) implies the correct rollback is a re-GRANT only, in the environment that broke. Secondary: the four named privileges do not restore the Supabase default grant set (REFERENCES, TRIGGER, TRUNCATE), and 'apply it staging first' is the wrong order for a production incident. Separately, if 119 lands on staging and the production apply is skipped or fails, nothing notices - ci:rls-audit covers only TENANT_TABLES and the new suite reads only the local container, so observability[1]'s manual introspection is the sole detector; that is the same class of gap that let the current drift survive from 2026-05-30 to 2026-09-07."
+    },
+    {
+      "id": "RT-5",
+      "severity": "P2",
+      "title": "The DB-free file-text guard pins the REVOKE but forbids no subsequent GRANT, so the realistic re-grant regression is caught only by the catalogue case",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:110",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "F6 kept the REVOKE verbatim and appended `GRANT SELECT, INSERT ON job_outbox TO authenticated;`; both file-text cases passed. Not a P0 because C4 proved the catalogue case does catch a client-role grant, so the suite as a whole kills this class wherever a database is reachable. Recorded so the split of responsibility between the two halves is not overstated in the migration header and the migrations-log."
+    },
+    {
+      "id": "RT-6",
+      "severity": "P2",
+      "title": "Nineteen sibling tables carry the same deny-all-but-never-revoked shape on both projects; an explicit non-goal, recorded for the follow-up",
+      "at": "supabase/migrations/119_job_outbox_rls.sql:60",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Introspection of both projects over all 54 public tables found exactly one RLS-state drift (job_outbox, which this branch closes - a sound zero-sibling result for that shape) and nineteen tables with RLS on, zero policies, and anon/authenticated table privileges intact: agent_outcomes, agent_run_steps, agent_runs, analytics_events, auto_approval_policies, flagged_responses, google_connections, impersonation_sessions, inbound_events, judge_verdicts, owner_leads, poller_cursors, prospect_demos, refusal_events, review_escalations, solicitation_consent, solicitation_send_breaker, solicitation_suppression_corrections, solicitation_suppressions, solicitation_unsubscribe_tokens. non_goals[3] scopes these out explicitly, so this is not charged against the branch; the residual exposure is bounded (RLS on with zero policies yields an empty result set and a refused INSERT), and the 'last drift' framing is accurate for RLS state and must not be read as 'the last deny-all gap'."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 6,
+    "killed": 5,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 0,
+    "findings_total": 6,
+    "p0_open": 1,
+    "p1_open": 3,
+    "p2_open": 2,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

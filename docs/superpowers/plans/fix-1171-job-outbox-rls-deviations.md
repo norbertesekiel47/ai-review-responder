@@ -192,3 +192,212 @@ made silently — an estimate quietly rewritten to match its own actual is the
 one move that would make this trigger worthless.
 
 **Verdict: ACCEPT.**
+
+---
+
+## D8 — the privilege assertion could not fail: the container owner is a superuser (RED TEAM P0)
+
+**What happened.** Red team ran `REVOKE ALL ON job_outbox FROM <owner>` against
+a throwaway clone. `relacl` became `{}`. The test still **PASSED**. The local
+and CI table owner is the bootstrap superuser (`POSTGRES_USER: test`,
+`.github/workflows/ci.yml:251`), and `has_table_privilege` is unconditionally
+true for a superuser.
+
+**Why it is a P0 and not a nit.** D2 had already dropped the `service_role`
+arms. That left the owner arms as the suite's ONLY detector of a widened
+REVOKE, and `ci:rls-audit` does not cover this table. So the branch's stated
+guard for its own most dangerous mutation did not exist. Worse, the comment
+beside it asserted the opposite in as many words: "NOT vacuous on any
+container". D5 and the migrations-log "Known limit" paragraph both omitted it.
+
+**What changed.** The case was rewritten around `pg_class.relacl` and
+`pg_attribute.attacl` read through `aclexplode`, asserting that `anon` and
+`authenticated` appear NOWHERE — table or column, every privilege type. The
+ACL is the ground truth a superuser's implicit privileges cannot mask. The
+owner and `service_role` arms are gone entirely; their guarantee now lives in
+D9's exact-match statement assertion, which holds in every environment. The
+case was retitled to match what it actually proves.
+
+**Proof, not assertion.** Measured on the test container:
+`GRANT TRUNCATE ON job_outbox TO authenticated` → old form returns `f, f` and
+passes; new form returns `authenticated | TRUNCATE | table` and fails. The
+grant was restored.
+
+**Verdict: ACCEPT.** Found independently by three axes — red team by mutation,
+Codex via TRUNCATE, spec-and-correctness via the 117 precedent's four verbs.
+
+---
+
+## D9 — the file-text guard counted line starts, not statements (RED TEAM P1)
+
+**What happened.** The regex was `/^\s*REVOKE\b.*$/gim`, then a negative list
+forbidding `postgres|service_role|PUBLIC`. Red team appended
+`SELECT 1; REVOKE ALL ON job_outbox FROM service_role;` to an existing line and
+survived BOTH guards. The standards axis separately noted the negative list was
+case-sensitive, missing `SERVICE_ROLE`, `Postgres` and lowercase `public` — 3
+of 5 realistic mutations.
+
+**What changed.** Two corrections, both structural rather than patched.
+1. The file is now parsed into top-level STATEMENTS (dollar-quoted bodies and
+   string literals masked, line comments stripped, split on `;`), so a second
+   statement sharing a line cannot hide.
+2. The revoke is pinned by EXACT match —
+   `/^REVOKE ALL ON job_outbox FROM anon, authenticated$/i` — not by a list of
+   forbidden names. A negative list must anticipate every spelling; an exact
+   match admits one statement and cannot be widened at all. A `GRANT`-free
+   assertion was added alongside, closing the re-grant path Codex named.
+
+**A bug in the fix, found by running it.** The first parser masked string
+literals BEFORE stripping comments, so prose apostrophes in the 80-line header
+("the table's owner", "Supabase's") read as string delimiters and swallowed
+every statement between two of them. It found ZERO revokes in a file that
+plainly contains one. Order corrected, and the constraint is now a comment on
+the helper, because it reads as arbitrary otherwise.
+
+**Proof.** All six mutations killed, unmutated passes: same-line second REVOKE,
+`SERVICE_ROLE`, `Postgres`, lowercase `public`, appended `GRANT`, deleted
+REVOKE.
+
+**Verdict: ACCEPT.**
+
+---
+
+## D10 — "production has run this exact posture" was false (FOUR AXES)
+
+**What happened.** The migration header, the migrations-log entry and the
+arch-review-log entry all leaned on production having run "this exact posture"
+without incident for five months, and called it the strongest safety evidence
+the change has. Production has run the RLS half only: `anon` and
+`authenticated` hold `arwdDxtm` there today (introspected). The post-119
+posture has run in NO environment.
+
+**Why it matters.** The claim covered the ALTER and silently extended itself to
+the REVOKE — the statement carrying whatever residual risk this migration has.
+The branch's own `edge_cases[1]` said the REVOKE was a real production change,
+so the file contradicted itself.
+
+**What changed.** All three documents now state plainly what the five months
+does and does not cover, and name the REVOKE as the risk-bearing statement.
+
+**Verdict: ACCEPT.** Standards, database/security, red team and Codex reached
+this independently. A claim four reviewers kill is not a wording nit.
+
+---
+
+## D11 — the rollback plan would have left production LOOSER than before
+
+**What happened.** The plan said: migration 120 with
+`DISABLE ROW LEVEL SECURITY` plus `GRANT SELECT, INSERT, UPDATE, DELETE`.
+
+Two defects. It restores 4 of the 8 revoked privileges (omitting TRUNCATE,
+REFERENCES, TRIGGER, MAINTAIN). And `DISABLE ROW LEVEL SECURITY` applied to
+production drops it BELOW its pre-119 baseline, where RLS was already on —
+executing the rollback would manufacture the staging vulnerability on
+production, mid-incident, which is the exact outcome migration 107 refused to
+ship.
+
+**Root cause.** The plan was written as if the two projects shared a baseline.
+They do not: prod is RLS-on + full ACL, staging is RLS-off + full ACL.
+
+**What changed.** `rollback_plan` is now per-environment in both intake copies.
+Production: `GRANT ALL` and leave RLS **enabled**. Staging: `GRANT ALL` plus
+`DISABLE ROW LEVEL SECURITY`. Staging first, as always.
+
+**Verdict: ACCEPT.** Found by database/security and red team independently.
+
+---
+
+## D12 — the ALTER is not a lock-free no-op on production
+
+**What happened.** The header claimed "The ALTER is a no-op on production
+(already enabled)". False at the lock level: `ATExecSetRowSecurity` has no
+early-out and `AT_EnableRowSecurity` takes `ACCESS EXCLUSIVE`, so the statement
+would block every write to the busiest table in the schema for up to the
+`lock_timeout`, in exchange for updating `pg_class` to the value it already
+holds. `REVOKE` takes no relation lock, so the ALTER was the migration's only
+lock.
+
+**What changed.** The ALTER is now issued inside a `DO` block guarded on
+`relrowsecurity`, which makes the file a true no-op on production rather than
+an aspirational one. The header states the mechanism and records that an
+earlier draft claimed the property while issuing the statement unconditionally.
+
+**Verdict: ACCEPT.** Codex and database/security both found it.
+
+---
+
+## D13 — the `SET LOCAL` deviation (D3) drew the right fix from the wrong reason
+
+**What happened.** D3 observed the `SET LOCAL can only be used in transaction
+blocks` warning and concluded session-scoped `SET` was the house answer, citing
+092/101 over 088/109/114. Measured: 109 and 114 both wrap in `BEGIN;`/`COMMIT;`
+where `SET LOCAL` is fully effective, as do 10 of the 11 `SET LOCAL`
+migrations. **088 is the sole unwrapped file and the only source of the
+warning.** D3 read one outlier as the rule.
+
+**What changed.** The migration now wraps in `BEGIN`/`COMMIT` with `SET LOCAL`,
+which is strictly better than either earlier form: the timeout works, no
+session GUC leaks, the lock window is minimal, and — the part neither D3 nor
+its fix had — **the ALTER and the REVOKE become atomic**, closing the tear
+Codex named where a failure between them leaves row filtering on with the
+client grants still live.
+
+**Verdict: ACCEPT.** D3's verdict stands as a record of what was believed at
+the time; this entry supersedes its reasoning and its fix.
+
+---
+
+## D14 — smaller corrections, grouped
+
+Each accepted, each one edit, none changes behaviour.
+
+| # | Finding | Fix |
+|---|---|---|
+| a | "78 production files bind it" is an `rg -c` file count; only **55** contain a SQL binding. That number is the evidence for keeping `job_outbox` out of `TENANT_TABLES`, so it must be the number actually measured. | Corrected in all four copies. Conclusion unchanged — 55 bindings is still decisive. |
+| b | The `SchemaRequirement` was vacuous and its comment named a "provisioning-marker path" `assertSchemaReady` does not have (`test_meta.provision` is read only by `scripts/ci/rls-audit.ts`). D4 also claimed there was no house answer. There is: `schema-ready.ts` records that migration 097 "gets no requirement of its own … its suite inspects the migration SQL text instead". | Requirement and call deleted. D4's framing superseded. |
+| c | The FORCE-off case is vacuous against reversion (`relforcerowsecurity` defaults false) and was absent from the declared limits. | Stated in the suite header and the migrations-log limits paragraph. It guards a future statement, not this migration having run. |
+| d | `test_seams[2]` named `information_schema.role_table_grants`; the suite used `has_table_privilege()`, unrecorded. | Moot after D8 — the seam is now `relacl`/`attacl` via `aclexplode`, and `test_seams` records it with the reason. |
+| e | The new arch-review-log entry had no blank line before it and rendered glued to its neighbour. | Blank line added. |
+| f | The suite header was a fourth verbatim copy of the drift narrative already owned by the migration header, migrations-log and arch-review-log; 116 and 117 do not restate their migration's rationale. | Trimmed to one sentence plus a pointer. |
+| g | `COMMENT ON TABLE` restated invariant #2 and the registry decision, both owned elsewhere and liable to go stale. | Cut to the posture facts only. |
+
+**Verdict: ACCEPT** (all seven).
+
+---
+
+## D15 — REJECTED: add a `job_outbox` row to `docs/security/rls-inventory.md`
+
+**The finding** (database/security, low, raised for "knowing re-confirmation"):
+the RLS register gains no row for the dispatch spine, while `admin_audit_log` —
+the precedent this branch cites four times — is listed there in 119's exact
+shape.
+
+**Verdict: REJECT.** Three reasons, in order of weight.
+
+1. It is an explicit `non_goals` entry, taken as an owner decision on
+   2026-09-07 after measurement. Reversing it inside the review round would be
+   the root overriding the owner on the branch's central scoping call.
+2. The register's own preamble scopes its rows: entries are listed "(and in
+   `TENANT_TABLES`)" so the audit keeps RLS on them. `job_outbox` is
+   deliberately not a member, so a row there would assert a membership the
+   branch spent its main decision avoiding.
+3. It would spend the final surface amendment (1 of 2 used) on a documentation
+   row.
+
+**Not dismissed** — carried to the follow-up issue alongside D16, where the
+register and the audit can be reconciled together rather than half-done here.
+
+---
+
+## D16 — 19 sibling tables share the same shape (recorded, not fixed)
+
+Red team found 19 tables on both projects with RLS on, zero policies, and the
+client grants never revoked — including `auto_approval_policies` and the
+run-spine tables. `job_outbox` was distinguished only by having RLS OFF on
+staging, which is what made it an incident rather than a latent gap.
+
+Explicit `non_goals[3]`: "Do not REVOKE anon/authenticated on any other
+deny-all table. That is a separate reviewed change." Recorded here and carried
+to the follow-up issue with the table list.
+
+**Verdict: ACCEPT** (as a recorded non-goal, not as work for this branch).

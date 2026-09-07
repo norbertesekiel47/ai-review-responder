@@ -1,53 +1,61 @@
 // Security-posture assertions for migration 119 — deny-all RLS on
-// `job_outbox` (#1171). The table is the transactional outbox dispatch spine
-// (invariant #2), it carries no tenant column, and it sits OUTSIDE
-// `TENANT_TABLES` (`REVIEWED_NOT_TENANT_SCOPED`). `ci:rls-audit` only audits
-// that list, so THIS suite is the regression guard for the boundary — the
-// same role `migration-117-admin-audit-log.integration.test.ts` plays for
-// `admin_audit_log`, and the pattern this file follows.
+// `job_outbox` (#1171). The table carries no tenant column and sits OUTSIDE
+// `TENANT_TABLES` (`REVIEWED_NOT_TENANT_SCOPED`), and `ci:rls-audit` audits
+// only that list, so THIS suite is the regression guard for the boundary — the
+// role `migration-117-admin-audit-log.integration.test.ts` plays for
+// `admin_audit_log`, and the file this one follows. The migration header owns
+// the drift's provenance; it is not restated here.
 //
-// ── the drift it closes ─────────────────────────────────────────────────────
+// ── what this suite executes ────────────────────────────────────────────────
 //
-// Production (`udeyaqnvpojbwgoaxwdg`, created 2026-04-05) shipped with the
-// Supabase `ensure_rls` DDL event trigger, which switched RLS on after every
-// CREATE TABLE. Staging (`kubdiqdhqbhwmqfditeg`, created 2026-05-30) was
-// provisioned after Supabase dropped it from the template. Migration 107
-// removed the trigger but deliberately left its past output alone, recording
-// that the `job_outbox` repair belonged in its own reviewed migration. This is
-// that migration; 107's header is the provenance.
+// No DDL (`ci:live-db-suites` R2). `pnpm test:db:setup` provisions the
+// container to head; every case reads the catalogue or the checked-in
+// migration file. It takes the cross-process live-DB lock because table RLS
+// and ACLs are GLOBAL facts another suite's DDL could perturb.
 //
-// The observable gap on staging was not disclosure alone: `anon` held INSERT
-// with RLS off, and `OutboxPoller` dispatches whatever rows it finds. Anyone
-// holding the public staging anon key could enqueue a job.
+// There is no `assertSchemaReady` precondition, and that is the house answer
+// rather than an omission: 119 creates no relation, column, index or
+// constraint for `SchemaRequirement` to name, which is exactly migration 097's
+// situation — `schema-ready.ts` records that 097 "gets no requirement of its
+// own … its suite inspects the migration SQL text instead". Title 1 is the
+// real detector of a container behind head, and it carries that message.
 //
-// ── what this suite deliberately does NOT do ────────────────────────────────
+// ── the two guards, and which one is load-bearing where ─────────────────────
 //
-// It executes NO DDL (`ci:live-db-suites` R2). `pnpm test:db:setup` provisions
-// the container to head and every case reads the catalogue or reads the
-// checked-in migration file.
+// CATALOGUE (titles 1, 2, 4) proves the posture that EXISTS. Title 4 reads
+// `relacl` and `attacl` through `aclexplode` and asserts the client roles hold
+// NOTHING — every privilege type, table and column, including ones this
+// PostgreSQL does not have yet. That is deliberately not an enumeration of
+// SELECT/INSERT: `TRUNCATE` is exempt from row policies entirely, so a later
+// `GRANT TRUNCATE … TO authenticated` would let a client role empty the
+// dispatch spine with RLS on and zero policies still true. A future migration's
+// GRANT is applied by `pnpm test:db:setup` on every container, so this case
+// genuinely fails on that regression.
 //
-// It does NOT prove the REVOKE against the local catalogue. The local test
-// container never runs Supabase's `ALTER DEFAULT PRIVILEGES`, so
-// `scripts/ci/test-db-bootstrap.sql` grants `anon`/`authenticated` USAGE on
-// the schema and nothing on any table. A privilege assertion there passes
-// whether or not the REVOKE exists — vacuous, and a vacuous green is worse
-// than no case. The REVOKE's guard is therefore the migration FILE TEXT
-// (title 3, DB-free so it can never silently skip), and its proof in the two
-// real environments is post-apply introspection recorded on the PR. The
-// catalogue case (title 4) still runs, because on staging and production the
-// grants ARE present before apply and absent after, and because the assertion
-// that `postgres` and `service_role` keep their privileges is NOT vacuous
-// anywhere.
+// FILE TEXT (title 3) proves what migration 119 ITSELF may contain, and it is
+// the ONLY environment-independent guard against a WIDENED revoke — which is
+// the dangerous mutation here, not a missing one. It parses top-level
+// STATEMENTS rather than matching lines: a red-team round appended
+// `SELECT 1; REVOKE ALL ON job_outbox FROM service_role;` to one line and
+// survived a line-anchored regex.
 //
-// It takes the cross-process live-DB lock: table-level RLS and privileges are
-// GLOBAL facts another suite's DDL could perturb.
+// ── stated limits: cases that cannot fail in this environment ──────────────
 //
-// ── why assertSchemaReady cannot gate this one ──────────────────────────────
+// Title 2 (FORCE off) is vacuous against REVERSION: `relforcerowsecurity`
+// defaults to false, so it is green on a container 119 never touched. It earns
+// its place as a guard against a future statement that turns FORCE on — which
+// would deny the outbox to its only writer — not as proof 119 ran.
 //
-// 119 adds no relation, column, index or constraint, so `SchemaRequirement`
-// has nothing to name beyond `job_outbox` itself, which has existed since 001.
-// A container provisioned BEFORE 119 therefore passes the precondition. Title
-// 1 is the real detector, and its failure message says so.
+// The suite asserts NOTHING about the owner's or `service_role`'s privileges,
+// and the omission is load-bearing. A red-team mutation ran
+// `REVOKE ALL ON job_outbox FROM <owner>`, left `relacl = {}`, and an earlier
+// draft of title 4 still PASSED: the local and CI owner is the container
+// superuser (`POSTGRES_USER: test`), and `has_table_privilege` is
+// unconditionally true for a superuser. `service_role` is environment-
+// dependent for the opposite reason — Supabase's default privileges on both
+// projects, none locally. Neither property can be established from a catalogue
+// read here, so both are guarded by title 3's exact-match statement assertion
+// instead of by an assertion that could only be true by accident.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -62,22 +70,42 @@ import {
   resolveTestDatabaseUrl,
   type LiveDbLock,
 } from '@/lib/shared/__tests__/helpers/live-db-lock';
-import {
-  assertSchemaReady,
-  type SchemaRequirement,
-} from '@/lib/shared/__tests__/helpers/schema-ready';
 import { REVIEWED_NOT_TENANT_SCOPED, TENANT_TABLES } from '../../../../scripts/ci/tenant-tables';
 
 const TABLE = 'job_outbox';
 const MIGRATION_FILE = 'supabase/migrations/119_job_outbox_rls.sql';
-const BEHIND_HEAD = `job_outbox RLS posture is not at migration head — run pnpm test:db:setup`;
+const BEHIND_HEAD = 'job_outbox RLS posture is not at migration head — run pnpm test:db:setup';
 
-// 119 creates nothing, so the only object it can name is the table it hardens.
-// Kept for the provisioning-marker path, not as proof the migration ran.
-const MIGRATION_119_JOB_OUTBOX_RLS: SchemaRequirement = {
-  migration: '119_job_outbox_rls',
-  tables: [TABLE],
-};
+/**
+ * Top-level statements of ONE known migration file — not a general SQL parser,
+ * and it does not need to be. It masks dollar-quoted bodies and single-quoted
+ * strings so their semicolons cannot split a statement, strips line comments,
+ * then splits on `;`.
+ *
+ * Statements rather than lines because a line-anchored regex cannot see a
+ * second statement sharing a line, which is precisely how a widened revoke
+ * evaded the earlier form.
+ *
+ * THE ORDER IS LOAD-BEARING. Comments are stripped BEFORE strings are masked,
+ * because prose apostrophes ("the table's owner", "Supabase's") read as
+ * string delimiters otherwise and swallow every statement between two of them
+ * — the first form of this helper found ZERO revokes in a file that plainly
+ * contains one. The inverse hazard, a `--` inside a string literal, does not
+ * exist in this file and would fail loudly rather than silently.
+ */
+function topLevelStatements(sql: string): string[] {
+  return sql
+    .replace(/\$\$[\s\S]*?\$\$/g, 'DOLLAR_QUOTED_BODY')
+    .replace(/--[^\n]*/g, '')
+    .replace(/'(?:[^']|'')*'/g, 'STRING_LITERAL')
+    .split(';')
+    .map((statement) => statement.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function migrationSql(): string {
+  return readFileSync(join(process.cwd(), MIGRATION_FILE), 'utf8');
+}
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -95,8 +123,8 @@ describe('migration 119 registries', () => {
   it('job_outbox stays REVIEWED_NOT_TENANT_SCOPED and NOT a TENANT_TABLES member', () => {
     // Deliberate (owner decision, 2026-09-07): TENANT_TABLES membership also
     // switches on `ci:tenant-scope`, which demands an account_id/business_id
-    // predicate on every binding. job_outbox carries neither column and is
-    // bound by 78 production files, so membership would cost dozens of
+    // predicate on every binding. job_outbox carries neither column and 55
+    // production files bind it in SQL, so membership would cost dozens of
     // allowlist entries and audit nothing real. This suite is the guard
     // instead.
     const reviewed = REVIEWED_NOT_TENANT_SCOPED.find((entry) => entry.table === TABLE);
@@ -106,26 +134,31 @@ describe('migration 119 registries', () => {
   });
 
   it('migration 119 revokes every anon and authenticated privilege on job_outbox', () => {
-    const text = readFileSync(join(process.cwd(), MIGRATION_FILE), 'utf8');
+    const statements = topLevelStatements(migrationSql());
+    const revokes = statements.filter((statement) => /^REVOKE\b/i.test(statement));
 
-    expect(text).toMatch(/REVOKE ALL ON job_outbox FROM anon, authenticated;/);
-
-    // The dangerous mutation is a WIDER revoke, not a missing one: stripping
-    // `postgres` or `service_role` would stop every worker in the platform,
-    // and no catalogue case in this file could distinguish that from a correct
-    // apply on a container whose roles were never granted anything.
-    const revokes = text.match(/^\s*REVOKE\b.*$/gim) ?? [];
     expect(revokes).toHaveLength(1);
-    expect(revokes[0]).not.toMatch(/\b(postgres|service_role|PUBLIC)\b/);
+
+    // Asserted as an EXACT match, not as a list of forbidden role names. A
+    // negative list has to anticipate every spelling a widening mutation might
+    // use (`SERVICE_ROLE`, `Postgres`, lowercase `public`); an exact match
+    // admits exactly one statement and cannot be widened at all.
+    expect(revokes[0]).toMatch(/^REVOKE ALL ON job_outbox FROM anon, authenticated$/i);
+
+    // A later GRANT inside this same file would restore what the REVOKE took.
+    expect(statements.filter((statement) => /^GRANT\b/i.test(statement))).toEqual([]);
   });
 
   it('migration 119 grants no policy and does not force row level security', () => {
-    const text = readFileSync(join(process.cwd(), MIGRATION_FILE), 'utf8');
+    const text = migrationSql();
     expect(text).toMatch(/ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;/);
+    // Matched against the raw text, not the statement list: the ALTER sits
+    // inside a guarded DO block whose body the statement parser masks, and
+    // ANY occurrence of the two forbidden forms is a defect wherever it hides.
     expect(text).not.toMatch(/CREATE POLICY/i);
-    // FORCE would apply RLS to the table OWNER, which is the role every worker
-    // connects as. It is the one statement in this file that could take the
-    // platform down, so it is asserted absent in text as well as in catalogue.
+    // FORCE would apply RLS to the table OWNER, the role every worker connects
+    // as. It is the one statement in this file that could take the platform
+    // down.
     expect(text).not.toMatch(/FORCE ROW LEVEL SECURITY/i);
   });
 });
@@ -142,7 +175,6 @@ describeWithDb(
         prepare: false,
         connection: { statement_timeout: 30_000 },
       });
-      await assertSchemaReady(db, [MIGRATION_119_JOB_OUTBOX_RLS]);
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterAll(async () => {
@@ -171,8 +203,8 @@ describeWithDb(
       expect(security?.rls_enabled, BEHIND_HEAD).toBe(true);
 
       // Zero policies IS the guarantee, not an omission. Outbox rows carry
-      // topic and payload for every tenant; there is no owner-facing read of
-      // this table, so any policy at all would be a wider door than the
+      // topic and payload for every tenant and there is no owner-facing read
+      // of this table, so any policy at all would be a wider door than the
       // product needs.
       expect(security?.policy_count).toBe('0');
     });
@@ -188,68 +220,35 @@ describeWithDb(
       // every enqueue, claim and dispatch reaches job_outbox through the owner
       // role over Postgres.js. Turning FORCE on with zero policies would deny
       // the outbox to its only writer and stop all async work.
+      //
+      // Vacuous against REVERSION — false is the default — so this guards a
+      // future statement, not migration 119 having run. See the header.
       expect(relation?.rls_forced).toBe(false);
     });
 
-    it("migration 119 leaves the job_outbox owner's privileges intact and denies the client roles", async () => {
-      // The owner is DERIVED, never spelled: it is `postgres` on both Supabase
-      // projects but NOT in the local container (the first draft hardcoded
-      // 'postgres' and failed with `role "postgres" does not exist`). The
-      // property under test is "the role that owns the table keeps its
-      // privileges" — which is what a widened REVOKE would break — not the
-      // spelling of its name.
-      //
-      // `service_role` is deliberately NOT asserted here. It holds Supabase's
-      // default privileges on both projects and NONE in the local container,
-      // because `scripts/ci/test-db-bootstrap.sql` grants it schema USAGE only.
-      // "Unchanged by this migration" is not a property a single post-state
-      // read can establish, and pinning either value would encode one
-      // environment's accident as a guarantee. The guard that does hold
-      // everywhere is the file-text case above: exactly one REVOKE line, naming
-      // neither the owner, nor `service_role`, nor PUBLIC.
-      const [privileges] = await sql()<
-        {
-          anon_select: boolean;
-          anon_insert: boolean;
-          authed_select: boolean;
-          authed_insert: boolean;
-          owner_select: boolean;
-          owner_insert: boolean;
-          owner_update: boolean;
-          owner_delete: boolean;
-        }[]
-      >`
-        SELECT
-          has_table_privilege('anon', 'public.job_outbox', 'SELECT') AS anon_select,
-          has_table_privilege('anon', 'public.job_outbox', 'INSERT') AS anon_insert,
-          has_table_privilege('authenticated', 'public.job_outbox', 'SELECT') AS authed_select,
-          has_table_privilege('authenticated', 'public.job_outbox', 'INSERT') AS authed_insert,
-          has_table_privilege(owner.role, 'public.job_outbox', 'SELECT') AS owner_select,
-          has_table_privilege(owner.role, 'public.job_outbox', 'INSERT') AS owner_insert,
-          has_table_privilege(owner.role, 'public.job_outbox', 'UPDATE') AS owner_update,
-          has_table_privilege(owner.role, 'public.job_outbox', 'DELETE') AS owner_delete
-        FROM (
-          SELECT pg_get_userbyid(cls.relowner) AS role
-            FROM pg_class cls
-           WHERE cls.oid = 'public.job_outbox'::regclass
-        ) AS owner
+    it('migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs', async () => {
+      // `aclexplode` over `relacl`/`attacl` rather than `has_table_privilege`
+      // per verb, for two reasons the header states in full: the ACL is the
+      // ground truth a superuser's implicit privileges cannot mask, and
+      // asserting the client roles appear NOWHERE covers every privilege type
+      // — TRUNCATE, REFERENCES, TRIGGER, MAINTAIN — instead of the two an
+      // enumeration remembered to name.
+      const grants = await sql()<{ role: string; privilege_type: string; scope: string }[]>`
+        SELECT acl.grantee::regrole::text AS role, acl.privilege_type, 'table' AS scope
+          FROM pg_class cls
+          CROSS JOIN LATERAL aclexplode(cls.relacl) AS acl
+         WHERE cls.oid = 'public.job_outbox'::regclass
+           AND acl.grantee::regrole::text IN ('anon', 'authenticated')
+        UNION ALL
+        SELECT acl.grantee::regrole::text, acl.privilege_type, 'column'
+          FROM pg_attribute att
+          CROSS JOIN LATERAL aclexplode(att.attacl) AS acl
+         WHERE att.attrelid = 'public.job_outbox'::regclass
+           AND acl.grantee::regrole::text IN ('anon', 'authenticated')
+         ORDER BY 3, 1, 2
       `;
 
-      // The four owner arms are the load-bearing half — NOT vacuous on any
-      // container, and exactly what a widened REVOKE would break. The
-      // anon/authenticated arms are vacuous locally (the bootstrap grants them
-      // nothing) and load-bearing on staging and production, where Supabase's
-      // default privileges did grant them.
-      expect(privileges).toEqual({
-        anon_select: false,
-        anon_insert: false,
-        authed_select: false,
-        authed_insert: false,
-        owner_select: true,
-        owner_insert: true,
-        owner_update: true,
-        owner_delete: true,
-      });
+      expect(grants).toEqual([]);
     });
   },
 );
