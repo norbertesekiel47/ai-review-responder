@@ -155,7 +155,8 @@ Any new production JSONB field-to-parser site must be added HERE. Do **not** add
   is end+rebuilt on timeout (#500/#502), sequential checks (#505);
   **containment** — #414's `createGuardedPoll` lets a timed-out cycle run
   detached so the loop survives. Residual: a hung operation on the SHARED
-  client is not reclaimed by the app layer (tracked #477). Keepalive was never
+  client is not reclaimed by the app layer (tracked #504 — the #477 pointer
+  was stale; #477 closed 2026-07-20 without the re-arm). Keepalive was never
   the gap — postgres.js 3.4.9 defaults `keep_alive: 60`. Signal at closure:
   Sentry 30 d, staging + prod, zero "timed out after" / `DbSlotTimeoutError`;
   health alerts firing again.
