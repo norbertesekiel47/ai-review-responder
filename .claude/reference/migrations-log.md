@@ -2718,7 +2718,16 @@ Revisit triggers:
   runs inside a ROLLED-BACK transaction — the `judge_sweep` row is a singleton
   shared by every concurrent live-DB vitest process, so a committed stale
   timestamp would break an unrelated suite).
-  **LOCAL-ONLY** — applied only to the rebuildable local test container.
+  **Applied to STAGING 2026-09-07T06:06Z** (Supabase MCP `execute_sql`, project
+  `kubdiqdhqbhwmqfditeg`), **and to PRODUCTION 2026-09-07T06:07Z** (project
+  `udeyaqnvpojbwgoaxwdg`), byte-identical SQL. Verified on BOTH by
+  introspection, never the ledger, and the two results are identical:
+  `pg_tables` present, `relrowsecurity` true / FORCE off, `pg_policies`
+  count 0, `has_table_privilege` false for `anon` AND `authenticated` on
+  SELECT, both columns `NOT NULL`, sole index `poller_heartbeats_pkey`.
+  Applied BEFORE the code merged — the probe reads the table
+  unconditionally, so the reverse order throws `42P01` on every health
+  call in both lanes.
 - **117** — `admin_audit_log` (#468). **New table**, ten columns, deny-all
   RLS (zero policies) PLUS `REVOKE ALL … FROM anon, authenticated`, two
   indexes, one FK with NO referential action. The admin control-plane actor
