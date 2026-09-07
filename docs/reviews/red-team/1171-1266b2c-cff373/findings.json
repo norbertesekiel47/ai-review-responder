@@ -1,0 +1,197 @@
+{
+  "schema": 1,
+  "mode": "standalone",
+  "run_id": "standalone-1171-1266b2c-cff373",
+  "branch": null,
+  "fork_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "merge_base_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "head_sha": "1266b2cb7e1f5326482bab9bbcca27f1bc34f1e7",
+  "intake_sha256": "a3fbeab238af7cd84e399a9ee9c181c4f3a0fe25a425d1cc6f15670d2d773a60",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-07T12:40:00Z",
+  "inventory": [
+    {
+      "id": "RT5-01",
+      "test": "migration 119 registries job_outbox stays REVIEWED_NOT_TENANT_SCOPED and NOT a TENANT_TABLES member",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "the registry entry it asserts (scripts/ci/tenant-tables.ts) is UNCHANGED across 602e9893..1266b2cb, so it covers no production hunk in scope. Membership is an owner decision recorded in the migration header; the case asserts membership rather than prose, which prior passes already measured."
+    },
+    {
+      "id": "RT5-02",
+      "test": "migration 119 enables row level security on job_outbox and defines zero policies",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "environment mutation E1: the shared container was degraded to the pre-119 posture (ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY; GRANT ALL ON job_outbox TO anon, authenticated). The case FAILED, carrying its BEHIND_HEAD message. Container restored and re-verified byte-identical to the pre-run snapshot."
+    },
+    {
+      "id": "RT5-03",
+      "test": "migration 119 leaves FORCE row level security off so the owner-role worker keeps dispatching",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "environment mutation MF: ALTER TABLE job_outbox FORCE ROW LEVEL SECURITY applied to the container, then the single case re-run under assert-one-test. It FAILED. This upgrades pass 4's excluded row for the same case: the assertion is falsifiable against a future FORCE statement, exactly as its comment claims, even though it stays vacuous against reversion."
+    },
+    {
+      "id": "RT5-04",
+      "test": "migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "environment mutation E1 (same run as RT5-02): with anon and authenticated re-granted ALL on job_outbox the case FAILED. Arms A/B/C were additionally re-confirmed by RT5-07's PUBLIC-grant mutant."
+    },
+    {
+      "id": "RT5-05",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "in-tree file mutation 3e91120603e6 -> 554527d6db01: `REVOKE ALL ON job_outbox FROM service_role;` appended after the sanctioned REVOKE — pass 4's decisive P0 vector, respelled without needing the `--`-in-string wrapper. assert-one-test confirmed exactly one executed test; it FAILED on the non_client_acl diff ('expected test:DELETE,test:INSERT,test:REFERENC…' to be 'service_role:DELETE,service_role:INSE…'). The before/after diff over the degraded baseline is genuinely load-bearing: this is the class no text guard survived."
+    },
+    {
+      "id": "RT5-06",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "in-tree file mutation 3e91120603e6 -> f96b7165366d: `ALTER TABLE job_outbox FORCE ROW LEVEL SECURITY;` appended before COMMIT. assert-one-test confirmed one test; it FAILED on step 4's after.force assertion. Container leftover (relforcerowsecurity=true) observed and restored — see RT5-F9."
+    },
+    {
+      "id": "RT5-07",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "in-tree file mutation 3e91120603e6 -> 3f85bb7bbaa9: `GRANT SELECT ON job_outbox TO PUBLIC;` appended before COMMIT — pass 2's grantee-OID-0 vector. assert-one-test confirmed one test; it FAILED. The non_client_acl diff sees grantee 0 (rendered '-') because it filters on NOT IN ('anon','authenticated') rather than enumerating names. Container leftover ('=r/test') observed and restored — see RT5-F9."
+    },
+    {
+      "id": "RT5-08",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "in-tree file mutation 3e91120603e6 -> 68ffda06fd32: `GRANT ALL ON admin_audit_log TO anon;` appended before COMMIT. assert-one-test confirmed exactly one executed test; it PASSED. The statement really executed: the container's admin_audit_log.relacl went from {test=arwdDxt/test} to {test=arwdDxt/test,anon=arwdDxt/test}. Not equivalent (the catalogue provably changed) and not an unexecuted branch (step 3 applies the whole file verbatim through db.unsafe). The guard deleted in this same commit range — 929c53dd:202, `expect(executable.match(/\\bGRANT\\b/gi)).toBeNull()` — killed this exact mutant.",
+      "finding_id": "RT5-F1"
+    },
+    {
+      "id": "RT5-09",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "second instance of the same class, recorded to show it is not GRANT-specific. In-tree file mutation 3e91120603e6 -> 128739908adc: `ALTER TABLE accounts FORCE ROW LEVEL SECURITY;` appended before COMMIT — a statement that subjects the platform's billing-parent table to RLS for its owner. assert-one-test confirmed one test; it PASSED, and the container's accounts.relforcerowsecurity really became true. Not equivalent, not an unexecuted branch. Unlike RT5-08 this mutant also survived the pre-rebuild guard, so it is a pre-existing hole rather than a regression; it carries the same finding.",
+      "finding_id": "RT5-F1"
+    },
+    {
+      "id": "RT5-10",
+      "test": "scripts/ci/__tests__/live-db-suites-audit.test.ts + `pnpm ci:live-db-suites` (oracle for the new MIGRATION_SHAPE_FILES entry)",
+      "file": "scripts/ci/live-db-suites-audit.ts",
+      "outcome": "killed",
+      "reason": "in-tree file mutation f47b6b630e12 -> a47a075d67ce: the 119 allowlist line deleted. `pnpm ci:live-db-suites` FAILED with `migration-119-job-outbox-rls.integration.test.ts [runtime-ddl]: live-DB file executes DDL at run time (first at line 396)`. The entry is load-bearing and the audit really sees the new DDL."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT5-F1",
+      "severity": "P0",
+      "title": "the apply-and-assert case reads only public.job_outbox, so migration 119 may carry arbitrary off-target DDL and stay green — and the deleted text guard killed exactly that mutant",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:324-443",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "readPosture() (:347-383) selects from pg_class WHERE oid = 'public.job_outbox'::regclass and nothing else; steps 4 and 5 assert only rls, force, policies, client_privileges, non_client_acl and acl_is_default for that one relation. Step 3 applies the WHOLE file through db.unsafe, so any statement in it executes, but only job_outbox-visible effects are asserted. Proven in-tree under vitest with the live container: the migration widened with `GRANT ALL ON admin_audit_log TO anon;` reports the case PASSED while admin_audit_log.relacl really gains anon=arwdDxt/test — full privileges on migration 117's deny-all admin audit log, TRUNCATE included, which RLS with zero policies cannot backstop. A second mutant, `ALTER TABLE accounts FORCE ROW LEVEL SECURITY;`, likewise passed and really set the flag. Neither is equivalent and neither is on an unexecuted branch. The regression is specific: 929c53dd:193 asserted zero top-level GRANT statements and 929c53dd:202 asserted `executable.match(/\\bGRANT\\b/gi)` is null, so the pre-rebuild suite killed the admin_audit_log mutant; the rebuild at 07dc5e18 deleted both. Reachability was checked rather than assumed: the migration-immutability hook is a local Claude Code / Codex PreToolUse guard (.claude/settings.json:32) with a documented MIGRATION_GUARD_DISABLE=1 escape, `ci:agent-config` only asserts the hook FILE is registered, and no ci:* script gates migration content — so an edit to 119 rides a PR with CI green. 119 is applied to staging but NOT to production (verified by introspection this pass), so the production apply is still ahead."
+    },
+    {
+      "id": "RT5-F2",
+      "severity": "P0",
+      "title": "the suite header still documents the deleted parser and denies the DDL the suite now runs",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:9-70,101",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Six claims in the header block are false at HEAD, re-resolved line by line against the file as committed. :11 'No DDL (`ci:live-db-suites` R2).' — the suite executes ALTER TABLE … DISABLE ROW LEVEL SECURITY, GRANT, REVOKE and the whole migration (:396-399, :410, :440-441), which is exactly why 07dc5e18 had to add it to MIGRATION_SHAPE_FILES; RT5-10 proves the audit reports runtime-ddl without that entry. :12-13 'every case reads the catalogue or the checked-in migration file' — false for the same reason. :25 'CATALOGUE (titles 1, 2, 4) … FILE TEXT (title 3)' — the numbering no longer maps to the file; there is no title 3 text guard. :47-52 'FILE TEXT (title 3) proves what migration 119 ITSELF may contain, and it is the ONLY environment-independent guard against a WIDENED revoke … It parses top-level STATEMENTS' — topLevelStatements was deleted at 07dc5e18. :61-70 'both are guarded by title 3's exact-match statement assertion' — that assertion does not exist. :101 'registry + file text: no database needed, so never a silent skip' — the block below it now holds only the registry case, and the guard that replaced the file-text arm sits behind describeWithDb({enabled: Boolean(testDatabaseUrl)}), so with no live database the entire security guard skips silently while the pre-rebuild text arms ran keylessly. This is a false doc claim in a changed file, not a stale line number: a maintainer reading :47-52 would believe a widened-revoke guard exists that does not, and a maintainer reading :11 would believe the R2 exemption is unnecessary."
+    },
+    {
+      "id": "RT5-F3",
+      "severity": "P1",
+      "title": "the finally block unconditionally strips service_role's grants, and does so silently on any localhost database that legitimately holds them",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:429-442",
+      "duty": 5,
+      "disposition": "open",
+      "arbiter_reasoning": "MEASURED, unmutated file: job_outbox.relacl was set to {test=arwdDxt/test,service_role=arwdDxt/test} — the posture BOTH Supabase projects carry today and the posture any local restore of a staging dump carries — the suite was run, the case reported PASSED, and the ACL came back {test=arwdDxt/test}. service_role's privileges are gone and nothing reports it. The cause is :440, `REVOKE ALL ON job_outbox FROM anon, authenticated, service_role;`, which is unconditional, followed by a migration re-apply that never re-grants service_role. The guard against reaching a real project is assertLocalTestDatabaseUrl (src/lib/shared/__tests__/helpers/live-db-lock.ts:75-93) — verified rather than trusted: it tests only that the protocol is postgres/postgresql and the hostname is 'localhost' or '127.0.0.1'. An ssh -L / kubectl port-forward tunnel, or a local Supabase stack restored from a staging dump, satisfies it. The case already holds the information needed for a correct restore: `before.non_client_acl` names every non-client grantee and privilege it must put back, and the finally does not use it."
+    },
+    {
+      "id": "RT5-F4",
+      "severity": "P1",
+      "title": "the suite erases its own behind-head signal: a degraded container fails once, then passes green forever without re-provisioning",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:15-21",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "The header argues there is no assertSchemaReady precondition because ':19-21 Title 1 is the real detector of a container behind head, and it carries that message.' MEASURED against that claim: the container was degraded to the pre-119 posture, the FULL file was run twice with no re-provisioning between runs. Run 1: 3 passed, 2 failed — the RLS/policies case and the ACL case, the latter carrying 'job_outbox RLS posture is not at migration head — run pnpm test:db:setup'. Run 2: 5 passed. The apply-and-assert case repaired job_outbox in run 1's finally, so the detector is one-shot. The operational consequence is the one the header's own :436-439 note is meant to cover: a developer or CI job that sees the failure, re-runs, and gets green concludes flake — and then runs every OTHER live-DB suite against a container still behind head for every other migration, where assertSchemaReady is what catches it and this suite deliberately has none."
+    },
+    {
+      "id": "RT5-F5",
+      "severity": "P1",
+      "title": "the migration header's production-safety paragraph names the wrong statement as the only lock: COMMENT ON TABLE takes ShareUpdateExclusiveLock",
+      "at": "supabase/migrations/119_job_outbox_rls.sql:74-84",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": ":80-81 states '`REVOKE` takes no relation lock at all. The ALTER is therefore the only lock this migration acquires.' The REVOKE half is correct. The conclusion is not: the COMMENT ON TABLE at :124-125 is inside the same transaction and acquires a relation lock. MEASURED on the local container (PostgreSQL 16.14): BEGIN; COMMENT ON TABLE job_outbox IS 'probe'; then pg_locks for the backend reports ShareUpdateExclusiveLock, granted, held to COMMIT. The claim is materially inverted for the production apply specifically: on production the guarded ALTER is a proven no-op (relrowsecurity is already true — re-verified by introspection this pass), so the COMMENT's ShareUpdateExclusiveLock is in fact the ONLY relation lock migration 119 takes there. Impact is bounded — ShareUpdateExclusiveLock does not conflict with SELECT/INSERT/UPDATE/DELETE, and SET LOCAL lock_timeout = '5s' at :109 covers it, so the failure mode is a 5-second abort rather than a stall — but the paragraph is the file's stated production-safety argument and it is wrong about which statement carries the risk. It also conflicts with the header's own conflict analysis: ShareUpdateExclusiveLock DOES conflict with autovacuum, ANALYZE, CREATE INDEX CONCURRENTLY and any concurrent ALTER on the busiest table in the schema."
+    },
+    {
+      "id": "RT5-F6",
+      "severity": "P1",
+      "title": "the R2-exemption safety argument overstates what the cross-process lock covers — 18 live-DB suites bind job_outbox and never take it",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:332-335",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "The same sentence appears in three changed files — the test at :332-335, scripts/ci/live-db-suites-audit.ts:129-131, and .claude/reference/migrations-log.md's 119 entry — as 'the cross-process live-DB lock is already held (beforeAll), so no sibling suite holds row locks on job_outbox while the ALTER takes ACCESS EXCLUSIVE.' The advisory lock excludes only suites that CALL acquireLiveDbLock. Enumerated at HEAD: 18 *.integration.test.ts files reference job_outbox and contain no acquireLiveDbLock — among them veto, suspension, escalations/raise, judge-store, the four locations suites, the four reviews import suites, demos/lifecycle and admin-onboarding-rollback. Within one vitest process they are serialized by fileParallelism: false (vitest.config.ts:104), so the exclusion holds there — but that is vitest's doing, not the lock's, and the lock exists precisely for the case vitest cannot cover: helpers/live-db-lock.ts:1-10 says so, and scripts/verify-gate.sh:279 launches ~20 concurrent rows, each its own vitest process. Verified the consequence is bounded rather than the deadlock R2 warns about: no cycle can form, because the non-enrolled suites never request the advisory lock, so the outcome is a lock-queue stall ended by statement_timeout (30 s on this suite's client; the degrade at :396-399 sets no lock_timeout of its own, unlike the migration's 5 s). Separately verified, and sound: ci:live-db-suites enforces the lock for this entry by text.includes('acquireLiveDbLock') only (:499-501) — presence, not position — and in this file the call genuinely spans the DDL window (beforeAll :128, release afterAll :147), so the entry itself is correct today."
+    },
+    {
+      "id": "RT5-F7",
+      "severity": "P1",
+      "title": "the acl_is_default assertion is a tautology — both sides are unconditionally false",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:428",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "Step 1 (:396-399) issues GRANT ALL ON job_outbox TO anon, authenticated, service_role, which materializes relacl. MEASURED that PostgreSQL never returns a materialized relacl to NULL: a fresh table reported acl_is_null=true, after GRANT false, and after REVOKE of that grant still false with relacl={test=arwdDxt/test}. So before.acl_is_default is always false, no statement in the migration can make after.acl_is_default true, and `expect(after?.acl_is_default).toBe(before?.acl_is_default)` compares false to false in every run. Its comment at :344-346 claims it distinguishes 'NULL means built-in defaults' from '{} means someone revoked from the owner' — but the {} case is caught by the non_client_acl diff (proven by RT5-05, where a service_role revoke fails on that line), not by this one. The suite's own words at :262-266 name this exact failure: 'the guard silently checks nothing is the exact failure this suite keeps rediscovering.' Behavioural replacement: assert the owner's privilege COUNT is unchanged and non-zero, which is falsifiable, or delete the line and let non_client_acl own the property."
+    },
+    {
+      "id": "RT5-F8",
+      "severity": "P2",
+      "title": "the migration's guard predicate is schema-qualified while the three statements it guards are not",
+      "at": "supabase/migrations/119_job_outbox_rls.sql:114,116,122,124",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": ":114 tests `'public.job_outbox'::regclass` but :116 issues `ALTER TABLE job_outbox`, :122 `REVOKE ALL ON job_outbox`, and :124 `COMMENT ON TABLE job_outbox`, all unqualified and therefore search_path-resolved. Under a search_path that does not put public first, the migration would test one relation and mutate another. Not reachable through any current apply path — the Supabase MCP session, psql and the suite's db.unsafe all run with the default search_path — so recorded rather than blocking. Cheap fix: qualify all three."
+    },
+    {
+      "id": "RT5-F9",
+      "severity": "P2",
+      "title": "the finally block does not restore from the before-snapshot it holds, so a failing run leaves the container altered",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:429-442",
+      "duty": 5,
+      "disposition": "open",
+      "arbiter_reasoning": "MEASURED twice this pass. After the FORCE mutant (RT5-06) the container retained relforcerowsecurity=true; after the PUBLIC-grant mutant (RT5-07) it retained '=r/test' in relacl. The finally re-applies the migration, which cannot undo either. Recorded as P2 rather than P1 because both leftovers are caught LOUDLY on the next run — the FORCE-off case and the ACL case respectively — and because the local and CI owner is a superuser (POSTGRES_USER: test), so a stray FORCE has no behavioural effect on sibling suites there. The clean form is to restore from `before` rather than from a fixed statement pair. All leftovers produced by this pass were removed and the whole public schema re-verified: zero RLS-off tables, zero tables with anon/authenticated/PUBLIC in relacl, zero forced-RLS tables."
+    },
+    {
+      "id": "RT5-F10",
+      "severity": "P2",
+      "title": "Duty 4 sibling result: 20 staging and 21 production tables still carry the residual posture 119's REVOKE half removes",
+      "at": ".claude/reference/migrations-log.md",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": "Search recorded in full. Scope: schema public, relkind='r', both Supabase projects, read-only catalogue introspection. Patterns: (1) relrowsecurity = false; (2) RLS on AND zero pg_policies rows AND anon/authenticated/grantee-0 present in relacl; (3) anon or authenticated holding TRUNCATE. Exclusions: pg_catalog, information_schema, pg_toast, non-table relkinds. Result — 54 tables in each project, identical name sets. ZERO tables with RLS off in either project, so no table shares the exact pre-119 posture and the migration's 'only table that differed' premise is spent rather than false (it describes the state before the staging apply, and the staging apply is what closed it). Twenty staging tables and twenty-one production tables (the same twenty plus job_outbox) carry RLS-on + zero policies + anon and authenticated holding all eight default privileges — agent_outcomes, agent_run_steps, agent_runs, analytics_events, auto_approval_policies, flagged_responses, google_connections, impersonation_sessions, inbound_events, judge_verdicts, owner_leads, poller_cursors, prospect_demos, refusal_events, review_escalations, solicitation_consent, solicitation_send_breaker, solicitation_suppression_corrections, solicitation_suppressions, solicitation_unsubscribe_tokens. 49 staging / 50 production tables grant TRUNCATE to a client role, and RLS does not apply to TRUNCATE. That is the sweep 119's own reasoning implies and is OUT OF SCOPE for this branch; recorded so the sound search is on the record rather than invented. No sibling defect exists in the branch's own diff."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 10,
+    "killed": 7,
+    "survived_confirmed_p0": 2,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 10,
+    "p0_open": 2,
+    "p1_open": 5,
+    "p2_open": 3,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

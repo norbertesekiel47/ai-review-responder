@@ -682,3 +682,84 @@ them unsound. Replacing them with execution is a net deletion.
 The DB-free registry case stays: it asserts a registry decision, not SQL text.
 
 **Verdict: ACCEPT.**
+
+---
+
+## D21 — FIFTH PASS: the rebuild was strictly WEAKER off-target than what it deleted
+
+Pass 5 ran against the staging-applied branch. It found that D20's rebuild —
+correct on everything it looked at — introduced a regression on everything it
+did not.
+
+### P0 — off-target DDL passed
+
+**What happened.** The apply-and-assert case read only `public.job_outbox`. So
+migration 119 could harden that one table and do arbitrary damage elsewhere.
+Proven: appending `GRANT ALL ON admin_audit_log TO anon;` passed the whole
+suite, and the grant really landed on the container. A second mutant,
+`ALTER TABLE accounts FORCE ROW LEVEL SECURITY;`, also survived and really set
+the flag.
+
+**Why it is mine, not an inherited gap.** The deleted regex guard's blunt
+`expect(executable.match(/\bGRANT\b/gi)).toBeNull()` KILLED that exact mutant.
+D20 removed it as unsound — which it was, for the widening class it was written
+for — and did not notice it was also the only thing watching the rest of the
+schema. A fix that is stronger in the direction you are looking can be weaker
+in every other direction.
+
+**What changed.** `readSchemaPosture()` snapshots EVERY table in `public` —
+`relrowsecurity`, `relforcerowsecurity`, the table ACL, the column ACLs and the
+policy count — before and after the apply, and asserts they are identical
+except for `job_outbox`. Strictly stronger than the regex ever was: it catches
+the EFFECT rather than the spelling, so it also sees a grant written as
+`GRA' || 'NT`, one made by a function the migration calls, or an RLS flag
+flipped anywhere else.
+
+**Proof.** Baseline 5 passed. `GRANT ALL ON admin_audit_log TO anon` → 1
+failed. `ALTER TABLE accounts FORCE ROW LEVEL SECURITY` → 1 failed. Regression
+checks still hold: `REVOKE … FROM service_role` → 1 failed;
+`GRANT SELECT … TO PUBLIC` → 1 failed. Container verified clean afterwards.
+
+### P0 — the header documented the code it replaced
+
+The suite header still said "No DDL (`ci:live-db-suites` R2)" while the suite
+now runs `ALTER`/`GRANT`/`REVOKE`; still named `topLevelStatements` as "the
+ONLY environment-independent guard"; still cited a title-3 assertion that no
+longer existed; and still claimed "never a silent skip" of cases that sit
+behind `describeWithDb`. Rewritten in full. A header that describes deleted
+code is worse than no header — it is the artefact a later reader trusts.
+
+**Verdict: ACCEPT** (both P0s).
+
+### The P1s
+
+| # | Finding | Fix |
+|---|---|---|
+| a | The `finally` unconditionally revoked `service_role`. Measured: on a localhost DB legitimately holding `service_role=arwdDxt` — the posture of BOTH real projects — the suite passed green and left it STRIPPED. `assertLocalTestDatabaseUrl` checks hostname only, so a tunnel or a restored staging dump satisfies it. | FIXED — the restore now reads the posture taken before step 1 and re-grants only what was there. |
+| b | The behind-head detector is one-shot: title 3 repairs `job_outbox` itself, so a second run with no re-provision goes green. | ACCEPTED, documented in the header. The signal is real on the first run and names `pnpm test:db:setup`. |
+| c | Migration header: "the ALTER is the only lock this migration acquires" is FALSE — `COMMENT ON TABLE` takes `ShareUpdateExclusiveLock`, and on production, where the ALTER is a no-op, it is the ONLY relation lock 119 takes. | Correction recorded in the migrations-log. **The migration file itself is immutable** — it is applied to staging — so the fix is the record, not an edit. |
+| d | "the lock is held, so no sibling holds row locks" overstated it: 18 live-DB suites bind `job_outbox` and none takes that lock; the exclusion is vitest's `fileParallelism: false`. No deadlock cycle is reachable; the exposure is a lock-queue stall bounded by `statement_timeout`. | FIXED — the comment now says what actually excludes them. |
+| e | `expect(after?.acl_is_default).toBe(before?.acl_is_default)` was a tautology: step 1's GRANT materialises `relacl` and it never returns to NULL, so both sides are always `false`. | FIXED — assertion removed. |
+
+### The P2s
+
+- The guard predicate is schema-qualified (`'public.job_outbox'::regclass`)
+  while the three statements it guards are not. Cosmetic given `search_path`,
+  and the file is immutable. Recorded.
+- The `finally` does not restore from the `before` snapshot wholesale; a failing
+  run could leave `force=true` on the container. Loudly caught by the next run's
+  title 2. Recorded.
+- **Sibling scope, re-measured:** 20 tables on staging and 21 on production
+  still carry the pre-119 posture, and `anon` holds TRUNCATE on **49 of 50**
+  tables. Far larger than D16's original note. Explicit `non_goals[3]`; carried
+  to the follow-up issue with the counts.
+
+### What pass 5 confirmed
+
+The migration is sound — fifth independent confirmation. The staging evidence
+reproduces **9 of 9** against the live project, and the applied `COMMENT` is
+byte-identical to the committed one (md5 `7b88d544…`, 228 bytes). Production is
+confirmed untouched: `anon` there still holds INSERT and TRUNCATE on
+`job_outbox`.
+
+**Verdict: ACCEPT.**

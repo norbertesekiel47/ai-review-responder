@@ -3,71 +3,69 @@
 // `TENANT_TABLES` (`REVIEWED_NOT_TENANT_SCOPED`), and `ci:rls-audit` audits
 // only that list, so THIS suite is the regression guard for the boundary — the
 // role `migration-117-admin-audit-log.integration.test.ts` plays for
-// `admin_audit_log`, and the file this one follows. The migration header owns
-// the drift's provenance; it is not restated here.
+// `admin_audit_log`. The migration header owns the drift's provenance; it is
+// not restated here.
 //
-// ── what this suite executes ────────────────────────────────────────────────
+// ── this suite EXECUTES DDL, deliberately ───────────────────────────────────
 //
-// No DDL (`ci:live-db-suites` R2). `pnpm test:db:setup` provisions the
-// container to head; every case reads the catalogue or the checked-in
-// migration file. It takes the cross-process live-DB lock because table RLS
-// and ACLs are GLOBAL facts another suite's DDL could perturb.
+// It is listed in `MIGRATION_SHAPE_FILES` (`scripts/ci/live-db-suites-audit.ts`)
+// — the sanctioned exemption from R2 for suites where APPLYING the migration
+// IS the subject, alongside 074, 076, 077, 078 and 088. That is not a
+// convenience here; it is the entire design, and it was reached the hard way.
 //
-// There is no `assertSchemaReady` precondition, and that is the house answer
-// rather than an omission: 119 creates no relation, column, index or
-// constraint for `SchemaRequirement` to name, which is exactly migration 097's
-// situation — `schema-ready.ts` records that 097 "gets no requirement of its
-// own … its suite inspects the migration SQL text instead". Title 1 is the
-// real detector of a container behind head, and it carries that message.
+// FIVE independent red-team passes reviewed this file. The first four each
+// defeated a regex approximation of a SQL lexer — a line-anchored REVOKE
+// count, then whitespace (`CREATE\nPOLICY`), then a block comment
+// (`DISABLE/**/ROW LEVEL SECURITY`), then `--` inside a string literal, then a
+// comment standing in as evidence. Every fix closed one lexical class and the
+// next pass found another instance of it. Pass 4's verdict was that the
+// APPROACH was wrong, not the code: a hand-rolled lexer keeps losing to the
+// construct nobody enumerated. So the suite stopped parsing the file and
+// started running it. PostgreSQL is the parser now.
 //
-// ── the two guards, and which one is load-bearing where ─────────────────────
+// ── the four cases ──────────────────────────────────────────────────────────
 //
-// CATALOGUE (titles 1, 2, 4) proves the posture that EXISTS. Title 4 asks the
-// question TWICE, because two red-team rounds proved that either half alone
-// leaves a hole:
+// Titles 1, 2 and 4 read the catalogue AT HEAD — the posture the container
+// actually carries after `pnpm test:db:setup`. Title 4 asks the privilege
+// question three ways, because each arm was added to close a hole the previous
+// one left, and each hole was found by a different pass:
 //
-//   ARM A reads `relacl` and `attacl` through `aclexplode` — who is NAMED in
-//   the ACL, table and column, every privilege type including ones this
-//   PostgreSQL does not have yet. Round 1's lesson: `TRUNCATE` is exempt from
-//   row policies entirely, so `GRANT TRUNCATE … TO authenticated` would let a
-//   client role empty the dispatch spine with RLS on and zero policies still
-//   true — an enumeration of SELECT/INSERT never sees it.
+//   ARM A — `relacl`/`attacl` via `aclexplode`: who is NAMED, table and column,
+//   every privilege type including ones this PostgreSQL lacks. Catches
+//   `GRANT TRUNCATE`, which no SELECT/INSERT enumeration sees and which row
+//   policies do not restrain at all.
+//   ARM B — effective privilege via `has_table_privilege` over a list DERIVED
+//   from `acldefault`. Catches `GRANT … TO PUBLIC` (grantee OID 0, invisible to
+//   a NAME filter) and grants reaching a role through membership.
+//   ARM C — `has_column_privilege` per column. Catches the intersection A and B
+//   left open: a COLUMN grant to a role `anon` inherits.
 //
-//   ARM B asks what the roles can actually DO, over a privilege list derived
-//   from `acldefault` rather than spelled. Round 2's lesson: Arm A filters on
-//   grantee NAME, so `GRANT … TO PUBLIC` (grantee OID 0) sailed past it with
-//   the suite 6/6 green while `has_table_privilege('anon', …)` returned true.
-//   Arm B also catches a grant reaching `anon` through role MEMBERSHIP, and
-//   one whose SQL text never contains the word GRANT.
+// Title 3 is the environment-independent guard and the one that executes:
+// degrade `job_outbox` to the pre-119 posture, prove that vulnerable state
+// exists so the case cannot pass vacuously, apply the checked-in file
+// VERBATIM, then assert what it produced — including that the owner and
+// `service_role` are UNCHANGED against the before-reading, and that no OTHER
+// table in `public` moved. Those last two each closed a P0.
 //
-// A future migration's GRANT — named, PUBLIC, inherited or concatenated — is
-// applied by `pnpm test:db:setup` on every container, so this case genuinely
-// fails on that regression. Verified by mutation for all four shapes.
-//
-// FILE TEXT (title 3) proves what migration 119 ITSELF may contain, and it is
-// the ONLY environment-independent guard against a WIDENED revoke — which is
-// the dangerous mutation here, not a missing one. It parses top-level
-// STATEMENTS rather than matching lines: a red-team round appended
-// `SELECT 1; REVOKE ALL ON job_outbox FROM service_role;` to one line and
-// survived a line-anchored regex.
-//
-// ── stated limits: cases that cannot fail in this environment ──────────────
+// ── stated limits ───────────────────────────────────────────────────────────
 //
 // Title 2 (FORCE off) is vacuous against REVERSION: `relforcerowsecurity`
-// defaults to false, so it is green on a container 119 never touched. It earns
-// its place as a guard against a future statement that turns FORCE on — which
-// would deny the outbox to its only writer — not as proof 119 ran.
+// defaults to false, so it is green on a container 119 never touched. It guards
+// a future statement that turns FORCE on — which would deny the outbox to its
+// only writer — not the fact that 119 ran.
 //
-// The suite asserts NOTHING about the owner's or `service_role`'s privileges,
-// and the omission is load-bearing. A red-team mutation ran
-// `REVOKE ALL ON job_outbox FROM <owner>`, left `relacl = {}`, and an earlier
-// draft of title 4 still PASSED: the local and CI owner is the container
-// superuser (`POSTGRES_USER: test`), and `has_table_privilege` is
-// unconditionally true for a superuser. `service_role` is environment-
-// dependent for the opposite reason — Supabase's default privileges on both
-// projects, none locally. Neither property can be established from a catalogue
-// read here, so both are guarded by title 3's exact-match statement assertion
-// instead of by an assertion that could only be true by accident.
+// Title 1 is the behind-head detector and it is ONE-SHOT within a run: title 3
+// repairs `job_outbox` itself, so a second run against a container that was
+// behind head passes. The signal is real on the first run and its message
+// names `pnpm test:db:setup`.
+//
+// No `assertSchemaReady` precondition: 119 creates no relation, column, index
+// or constraint for `SchemaRequirement` to name, which is migration 097's
+// situation exactly — `schema-ready.ts` records that 097 "gets no requirement
+// of its own … its suite inspects the migration SQL text instead".
+//
+// The DB-free registry case is the only one that cannot silently skip; every
+// other case sits behind `describeWithDb` and needs a database.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -98,7 +96,7 @@ function sql(): postgresType.Sql {
   return db;
 }
 
-// ── registry + file text: no database needed, so never a silent skip ────────
+// ── registry: no database needed, so this one can never silently skip ───────
 
 describe('migration 119 registries', () => {
   it('job_outbox stays REVIEWED_NOT_TENANT_SCOPED and NOT a TENANT_TABLES member', () => {
@@ -330,9 +328,15 @@ describeWithDb(
       // file closes every one of them at once and cannot be evaded by any
       // spelling, because PostgreSQL is the parser.
       //
-      // Safe by the same argument 074 and 088 make: the cross-process live-DB
-      // lock is already held (beforeAll), so no sibling suite holds row locks
-      // on job_outbox while the ALTER takes ACCESS EXCLUSIVE.
+      // CONCURRENCY, stated precisely rather than comfortably. This case holds
+      // the cross-process live-DB lock (beforeAll) as MIGRATION_SHAPE_FILES
+      // requires, but that lock is NOT what excludes the 18 other live-DB
+      // suites that bind `job_outbox` — none of them takes it. Their exclusion
+      // comes from vitest's `fileParallelism: false` in the `integration`
+      // project. No deadlock cycle is reachable (this case takes its locks in
+      // one order and holds no row locks), so the residual exposure is a lock
+      // QUEUE stall, bounded by `statement_timeout`. An earlier draft of this
+      // comment claimed the lock did the excluding; it does not.
       const migration = readFileSync(join(process.cwd(), MIGRATION_FILE), 'utf8');
 
       // The posture, whole. `non_client_acl` is the half a POST-STATE read
@@ -382,6 +386,76 @@ describeWithDb(
         return row;
       };
 
+      /**
+       * The security posture of EVERY table in `public`, keyed by name.
+       *
+       * This exists because the first version of this case read `job_outbox`
+       * alone, and a red-team pass proved that a migration may harden the one
+       * table it names while doing arbitrary damage elsewhere: appending
+       * `GRANT ALL ON admin_audit_log TO anon;` passed the whole suite, and the
+       * grant really landed. The deleted regex guard's blunt
+       * `no GRANT anywhere in the file` had killed that mutant, so the rebuild
+       * was strictly WEAKER off-target than what it replaced — a regression
+       * introduced by the fix, not found in the original.
+       *
+       * Reading the whole schema is strictly stronger than that regex ever was:
+       * it catches the effect rather than the spelling, so it also sees a grant
+       * written as `GRA' || 'NT`, one made by a function the migration calls,
+       * or an RLS flag flipped on some other table.
+       */
+      const readSchemaPosture = async () => {
+        const rows = await sql()<
+          {
+            relname: string;
+            rls: boolean;
+            force: boolean;
+            acl: string;
+            column_acl: string;
+            policies: string;
+          }[]
+        >`
+          SELECT
+            cls.relname,
+            cls.relrowsecurity AS rls,
+            cls.relforcerowsecurity AS force,
+            coalesce(cls.relacl::text, '(default)') AS acl,
+            coalesce((
+              SELECT string_agg(att.attname || '=' || att.attacl::text, ',' ORDER BY att.attname)
+                FROM pg_attribute att
+               WHERE att.attrelid = cls.oid
+                 AND att.attnum > 0
+                 AND NOT att.attisdropped
+                 AND att.attacl IS NOT NULL
+            ), '') AS column_acl,
+            (
+              SELECT count(*)::text FROM pg_policies pol
+               WHERE pol.schemaname = 'public' AND pol.tablename = cls.relname
+            ) AS policies
+          FROM pg_class cls
+          JOIN pg_namespace nsp ON nsp.oid = cls.relnamespace
+          WHERE nsp.nspname = 'public' AND cls.relkind = 'r'
+          ORDER BY cls.relname
+        `;
+        // job_outbox is the table the migration is ALLOWED to change; it is
+        // asserted in full by readPosture. Everything else must be untouched.
+        return Object.fromEntries(
+          rows.filter((row) => row.relname !== TABLE).map((row) => [row.relname, row]),
+        );
+      };
+
+      // The posture BEFORE anything is touched. The restore reads this, rather
+      // than assuming the container started where this container happens to
+      // start: an unconditional `REVOKE … FROM service_role` in `finally` was
+      // measured stripping a localhost database that legitimately held
+      // `service_role=arwdDxt` — the posture BOTH real projects have — and
+      // `assertLocalTestDatabaseUrl` checks the hostname only, so a tunnel or a
+      // restored staging dump satisfies it.
+      const originalServiceRolePrivileges = Number(
+        (await readPosture())?.non_client_acl.split(',').filter((entry) =>
+          entry.startsWith('service_role:'),
+        ).length ?? 0,
+      );
+
       try {
         // 1. Degrade to the PRE-119 posture — exactly what staging carried:
         //    RLS off, client roles holding Supabase's default grants.
@@ -404,6 +478,7 @@ describeWithDb(
         const before = await readPosture();
         expect(before?.rls).toBe(false);
         expect(Number(before?.client_privileges)).toBeGreaterThan(0);
+        const schemaBefore = await readSchemaPosture();
 
         // 3. Apply the checked-in file VERBATIM. No stripping, no rewriting:
         //    whatever ships is what runs here.
@@ -425,20 +500,29 @@ describeWithDb(
         //    assertion, because both roles are environment-dependent. Against a
         //    BEFORE it is simply a diff.
         expect(after?.non_client_acl).toBe(before?.non_client_acl);
-        expect(after?.acl_is_default).toBe(before?.acl_is_default);
+
+        // 6. OFF-TARGET DDL. Migration 119 is allowed to change exactly one
+        //    table. Everything else in `public` — RLS flags, table ACLs, column
+        //    ACLs, policy counts — must come out byte-identical.
+        expect(await readSchemaPosture()).toEqual(schemaBefore);
       } finally {
-        // Undo step 1 explicitly, THEN re-apply. The migration alone is not a
-        // sufficient restore: it revokes `anon` and `authenticated` but never
-        // `service_role`, so the grant step 1 adds for the diff would outlive
-        // the case and leave the container holding a privilege it began
-        // without. Both statements are idempotent, so this is also the repair
-        // path for a failure anywhere between steps 1 and 4.
+        // Undo step 1 explicitly, THEN re-apply, THEN put `service_role` back
+        // where it started. The migration alone is not a sufficient restore —
+        // it revokes `anon` and `authenticated` but never `service_role`, so
+        // step 1's grant would outlive the case. But a blanket revoke is not
+        // one either: it silently STRIPS a database that legitimately held
+        // those privileges. Restoring from the reading taken before step 1 is
+        // the only form that is correct on both.
         //
-        // If the PROCESS dies mid-case, nothing here runs and the container is
-        // left degraded — `pnpm test:db:setup` is the fix, and the next run's
-        // title-1 names that command in its failure message.
+        // All three statements are idempotent, so this is also the repair path
+        // for a failure anywhere between steps 1 and 6. If the PROCESS dies
+        // mid-case nothing here runs and the container is left degraded;
+        // `pnpm test:db:setup` is the fix, and title 1 names that command.
         await sql().unsafe('REVOKE ALL ON job_outbox FROM anon, authenticated, service_role;');
         await sql().unsafe(migration);
+        if (originalServiceRolePrivileges > 0) {
+          await sql().unsafe('GRANT ALL ON job_outbox TO service_role;');
+        }
       }
     });
   },

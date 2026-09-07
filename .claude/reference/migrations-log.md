@@ -2767,6 +2767,16 @@ Revisit triggers:
   table, and the regression guard is
   `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts` —
   the role 117's suite plays for `admin_audit_log`.
+  **CORRECTION to this migration's own header, which is immutable.** The header
+  says "The ALTER is therefore the only lock this migration acquires". That is
+  FALSE: `COMMENT ON TABLE` takes `ShareUpdateExclusiveLock`, and on PRODUCTION
+  — where the guarded ALTER does nothing — the COMMENT is the ONLY relation
+  lock 119 takes. Measured by red-team pass 5. The safety conclusion is
+  unchanged and in fact stronger (`ShareUpdateExclusiveLock` does not block
+  reads or writes, only other schema changes), but the sentence is wrong and
+  the file cannot be edited now that it is applied. This entry is the
+  correction. Also cosmetic and uncorrectable: the guard predicate is
+  schema-qualified while the three statements it guards are not.
   **The guard EXECUTES this file; it does not parse it.** Four independent
   red-team passes each defeated a regex approximation of a SQL lexer —
   whitespace, then `/**/`, then `--` inside a string literal, then a comment
