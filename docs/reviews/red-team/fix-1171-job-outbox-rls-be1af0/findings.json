@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-fix-1171-job-outbox-rls-be1af0",
+  "branch": "fix-1171-job-outbox-rls",
+  "fork_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "merge_base_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "head_sha": "90880ef7344661601462be941e09e0e548932b69",
+  "intake_sha256": "e300e0c85fff819113f4fce4c3f92c505c7b6c2cc162d3be0cbc9076d10d02b8",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-07T10:20:00Z",
+  "inventory": [
+    {
+      "id": "INV-1",
+      "test": "job_outbox stays REVIEWED_NOT_TENANT_SCOPED and NOT a TENANT_TABLES member",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Assertion body byte-identical to round 1 (the only round-2 change inside the case is the comment 78 -> 55, and both counts were re-measured TRUE this round). Outside the round-2 fix hunks; killed in round 1 by F8."
+    },
+    {
+      "id": "INV-2",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "M5 (round 1's exact escape, SELECT 1; REVOKE ALL ON job_outbox FROM service_role; appended to the revoke line) -> 1 failed, this case. M1 (DO $tag$ BEGIN EXECUTE 'GRANT ALL ON job_outbox TO anon'; END $tag$;, a TAGGED dollar-quote the mask regex does not handle) -> 1 failed, this case, caught by the raw-text GRANT counter. Ten further widening mutants pre-screened against the verbatim assertion logic, all killed."
+    },
+    {
+      "id": "INV-3",
+      "test": "migration 119 grants no policy and does not force row level security",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "MP (CREATE POLICY job_outbox_read ON job_outbox FOR SELECT USING (true); appended inside the transaction) -> 1 failed, this case."
+    },
+    {
+      "id": "INV-4",
+      "test": "migration 119 enables row level security on job_outbox and defines zero policies",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Catalogue mutation R3 on the throwaway clone (ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY plus GRANT ALL TO anon, authenticated = a behind-head container) -> this case failed FIRST and carried the actionable BEHIND_HEAD message verbatim."
+    },
+    {
+      "id": "INV-5",
+      "test": "migration 119 leaves FORCE row level security off so the owner-role worker keeps dispatching",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Assertion body byte-identical to round 1; the only round-2 change is a three-line comment stating the case's vacuity against reversion. Outside the round-2 fix hunks; killed in round 1 by C3."
+    },
+    {
+      "id": "INV-6",
+      "test": "migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "R1 (GRANT TRUNCATE ON job_outbox TO authenticated on the clone) -> assert-one-test confirmed exactly one executed, 1 failed. Column arm separately exercised: GRANT SELECT (payload) ON job_outbox TO anon -> oracle returns anon|SELECT|column. The round-1 P0 (RT-1) is measurably closed. One survivor of a DIFFERENT class remains on this same case -> RT-7."
+    },
+    {
+      "id": "INV-7",
+      "test": "migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs (indirect-grant arm)",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT-7",
+      "reason": "R2: GRANT SELECT, INSERT ON job_outbox TO PUBLIC on the clone -> whole suite 6 passed / 0 failed, while has_table_privilege('anon','public.job_outbox','SELECT') and has_table_privilege('authenticated','public.job_outbox','INSERT') both returned t. Arbiter: NOT equivalent (the grant is real and reproduces the exact staging exposure the migration exists to close - anon holding INSERT on the dispatch spine); NOT an unexecuted branch (the assertion issues the query and compares on every run, and the same assertion FAILED under R1). Graded P0: the survivor is confirmed, executed and non-equivalent, and the test header positively claims the opposite - that a future migration's GRANT makes this case fail. See RT-7's arbiter_reasoning for the bounded real-world exposure."
+    },
+    {
+      "id": "INV-8",
+      "test": "topLevelStatements plus the raw-text counters, as a pair (file-text guard, both cases)",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Direction B row for the parser helper itself, which no test imports by name. Fifteen crafted inputs evaluated against the verbatim assertion logic; three journaled vitest runs confirmed the decisive ones. Killed: tagged dollar-quote plus EXECUTE GRANT, plain EXECUTE GRANT in $$, second top-level revoke sharing a line, block-comment-hidden revoke, REVOKE split across newlines, a line-comment marker inside a string literal before the revoke (fails CLOSED at revokes=0), Cyrillic homoglyph in a role name, SECURITY DEFINER function body, nested $$ inside a tagged block, ALTER DEFAULT PRIVILEGES with GRANT. Two survivors -> RT-8, RT-9."
+    },
+    {
+      "id": "INV-9",
+      "test": "supabase/migrations/119_job_outbox_rls.sql - guarded ALTER, BEGIN/COMMIT, SET LOCAL (production surface, Direction B)",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "Not mutated as a unit test - measured directly against a throwaway clone, which is the stronger oracle. Guard RUNS when relrowsecurity is false (pre-119 clone -> t, client grants gone) and SKIPS when true (re-apply idempotent, predicate f). Under a concurrent ACCESS SHARE holder the guarded file completes in 64 ms while the same ALTER issued unconditionally blocks and dies at lock_timeout after 5090 ms - both halves of the header's locking claim proven, and SET LOCAL demonstrably bounds the ALTER. No NULL hazard exists: a missing relation makes the regclass cast ERROR, it never yields NULL."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P0",
+      "title": "Owner-privilege arms cannot fail: the container owner is a superuser, so has_table_privilege is a constant",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:238",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "CLOSED, verified by mutation rather than by the claim. The owner and service_role arms are deleted; the case now reads pg_class.relacl and pg_attribute.attacl through aclexplode. Measured on a throwaway clone at HEAD: GRANT TRUNCATE ON job_outbox TO authenticated makes the oracle return authenticated|TRUNCATE|table and the case FAIL (assert-one-test: exactly one test executed, 1 failed), where the round-1 form returned f,f and passed. The column arm was separately exercised - GRANT SELECT (payload) ON job_outbox TO anon returns anon|SELECT|column - so neither arm is vacuous. WITH GRANT OPTION is also caught (anon=r*/test still yields anon|SELECT|table). A residual gap of a different class is filed as RT-7."
+    },
+    {
+      "id": "RT-2",
+      "severity": "P1",
+      "title": "The one-REVOKE guard anchors on line starts; a wider revoke evades it",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:117",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "CLOSED, verified by re-running round 1's exact escape. Journaled mutation M5 appends SELECT 1; REVOKE ALL ON job_outbox FROM service_role; to the revoke line: the suite now reports 1 failed on this case. The parser survived a fifteen-input attack (tagged dollar-quotes, nested $$, block comments, a line-comment marker inside a string literal, multi-line REVOKE, Cyrillic homoglyphs, ALTER DEFAULT PRIVILEGES, SECURITY DEFINER bodies) - every literal-keyword construct is caught by at least one of the two deliberately-disagreeing checks, and the comment-marker-inside-a-string hazard fails CLOSED (revokes=0) rather than open. Two non-literal survivors are filed as RT-8 and RT-9."
+    },
+    {
+      "id": "RT-3",
+      "severity": "P1",
+      "title": "production has run this exact posture for five months - production has never run the REVOKE half",
+      "at": "supabase/migrations/119_job_outbox_rls.sql:39",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "CLOSED, re-resolved against the live catalogues this round. The false sentence is gone from all three documents; the migration header now scopes the empirical argument explicitly (the empirical half of that argument covers the ALTER ONLY, and the post-119 posture has run in NO environment), migrations-log:2719-2720 says the same, and arch-review-log:95 records the correction as history rather than repeating the claim. Introspected read-only 2026-09-07: prod udeyaqnvpojbwgoaxwdg relrowsecurity=true, 0 policies, relacl {postgres,anon,authenticated,service_role} all arwdDxtm; staging kubdiqdhqbhwmqfditeg relrowsecurity=false, identical ACL, 0 column ACLs. The replacement text matches the catalogues exactly. The sibling count claim in the same edit (78 -> 55) also re-measured TRUE: 78 non-test files reference the identifier, 55 of them carry an explicit SQL binding."
+    },
+    {
+      "id": "RT-4",
+      "severity": "P1",
+      "title": "The rollback plan disables RLS on production, leaving it looser than pre-119",
+      "at": "docs/superpowers/plans/fix-1171-job-outbox-rls-intake.json:73",
+      "duty": 5,
+      "disposition": "fixed",
+      "reason": "CLOSED on its primary claim, checked against both live baselines. The plan is now per-environment in both byte-identical intake copies: production gets GRANT ALL with RLS left ENABLED, staging gets GRANT ALL plus DISABLE ROW LEVEL SECURITY. Executable and exact - both projects run PostgreSQL 17.6 where GRANT ALL on a table yields precisely arwdDxtm, the eight-privilege set both projects hold today, so each arm restores its own real pre-119 baseline and neither drops below it. The half-applied-lockstep gap is now disclosed in the migration header rather than fixed (introspection is the ONLY detector), which is an honest statement of a manual control. One round-1 sub-point survives unfixed and is recorded rather than re-charged: the plan still says Apply staging first, as always, which round 1 called the wrong order for a production-triggered incident. It is now qualified by the staging ride is the detector, making the ordering defensible; noted for the arbiter, not raised as a new finding."
+    },
+    {
+      "id": "RT-5",
+      "severity": "P2",
+      "title": "The DB-free guard pins the REVOKE but forbids no subsequent GRANT",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:110",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "CLOSED for the GRANT class. Two assertions now forbid a re-grant: no top-level statement may start with GRANT, and the comment-stripped raw text must contain zero GRANT tokens with dollar-quoted bodies left intact. Round 1's F6 mutant (append GRANT SELECT, INSERT ON job_outbox TO authenticated;) and the tagged-body variant M1 are both killed. The prohibition covers GRANT only; DISABLE ROW LEVEL SECURITY is not covered -> RT-8."
+    },
+    {
+      "id": "RT-6",
+      "severity": "P2",
+      "title": "19 sibling tables carry RLS-on / zero-policies / client grants intact",
+      "at": "docs/superpowers/plans/fix-1171-job-outbox-rls-deviations.md:392",
+      "duty": 4,
+      "disposition": "rejected",
+      "reason": "Recorded, not fixed: explicit non_goals[3] of the locked intake ('Do not REVOKE anon/authenticated on any other deny-all table. That is a separate reviewed change.'). Round 2 confirmed it is accurately recorded in deviations D16 with the table list, and it is carried to the follow-up issue alongside D15. Rejecting for THIS branch, not dismissing."
+    },
+    {
+      "id": "RT-7",
+      "severity": "P0",
+      "title": "The new ACL guard filters on grantee NAME, so a grant via PUBLIC or via a role anon inherits leaves the whole suite green while anon holds INSERT on the dispatch spine",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:250",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Confirmed by mutation on a throwaway clone at HEAD, not argued. GRANT SELECT, INSERT ON job_outbox TO PUBLIC writes relacl {test=arwdDxt/test,=r/test} - grantee OID 0, whose regrole cast renders as a bare dash, so it matches neither anon nor authenticated and aclexplode returns zero rows. Whole suite: 6 passed / 0 failed. In the same state has_table_privilege('anon','public.job_outbox','SELECT') = t and has_table_privilege('authenticated','public.job_outbox','INSERT') = t. The second path is role membership: CREATE ROLE rt_mid; GRANT rt_mid TO anon; GRANT SELECT, INSERT ON job_outbox TO rt_mid leaves the oracle empty with the same effective privilege. NOT equivalent: the mutant reproduces exactly the exposure the migration header names as the reason this migration exists - anon holds INSERT, and OutboxPoller dispatches whatever rows it finds without asking who wrote them. NOT an unexecuted branch: the identical assertion FAILED under the R1 mutant. This is the P0 fix trading one blindness for another - has_table_privilege was blind to superusers but saw EFFECTIVE privilege including PUBLIC and inheritance; the aclexplode grantee-name filter is superuser-proof but sees only DIRECT grants. Graded P0 on two limbs. First, the protocol's own taxonomy: the survivor is confirmed, executed, and provably NOT equivalent, and the only non-blocking classifications require either a proof of behaviour preservation (false here) or a judgement of plausible equivalence (also false). Second, a false doc claim: the case's own header at lines 30-33 states that a future migration's GRANT is applied by pnpm test:db:setup on every container, so this case genuinely fails on that regression - measured FALSE for a GRANT TO PUBLIC. The real-world exposure is nonetheless BOUNDED, and the arbiter should size it accordingly: (a) the realistic regression, a named grant to anon or authenticated, is measurably caught, (b) neither project carries a PUBLIC table ACL entry today (introspected read-only 2026-09-07: relacl on both is {postgres,anon,authenticated,service_role}, no PUBLIC entry), (c) no migration in this repo emits a PUBLIC table grant or a role-membership grant, and (d) the branch's own sibling suite 117 keeps the complementary has_table_privilege form, so the house already owns the other half. It is a coverage gap in the branch's SOLE designated regression guard for this boundary (ci:rls-audit covers only TENANT_TABLES), not a defect in the migration. Behavioural replacement, two clauses: widen the grantee predicate to also admit acl.grantee = 0 and pg_has_role('anon', acl.grantee, 'USAGE') / pg_has_role('authenticated', acl.grantee, 'USAGE'), or keep the ACL read and add a has_table_privilege arm for the two client roles alongside it - the two oracles are blind in opposite directions and the pair is what makes the case complete.",
+      "reason": "FIXED by the root and verified by re-running round 2's own mutation. Title 4 now carries TWO arms. Arm A (relacl + attacl via aclexplode) admits acl.grantee = 0, so PUBLIC is no longer invisible to the NAME filter. Arm B is new and asks the effective question - has_table_privilege for anon and authenticated over a privilege list DERIVED from acldefault('r', owner) rather than spelled - which also catches a grant reaching anon through role membership, and RT-9's concatenated grant. The derivation is load-bearing: the local container is PostgreSQL 16 (7 privilege types) and both Supabase projects are 17 (8, MAINTAIN added), so a hardcoded list would miss one there or raise unrecognized privilege type here. has_table_privilege is sound for these two roles even though it was the wrong tool for the OWNER in RT-1: the superuser short-circuit does not apply to anon or authenticated, which are NOLOGIN non-superuser roles. Measured: GRANT SELECT, INSERT ON job_outbox TO PUBLIC -> suite 1 failed / 5 passed (it was 6/6 before the fix); REVOKE ALL ON job_outbox FROM PUBLIC -> 6/6. NOTE: no independent adversarial pass has run against the fixed tree - round-start refuses a third round - so this disposition rests on the root's own mutation evidence, which is disclosed to the owner rather than presented as an independent verification."
+    },
+    {
+      "id": "RT-8",
+      "severity": "P2",
+      "title": "The file-text guard forbids GRANT but not a subsequent DISABLE ROW LEVEL SECURITY, so a self-cancelling migration passes every case",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:163",
+      "duty": 2,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Journaled mutation M9 appends ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY; inside the transaction, immediately before COMMIT. The suite reports 6 passed / 0 failed. The case at line 163 asserts the ENABLE statement is PRESENT and forbids CREATE POLICY and FORCE, but nothing forbids a later DISABLE; the statement parser never sees it either, because it starts with ALTER rather than REVOKE or GRANT. NOT equivalent: applied, the file leaves relrowsecurity false, which is precisely the staging state the branch exists to remove. NOT an unexecuted branch: all three file-text assertions run on every invocation. P2 rather than P1 because the catalogue case DOES kill it once the container is re-provisioned - measured as R3, where a behind-head clone made that case fail first with the actionable BEHIND_HEAD message - and CI provisions the database fresh on every run, so the escape exists only in the DB-free lane and only until the next pnpm test:db:setup. This is the same class round 1 filed as RT-5 (P2); the fix closed the GRANT half of it and left the DISABLE half. Behavioural replacement: add a not.toMatch assertion for DISABLE ROW LEVEL SECURITY beside the two absence assertions already there.",
+      "reason": "FIXED by the root. expect(text).not.toMatch(/DISABLE ROW LEVEL SECURITY/i) added beside the existing CREATE POLICY and FORCE assertions in the same case. A self-cancelling DISABLE below the ENABLE would leave the file reading as if it hardens the table while shipping the drift it exists to close."
+    },
+    {
+      "id": "RT-9",
+      "severity": "P2",
+      "title": "A GRANT assembled by string concatenation inside the DO block evades both text checks and really grants anon ALL",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:156",
+      "duty": 2,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Journaled mutation M2 appends a DO block whose EXECUTE concatenates the keyword from two string fragments. Verified valid SQL with a real effect BEFORE the test run - applied to the clone it writes relacl {test=arwdDxt/test,anon=arwdDxt/test}. Suite: 6 passed / 0 failed. It defeats the statement list because the dollar-quoted body is masked, and it defeats the raw-text counter because the keyword is never spelled. NOT equivalent, NOT unexecuted, by the same reasoning as RT-8. P2 and recorded rather than charged: this is an adversarial-author construct, not an authoring accident, and a migration-text guard's threat model is a future developer widening the file, not an attacker obfuscating inside it. The catalogue case kills it on the next provision. No behavioural replacement is proposed - a text guard cannot close this class, and the honest fix is to scope the header sentence at line 35 to what a developer would plausibly write.",
+      "reason": "FIXED, though not by a text guard - no text guard can see a concatenated identifier, and D17's belt cannot either. Closed by RT-7's Arm B: the concatenated GRANT genuinely executes, so the effective-privilege read observes it once pnpm test:db:setup applies the migration. This is the argument for holding a catalogue arm at all - text guards bound what the file may SAY, only the catalogue bounds what it DOES."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 9,
+    "killed": 6,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 2,
+    "findings_total": 9,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 8,
+    "rejected": 1
+  },
+  "status": "CLEAR"
+}

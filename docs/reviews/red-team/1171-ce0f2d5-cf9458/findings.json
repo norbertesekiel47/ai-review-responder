@@ -1,0 +1,182 @@
+{
+  "schema": 1,
+  "mode": "standalone",
+  "run_id": "standalone-1171-ce0f2d5-cf9458",
+  "branch": null,
+  "fork_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "merge_base_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "head_sha": "ce0f2d52b46aff65098853be8638ce6e885df9e6",
+  "intake_sha256": "e300e0c85fff819113f4fce4c3f92c505c7b6c2cc162d3be0cbc9076d10d02b8",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-07T09:50:29Z",
+  "inventory": [
+    {
+      "id": "MUT-01",
+      "test": "migration 119 registries > job_outbox stays REVIEWED_NOT_TENANT_SCOPED and NOT a TENANT_TABLES member",
+      "file": "scripts/ci/tenant-tables.ts",
+      "outcome": "killed",
+      "reason": "Renamed the REVIEWED_NOT_TENANT_SCOPED entry's table field so the lookup misses. Test failed."
+    },
+    {
+      "id": "MUT-02",
+      "test": "migration 119 registries > migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F2",
+      "reason": "Appended DO $fix$ BEGIN EXECUTE 'REVO' || 'KE ALL ON job_outbox FROM service_role'; END $fix$; — the widened revoke passes the statement list (tagged dollar-quote is not masked, semicolon splits the fragments), the \\\\bREVOKE\\\\b count (still 1) and the \\\\bGRANT\\\\b count (still null). Test passed."
+    },
+    {
+      "id": "MUT-03",
+      "test": "migration 119 registries > migration 119 revokes every anon and authenticated privilege on job_outbox",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F2",
+      "reason": "Appended DO $regrant$ BEGIN EXECUTE 'GRA' || 'NT SELECT, INSERT ON job_outbox TO anon'; END $regrant$; — the same tagged-dollar-quote + token-splitting weakness as MUT-02, in the GRANT direction. Test passed. Unlike MUT-02 this one IS backstopped by title 4 Arm A once the migration is applied (MUT-09 proves Arm A kills a direct grant), which is the asymmetry F2 records."
+    },
+    {
+      "id": "MUT-04",
+      "test": "migration 119 registries > migration 119 grants no policy and does not force row level security",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F3",
+      "reason": "Appended ALTER TABLE job_outbox\\n  DISABLE ROW LEVEL\\n  SECURITY; — a newline inside the keyword phrase defeats the whitespace-literal /DISABLE ROW LEVEL SECURITY/i on raw text. Test passed."
+    },
+    {
+      "id": "MUT-05",
+      "test": "migration 119 registries > migration 119 grants no policy and does not force row level security",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F3",
+      "reason": "Appended CREATE\\n  POLICY job_outbox_client_read ON job_outbox FOR SELECT TO anon USING (true); — defeats /CREATE POLICY/i the same way. Test passed."
+    },
+    {
+      "id": "MUT-06",
+      "test": "migration 119 job_outbox deny-all RLS > migration 119 enables row level security on job_outbox and defines zero policies",
+      "file": "supabase/migrations/119_job_outbox_rls.sql (database state, throwaway clone)",
+      "outcome": "killed",
+      "reason": "ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY on the clone. Test failed on the rls_enabled assertion."
+    },
+    {
+      "id": "MUT-07",
+      "test": "migration 119 job_outbox deny-all RLS > migration 119 enables row level security on job_outbox and defines zero policies",
+      "file": "supabase/migrations/119_job_outbox_rls.sql (database state, throwaway clone)",
+      "outcome": "killed",
+      "reason": "CREATE POLICY job_outbox_client_read ON job_outbox FOR SELECT TO anon USING (true) on the clone. Test failed on policy_count. This is the backstop F3 relies on."
+    },
+    {
+      "id": "MUT-08",
+      "test": "migration 119 job_outbox deny-all RLS > migration 119 leaves FORCE row level security off so the owner-role worker keeps dispatching",
+      "file": "supabase/migrations/119_job_outbox_rls.sql (database state, throwaway clone)",
+      "outcome": "killed",
+      "reason": "ALTER TABLE job_outbox FORCE ROW LEVEL SECURITY on the clone. Test failed."
+    },
+    {
+      "id": "MUT-09",
+      "test": "migration 119 job_outbox deny-all RLS > migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs",
+      "file": "supabase/migrations/119_job_outbox_rls.sql (database state, throwaway clone)",
+      "outcome": "killed",
+      "reason": "GRANT SELECT, INSERT ON job_outbox TO PUBLIC on the clone — round 2's RT-7 mutation, re-run independently. Test failed on Arm A with role '-'. RT-7's fix holds for this shape."
+    },
+    {
+      "id": "MUT-10",
+      "test": "migration 119 job_outbox deny-all RLS > migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs",
+      "file": "supabase/migrations/119_job_outbox_rls.sql (database state, throwaway clone)",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F1",
+      "reason": "CREATE ROLE rt_probe NOLOGIN; GRANT SELECT (payload) ON job_outbox TO rt_probe; GRANT rt_probe TO anon. Arm A misses it (grantee is rt_probe: neither 0 nor a named client role); Arm B misses it (has_table_privilege is false for a column-only grant). Test passed while has_column_privilege('anon','public.job_outbox','payload','SELECT') = true."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P0",
+      "title": "A COLUMN-level grant to a role anon inherits escapes BOTH arms of the privilege guard",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:271",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Not equivalent and not on an unexecuted branch: both arms run and both return zero rows while anon really can read the outbox payload. Measured on the clone at HEAD: relacl stayed {test=arwdDxt/test} (Arm A table half sees nothing), attacl became payload={rt_probe=r/test} (Arm A column half filters on grantee = 0 OR grantee::regrole::text IN ('anon','authenticated'), and rt_probe is neither), has_table_privilege('anon','public.job_outbox','SELECT') = f (Arm B asks a TABLE-level question, which a column grant does not answer), has_column_privilege('anon','public.job_outbox','payload','SELECT') = t, pg_has_role('anon','rt_probe','USAGE') = t. The inheritance leg is live in every environment: anon and authenticated carry rolinherit = true on the local container (PostgreSQL 16.14) and on BOTH Supabase projects (17.0006, introspected read-only 2026-09-07). This is the direct successor of RT-7: round 2 closed the PUBLIC leg in Arm A and the table-level MEMBERSHIP leg in Arm B, and the intersection of the two — column AND membership — is covered by neither. The suite header positively claims the opposite at lines 30-34 ('who is NAMED in the ACL, table and column') and 40-41 ('Arm B also catches a grant reaching anon through role MEMBERSHIP'). Suggested closure: give Arm B a has_column_privilege leg over pg_attribute, or resolve membership in Arm A's column half with pg_has_role(client_role, acl.grantee, 'USAGE') instead of a name/0 filter."
+    },
+    {
+      "id": "F2",
+      "severity": "P0",
+      "title": "The tagged dollar-quote + concatenated-token construct defeats both text checks; in the REVOKE direction nothing else catches it",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:169",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "MUT-02 and MUT-03 both survived title 2. The construct is DO $tag$ BEGIN EXECUTE 'REVO' || 'KE ...'; END $tag$; — three properties compose: the statement parser's /\\$\\$[\\s\\S]*?\\$\\$/ mask does not handle a TAGGED dollar-quote, so the block splits at its inner semicolon into fragments starting DO and END and never matches ^REVOKE/^GRANT; D17's belt counts \\bREVOKE\\b, and 'REVO' || 'KE carries no such token, so the count stays 1; \\bGRANT\\b stays null. The two directions are NOT symmetric. MUT-03 (re-GRANT to anon) is backstopped by title 4 Arm A once the migration is applied — MUT-09 proves Arm A kills a direct named grant — which matches RT-9's accepted disposition. MUT-02 (widened REVOKE against service_role or the owner) has NO backstop: grep of the suite returns ZERO non-comment assertions naming service_role or the owner, an omission lines 61-70 record deliberately and then claim is covered — 'both are guarded by title 3's exact-match statement assertion instead of by an assertion that could only be true by accident'. MUT-02 falsifies that sentence, and D17/RT-9's closing argument ('only the catalogue bounds what it DOES') cannot transfer to a role the catalogue arm never asks about. P0 on D18's own recorded reasoning for RT-7: a confirmed, executed, provably non-equivalent survivor with no other detector, plus a positively false claim in the artifact's own header."
+    },
+    {
+      "id": "F3",
+      "severity": "P0",
+      "title": "The three forbidden-form guards match raw text with literal single spaces, so a newline inside the keyword phrase evades them",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:187",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "MUT-04 and MUT-05 both survived title 3. /CREATE POLICY/i, /FORCE ROW LEVEL SECURITY/i and /DISABLE ROW LEVEL SECURITY/i (and the positive /ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;/) are matched against the RAW file with literal single spaces. PostgreSQL accepts a newline or a run of spaces anywhere between those keywords, so 'ALTER TABLE job_outbox\\n  DISABLE ROW LEVEL\\n  SECURITY;' and 'CREATE\\n  POLICY job_outbox_client_read ON job_outbox FOR SELECT TO anon USING (true);' are valid SQL that no check sees. The comment at 176-178 argues for raw text because the statement parser masks the DO body, without noticing that the statement list ALREADY collapses whitespace at line 114 — the fixes for D9 and RT-8 landed separately and gave up, between them, the one normalisation that would have closed this. Neither mutant is equivalent and both branches execute. Graded P0: RT-8 closed exactly this statement with a literal regex and it is re-opened in a new spelling, and lines 47-49 call the file-text case 'the ONLY environment-independent guard'. Mitigation, measured rather than assumed: MUT-06 shows title 1 kills a DISABLE once the file is applied and MUT-07 shows title 1 kills an added policy, so a container at head does catch both consequences — but the guard the file names as the environment-independent one does not. Closure: run the three checks over topLevelStatements() as well, or spell them with \\s+ (in-repo precedent: migration-045-onboarding-demos-rls.test.ts:12, migration-043-structure.test.ts:47)."
+    },
+    {
+      "id": "F4",
+      "severity": "P2",
+      "title": "Arm B fails OPEN when its derived privilege list is empty, and nothing asserts the list is non-empty",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:302",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Measured on the container: acldefault('r', NULL) IS NULL and aclexplode(NULL) returns 0 rows, so an empty server_privileges CTE makes the CROSS JOIN empty and expect(effective).toEqual([]) pass vacuously. Currently UNREACHABLE — 'public.job_outbox'::regclass raises rather than returning NULL when the table is absent, and Arm A executes first — so this is latent, not live, hence P2. It is still a security oracle with no self-check. One line closes it: assert the derived list has 7 types on PostgreSQL 16 and 8 on 17 (measured this pass: 7 locally, 8 incl. MAINTAIN on both Supabase projects). Also verified sound: the CTE is indifferent to relowner changing (ALTER TABLE job_outbox OWNER TO anon still derives 7 types, and both arms then fire because the owner change rewrites relacl)."
+    },
+    {
+      "id": "F5",
+      "severity": "P2",
+      "title": "The sibling-table count is 20, not 19",
+      "at": "docs/superpowers/plans/fix-1171-job-outbox-rls-deviations.md:392",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Read-only introspection 2026-09-07 of tables in schema public with relrowsecurity, zero pg_policies rows and at least one anon/authenticated/PUBLIC entry in relacl: production returns 21 including job_outbox itself (so 20 siblings), staging returns 20 (job_outbox excluded there only because its RLS is off). D16 and RT-6 both say 19 on both projects. The list is otherwise accurate. Recorded, not work for this branch: intake non_goals[3] explicitly excludes revoking on the other deny-all tables. Worth carrying to the follow-up issue with the corrected count, because all 20 grant TRUNCATE to anon AND authenticated with RLS on and zero policies (spot-checked on flagged_responses, auto_approval_policies, agent_runs), and TRUNCATE's exemption from row policies is the suite's own argument for why an enumeration of SELECT/INSERT is insufficient."
+    },
+    {
+      "id": "F6",
+      "severity": "P2",
+      "title": "The 55/78 file counts are reproducible only under a scope the documents never state",
+      "at": ".claude/reference/migrations-log.md:2745",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Both numbers DO reproduce at HEAD, but only under one nested definition: 78 = files under src/ and worker/ whose path does not contain __tests__ and which mention the identifier; 55 = of those 78, the ones containing a SQL keyword (FROM|INTO|UPDATE) immediately followed by job_outbox. No other reasonable scope lands on either number. As written the parenthetical reads absolute — '78 reference the identifier at all' — while 591 tracked files in the repo reference it (324 of them under docs/). Same sentence appears at supabase/migrations/119_job_outbox_rls.sql:68 and src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:138. Not a false claim, an underspecified one: state the scope so the next reader can re-derive it."
+    },
+    {
+      "id": "F7",
+      "severity": "P2",
+      "title": "The registry case asserts on prose, not on membership",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:143",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "expect(reviewed?.reason).toMatch(/[Tt]ransactional outbox/) pins the wording of a registry comment. Rewording the reason — a legitimate edit that changes no behaviour — reddens the suite, and the regex passes for any entry whose prose happens to contain the phrase. MUT-01 shows the load-bearing half is the lookup itself. Behavioural replacement: assert REVIEWED_NOT_TENANT_SCOPED.map(e => e.table) contains job_outbox, and keep the prose out of the oracle."
+    },
+    {
+      "id": "F8",
+      "severity": "P2",
+      "title": "Sibling suites carry the same whitespace-literal raw-text guard; migration 118 has no text guard at all",
+      "at": "src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts:81",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 4 search, recorded rather than proposed as work: 117's suite is the closest analogue and repeats F3's shape exactly — readFileSync into raw text, then not.toMatch(/CREATE POLICY/i) at :81 with single-space literal positives at :80 and :82. The same shape appears in migration-048, -049, -051, -053 and -057. Counter-examples already in the repo use \\\\s+ (migration-045-onboarding-demos-rls.test.ts:12, migration-043-structure.test.ts:47, migration-050-structure.test.ts:42). Separately: no test file anywhere under src/ or worker/ reads supabase/migrations/118_poller_heartbeats.sql, so 118's REVOKE has no file-text guard of any kind. All of this is unchanged code and outside this diff — it is here because Duty 4 requires the search result to be recorded, not because it blocks."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 10,
+    "killed": 5,
+    "survived_confirmed_p0": 5,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 0,
+    "findings_total": 8,
+    "p0_open": 3,
+    "p1_open": 0,
+    "p2_open": 5,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
