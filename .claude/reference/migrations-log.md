@@ -2700,7 +2700,11 @@ Revisit triggers:
   `actor_user_id` column name is on the offboarding account-linked scan
   (`table-disposition.test.ts`) and would otherwise fail it. Keep forever. Live suite:
   `src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts`.
-  **LOCAL-ONLY** until promoted.
+  **Applied to STAGING 2026-09-07T01:15Z** (Supabase MCP `execute_sql`, verified
+  by introspection: `relrowsecurity` true / FORCE off, `pg_policies` count 0,
+  both indexes, FK `confdeltype='a'`, `has_table_privilege` false for anon +
+  authenticated). **PRODUCTION: pending** — applied after the staging smoke,
+  before the PR leaves draft (plan §6.3).
 - **115** — `qr_scan_analytics_event`: widens the `analytics_events`
   `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;
   `docs/context/review-qr.md` "QR redirect"). Constraint-only on the 106 pattern — no
