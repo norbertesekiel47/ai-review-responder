@@ -1,5 +1,26 @@
 # Architecture review log
 
+2026-09-06 — **fix/468-admin-mfa-audit (pre-merge):** Admin MFA events get
+a sink. `account_audit_log.account_id` is NOT NULL and admins have
+`role='admin'` + NULL `account_id`, so `auditMfaEvent` in the MFA challenge
+route dropped every admin enrollment / step-up / factor removal since #467.
+Migration 117 adds `admin_audit_log` (actor-keyed, no account column,
+deny-all RLS PLUS `REVOKE ALL … FROM anon, authenticated` because RLS filters
+rows not privileges, FK with no referential action, keep forever) — chosen
+over relaxing the account sink, which every tenant-scope query, the
+owner-select policy, the governor joins and the purge treat as per-account.
+`writeAdminAuditLog` joins `writeAccountAuditLog` in `src/lib/audit/log.ts`;
+the route routes by ROLE through one memoised `users` lookup (admin → admin
+sink, owner → account sink, else Sentry `audit_actor_unroutable`, no row) and
+records `mfa_factor_enrolled` when the factor was `unverified` before
+`verify`, read from `user.factors` (no second Supabase call). Registries:
+`REVIEWED_NOT_TENANT_SCOPED`, `TABLE_DISPOSITIONS` (`not_applicable`), the
+migrations-log retention row, rls-inventory. A read-only live suite is the
+boundary's guard because `ci:rls-audit` covers only `TENANT_TABLES`. One
+migration, five production files, no flag, one new writer. Grilled, then four
+Codex (gpt-6-astra) rounds to APPROVED. 117 is on staging (2026-09-07T01:15Z);
+prod follows the staging smoke. The merge counter is unchanged until this
+branch is merged.
 2026-09-07 — **docs/504-reaper-pointers (pre-merge):** Re-point the
 shared-client reclaim residual from #477 to #504 in the `health-db.ts` header
 comment and the `postgres.md` #413 closure entry — #477 closed 2026-07-20 via

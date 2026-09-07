@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { writeAccountAuditLog } from '@/lib/audit/log';
+import { writeAccountAuditLog, writeAdminAuditLog } from '@/lib/audit/log';
 import { setFreshAuthCookie } from '@/lib/account-offboarding/destructive-auth';
-import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
+import {
+  factorStatusBefore,
+  requireCurrentAal2FromSupabase,
+  type SupabaseMfaAalClient,
+} from '@/lib/auth/mfa';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -48,17 +52,43 @@ function parseBody(body: unknown): MfaChallengeBody | null {
   return null;
 }
 
+interface MfaActor {
+  id: string;
+  account_id: string | null;
+  role: string;
+}
+
+// One `users` lookup per request, shared by the audit sink choice and the
+// fresh-auth cookie. Memoised as a promise so the two consumers never issue a
+// second query; a lookup failure is reported by the consumer that hits it.
+function actorLoader(authUserId: string): () => Promise<MfaActor | null> {
+  let pending: Promise<MfaActor | null> | undefined;
+  return () => {
+    pending ??= sql<MfaActor[]>`
+      SELECT id, account_id, role FROM users WHERE auth_id = ${authUserId} LIMIT 1
+    `.then((rows) => rows[0] ?? null);
+    return pending;
+  };
+}
+
 // Best-effort MFA audit: never block the auth action on an audit-write failure,
-// but record actor actions (factor removal, verify outcomes) for the trail.
+// but record actor actions (enrollment, verify outcomes, factor removal) for
+// the trail. Routed by ROLE (#468): an admin has `role='admin'` and a NULL
+// `account_id`, so it can only be recorded in `admin_audit_log`; an owner is
+// recorded against their account. Routing on `account_id IS NULL` alone would
+// file a non-admin with no account (possible since migration 039) as admin
+// activity — that case is surfaced to Sentry instead and writes nothing.
 async function auditMfaEvent(
-  authUserId: string,
+  loadActor: () => Promise<MfaActor | null>,
   eventType: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
   try {
-    const [actor] = await sql<{ id: string; account_id: string | null }[]>`
-      SELECT id, account_id FROM users WHERE auth_id = ${authUserId} LIMIT 1
-    `;
+    const actor = await loadActor();
+    if (actor?.role === 'admin') {
+      await writeAdminAuditLog(sql, { actorUserId: actor.id, eventType, payload });
+      return;
+    }
     if (actor?.account_id) {
       await writeAccountAuditLog(sql, {
         accountId: actor.account_id,
@@ -66,7 +96,13 @@ async function auditMfaEvent(
         eventType,
         payload,
       });
+      return;
     }
+    reportCaughtError('mfa-challenge', new Error('audit_actor_unroutable'), {
+      reason: 'audit_actor_unroutable',
+      eventType,
+      role: actor?.role ?? null,
+    });
   } catch (err) {
     reportCaughtError('mfa-challenge', err, {
       reason: 'audit_write_failed',
@@ -76,15 +112,10 @@ async function auditMfaEvent(
 }
 
 async function accountOwnerForAuthUser(
-  authUserId: string,
+  loadActor: () => Promise<MfaActor | null>,
 ): Promise<{ userId: string; accountId: string } | null> {
   try {
-    const [actor] = await sql<{ id: string; account_id: string | null; role: string }[]>`
-      SELECT id, account_id, role
-      FROM users
-      WHERE auth_id = ${authUserId}
-      LIMIT 1
-    `;
+    const actor = await loadActor();
     if (actor?.role !== 'owner' || !actor.account_id) return null;
     return { userId: actor.id, accountId: actor.account_id };
   } catch (err) {
@@ -164,6 +195,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 401, headers: NO_STORE },
     );
   }
+  const loadActor = actorLoader(user.id);
 
   try {
     const limit = await checkRateLimit(
@@ -232,9 +264,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400, headers: NO_STORE },
       );
     }
-    await auditMfaEvent(user.id, 'mfa_factor_unenrolled', { factor_id: body.factorId });
+    await auditMfaEvent(loadActor, 'mfa_factor_unenrolled', { factor_id: body.factorId });
     return jsonWithCookies(cookieJar, { ok: true }, { status: 200, headers: NO_STORE });
   }
+
+  // Read BEFORE verify: a successful verify flips an `unverified` (enrolling)
+  // factor to `verified`, and that flip is the only thing that distinguishes
+  // "new factor enrolled" from "logged-in user stepped up" in the trail.
+  const statusBefore = factorStatusBefore(user.factors, body.factorId);
+  const auditPayload = { factor_id: body.factorId, factor_status_before: statusBefore };
 
   const { error } = await supabase.auth.mfa.verify({
     factorId: body.factorId,
@@ -242,7 +280,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     code: body.code,
   });
   if (error) {
-    await auditMfaEvent(user.id, 'mfa_challenge_failed', { factor_id: body.factorId });
+    await auditMfaEvent(loadActor, 'mfa_challenge_failed', auditPayload);
     return jsonWithCookies(
       cookieJar,
       { error: 'verify_failed' },
@@ -250,13 +288,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  await auditMfaEvent(user.id, 'mfa_challenge_succeeded', { factor_id: body.factorId });
+  await auditMfaEvent(
+    loadActor,
+    statusBefore === 'unverified' ? 'mfa_factor_enrolled' : 'mfa_challenge_succeeded',
+    auditPayload,
+  );
   const response = jsonWithCookies(
     cookieJar,
     { ok: true },
     { status: 200, headers: NO_STORE },
   );
-  const owner = await accountOwnerForAuthUser(user.id);
+  const owner = await accountOwnerForAuthUser(loadActor);
   if (owner) {
     setFreshAuthCookie(response, owner);
   }

@@ -835,3 +835,19 @@ agentic reputation-system positioning. Owner chose present tense for Solicitor
 - Tests: FleetSection (no NEXT tag), new JobsSection test, FeaturesContent
   and HowItWorksContent assertions for the new chapters and band.
 
+## 2026-09-06 — Admin MFA audit trail #468 (local, pre-merge)
+
+- Migration 117 `admin_audit_log`: actor-keyed admin control-plane trail,
+  deny-all RLS + client-role REVOKE, two indexes, no-action FK, keep forever.
+- `writeAdminAuditLog` beside `writeAccountAuditLog` in `src/lib/audit/log.ts`.
+- `factorStatusBefore` (pure, over `user.factors`) in `src/lib/auth/mfa.ts`.
+- MFA challenge route: one memoised actor lookup; audit routed by role
+  (admin / owner / unroutable → Sentry); `mfa_factor_enrolled` vs
+  `mfa_challenge_succeeded`; `factor_status_before` on every verify payload.
+- Tests: 11 new route cases (admin path, enrollment vs step-up, unroutable,
+  best-effort), helper unit tests, and the read-only live suite for 117.
+- Registries/docs: `REVIEWED_NOT_TENANT_SCOPED`, migrations-log (head 117 +
+  retention row), rls-inventory, directory rows, MFA reset runbook § Audit.
+- Plan reviewed by Codex (gpt-6-astra), 4 rounds → APPROVED; the review moved
+  the factor lookup off the network and added the REVOKE + live suite.
+

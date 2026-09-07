@@ -40,7 +40,7 @@ Account audit-log writer.
 
 | File | What it does |
 |------|--------------|
-| `log.ts` | `writeAccountAuditLog(db, input)` — the ONLY sanctioned writer of `account_audit_log` (never a raw `INSERT`). Inserts a UUIDv7 row with `account_id`, `event_type`, a JSON `payload` and optional location/actor/entity/ip/user-agent/request-id columns. Accepts the base `Sql` client (standalone best-effort writes, e.g. the MFA challenge route) or a `TransactionSql` — account-status writes must use the SAME transaction as the state change. |
+| `log.ts` | Two sinks, two writers. `writeAccountAuditLog(db, input)` — the ONLY writer of `account_audit_log` (never a raw `INSERT`): a UUIDv7 row with `account_id`, `event_type`, JSON `payload`, optional metadata columns. `writeAdminAuditLog(db, input)` **(#468, migration 117)** — the ONLY writer of `admin_audit_log`, the admin actor trail keyed on `actor_user_id`, no account column (admins have NULL `account_id`). Both take the base `Sql` (best-effort, e.g. the MFA route) or a `TransactionSql` — account-status writes use the SAME transaction as the state change. |
 
 
 ### `competitors/`
@@ -79,7 +79,7 @@ Ranking-tracking feature flag.
 | File | What it does |
 |------|--------------|
 | `route-helpers.ts` | Route wrappers for rate limiting, same-origin checks, and Supabase session reads. |
-| `mfa.ts` | **(Wave 2)** Supabase AAL helper functions used by proxy and sensitive routes. |
+| `mfa.ts` | **(Wave 2)** Supabase AAL helper functions used by proxy and sensitive routes. **(#468)** `factorStatusBefore(factors, factorId)` — pure read of `user.factors` (already on `getUser()`) → `verified`/`unverified`/`unknown`, taken BEFORE `verify` because success flips it; that flip separates `mfa_factor_enrolled` from `mfa_challenge_succeeded`. |
 | `require-owner-access.ts` | Server-component guard for owner-only pages. `requireOwnerAccess(sql)` resolves auth user → `users` row → validates role + subscription_status; redirects on failure; returns `{ accountId, currentLocationId, role }`. Also owns the three `React.cache`-wrapped render-scoped memos (`getRenderAuthUser`, `getRenderOwnerRow`, `getRenderRequestScope`) the authenticated layout and its pages share, so one render costs one Supabase `getUser()`, one `users` read and one `businesses` scan — not two of each. Data-only; never redirects inside the memo. Route handlers and the proxy are outside `cache()` scope and keep `getCurrentUser(request)`. |
 | `page-gate.ts` | **(Phase 2)** `requireAdminPage(sql, {from, aal2})` — server-component admin gate. Resolves auth user → `users` row → admin role, optional AAL2 step-up; redirects to login/MFA-challenge on failure (fail-closed even if the AAL2 check itself throws). Defense-in-depth behind `src/proxy.ts`'s `/admin` gate; every migrated admin `page.tsx` calls it. |
 | `admin-mfa-gate.ts` | `requireAdminWithAal2(request)` — the admin control-plane preamble: `requireRole('admin')` then AAL2 step-up via `requireCurrentAal2FromSupabase` on a cookie-backed client; returns `{ ok, admin }` or a no-store JSON response (AuthError status / 403 `mfa_required`|`mfa_check_failed` / 500 `internal_error`). CSRF is deliberately NOT here — routes wrap with `withSameOrigin()`. Also `internalError(label, err)`, the shared 500 shape for admin mutation routes. Credited by `ci:admin-aal2`. |
