@@ -54,7 +54,8 @@
   "allowed_edit_surface": [
     "supabase/migrations/119_job_outbox_rls.sql",
     "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
-    ".claude/reference/migrations-log.md"
+    ".claude/reference/migrations-log.md",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "migration 119 enables row level security on job_outbox and defines zero policies",
@@ -66,8 +67,8 @@
     "pnpm ci:rls-audit",
     "pnpm ci:tenant-scope"
   ],
-  "estimated_prod_lines": 45,
-  "estimated_test_lines": 90,
+  "estimated_prod_lines": 150,
+  "estimated_test_lines": 260,
   "dependencies_added": [],
   "rollback_plan": "The migration is not auto-reversible; an applied migration is immutable. To undo, write migration 120 with ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY and GRANT SELECT, INSERT, UPDATE, DELETE ON job_outbox TO anon, authenticated, and apply it staging first. Rollback is only warranted if worker dispatch stops, which would mean the owner-role assumption is wrong. The staging ride is the detector: if staging dispatch keeps working after apply, production is safe, because production has already run with RLS enabled since 2026-04-05.",
   "observability": [

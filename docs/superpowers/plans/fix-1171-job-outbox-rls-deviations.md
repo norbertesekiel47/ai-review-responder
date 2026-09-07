@@ -3,8 +3,9 @@
 Things the locked intake did not anticipate. One entry per surprise, each
 carrying a resolved **Verdict:** before the review wave (step 6 read-back).
 
-Surface amendments: **0**. Every deviation below is a `tests_to_add` retitle or
-a within-surface correction, which `intake-contract.md` classifies as a
+Surface amendments: **1** (D6, auto-approved: one file inside a tree the
+surface already covers). Every other deviation is a `tests_to_add` retitle or a
+within-surface correction, which `intake-contract.md` classifies as a
 deviations entry rather than an amendment.
 
 ---
@@ -130,3 +131,64 @@ recorded on the PR.
 
 **Verdict: ACCEPT.** Documented limit, not a silent gap. The compensating
 evidence is named and will be produced at the staging and production applies.
+
+---
+
+## D6 — `ci:merge-ledger` requires a file the surface did not declare
+
+**What happened.** The first full gate came back RED on one row:
+`merge-ledger-audit: this PR changes 1 production file(s):
+supabase/migrations/119_job_outbox_rls.sql, and adds no line to
+.claude/reference/arch-review-log.md`. The edit-surface guard then correctly
+BLOCKED the fix, because `arch-review-log.md` was not in
+`allowed_edit_surface`.
+
+**Why the plan missed it.** The intake was built from the `new-migration`
+skill's checklist, which names the migrations-log, the retention table and the
+four tenant registries. The arch-review-log row is owed by `/feature` step 8,
+not by the migration skill, and no single document names both obligations.
+`ci:merge-ledger` is the mechanism that makes the gap visible rather than
+silent — it did its job.
+
+**What changed.** `.claude/reference/arch-review-log.md` added to
+`allowed_edit_surface` in both intake copies, `bash scripts/feature-state.sh
+incr-amendment` run (`surfaceAmendments=1`), and the pre-merge entry written.
+
+**Verdict: ACCEPT.** Auto-approved under the amendment rule: ONE file, inside
+`.claude/reference/`, a tree the surface already covers via
+`migrations-log.md`. No owner sign-off required, and the amendment budget now
+stands at 1 of 2.
+
+---
+
+## D7 — both diff buckets exceeded 2× their estimate; step 0 re-run
+
+**What happened.** The gate's `reclassify` row fired WARN:
+`production 146 > 2x estimated_prod_lines (45); test 255 > 2x
+estimated_test_lines (90)`. Measured split at the merge base:
+
+| Bucket | File | Lines |
+|---|---|---|
+| production | `supabase/migrations/119_job_outbox_rls.sql` | 92 |
+| production | `.claude/reference/migrations-log.md` | 54 |
+| production | `.claude/reference/arch-review-log.md` | 1 |
+| test | `migration-119-job-outbox-rls.integration.test.ts` | 255 |
+
+**Step 0 re-run, per the re-classification trigger.** SIZE measures
+implementation BREADTH, and the breadth did not move: three effective SQL
+statements in one file, one new test file, two documentation entries, one seam,
+zero production TypeScript, no dependency, no flag. The overrun is
+documentation density, which house style mandates rather than tolerates — 117's
+migrations-log entry runs 40 lines and 118's runs 33, and roughly 78 of the
+migration's 92 lines and 110 of the suite's 255 are header comment carrying the
+provenance, the FORCE trap and the three stated limits. Estimating 45/90 was a
+failure to budget for that, not evidence of a larger change.
+
+**Outcome: classification UNCHANGED — `small` · `high` · `backend`.** The lane
+does not move, so no work is redone. `estimated_prod_lines` and
+`estimated_test_lines` were corrected to 150 / 260 in both intake copies so the
+record matches the measurement, and the correction is logged HERE rather than
+made silently — an estimate quietly rewritten to match its own actual is the
+one move that would make this trigger worthless.
+
+**Verdict: ACCEPT.**
