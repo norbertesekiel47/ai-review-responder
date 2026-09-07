@@ -418,7 +418,7 @@ run steps, exactly per §3.1.
 | Prod WS8 cutover (`ws8-tier-cutover.md` — prod Stripe Prices + migration 078) | ❌ not run — folds into the production bring-up above; with 0 prod rows it collapses to Prices + env vars + 078 + smoke |
 | Migrations 071–083 applied to PROD Supabase | ✅ **verified by introspection 2026-07-22** with ONE expected gap: 071–077 + 079–083 all present; **078 (contract CHECKs on `accounts`/`businesses.subscription_tier`) is deliberately absent** — prod sits in the expand/contract half-state because 078 applies *inside* the prod WS8 cutover, after its controlled smoke (`ws8-tier-cutover.md`). Prod `accounts`/`businesses` have **0 rows**, so the contract step is trivial when the cutover runs. Do not apply 078 out-of-band. |
 | Owner UAT (`owner-uat-agentic-staging.md`) | pending |
-| Ordered prod flag flip (`TRIAGE` → `ESCALATION` → `JUDGE`+`GOVERNOR` → `AUTO_APPROVAL`; then `AUTOPILOT_PURCHASABLE`) | not started — **all autonomy flags OFF in production** |
+| Ordered prod flag flip (`TRIAGE` → `ESCALATION` → `JUDGE`+`GOVERNOR` → `AUTO_APPROVAL`; then `AUTOPILOT_PURCHASABLE`) | not started — **all autonomy flags OFF in production**. One step-specific trap for whoever runs this: **`JUDGE_ENABLED` off→on has a warm-up window** (#949, migration 118). The judge reads UNAVAILABLE for up to one `JUDGE_POLL_INTERVAL_MS` (60s) after the flip, because `isJudgeHealthy`'s liveness arm fails closed until `JudgeSweepPoller` writes its first `judge_sweep` heartbeat — and the poller writes none while the flag is off. Auto-policy rows downgrade to owner review and the release phase withholds during it; the downgrade is one-way. Wait one cadence and confirm a `judge_sweep` row under 900s old BEFORE the step's smoke, or the smoke measures the warm-up. Procedure: the `flag-flip` skill; semantics: the `JUDGE_ENABLED` entry in `env-vars.md`, which owns the fact. |
 
 **Launch posture (unchanged from §4):** Copilot is launchable now with zero
 autonomy flags; Autopilot flips only after the gates above, Copilot-first.
@@ -522,7 +522,7 @@ run):
 > cross-spec amendments doc is binding); ADRs 0014/0020/0021/0022.
 > **Prod flip = production bring-up (§8.4) + counsel sign-off on the #620
 > Part II brief** — deliberately not owned by the map. Surviving debt on
-> the tracker: #965, #949 (rides the §8.4 autonomy-flip checklist), #612,
+> the tracker: #965, #612,
 > #910, #919, #958.
 
 Everything §2.3 always specified: consent ledger semantics beyond the upload

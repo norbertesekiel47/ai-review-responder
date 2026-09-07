@@ -274,7 +274,9 @@ once, never on regeneration; a racing owner approval wins quietly. The owner the
 notice, no anchor, no release, ever. Every release tick re-checks the conditions and
 downgrades a lapsed batch back to owner review with the exact reason (flag off, tier
 lost, policy removed, suspension). Judge stays release-owned (#900); the pre-existing
-dead-sweep liveness blind spot is filed as #949.
+dead-sweep liveness blind spot is **CLOSED** (#949, migration 118) — `isJudgeHealthy` reads a durable
+`judge_sweep` heartbeat and fails closed without one, which is also why flipping `JUDGE_ENABLED` on
+costs a ≤60s warm-up window of downgrades.
 
 The new shape:
 - `src/lib/solicitation/auto-approval.ts` — condition gate, `auto_policy` verb, **Veto anchor**
