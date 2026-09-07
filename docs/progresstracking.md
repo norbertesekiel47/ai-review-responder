@@ -906,3 +906,116 @@ path ignores touch pointers, blur closes only when focus leaves the list, and
 focus opens a row only when no pointer caused it. Section height at 390px:
 ~2,300px → ~1,500px.
 
+## 2026-09-07 — `job_outbox` deny-all RLS, migration 119 (#1171, PR #1175, squash `7a1484a9`)
+
+**The defect.** `job_outbox` was the only table of the 54 in schema `public`
+whose `relrowsecurity` differed between the Supabase projects: production true,
+staging **false**, zero policies on both, with `anon` and `authenticated`
+holding all 8 privileges on both. RLS off plus `anon` INSERT is not a
+disclosure bug alone — `OutboxPoller` dispatches whatever rows it finds without
+asking who wrote them, so anyone holding the public staging anon key could
+enqueue an Outbox job. `anon` also held TRUNCATE, which row policies do not
+restrain.
+
+**Provenance.** Migration 107's deferred half. Production (2026-04-05) shipped
+with the Supabase `ensure_rls` DDL event trigger; staging (2026-05-30) was
+provisioned after Supabase dropped it. 107 removed the generator and
+deliberately left its past output for a reviewed migration of its own.
+
+**Shipped.**
+
+- `supabase/migrations/119_job_outbox_rls.sql` — one transaction:
+  `SET LOCAL lock_timeout = '5s'`, a `DO` block issuing
+  `ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY` **only when
+  `relrowsecurity` is false**, `REVOKE ALL … FROM anon, authenticated`, a
+  `COMMENT ON TABLE`.
+- `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts` —
+  the boundary's guard, five cases.
+- `scripts/ci/live-db-suites-audit.ts` — the suite joins
+  `MIGRATION_SHAPE_FILES`.
+- No production TypeScript, no env var, no feature flag, no dependency.
+
+**Why the ALTER is guarded.** `ATExecSetRowSecurity` has no early-out and
+`AT_EnableRowSecurity` takes `ACCESS EXCLUSIVE`, so an unconditional statement
+would block every write to the busiest table in the schema — on production, to
+set a flag already set. `REVOKE` takes no relation lock. Measured: under a
+concurrent `AccessShareLock` holder the guarded file completes in ~53–64 ms,
+against ~5,070 ms to `lock_timeout` unconditional. On the production apply the
+guard correctly skipped: its first real exercise.
+
+**Why `BEGIN` + `SET LOCAL`.** `SET LOCAL` is effective, no session GUC leaks,
+the lock window is minimal, and the ALTER and REVOKE become atomic. 109 and 114
+are the precedent — 10 of the 11 `SET LOCAL` migrations wrap; 088 is the sole
+unwrapped file and the only source of the "can only be used in transaction
+blocks" warning that briefly misled the first draft.
+
+**Applied, and lockstep proven by hash.** Staging 2026-09-07T11:42Z, production
+2026-09-07T12:0xZ, byte-identical SQL, staging first, verified by introspection
+and never the ledger. One identical query over all 54 `public` tables on each
+project — `relname | relrowsecurity | relforcerowsecurity | relacl | policy
+count`, ordered and md5'd — returns `3404cf07434a4d4ad9670f62ce573556` on
+**both**; the `job_outbox` row alone hashes `40ec5814b6fcc41430af78ddf13d101a`
+on both; the table comment is byte-identical (md5 `7b88d544…`, 228 bytes). On
+both projects: `anon` + `authenticated` 16 privileges → **none**;
+`service_role` 8 → 8 unchanged; owner 8 → 8 unchanged. Post-apply the OWNER read
+rows WITH RLS enabled on both (46 staging, 4 production) — the direct proof that
+RLS does not block the worker, which is the single assumption the migration
+rests on.
+
+**Registries: none change.** `job_outbox` stays `REVIEWED_NOT_TENANT_SCOPED` and
+out of `TENANT_TABLES` (owner decision, taken after measurement).
+`TENANT_TABLES` membership also switches on `ci:tenant-scope`, which demands an
+`account_id`/`business_id` predicate on every binding; the table carries neither
+column and 55 files under `src/` + `worker/` bind it in SQL. `ci:rls-audit`
+therefore does not cover this table, and the suite is the guard.
+
+**The review, which is the story of this branch.** Five independent red-team
+passes plus four review axes returned findings across seven rounds. **Nine P0s
+were found and every one was in the test, never in the migration** — which all
+five passes independently confirmed correct.
+
+| Pass | P0 | Root cause |
+|---|---|---|
+| 1 | owner-privilege arms unfalsifiable | the container owner is a superuser; `has_table_privilege` is a constant for one |
+| 2 | `GRANT … TO PUBLIC` escaped | the ACL guard filtered on grantee NAME; PUBLIC is OID 0 |
+| 3 | column grant to an inherited role escaped | the intersection two arms left open |
+| 4 | three lexical evasions | `/**/`, `--` inside a string literal, comment-as-evidence |
+| 5 | off-target DDL passed | the case read one table; `GRANT` on another sailed through |
+
+Pass 4's verdict ended the pattern: *the approach is wrong, not merely
+incomplete — a hand-rolled regex approximation of a SQL lexer keeps losing to
+the next construct nobody enumerated.* The guard was rebuilt to **execute** the
+migration: degrade `job_outbox` to the pre-119 posture, assert that vulnerable
+state exists so the case cannot pass vacuously, apply the checked-in file
+verbatim through `db.unsafe`, then assert RLS, force, policies, client
+privileges, that the owner and `service_role` are **unchanged against the
+before-reading**, and that **no other table in `public` moved**. Every vector
+from all five passes is re-run and killed.
+
+Four axes independently killed one false claim: that production had "run this
+exact posture for five months". It had run the RLS half only and still held the
+client grants, so the empirical argument never covered the REVOKE — the one
+statement that could break the worker. The rollback plan was also wrong in a
+way worth remembering: it would have run `DISABLE ROW LEVEL SECURITY` on
+production, dropping it BELOW its own pre-119 baseline and manufacturing the
+staging vulnerability there mid-incident. It is now per-environment.
+
+**Workflow record.** Two surface amendments of two used, both with stated
+reasons: `arch-review-log.md` (required by `ci:merge-ledger`) and
+`live-db-suites-audit.ts` (the apply-and-assert rebuild). The `/feature`
+`reviewed` transition was **not** set and was not forced — `red-team-status.mjs`
+correctly refuses it, because each pass's fixes moved the tree past the sidecar
+it was written against and the intake was amended twice. The five passes'
+reports under `docs/reviews/red-team/1171-*/` and the four axis reports under
+`docs/reviews/fix-1171-job-outbox-rls/` are the evidence instead. Full
+deviation record: `docs/superpowers/plans/fix-1171-job-outbox-rls-deviations.md`
+(D1–D21).
+
+**Not done, tracked as #1176.** 21 production and 20 staging tables still carry
+client-role grants behind deny-all RLS — including `auto_approval_policies` and
+the agent run-spine tables — and `anon` holds TRUNCATE on **49 of 50** tables.
+Inert today for the same reason production's `job_outbox` was inert, except for
+TRUNCATE, which that argument does not cover. The issue also carries the
+`rls-inventory.md` reconciliation and six sibling suites that repeat a
+whitespace-literal guard weakness.
+
