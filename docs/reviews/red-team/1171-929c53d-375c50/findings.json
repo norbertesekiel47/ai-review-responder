@@ -1,0 +1,172 @@
+{
+  "schema": 1,
+  "mode": "standalone",
+  "run_id": "standalone-1171-929c53d-375c50",
+  "branch": null,
+  "fork_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "merge_base_sha": "602e98930810177230c0edbc0830063db5f75d43",
+  "head_sha": "929c53dd2078f5132ddcb62d5147b7f012956cd2",
+  "intake_sha256": "e300e0c85fff819113f4fce4c3f92c505c7b6c2cc162d3be0cbc9076d10d02b8",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-07T10:30:00.000Z",
+  "inventory": [
+    {
+      "id": "RT4-01",
+      "test": "migration 119 registries job_outbox stays REVIEWED_NOT_TENANT_SCOPED and NOT a TENANT_TABLES member",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "the round was finalized after the decisive P0 was measured in-tree; re-opening would be a third round, which round-start refuses. Status is OPEN_P0 regardless of this row."
+    },
+    {
+      "id": "RT4-02",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox — revoke exact-match arm",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "in-tree vitest mutation 3e91120603e6 -> b819c212cd11: a COMMENT string containing '--' on the same line as REVOKE ALL ON job_outbox FROM service_role. Suite reported total 6 passed 6 failed 0 with the live container attached. Confirmed on a throwaway clone: service_role goes from all seven privileges to none. Not equivalent and not an unexecuted branch — the suite header states it asserts nothing about service_role and names this exact-match assertion as its sole guard, so no catalogue arm can detect it in any environment.",
+      "finding_id": "RT4-F1"
+    },
+    {
+      "id": "RT4-03",
+      "test": "migration 119 revokes every anon and authenticated privilege on job_outbox — GRANT-free statement and token arms",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "same vector: COMMENT ON TABLE job_outbox IS 'note -- see #1171'; GRANT ALL ON job_outbox TO anon; All four text guards return zero failures against a verbatim replica of the helpers; on a throwaway clone anon is restored to DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE. Not equivalent — the mutant reverses the migration's purpose. Arm A would catch it on a re-provisioned container, so it defeats the environment-independent guard rather than the whole suite.",
+      "finding_id": "RT4-F1"
+    },
+    {
+      "id": "RT4-04",
+      "test": "migration 119 grants no policy and does not force row level security — DISABLE ROW LEVEL SECURITY guard",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "ALTER TABLE job_outbox DISABLE/**/ROW LEVEL SECURITY; applies cleanly on PostgreSQL 16.14 (relrowsecurity becomes false) and all four text guards return zero failures. A block comment is a token separator and normalizedSql() collapses whitespace only. Not equivalent — the catalogue changes. Executed on every invocation of the case.",
+      "finding_id": "RT4-F2"
+    },
+    {
+      "id": "RT4-05",
+      "test": "migration 119 grants no policy and does not force row level security — CREATE POLICY guard",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "CREATE/**/POLICY p_open ON job_outbox FOR SELECT TO anon USING (true); applies cleanly (pg_policies count becomes 1) with all four text guards green. Not equivalent — zero policies is the stated deny-all guarantee.",
+      "finding_id": "RT4-F2"
+    },
+    {
+      "id": "RT4-06",
+      "test": "migration 119 grants no policy and does not force row level security — FORCE ROW LEVEL SECURITY guard",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "ALTER TABLE job_outbox FORCE/**/ROW LEVEL SECURITY; applies cleanly (relforcerowsecurity becomes true) with all four text guards green. The migration header calls this the one statement in the file that could take the platform down. Not equivalent — it denies the outbox to its owner-role writer.",
+      "finding_id": "RT4-F2"
+    },
+    {
+      "id": "RT4-07",
+      "test": "migration 119 grants no policy and does not force row level security — positive ALTER ... ENABLE assertion",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "survived-confirmed-P0",
+      "reason": "replacing the ALTER inside the guarded DO block with 'PERFORM 1; -- ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;' applies cleanly and leaves relrowsecurity false on a clone that began with the client grants live, while all four text guards return zero failures: normalizedSql() retains comments, so the sole positive assertion is satisfied by the comment. DO $ still counts 1, REVOKE 1, GRANT null, no EXECUTE. Not equivalent — the mutant removes the migration's entire effect.",
+      "finding_id": "RT4-F3"
+    },
+    {
+      "id": "RT4-08",
+      "test": "migration 119 text guards — plain-spelling controls",
+      "file": "supabase/migrations/119_job_outbox_rls.sql",
+      "outcome": "killed",
+      "reason": "the three naive spellings are all caught: ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY (phrase guard), GRANT ALL ON job_outbox TO anon (statement filter and token count), REVOKE ALL ON job_outbox FROM service_role (revoke count 2 and exact-match). The guards are real for the spellings they enumerate."
+    },
+    {
+      "id": "RT4-09",
+      "test": "migration 119 leaves no anon or authenticated privilege in the job_outbox table or column ACLs — Arms A, B and C",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "killed",
+      "reason": "the three arms were replicated verbatim against a stand-in NOLOGIN INHERIT role on a throwaway clone and measured across 13 grant shapes: table and column x direct, PUBLIC, inherited, nested inherited, plus predefined roles and WITH GRANT OPTION. Twelve of thirteen are detected by at least one arm; the four-element column privilege intersection is confirmed exact on PG16.14 and PG17.6 (has_column_privilege rejects DELETE, TRUNCATE, TRIGGER and MAINTAIN with unrecognized privilege type) and acldefault('c', owner) is length 0 on both, so the set genuinely cannot be derived. The >= 7 assertion does protect Arm B from its only fail-open mode. The thirteenth shape, membership WITH INHERIT FALSE SET TRUE, is uncovered and recorded as P2 RT4-F5."
+    },
+    {
+      "id": "RT4-10",
+      "test": "migration 119 leaves FORCE row level security off so the owner-role worker keeps dispatching",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "the catalogue half is vacuous against reversion by the suite's own stated design (relforcerowsecurity defaults to false); the file-text half that actually guards a future FORCE statement is measured by RT4-06."
+    },
+    {
+      "id": "RT4-11",
+      "test": "migration 119 enables row level security on job_outbox and defines zero policies",
+      "file": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "skill Step 2 excludes supabase/migrations from mutation because the container is provisioned before the run, so a migration edit cannot move this catalogue read under vitest. Measured instead by applying each mutant to a throwaway clone, where this case would fail for RT4-04, RT4-05 and RT4-07 on a re-provisioned container — which is why those three are recorded as defeating the environment-independent guard rather than the whole suite."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT4-F1",
+      "severity": "P0",
+      "title": "topLevelStatements() and executableSql() share a hiding place: a '--' inside a single-quoted string blinds both, hiding a widened REVOKE that no arm of the suite can detect",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:108-119,145-149,195-202",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Both helpers strip --[^\\n]* before any string masking, and PostgreSQL does not treat -- inside a string literal as a comment. Proven in-tree under vitest with the live container: the migration widened to REVOKE ALL ON job_outbox FROM service_role reports 6 passed 0 failed, and on a throwaway clone service_role loses all seven privileges. The suite header lines 61-70 state it asserts nothing about service_role and names this text guard as the sole guard for it, so this survivor is invisible to Arms A, B and C in every environment. The code comment at lines 195-199 asserts the two checks 'cannot share a hiding place' and the helper doc-comment at lines 104-106 asserts this exact hazard 'would fail loudly rather than silently'; both are false. Not an equivalent mutant and not an unexecuted branch."
+    },
+    {
+      "id": "RT4-F2",
+      "severity": "P0",
+      "title": "block comments are PostgreSQL token separators and no helper strips them, so DISABLE/**/ROW LEVEL SECURITY, CREATE/**/POLICY and FORCE/**/ROW LEVEL SECURITY all evade the three phrase guards",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:219-237",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "normalizedSql() collapses \\s+ but a block comment is not whitespace. All three mutants apply cleanly on PostgreSQL 16.14 and change the catalogue (relrowsecurity false, one policy, relforcerowsecurity true respectively) while every text guard returns zero failures; the plain spellings are all caught, so the mutants are semantically meaningful and the branch is executed. This is pass 3's whitespace-literal defect one level up. The catalogue arms catch all three on a re-provisioned container, but the DB lane skips silently without TEST_DATABASE_POOL_URL — observed this pass as 3 passed, 3 skipped, exit 0 — which is the configuration this guard exists to cover."
+    },
+    {
+      "id": "RT4-F3",
+      "severity": "P0",
+      "title": "normalizedSql() retains comments, so the suite's only positive assertion is satisfiable by a line comment while migration 119 stops enabling RLS",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:224",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "The positive assertion toMatch(/ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;/) reads normalizedSql(), which keeps comments. Replacing the ALTER inside the guarded DO block with 'PERFORM 1; -- ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;' applies cleanly, leaves relrowsecurity false on a clone that began with the client grants live, and returns zero failures across all four text guards. Not equivalent — the mutant removes the migration's whole effect. Executed on every invocation. The helper split the file documents as load-bearing is what creates the hole: the one guard that must prove a statement exists reads the text where comments still live."
+    },
+    {
+      "id": "RT4-F4",
+      "severity": "P1",
+      "title": "false coverage claim: the '>= 7' assertion is on the TABLE privilege list and cannot detect a fifth COLUMN privilege, so Arm C's stated fail-loud protection does not exist",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:399-403",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The only count assertion in the file counts acldefault('r', owner), measured at 7 on the PG16.14 container and 8 on the PG17.6 Supabase projects. A PostgreSQL adding a fifth column privilege would take that to 9 and >= 7 would still pass; columnPrivileges carries no assertion at all. The four-element set is nonetheless correct today on both versions, and the >= 7 assertion does soundly protect Arm B from its empty-CROSS-JOIN fail-open. Behavioural replacement: assert columnPrivileges.length === 4, or probe has_column_privilege for newly-accepted names."
+    },
+    {
+      "id": "RT4-F5",
+      "severity": "P2",
+      "title": "the one privilege-shape cell no arm covers: membership granted WITH INHERIT FALSE, SET TRUE (PG16+), reachable via SET ROLE",
+      "at": "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts:404-430",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Measured across 13 grant shapes on a throwaway clone: every {table, column} x {direct, PUBLIC, inherited, nested-inherited, predefined role, WITH GRANT OPTION} cell is caught by at least one arm. Non-inherited membership returns A=0 B=0 C=0 for both table and column grants, because has_table_privilege and has_column_privilege use USAGE (inherit) semantics. Recorded rather than raised: it requires an unusual future GRANT form plus a SET ROLE vector through PostgREST."
+    },
+    {
+      "id": "RT4-F6",
+      "severity": "P2",
+      "title": "stale count: 'repo-wide ... 591 tracked files' is 593 at this HEAD",
+      "at": ".claude/reference/migrations-log.md:2748",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "git grep -l job_outbox returns 593 tracked files at 929c53dd. The same commit that wrote 591 added docs/reviews/red-team/1171-ce0f2d5-cf9458/findings.md and findings.json, both of which contain the identifier — self-referential, off by exactly two. The 55 and 78 counts in the same sentence reproduce exactly under the stated scope."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 11,
+    "killed": 2,
+    "survived_confirmed_p0": 6,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 1,
+    "excluded": 2,
+    "findings_total": 6,
+    "p0_open": 3,
+    "p1_open": 1,
+    "p2_open": 2,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

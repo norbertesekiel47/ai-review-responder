@@ -2751,6 +2751,28 @@ Revisit triggers:
   table, and the regression guard is
   `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts` —
   the role 117's suite plays for `admin_audit_log`.
+  **The guard EXECUTES this file; it does not parse it.** Four independent
+  red-team passes each defeated a regex approximation of a SQL lexer —
+  whitespace, then `/**/`, then `--` inside a string literal, then a comment
+  standing in as evidence — and each fix closed one lexical class while the
+  next pass found another instance of it. The suite therefore joins
+  `MIGRATION_SHAPE_FILES` in `scripts/ci/live-db-suites-audit.ts` (the existing
+  escape for suites where applying the migration IS the subject: 074, 076, 077,
+  078, 088) and does this: degrade `job_outbox` to the pre-119 posture, assert
+  that vulnerable state exists so the case cannot pass vacuously, apply the file
+  VERBATIM through `db.unsafe`, then assert `relrowsecurity`,
+  `relforcerowsecurity`, the policy count, the client-role privilege count, and
+  that the owner's and `service_role`'s ACL is UNCHANGED. Safe by the same
+  argument 074 and 088 make — the cross-process live-DB lock is already held, so
+  nothing else holds row locks while the ALTER takes ACCESS EXCLUSIVE.
+  That last assertion dissolves the limitation recorded below: "the owner and
+  `service_role` are environment-dependent, so intact is unassertable from a
+  post-state read" stops being true once there is a BEFORE — it becomes a diff
+  rather than a claim. The degrade grants `service_role` explicitly for exactly
+  that reason: it holds Supabase's defaults on both projects and nothing on the
+  container, so without that line a hostile `REVOKE ALL … FROM service_role` is
+  a local no-op. Every vector from all four passes was re-run against this
+  design; all eight are killed and the unmutated file passes.
   **Why the privilege assertion reads `relacl`, not `has_table_privilege`.**
   A red-team mutation ran `REVOKE ALL ON job_outbox FROM <owner>`, left
   `relacl = {}`, and the first draft of that case still PASSED: the local and

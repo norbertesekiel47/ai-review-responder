@@ -56,7 +56,8 @@
     "supabase/migrations/119_job_outbox_rls.sql",
     "src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts",
     ".claude/reference/migrations-log.md",
-    ".claude/reference/arch-review-log.md"
+    ".claude/reference/arch-review-log.md",
+    "scripts/ci/live-db-suites-audit.ts"
   ],
   "tests_to_add": [
     "migration 119 enables row level security on job_outbox and defines zero policies",

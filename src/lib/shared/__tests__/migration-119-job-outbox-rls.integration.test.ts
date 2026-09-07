@@ -88,66 +88,6 @@ const TABLE = 'job_outbox';
 const MIGRATION_FILE = 'supabase/migrations/119_job_outbox_rls.sql';
 const BEHIND_HEAD = 'job_outbox RLS posture is not at migration head — run pnpm test:db:setup';
 
-/**
- * Top-level statements of ONE known migration file — not a general SQL parser,
- * and it does not need to be. It masks dollar-quoted bodies and single-quoted
- * strings so their semicolons cannot split a statement, strips line comments,
- * then splits on `;`.
- *
- * Statements rather than lines because a line-anchored regex cannot see a
- * second statement sharing a line, which is precisely how a widened revoke
- * evaded the earlier form.
- *
- * THE ORDER IS LOAD-BEARING. Comments are stripped BEFORE strings are masked,
- * because prose apostrophes ("the table's owner", "Supabase's") read as
- * string delimiters otherwise and swallow every statement between two of them
- * — the first form of this helper found ZERO revokes in a file that plainly
- * contains one. The inverse hazard, a `--` inside a string literal, does not
- * exist in this file and would fail loudly rather than silently.
- */
-function topLevelStatements(sql: string): string[] {
-  return sql
-    // TAGGED dollar quoting too, matched by backreference: `$tag$…$tag$` is
-    // as legal as `$$…$$`, and a pass that only masked the untagged form let
-    // a whole `DO $tag$ … $tag$` block through as loose fragments.
-    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1?\$/g, 'DOLLAR_QUOTED_BODY')
-    .replace(/--[^\n]*/g, '')
-    .replace(/'(?:[^']|'')*'/g, 'STRING_LITERAL')
-    .split(';')
-    .map((statement) => statement.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-}
-
-function migrationSql(): string {
-  return readFileSync(join(process.cwd(), MIGRATION_FILE), 'utf8');
-}
-
-/**
- * The file with every run of whitespace collapsed to one space.
- *
- * Every raw-text guard reads THIS, never the file: `/CREATE POLICY/i` against
- * raw text is whitespace-literal, so `CREATE\nPOLICY` — valid SQL — evades it.
- * `topLevelStatements` already normalises; the raw-text guards did not, and an
- * independent pass found all three of them evadable that way.
- */
-function normalizedSql(): string {
-  return migrationSql().replace(/\s+/g, ' ');
-}
-
-/**
- * Comments stripped, THEN whitespace collapsed — that order, for the second
- * time in this file. `--[^\n]*` needs the newlines, so stripping after
- * normalisation deletes from the first `--` to end of file and every count
- * below reads zero. It fails loudly rather than silently, but only because
- * `.match()` returns null; a count-based guard written the other way round
- * would have passed while checking nothing.
- */
-function executableSql(): string {
-  return migrationSql()
-    .replace(/--[^\n]*/g, '')
-    .replace(/\s+/g, ' ');
-}
-
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
 let db: postgresType.Sql | undefined;
@@ -177,64 +117,6 @@ describe('migration 119 registries', () => {
     expect(tenantTables).not.toContain(TABLE);
   });
 
-  it('migration 119 revokes every anon and authenticated privilege on job_outbox', () => {
-    const statements = topLevelStatements(migrationSql());
-    const revokes = statements.filter((statement) => /^REVOKE\b/i.test(statement));
-
-    expect(revokes).toHaveLength(1);
-
-    // Asserted as an EXACT match, not as a list of forbidden role names. A
-    // negative list has to anticipate every spelling a widening mutation might
-    // use (`SERVICE_ROLE`, `Postgres`, lowercase `public`); an exact match
-    // admits exactly one statement and cannot be widened at all.
-    expect(revokes[0]).toMatch(/^REVOKE ALL ON job_outbox FROM anon, authenticated$/i);
-
-    // A later GRANT inside this same file would restore what the REVOKE took.
-    expect(statements.filter((statement) => /^GRANT\b/i.test(statement))).toEqual([]);
-
-    // Belt for the statement parser's one blind spot: it MASKS dollar-quoted
-    // bodies, so `EXECUTE 'REVOKE ALL ON job_outbox FROM service_role'` inside
-    // the guarded DO block would be invisible above. Counted on
-    // comment-stripped, whitespace-normalised text with the bodies left
-    // intact, so the two checks cannot share a hiding place.
-    const executable = executableSql();
-    expect(executable.match(/\bREVOKE\b/gi)).toHaveLength(1);
-    expect(executable.match(/\bGRANT\b/gi)).toBeNull();
-
-    // No text guard can survive string concatenation: `'REVO' || 'KE ALL …'`
-    // inside a DO block runs a widened revoke and contains no matchable token,
-    // and an independent pass proved exactly that. Rather than chase the
-    // spelling, forbid the only construct that can run dynamic SQL at all.
-    //
-    // Asserted on the whole executable text rather than per DO block, and
-    // deliberately: a first attempt matched blocks with a backreferenced
-    // dollar tag and collapsed TWO blocks into one match, which would have let
-    // an EXECUTE in the second one through. Counting `DO $` separately keeps
-    // the "one block, the guarded ALTER" fact visible without the guard
-    // depending on that regex being right.
-    expect(executable).not.toMatch(/\bEXECUTE\b/i);
-    expect(executable.match(/\bDO\s+\$/gi)).toHaveLength(1);
-  });
-
-  it('migration 119 grants no policy and does not force row level security', () => {
-    // Whitespace-normalised, never raw: `CREATE\nPOLICY` is valid SQL and
-    // evades a raw-text `/CREATE POLICY/i`. All three guards below read the
-    // normalised form for that reason.
-    const text = normalizedSql();
-    expect(text).toMatch(/ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;/);
-    // Matched against the raw text, not the statement list: the ALTER sits
-    // inside a guarded DO block whose body the statement parser masks, and
-    // ANY occurrence of the two forbidden forms is a defect wherever it hides.
-    expect(text).not.toMatch(/CREATE POLICY/i);
-    // FORCE would apply RLS to the table OWNER, the role every worker connects
-    // as. It is the one statement in this file that could take the platform
-    // down.
-    expect(text).not.toMatch(/FORCE ROW LEVEL SECURITY/i);
-    // A self-cancelling DISABLE appended below the ENABLE leaves the file
-    // reading as if it hardens the table while shipping the drift it exists to
-    // close. Red team appended exactly that and passed every other case.
-    expect(text).not.toMatch(/DISABLE ROW LEVEL SECURITY/i);
-  });
 });
 
 describeWithDb(
@@ -245,7 +127,14 @@ describeWithDb(
       const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
       db = postgres(databaseUrl, {
-        max: 2,
+        // max: 1, not 2 — the apply-and-assert case runs the checked-in
+        // migration verbatim through `unsafe`, and that file opens its own
+        // BEGIN/COMMIT. postgres.js refuses a transaction-bearing `unsafe` on a
+        // pooled client (`UNSAFE_TRANSACTION: Only use sql.begin, sql.reserved
+        // or max: 1`) because it cannot guarantee the statements land on one
+        // backend. Every case here is sequential, so a single connection costs
+        // nothing.
+        max: 1,
         prepare: false,
         connection: { statement_timeout: 30_000 },
       });
@@ -428,6 +317,129 @@ describeWithDb(
       `;
 
       expect(columnEffective).toEqual([]);
+    });
+
+    // ── the environment-independent guard: EXECUTE the file, do not parse it ─
+
+    it('migration 119 revokes every anon and authenticated privilege on job_outbox', async () => {
+      // This case is the whole reason the suite sits in MIGRATION_SHAPE_FILES.
+      // Four red-team passes each defeated a regex approximation of a SQL
+      // lexer — whitespace, then `/**/`, then `--` inside a string literal,
+      // then a comment standing in as evidence. Each fix closed one lexical
+      // class and the next pass found another instance of it. Executing the
+      // file closes every one of them at once and cannot be evaded by any
+      // spelling, because PostgreSQL is the parser.
+      //
+      // Safe by the same argument 074 and 088 make: the cross-process live-DB
+      // lock is already held (beforeAll), so no sibling suite holds row locks
+      // on job_outbox while the ALTER takes ACCESS EXCLUSIVE.
+      const migration = readFileSync(join(process.cwd(), MIGRATION_FILE), 'utf8');
+
+      // The posture, whole. `non_client_acl` is the half a POST-STATE read
+      // could never judge: D2 recorded that the owner's and `service_role`'s
+      // privileges are environment-dependent, so "migration 119 leaves them
+      // intact" was unassertable and the guarantee was pushed onto a text
+      // guard — which four passes then defeated. Applying the file gives a
+      // BEFORE, so "unchanged" becomes a comparison rather than a claim.
+      // `relacl IS NULL` is carried explicitly because it is not the same
+      // state as an empty ACL: NULL means built-in defaults (owner holds
+      // everything), `{}` means someone revoked from the owner.
+      const readPosture = async () => {
+        const [row] = await sql()<
+          {
+            rls: boolean;
+            force: boolean;
+            policies: string;
+            client_privileges: string;
+            acl_is_default: boolean;
+            non_client_acl: string;
+          }[]
+        >`
+          SELECT
+            cls.relrowsecurity AS rls,
+            cls.relforcerowsecurity AS force,
+            (
+              SELECT count(*)::text FROM pg_policies
+               WHERE schemaname = 'public' AND tablename = ${TABLE}
+            ) AS policies,
+            (
+              SELECT count(*)::text
+                FROM aclexplode(cls.relacl) AS acl
+               WHERE acl.grantee::regrole::text IN ('anon', 'authenticated')
+            ) AS client_privileges,
+            cls.relacl IS NULL AS acl_is_default,
+            coalesce((
+              SELECT string_agg(
+                       acl.grantee::regrole::text || ':' || acl.privilege_type, ','
+                       ORDER BY acl.grantee::regrole::text, acl.privilege_type
+                     )
+                FROM aclexplode(cls.relacl) AS acl
+               WHERE acl.grantee::regrole::text NOT IN ('anon', 'authenticated')
+            ), '') AS non_client_acl
+          FROM pg_class cls
+          WHERE cls.oid = 'public.job_outbox'::regclass
+        `;
+        return row;
+      };
+
+      try {
+        // 1. Degrade to the PRE-119 posture — exactly what staging carried:
+        //    RLS off, client roles holding Supabase's default grants.
+        //
+        //    `service_role` is granted too, and that is not cosmetic. It holds
+        //    Supabase's defaults on BOTH real projects and NOTHING on this
+        //    container, so without this line a hostile `REVOKE ALL … FROM
+        //    service_role` is a local no-op and step 5's diff sees nothing —
+        //    measured: the vector passed 5/5 until this grant was added.
+        //    Constructing the real pre-119 baseline is what makes the
+        //    comparison mean the same thing here as in production.
+        await sql().unsafe(
+          'ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY;'
+            + ' GRANT ALL ON job_outbox TO anon, authenticated, service_role;',
+        );
+
+        // 2. Prove the degrade LANDED. Without this the case could pass
+        //    vacuously against a no-op migration — the failure mode every
+        //    earlier form of this guard actually had.
+        const before = await readPosture();
+        expect(before?.rls).toBe(false);
+        expect(Number(before?.client_privileges)).toBeGreaterThan(0);
+
+        // 3. Apply the checked-in file VERBATIM. No stripping, no rewriting:
+        //    whatever ships is what runs here.
+        await sql().unsafe(migration);
+
+        // 4. Assert the posture the file actually produced. Every property the
+        //    four defeated text guards were trying to express, now read off the
+        //    catalogue after real execution.
+        const after = await readPosture();
+        expect(after?.rls).toBe(true); // an ENABLE that never ran, or a DISABLE
+        expect(after?.force).toBe(false); // the one statement that stops the platform
+        expect(after?.policies).toBe('0'); // any CREATE POLICY, however spelled
+        expect(after?.client_privileges).toBe('0'); // a missing or re-granted REVOKE
+
+        // 5. And the half no post-state read could ever judge: the file must
+        //    not touch the owner or `service_role`. A hostile `REVOKE ALL …
+        //    FROM service_role` hidden behind `--` inside a string literal
+        //    defeated every text guard and is invisible to an at-head
+        //    assertion, because both roles are environment-dependent. Against a
+        //    BEFORE it is simply a diff.
+        expect(after?.non_client_acl).toBe(before?.non_client_acl);
+        expect(after?.acl_is_default).toBe(before?.acl_is_default);
+      } finally {
+        // Undo step 1 explicitly, THEN re-apply. The migration alone is not a
+        // sufficient restore: it revokes `anon` and `authenticated` but never
+        // `service_role`, so the grant step 1 adds for the diff would outlive
+        // the case and leave the container holding a privilege it began
+        // without. Both statements are idempotent, so this is also the repair
+        // path for a failure anywhere between steps 1 and 4.
+        //
+        // If the PROCESS dies mid-case, nothing here runs and the container is
+        // left degraded — `pnpm test:db:setup` is the fix, and the next run's
+        // title-1 names that command in its failure message.
+        await sql().unsafe('REVOKE ALL ON job_outbox FROM anon, authenticated, service_role;');
+        await sql().unsafe(migration);
+      }
     });
   },
 );

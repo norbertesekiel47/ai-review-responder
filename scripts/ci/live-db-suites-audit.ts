@@ -120,6 +120,17 @@ const MIGRATION_SHAPE_FILES = new Set([
   'src/lib/shared/__tests__/migration-077-copilot-autopilot.integration.test.ts',
   'src/lib/shared/__tests__/migration-078-copilot-autopilot.integration.test.ts',
   'src/lib/shared/__tests__/migration-088-solicitation-batch-executor.integration.test.ts',
+  // 119 (#1171): applying the migration IS the subject, and here that is the
+  // whole point rather than a convenience. Four independent red-team passes
+  // each defeated a regex approximation of a SQL lexer — whitespace, then
+  // `/**/`, then `--` inside a string literal, then a comment standing in as
+  // evidence — and each fix closed one lexical class while the next pass found
+  // a new instance of it. The suite therefore stops PARSING the checked-in file
+  // and EXECUTES it: it degrades `job_outbox` to the pre-119 posture, asserts
+  // that vulnerable state really exists so the case cannot pass vacuously,
+  // applies the file verbatim through `db.unsafe`, and asserts the hardened
+  // catalogue. Execution is immune to every lexical evasion at once.
+  'src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts',
   'src/lib/shared/__tests__/helpers/apply-migration-074.ts',
 ]);
 

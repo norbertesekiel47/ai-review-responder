@@ -587,3 +587,98 @@ database. All were gaps in a test's ability to detect a hypothetical FUTURE bad
 migration. The guard is now materially stronger than any sibling suite in the
 repo — this pass found the same whitespace weakness in six of them, and found
 that migration 118 has no suite reading it at all.
+
+---
+
+## D20 — the guard is rebuilt as APPLY-AND-ASSERT; the text guards are deleted
+
+**Surface amendment #2**, owner-authorised. This trips the workflow's abort
+criteria by construction, and the owner took the decision explicitly rather
+than the root routing around it.
+
+### Why the approach changed, not just the code
+
+Pass 4's verdict was the finding: *"the approach is wrong, not merely
+incomplete — every P0 is a new lexical instance of a defect class a previous
+pass already closed (whitespace → `/**/`; comment-order → `--` inside a string;
+comment-stripping → comment-as-evidence), and a hand-rolled regex approximation
+of a SQL lexer will keep losing to the next construct nobody enumerated."*
+
+Four passes, four defeats of the same idea. The recommendation — execute the
+file and assert the catalogue — is what the suite now does.
+
+### What the root verified before accepting the severity
+
+Pass 4 graded three findings P0. The root mutated the migration with pass 4's
+own `DISABLE/**/ROW LEVEL SECURITY` vector, re-provisioned, and ran the suite:
+`relrowsecurity` came back `f` and title 1 FAILED. So two of the three P0s were
+already caught by the catalogue arms, because `pnpm test:db:setup` applies every
+migration — the catalogue arms were already apply-and-assert by another name.
+Only the `--`-in-string vector hiding a `service_role` revoke was genuinely
+invisible, because nothing asserted anything about `service_role` or the owner.
+That correction is recorded rather than the pass's grading taken at face value.
+
+### The design
+
+`scripts/ci/live-db-suites-audit.ts` gains one line: the suite joins
+`MIGRATION_SHAPE_FILES`, the existing escape for suites where APPLYING the
+migration IS the subject (074, 076, 077, 078, 088). It already holds the
+cross-process live-DB lock, which is what that allowlist requires and what makes
+the ACCESS EXCLUSIVE safe.
+
+The case then: **degrade → prove the degrade landed → apply the file verbatim →
+diff the catalogue.**
+
+1. Degrade `job_outbox` to the pre-119 posture — RLS off, client roles holding
+   Supabase's defaults — which is exactly what staging carried.
+2. Assert the vulnerable state EXISTS. Without this the case passes vacuously
+   against a no-op migration, which is the failure mode every earlier form of
+   this guard actually had.
+3. `db.unsafe(<the checked-in file>)`. No stripping, no rewriting.
+4. Assert `rls`, `force`, policy count and client privileges.
+5. Assert the owner's and `service_role`'s ACL is **unchanged**.
+
+Step 5 is what dissolves D2. D2 recorded that those roles are
+environment-dependent and so "intact" was unassertable from a post-state read —
+which is why the guarantee had been pushed onto a text guard in the first place.
+With a BEFORE, "unchanged" is a diff rather than a claim.
+
+### Two defects the root found in its own rebuild, by running it
+
+- **`max: 2` broke the apply.** postgres.js refuses a transaction-bearing
+  `unsafe` on a pooled client (`UNSAFE_TRANSACTION`), because it cannot
+  guarantee the statements land on one backend. Set to `max: 1`.
+- **The `service_role` diff was a local no-op.** `service_role` holds nothing on
+  this container, so revoking it changed nothing and the P4-1 vector still
+  passed 5/5. The degrade now grants `service_role` too, constructing the
+  baseline the real projects actually have. Measured: the vector passed until
+  that line was added, and fails after it. The `finally` had to gain a matching
+  `REVOKE … FROM service_role`, or the grant would outlive the case and leave
+  the container holding a privilege it began without.
+
+### Result — every vector from all four passes, re-run against the new guard
+
+| Vector | Origin | Result |
+|---|---|---|
+| baseline, unmutated | — | **5 passed** |
+| `--` in string hides `service_role` revoke | pass 4 P0 | KILLED |
+| `DISABLE/**/ROW LEVEL SECURITY` | pass 4 P0 | KILLED |
+| `CREATE/**/POLICY` | pass 4 P0 | KILLED |
+| `FORCE/**/ROW LEVEL SECURITY` | pass 4 P0 | KILLED |
+| comment-as-evidence inside `DO` | pass 4 P0 | KILLED |
+| tagged-`$$` concatenated `GRANT` | pass 3 P0 | KILLED |
+| `REVOKE` deleted entirely | pass 1 | KILLED |
+| column grant to an inherited role | pass 3 P0 | KILLED |
+
+Container verified `true|0` after the matrix; working tree clean.
+
+### What was deleted
+
+`topLevelStatements`, `normalizedSql`, `executableSql` and all four regex
+guards. They protected a file that **cannot be edited** — a migration is
+immutable once applied, hook-enforced — and three independent passes proved
+them unsound. Replacing them with execution is a net deletion.
+
+The DB-free registry case stays: it asserts a registry decision, not SQL text.
+
+**Verdict: ACCEPT.**
