@@ -21,6 +21,9 @@ import {
 } from '../../../../src/lib/shared/outbox-completion-reason';
 import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/shared/backlog-depth';
 import { toError } from '../../../../src/lib/shared/logger';
+import { POLLER_JUDGE_SWEEP, readPollerLiveness } from '../../../../src/lib/shared/poller-liveness';
+import { judgeEnabled } from '../../../../src/lib/responses/judge-flags';
+import { JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS } from '../../../../src/lib/responses/judge-health';
 import { stalledThresholdMsForKind } from '../../../../src/lib/agents/read';
 import type { AGENT_RUN_KINDS } from '../../../../src/lib/agents/run-spine';
 import { evaluateSendBreaker } from '../../../../src/lib/solicitation/send-breaker';
@@ -418,6 +421,45 @@ export async function checkSolicitationSendBreaker(sql: postgres.Sql): Promise<H
   return evaluateSendBreaker(sql);
 }
 
+// A JudgeSweepPoller that stopped enqueuing work (#949). The gate in
+// `isJudgeHealthy` makes this failure SAFE — auto-policy posts downgrade to
+// owner review, the release phase withholds — but completely SILENT: the fleet
+// quietly stops auto-posting and nobody is told why. This check is the voice.
+//
+// Threshold and fail-closed semantics are deliberately NOT re-derived here.
+// `JUDGE_SWEEP_LIVENESS_LIMIT_MINUTES` lives in judge-health.ts beside the gate
+// that acts on it; this probe imports the same seam so the alert can never
+// disagree with the gate about whether the sweep is alive.
+//
+// FLAG-GATED, unlike checkSolicitationSendBreaker directly above it. That
+// asymmetry is the point: the Solicitation lane is never flag-gated (rule DR1),
+// so its breaker must page unconditionally. The Judge sweep writes NO heartbeat
+// while JUDGE_ENABLED is false, and every autonomy flag is off in production —
+// so an unconditional check here would page nonstop in prod for a system that
+// is switched off on purpose.
+export async function checkJudgeSweepLiveness(sql: postgres.Sql): Promise<HealthFinding | null> {
+  if (!judgeEnabled()) return null;
+
+  const liveness = await readPollerLiveness(sql, POLLER_JUDGE_SWEEP);
+  if (liveness && liveness.ageSeconds < JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS) return null;
+
+  const neverRan = liveness === null;
+  return {
+    key: 'judge_sweep_dead',
+    level: 'error',
+    title: neverRan
+      ? 'Judge sweep has NEVER completed a cycle — every auto-policy post is downgrading to owner review'
+      : `Judge sweep last completed a cycle ${Math.round(liveness.ageSeconds / 60)} min ago `
+        + `(limit ${JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS / 60} min) — auto-policy posts are downgrading to owner review`,
+    detail: {
+      poller: POLLER_JUDGE_SWEEP,
+      last_cycle_at: liveness?.lastCycleAt.toISOString() ?? null,
+      age_s: liveness?.ageSeconds ?? null,
+      threshold_s: JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS,
+    },
+  };
+}
+
 /**
  * Default wedge age. Ten seconds is far above any legitimate ClientRead pause
  * and far below the shortest wedge ever observed (16.6s; the long one ran
@@ -514,6 +556,8 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   // omitting this one would make the ack a net loss of detection.
   collect(await checkStaleIgnoredInboundEvents(sql, cfg));
   collect(await checkStalledSendBatches(sql));
+  // Sequential like every check above it — never inside a Promise.all (#505).
+  collect(await checkJudgeSweepLiveness(sql));
 
   // Isolate the send-breaker check — STILL SEQUENTIAL, still in position, never
   // moved into a Promise.all (#505). It is the file's ONLY writer, so it has

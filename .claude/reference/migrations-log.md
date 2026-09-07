@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **117** — next migration is **118**
+Current head: **118** — next migration is **119**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -38,6 +38,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `prospect_demos` | completed demos > 30 days past expiry → deleted | ArchivalPoller |
 | `api_costs` | > 90 days → aggregated into `api_costs_daily_rollups`, then deleted | ArchivalPoller |
 | `notification_deliveries` | > 90 days → deleted | ArchivalPoller |
+| `poller_heartbeats` | **keep forever, bounded by CARDINALITY rather than by time** (#949): the row count is the number of background loops, and each cycle UPDATEs its own row in place rather than inserting, so the table never grows. No `account_id`, no foreign key, no tenant data — nothing to age out and nothing to purge | none (no ArchivalPoller arm, no offboarding purge arm, not in `TABLE_DISPOSITIONS`) |
 | `analytics_events` | `completed` > 30 days and `failed` > 90 days (by `occurred_at`) → deleted | ArchivalPoller (served by existing `idx_analytics_events_status`) |
 | `account_audit_log` | **keep forever** — deliberate | none (compliance/audit surface) |
 | `admin_audit_log` | **keep forever** — deliberate (#468): the admin control-plane actor trail; MFA enrollment / step-up / factor removal by admins. No `account_id`; `TABLE_DISPOSITIONS` `not_applicable`/`not_checked` (the actor is always an admin, never an offboarded owner — listed only because `actor_user_id` is on the account-linked column scan) and not a `TENANT_TABLES` member — deny-all RLS + client-role privileges revoked, migration 117 | none (compliance/audit surface) |
@@ -2677,6 +2678,47 @@ Revisit triggers:
   suite's requirement is an honest proof rather than the false-proof hazard
   105's, 108's, 110's and 111's entries describe.
 
+- **118** — `poller_heartbeats` (#949). **New table**, two columns, deny-all
+  RLS (zero policies) PLUS `REVOKE ALL … FROM anon, authenticated`, no index
+  beyond the primary key. Durable background-loop liveness: one row per poller,
+  `last_cycle_at` = the time that loop last COMPLETED a cycle.
+  **The defect it closes.** `isJudgeHealthy` inferred Judge health from two
+  indirect signals, and its staleness arm requires
+  `EXISTS (… job_outbox WHERE topic = 'judge_verdict' AND aggregate_id = r.id …)`
+  — a row THE SWEEP ITSELF WRITES. A `JudgeSweepPoller` that never runs writes
+  none, so the arm was vacuously false for every response and could not fire;
+  the error-density arm needs verdicts a dead sweep never produces. Both
+  signals were silent in exactly the failure mode that matters, and the probe
+  answered `true` indefinitely while the Judge did nothing. Not a threshold
+  that was hard to trip — structurally unreachable. Both consumers inherited
+  it, and both are POSTING preconditions: `applyJudgeGate`/`applyJudgeGateInTx`
+  (invariant #3) and the release phase's Judge split (D18). Fixed at the probe,
+  so neither consumer changed.
+  **Shape.** `poller_name` is a NATURAL primary key — a deliberate departure
+  from the UUIDv7 convention, justified in the migration header: order-10 row
+  count, every access a single-key lookup, and a surrogate id would still need
+  `UNIQUE(poller_name)` for `ON CONFLICT` to infer. Shared, not Judge-specific:
+  a second poller adds a ROW, not a migration.
+  **Semantics that live in the CALL SITE, not the schema.** `recordPollerCycle`
+  is the LAST statement of `runJudgeSweepCycle`, below the `judgeEnabled()`
+  early return. A throwing cycle records nothing; an IDLE cycle records one (an
+  idle sweep is a working sweep); a flag-off cycle records nothing. That last
+  choice costs a ≤60s downgrade window when `JUDGE_ENABLED` flips off→on, and
+  forces `checkJudgeSweepLiveness` to gate on the same flag — without which it
+  would page nonstop in prod, where every autonomy flag is off.
+  **Why the REVOKE:** RLS protects rows, not table privileges (117 precedent).
+  Not a `TENANT_TABLES` member (`REVIEWED_NOT_TENANT_SCOPED`), and deliberately
+  ABSENT from `TABLE_DISPOSITIONS` — unlike `admin_audit_log`, which is
+  classified only because `actor_user_id` is on the offboarding account-linked
+  column scan. This table has no such column, and `table-disposition.test.ts`
+  asserts EXACT equality with TENANT_TABLES + the explicit lists, so an entry
+  would fail it (Codex plan review, round 1). Keep forever, bounded by
+  cardinality. Live coverage: the `#949` cases in
+  `src/lib/responses/__tests__/judge-store.integration.test.ts` (the stale case
+  runs inside a ROLLED-BACK transaction — the `judge_sweep` row is a singleton
+  shared by every concurrent live-DB vitest process, so a committed stale
+  timestamp would break an unrelated suite).
+  **LOCAL-ONLY** — applied only to the rebuildable local test container.
 - **117** — `admin_audit_log` (#468). **New table**, ten columns, deny-all
   RLS (zero policies) PLUS `REVOKE ALL … FROM anon, authenticated`, two
   indexes, one FK with NO referential action. The admin control-plane actor

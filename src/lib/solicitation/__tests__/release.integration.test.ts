@@ -99,6 +99,7 @@ vi.mock('@sentry/node', async (importOriginal) => {
 import { STALLED_THRESHOLD_SEND_BATCH_DAYS } from '@/lib/agents/read';
 import { resetServerConfigForTests } from '@/lib/config/server';
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
+import { POLLER_JUDGE_SWEEP, recordPollerCycle } from '@/lib/shared/poller-liveness';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import {
   countPlatformDispatchAttemptsToday,
@@ -794,6 +795,7 @@ describeWithDb(
       await assertSchemaReady(db, [
         MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
         MIGRATION_110_SEND_GOVERNORS,
+        { migration: '118_poller_heartbeats', tables: ['poller_heartbeats'] },
       ]);
       tenant = await seedTenantAccount(db, {
         userName: 'Release Owner',
@@ -848,6 +850,16 @@ describeWithDb(
       // way. Every case that is ABOUT a governor narrows exactly one of these.
       setEnv('SOLICITATION_SEND_ENABLED', 'true');
       setEnv('JUDGE_ENABLED', 'true');
+      // "Judge available" is no longer just the flag (#949). The REAL
+      // `isJudgeHealthy` is re-armed above, and its third arm fails CLOSED on a
+      // missing sweep heartbeat — so without this line every releasable case in
+      // this suite would withhold on judge unavailability.
+      //
+      // Upsert, never delete: `poller_heartbeats` is keyed by poller name, so
+      // the `judge_sweep` row is a singleton shared by every concurrent live-DB
+      // vitest process. Writing a FRESHER timestamp is always safe under that
+      // sharing; deleting or back-dating it would break an unrelated suite.
+      await recordPollerCycle(sql(), POLLER_JUDGE_SWEEP);
       await setPlatformHeadroom(1_000);
       await setSubscriptionStatus('active');
     });
