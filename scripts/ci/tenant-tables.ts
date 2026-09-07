@@ -198,6 +198,11 @@ export const TENANT_SCOPE_COLUMNS: Record<TenantTable, readonly TenantScopeColum
  */
 export const REVIEWED_NOT_TENANT_SCOPED: readonly { table: string; reason: string }[] = [
   {
+    table: 'admin_audit_log',
+    reason:
+      'Admin control-plane actor trail (migration 117, #468): carries NO tenant column — `actor_user_id` is an ADMIN, and admins have no account. Deny-all RLS with client-role privileges revoked; the only writer is writeAdminAuditLog (src/lib/audit/log.ts) over the RLS-bypassing Postgres.js role. TABLE_DISPOSITIONS: not_applicable (the actor is always an admin, never an offboarded owner).',
+  },
+  {
     table: 'analytics_events',
     reason:
       'Analytics event outbox: rows carry tenant ids as event attributes, but every reader is the platform dispatch poller or an admin rollup — cross-tenant by design; no per-tenant access path flows through this table.',

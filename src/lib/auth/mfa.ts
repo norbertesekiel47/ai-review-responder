@@ -39,6 +39,39 @@ export async function requireCurrentAal2FromSupabase(
   return { ok: true };
 }
 
+/**
+ * What a factor's verification status was BEFORE a verify call, read from the
+ * `factors` array that `supabase.auth.getUser()` already returns (the
+ * `@supabase/auth-js` `User.factors` field; `listFactors()` is just a second
+ * `getUser()` round-trip, so nothing is fetched here). Pure: no I/O, never
+ * throws.
+ *
+ * Why it exists (#468): Supabase's `verify` is the same call for finishing an
+ * ENROLLMENT (factor `unverified` → `verified`) and for a login STEP-UP on an
+ * already-verified factor. The audit trail must tell them apart — an attacker
+ * adding a factor is a different event from an owner logging in — and only the
+ * status read before `verify` can (it flips to `verified` on success).
+ * `'unknown'` (no array, or the id is not in it) never blocks anything; the
+ * verify result still decides the outcome and the audit payload says
+ * `'unknown'` rather than guessing.
+ */
+export type FactorStatusBefore = 'verified' | 'unverified' | 'unknown';
+
+export function factorStatusBefore(
+  factors: readonly unknown[] | null | undefined,
+  factorId: string,
+): FactorStatusBefore {
+  if (!Array.isArray(factors)) return 'unknown';
+  for (const raw of factors) {
+    if (!raw || typeof raw !== 'object') continue;
+    const record = raw as Record<string, unknown>;
+    if (record.id !== factorId) continue;
+    if (record.status === 'verified' || record.status === 'unverified') return record.status;
+    return 'unknown';
+  }
+  return 'unknown';
+}
+
 export function mfaChallengePath(next: string): string {
   return `/mfa/challenge?next=${encodeURIComponent(next)}`;
 }

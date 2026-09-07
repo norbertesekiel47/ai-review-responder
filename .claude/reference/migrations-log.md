@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **116** — next migration is **117**
+Current head: **117** — next migration is **118**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -40,6 +40,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `notification_deliveries` | > 90 days → deleted | ArchivalPoller |
 | `analytics_events` | `completed` > 30 days and `failed` > 90 days (by `occurred_at`) → deleted | ArchivalPoller (served by existing `idx_analytics_events_status`) |
 | `account_audit_log` | **keep forever** — deliberate | none (compliance/audit surface) |
+| `admin_audit_log` | **keep forever** — deliberate (#468): the admin control-plane actor trail; MFA enrollment / step-up / factor removal by admins. No `account_id`; `TABLE_DISPOSITIONS` `not_applicable`/`not_checked` (the actor is always an admin, never an offboarded owner — listed only because `actor_user_id` is on the account-linked column scan) and not a `TENANT_TABLES` member — deny-all RLS + client-role privileges revoked, migration 117 | none (compliance/audit surface) |
 | `approval_audit_log` | **keep forever** — deliberate | none (backs invariant #3's recorded-approval evidence chain) |
 | `reviews` / `responses` | **deliberately exempt** — core tenant data | none |
 | `solicitation_batches` | No time-based expiry deletion in watch-mode; hard-delete with the source upload on account purge | account-offboarding purge via `contact_csv_uploads` cascade |
@@ -2676,6 +2677,30 @@ Revisit triggers:
   suite's requirement is an honest proof rather than the false-proof hazard
   105's, 108's, 110's and 111's entries describe.
 
+- **117** — `admin_audit_log` (#468). **New table**, ten columns, deny-all
+  RLS (zero policies) PLUS `REVOKE ALL … FROM anon, authenticated`, two
+  indexes, one FK with NO referential action. The admin control-plane actor
+  trail: `account_audit_log.account_id` is NOT NULL and admins have
+  `role='admin'` + NULL `account_id`, so `auditMfaEvent` in
+  `src/app/api/auth/mfa/challenge/route.ts` silently dropped every admin MFA
+  event (enrollment, step-up success/failure, factor removal). Relaxing the
+  account sink was rejected: every tenant-scope query, the owner-select RLS
+  policy, the governor joins and the offboarding purge treat it as per-account.
+  **The only writer** is `writeAdminAuditLog` (`src/lib/audit/log.ts`, beside
+  `writeAccountAuditLog`); the route now routes by ROLE (admin → admin sink,
+  owner → account sink, anything else → Sentry `audit_actor_unroutable`, no
+  row) and distinguishes `mfa_factor_enrolled` (factor was `unverified` before
+  `verify`, read from `user.factors` — no extra Supabase call) from
+  `mfa_challenge_succeeded`. **Why the REVOKE:** RLS protects rows, not table
+  privileges; the live suite asserts `has_table_privilege(...) = false` for
+  both client roles, and without the REVOKE that assertion would hold only
+  where the bootstrap happens to grant nothing (Codex review, plan round 2).
+  Not a `TENANT_TABLES` member (`REVIEWED_NOT_TENANT_SCOPED`); in
+  `TABLE_DISPOSITIONS` as `not_applicable`/`not_checked` because the
+  `actor_user_id` column name is on the offboarding account-linked scan
+  (`table-disposition.test.ts`) and would otherwise fail it. Keep forever. Live suite:
+  `src/lib/shared/__tests__/migration-117-admin-audit-log.integration.test.ts`.
+  **LOCAL-ONLY** until promoted.
 - **115** — `qr_scan_analytics_event`: widens the `analytics_events`
   `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;
   `docs/context/review-qr.md` "QR redirect"). Constraint-only on the 106 pattern — no

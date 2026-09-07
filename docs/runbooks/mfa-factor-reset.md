@@ -326,7 +326,16 @@ reset granted to an attacker is not.
 
 ## Audit
 
-The `unenroll` route writes an `mfa_factor_unenrolled` audit event when a user
-removes their own factor. An operator-side removal performed outside the app
-does NOT produce that event — which is exactly why steps 1 and 5's ticket
-trail are mandatory. The support ticket is the only record.
+The `/api/auth/mfa/challenge` route writes four events for the user's own
+actions: `mfa_factor_enrolled` (the verify that completes an enrollment),
+`mfa_challenge_succeeded` / `mfa_challenge_failed` (a step-up on an
+already-verified factor), and `mfa_factor_unenrolled`. The sink depends on the
+actor (#468): an **owner**'s events go to `account_audit_log` under their
+account; an **admin**'s go to `admin_audit_log` keyed on `actor_user_id`
+(migration 117 — before it, admin events were silently dropped because admins
+have no `account_id`). Query an admin's trail with
+`SELECT event_type, payload, created_at FROM admin_audit_log WHERE actor_user_id = $1 ORDER BY created_at DESC`.
+
+An operator-side removal performed outside the app does NOT produce any of
+those events — which is exactly why steps 1 and 5's ticket trail are
+mandatory. The support ticket is the only record.
