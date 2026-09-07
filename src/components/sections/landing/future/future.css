@@ -36,10 +36,11 @@
      No bottom padding: the chart is full-bleed and ends the section, and its
      own bottom fade is the hand-off to the closing band. A gap of ink
      between the two read as a hole (owner, 2026-09-06). */
-  /* Small top padding, not the section gap: the dial section above already
-     ends with its own gap, and two stacked gaps read as a hole (owner,
-     2026-09-06). */
-  padding: clamp(1rem, 3vh, 2rem) 0 0;
+  /* No padding at all from 1100px up: the chart starts at the section's
+     top edge, fading up from the dial section's ink, and the header sits
+     over its title band (see the min-width block). Below 1100px a small top
+     padding returns and the header stacks above the chart. */
+  padding: 0;
   background: var(--rw-lp-ink, #14201c);
 }
 
@@ -54,13 +55,43 @@
   padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
 }
 
-/* ---------- header: the argument left, its conclusion right ---------- */
+/* ---------- header: the argument left, its conclusion + legend right ---------- */
 .rw-lp-future-head {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
   gap: clamp(1.5rem, 4vw, 4rem);
   align-items: end;
   margin-bottom: clamp(1.5rem, 3.5vh, 2.5rem);
+}
+
+.rw-lp-future-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: clamp(1rem, 2.5vh, 1.5rem);
+}
+
+/* From 1280px up the header is a map title: absolute over the chart's title
+   band, still inside the reading column. `pointer-events: none` so the band
+   never shadows a stop; nothing in the header is interactive. */
+@media (min-width: 1280px) {
+  .rw-lp-future-inner {
+    position: absolute;
+    top: clamp(2.5rem, 5vh, 4.5rem);
+    left: 0;
+    right: 0;
+    z-index: 4;
+    pointer-events: none;
+  }
+  .rw-lp-future-head {
+    margin-bottom: 0;
+  }
+  .rw-lp-future-heading,
+  .rw-lp-future-lead,
+  .rw-lp-future-closing-quote {
+    /* A thin ink shadow keeps the title legible over the chart's linework. */
+    text-shadow: 0 1px 14px rgb(var(--rw-lp-ink-rgb) / 0.9);
+  }
 }
 
 .rw-lp-future-intro {
@@ -104,11 +135,6 @@
   color: var(--rw-lp-future-muted);
 }
 
-.rw-lp-future-closing-slot {
-  display: flex;
-  justify-content: flex-end;
-}
-
 /* The conclusion, set beside the argument so the visitor reads the promise
    ("the same supervised fleet") before exploring what joins it. */
 .rw-lp-future-closing {
@@ -142,7 +168,10 @@
   position: relative;
   isolation: isolate;
   width: 100%;
-  aspect-ratio: 20 / 9;
+  /* 25:18 (2000×1440), not 20:9: the top ~36% is the title band the header
+     sits over from 1280px up (`--rw-lp-title-band`). Stops keep to y ≥ 820. */
+  --rw-lp-title-band: 36%;
+  aspect-ratio: 25 / 18;
   overflow: hidden;
   background: rgb(var(--rw-lp-ink-rgb));
 }
@@ -164,6 +193,21 @@
 .rw-lp-future-map::before {
   top: 0;
   background: linear-gradient(180deg, rgb(var(--rw-lp-ink-rgb)), transparent);
+}
+
+/* The title band: solid ink at the seam with the dial section, then a long
+   dissolve into the chart under the header's copy. */
+@media (min-width: 1280px) {
+  .rw-lp-future-map::before {
+    height: var(--rw-lp-title-band);
+    background: linear-gradient(
+      180deg,
+      rgb(var(--rw-lp-ink-rgb)) 0%,
+      rgb(var(--rw-lp-ink-rgb) / 0.92) 30%,
+      rgb(var(--rw-lp-ink-rgb) / 0.55) 68%,
+      transparent 100%
+    );
+  }
 }
 .rw-lp-future-map::after {
   bottom: 0;
@@ -202,7 +246,7 @@
    from the horizon line rather than starting on a hard edge. */
 .rw-lp-future-clouds {
   position: absolute;
-  top: -8%;
+  top: 22%;
   bottom: -8%;
   left: 58%;
   right: -6%;
@@ -326,6 +370,12 @@
   white-space: nowrap;
 }
 
+@media (min-width: 1280px) {
+  .rw-lp-future-horizon-label {
+    top: calc(var(--rw-lp-title-band) + 1rem);
+  }
+}
+
 /* ---- "Today": the end of the lit road ---- */
 .rw-lp-future-today {
   position: absolute;
@@ -358,13 +408,10 @@
   box-shadow: 0 0 8px rgb(var(--rw-lp-accent-rgb) / 0.8);
 }
 
-/* ---- legend ---- */
+/* ---- legend (in the header's right column, under the closing quote) ---- */
 .rw-lp-future-legend {
-  position: absolute;
-  z-index: 4;
-  top: clamp(1.5rem, 4vh, 2.5rem);
-  left: var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
-  max-width: 20rem;
+  width: 100%;
+  max-width: 28rem;
   padding: 1rem 1.125rem;
   border-radius: 0.875rem;
   background: rgb(var(--rw-lp-ink-rgb) / 0.55);
@@ -744,18 +791,21 @@
   }
 }
 
-/* ---------- narrow: header stacks ---------- */
-@media (max-width: 1100px) {
+/* ---------- narrow: header stacks above the chart ---------- */
+@media (max-width: 1279px) {
+  .rw-lp-future {
+    padding-top: clamp(1rem, 3vh, 2rem);
+  }
   .rw-lp-future-head {
     grid-template-columns: minmax(0, 1fr);
     gap: clamp(1rem, 3vh, 1.75rem);
   }
+  .rw-lp-future-aside {
+    align-items: flex-start;
+  }
   .rw-lp-future-intro,
   .rw-lp-future-lead {
     max-width: none;
-  }
-  .rw-lp-future-closing-slot {
-    justify-content: flex-start;
   }
   .rw-lp-future-closing {
     max-width: 34rem;
@@ -791,11 +841,7 @@
     display: none;
   }
   .rw-lp-future-legend {
-    position: relative;
-    top: auto;
-    left: auto;
     max-width: none;
-    margin-bottom: 1.25rem;
   }
   .rw-lp-future-stops {
     position: relative;

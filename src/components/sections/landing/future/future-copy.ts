@@ -54,9 +54,13 @@
  * planned or horizon stop the lit treatment.
  *
  * ── Coordinates ───────────────────────────────────────────────────────────
- * `x`/`y` are positions on a 2000×900 stage (the chart's 20:9 frame, which
- * bleeds to the viewport edges — 2026-09-06 owner direction: "use the space
- * on the left and right"). The road is a long serpentine — bottom-left, up
+ * `x`/`y` are positions on a 2000×1440 stage (the chart bleeds to the
+ * viewport edges — 2026-09-06 owner direction: "use the space on the left
+ * and right"). The top ~520 units are the TITLE BAND: from 1280px up the
+ * section header (eyebrow, heading, lead, closing quote, legend) sits over
+ * the chart there, so the section starts straight under the dial with no
+ * ink gap (owner, 2026-09-06: "I really do not like the transition"). Keep
+ * every road point at y ≥ 820. The road is a long serpentine — bottom-left, up
  * over a crest, down through a trough, up again to the horizon — so
  * consecutive stops sit ~230 units apart along it instead of ~130 on a
  * flat line (owner: the flat road read "convoluted" and "cramped"). Keep
@@ -90,7 +94,7 @@ export interface RoadmapStop {
 }
 
 export const STAGE_WIDTH = 2000;
-export const STAGE_HEIGHT = 900;
+export const STAGE_HEIGHT = 1440;
 /** Where the fog begins. Horizon stops all sit to the right of it. */
 export const HORIZON_X = 1590;
 
@@ -107,7 +111,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'shipped',
     marker: SHIPPED_MARKER,
     x: 170,
-    y: 720,
+    y: 1240,
     label: 'below',
     landmark: '/future/stops/spine.webp',
     landmarkAspect: 0.35,
@@ -119,7 +123,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'shipped',
     marker: SHIPPED_MARKER,
     x: 330,
-    y: 560,
+    y: 1080,
     label: 'below',
     landmark: '/future/stops/reply.webp',
     landmarkAspect: 0.79,
@@ -131,7 +135,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'shipped',
     marker: SHIPPED_MARKER,
     x: 490,
-    y: 375,
+    y: 895,
     label: 'below',
     landmark: '/future/stops/solicitor.webp',
     landmarkAspect: 0.76,
@@ -143,7 +147,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'shipped',
     marker: SHIPPED_MARKER,
     x: 690,
-    y: 300,
+    y: 820,
     label: 'above',
     landmark: '/future/stops/qr.webp',
     landmarkAspect: 0.45,
@@ -155,7 +159,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'shipped',
     marker: SHIPPED_MARKER,
     x: 890,
-    y: 400,
+    y: 920,
     label: 'below',
     landmark: '/future/stops/restraint.webp',
     landmarkAspect: 1.42,
@@ -166,8 +170,8 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Your booking system will have something to say, and the ask will take care of itself.',
     state: 'planned',
     marker: 'Phase 1',
-    x: 1040,
-    y: 605,
+    x: 1070,
+    y: 1125,
     label: 'above',
     landmark: '/future/stops/connectors.webp',
     landmarkAspect: 1.56,
@@ -179,7 +183,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'planned',
     marker: 'Phase 2',
     x: 1140,
-    y: 730,
+    y: 1250,
     label: 'below',
     landmark: '/future/stops/recovery.webp',
     landmarkAspect: 1.04,
@@ -191,7 +195,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'planned',
     marker: 'Phase 3',
     x: 1320,
-    y: 680,
+    y: 1200,
     label: 'above',
     landmark: '/future/stops/topics.webp',
     landmarkAspect: 0.68,
@@ -203,7 +207,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'planned',
     marker: 'Phase 4',
     x: 1450,
-    y: 500,
+    y: 1020,
     label: 'above',
     landmark: '/future/stops/truth.webp',
     landmarkAspect: 0.89,
@@ -215,7 +219,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'planned',
     marker: 'Phase 5',
     x: 1550,
-    y: 320,
+    y: 840,
     label: 'above',
     landmark: '/future/stops/autonomy.webp',
     landmarkAspect: 0.74,
@@ -227,7 +231,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1700,
-    y: 250,
+    y: 770,
     label: 'below',
   },
   {
@@ -237,7 +241,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1870,
-    y: 420,
+    y: 940,
     label: 'above',
   },
   {
@@ -247,7 +251,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1855,
-    y: 770,
+    y: 1290,
     label: 'above',
   },
   {
@@ -257,7 +261,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1690,
-    y: 800,
+    y: 1320,
     label: 'above',
   },
   {
@@ -267,7 +271,7 @@ export const STOPS: readonly RoadmapStop[] = [
     state: 'horizon',
     marker: HORIZON_MARKER,
     x: 1770,
-    y: 600,
+    y: 1120,
     label: 'below',
   },
 ];
