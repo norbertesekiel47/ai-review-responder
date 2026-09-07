@@ -1,5 +1,17 @@
 # Architecture review log
 
+2026-09-07 — **docs/504-reaper-pointers (pre-merge):** Re-point the
+shared-client reclaim residual from #477 to #504 in the `health-db.ts` header
+comment and the `postgres.md` #413 closure entry — #477 closed 2026-07-20 via
+PR #510 without the reaper re-arm, so both pointers led to a closed ticket that
+never carried the work. Same day: #503 closed with live evidence the
+`HealthAlertPoller` wedge is cured (sequential checks, override gone on staging
++ prod, Sentry cron ok every 5 min on both, zero wedge events in 90 days), and
+#504's body was updated to say the reaper was deleted under #505 and would be a
+rebuild on a direct route. Comments and lab-note text only — no runtime change,
+no migration, no dependency, no flag, no new writer. The merge counter is
+unchanged until this branch is merged.
+
 2026-09-06 — **fix/415-failover-claim-before-send (pre-merge):** Move the
 `NotificationFailoverPoller` admin-alert claim to claim-before-send — the claim
 row commits under the advisory lock, Resend is called OUTSIDE the transaction
