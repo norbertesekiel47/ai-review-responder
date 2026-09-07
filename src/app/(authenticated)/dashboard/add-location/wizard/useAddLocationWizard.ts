@@ -162,7 +162,7 @@ export function useAddLocationWizard({
       const result = await res.json();
       businessId = typeof result.businessId === 'string' ? result.businessId : null;
     } catch {
-      dispatch({ type: 'SUBMIT_FAILED', message: 'Network error — please try again.' });
+      dispatch({ type: 'SUBMIT_FAILED', message: 'Network error. Please try again.' });
       return;
     }
 

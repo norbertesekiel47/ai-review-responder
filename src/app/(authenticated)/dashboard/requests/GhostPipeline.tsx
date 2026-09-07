@@ -52,7 +52,7 @@ const GHOST_COPY: Record<GhostState, { headline: string; subhead: string }> = {
   no_batch: {
     headline: 'No batch yet',
     subhead:
-      'Upload the customers you have served and RepWorth will work out who it would ask — without asking anyone.',
+      'Upload the customers you have served and RepWorth will work out who it would ask, without asking anyone.',
   },
   building: {
     headline: 'Building your batch…',
@@ -133,8 +133,8 @@ export function GhostPipeline(props: GhostPipelineProps) {
               <p className="rq-fact">
                 <span className="rq-fact-lead">
                   {NUMBER_FORMAT.format(contactsOnFile)} contacts on file
-                </span>{' '}
-                — upload a new file to build your first batch.
+                </span>
+                . Upload a new file to build your first batch.
               </p>
             )}
           </div>

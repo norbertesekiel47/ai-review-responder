@@ -85,7 +85,7 @@ export function BatchReport({ view }: { view: BuiltBatch }) {
 
       <p className="rq-footnote">
         Rows that failed validation when you uploaded the file never reached
-        these checks and are not held back — they are listed in the{' '}
+        these checks and are not held back. They are listed in the{' '}
         <Link className="rq-footnote-link" href="/dashboard/requests/contacts">
           upload report
         </Link>
@@ -143,8 +143,8 @@ function FunnelHero({ view }: { view: BuiltBatch }) {
         <span className="rq-fact-lead">
           {NUMBER_FORMAT.format(view.contactsOnFile)} contacts on file
         </span>{' '}
-        — that is your list right now, and it keeps changing as you upload. The
-        batch numbers above were fixed when the batch was built.
+        right now, and that list keeps changing as you upload. The batch numbers
+        above were fixed when the batch was built.
       </p>
     </section>
   );

@@ -38,7 +38,7 @@ describe('computeHeroHeadline', () => {
       computeHeroHeadline(summary({ averageStar: { current: null, delta: null, priorSampleSize: 0 } })),
     ).toBe('No new ratings in the last 30 days. Your agents are standing by.');
     expect(computeHeroHeadline(summary({ isRamping: true }))).toBe(
-      'Your agents are on the job — the baseline is still building.',
+      'Your agents are on the job. The baseline is still building.',
     );
   });
 });

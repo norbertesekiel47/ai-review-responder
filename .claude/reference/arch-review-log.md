@@ -1,5 +1,20 @@
 # Architecture review log
 
+2026-09-07 — **copy/remove-ai-slop-marketing-dashboard (pre-merge):** Editorial
+pass, no behaviour change. 66 production files under `src/app/(public)`,
+`src/app/(authenticated)`, `src/components/sections` and
+`src/components/dashboard` change user-facing copy only — the landing page
+(hero untouched), how-it-works, features, pricing, and the owner dashboard and
+its related pages. Removed AI-slop patterns (negative listing in the jobs
+heading, the tiers lead-in's binary contrast, told-you-how-to-feel kickers,
+weasel "most tools/most software" setups, clichés, dramatic fragments, one
+dangling modifier) and 76 em dashes from copy, each sentence reframed rather
+than comma-swapped. Em dashes stay in code comments and in the `'—'`
+placeholder glyph for an empty rating / email / phone cell, which is data
+display, not prose. No module, seam, schema, flag, or trust boundary is
+touched; the 18 test files in the diff change string expectations only, with no
+test logic changed. Gate green at this tree: lint, typecheck, 15,043 tests.
+
 2026-09-06 — **fix/468-admin-mfa-audit (pre-merge):** Admin MFA events get
 a sink. `account_audit_log.account_id` is NOT NULL and admins have
 `role='admin'` + NULL `account_id`, so `auditMfaEvent` in the MFA challenge

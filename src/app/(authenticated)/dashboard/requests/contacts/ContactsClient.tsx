@@ -68,7 +68,7 @@ export function ContactsClient({
           are sent" was false the moment the send lane went live. */}
       <TopBar
         title="Contacts"
-        subtitle="Upload customer visit history — RepWorth decides who to ask, and nothing sends without your approval."
+        subtitle="Upload customer visit history. RepWorth decides who to ask, and nothing sends without your approval."
       />
       <RequestsTabs active="contacts" />
       <div className="content">

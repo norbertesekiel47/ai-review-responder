@@ -37,7 +37,7 @@ export function FeatRestraint({ innerRef }: { innerRef: RefObject<HTMLElement | 
             bar="var(--rw-ink2)"
             group="Measure"
             title="It also shows you what it decided not to do."
-            lede="Most software shows you what it did. The Restraint tab shows you what RepWorth decided not to do, and when: a draft held for you, an auto-post held back, an ask withheld, a batch halted, autonomy paused. Each entry carries its reason in plain words. It is the audit trail of a system that knows when to stop."
+            lede="The Restraint tab lists what RepWorth decided not to do, and when: a draft held for you, an auto-post held back, an ask withheld, a batch halted, autonomy paused. Each entry carries its reason in plain words, so every time the system stopped is on the record next to every time it acted."
           >
             <ul className="rw-dl-bul">
               {RESTRAINT_FACTS.map((t) => (

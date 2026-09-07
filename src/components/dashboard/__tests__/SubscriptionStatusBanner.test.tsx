@@ -202,7 +202,7 @@ describe('PastDueBanner (VAL-CROSS-012)', () => {
       />,
     );
 
-    expect(screen.getByText(/Payment overdue — account is read-only/)).toBeDefined();
+    expect(screen.getByText(/Payment overdue, account is read-only/)).toBeDefined();
     expect(screen.getByText(/Actions are paused until payment is updated/)).toBeDefined();
   });
 });

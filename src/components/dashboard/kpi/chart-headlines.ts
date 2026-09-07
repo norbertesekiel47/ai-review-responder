@@ -55,7 +55,7 @@ export function computeTrendHeadline(trend: ReputationSummary['trend']): ChartHe
   const verb = delta > 0 ? 'climbing' : 'slipping';
   return {
     direction,
-    headline: `Rating ${verb} — ${delta > 0 ? 'up' : 'down'} ${magnitude.toFixed(1)}★`,
+    headline: `Rating ${verb}, ${delta > 0 ? 'up' : 'down'} ${magnitude.toFixed(1)}★`,
     detail: `Now averaging ${last.toFixed(1)} stars (was ${first.toFixed(1)}).`,
   };
 }

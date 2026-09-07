@@ -164,10 +164,10 @@ describe('otherChannelBlockedReason', () => {
 
   it('names the sibling and the reason for verified and in-progress states', () => {
     expect(otherChannelBlockedReason(states('verified', 'idle'), 'whatsapp')).toBe(
-      'Disconnect Telegram first — you can have one mobile channel at a time.',
+      'Disconnect Telegram first. You can have one mobile channel at a time.',
     );
     expect(otherChannelBlockedReason(states('idle', 'generating'), 'telegram')).toBe(
-      'Finish or cancel the WhatsApp setup first — you can have one mobile channel at a time.',
+      'Finish or cancel the WhatsApp setup first. You can have one mobile channel at a time.',
     );
     expect(otherChannelBlockedReason(states('idle', 'awaiting_scan'), 'telegram')).toMatch(/whatsapp setup first/i);
   });

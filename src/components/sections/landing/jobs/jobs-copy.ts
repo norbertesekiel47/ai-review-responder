@@ -109,8 +109,8 @@ export const JOBS: readonly Job[] = [
 ] as const;
 
 export const EYEBROW = 'One system, five jobs';
-export const HEADING_LEAD = 'Not a reply tool.';
-export const HEADING_ACCENT = 'A reputation department.';
+export const HEADING_LEAD = 'It runs a whole';
+export const HEADING_ACCENT = 'reputation department.';
 /** Flat string for `aria-label`, since the visible heading is split. */
 export const HEADING_PLAIN = `${HEADING_LEAD} ${HEADING_ACCENT}`;
 export const LEAD_IN =

@@ -28,13 +28,13 @@ const ACTION_VERB: Record<DraftAction, string> = {
 };
 
 const CODE_COPY: Record<string, string> = {
-  past_due_read_only: 'Your account is past due — update billing to change replies.',
-  subscription_inactive: "Your subscription isn't active — update billing to continue.",
+  past_due_read_only: 'Your account is past due. Update billing to change replies.',
+  subscription_inactive: "Your subscription isn't active. Update billing to continue.",
   account_offboarding_blocked: "Your account is closing, so replies can't be changed.",
   no_business: "We couldn't find this location on your account.",
   held_for_review: "This reply is being checked by our team. We'll let you know when it's ready.",
-  rate_limited: 'Too many requests — give it a moment and try again.',
-  conflict_retry: 'Something else was updating this reply — try again.',
+  rate_limited: 'Too many requests. Give it a moment and try again.',
+  conflict_retry: 'Something else was updating this reply. Try again.',
 };
 
 export function describeActionFailure(action: DraftAction, failure: ActionFailure): ActionFailureCopy {
@@ -44,17 +44,17 @@ export function describeActionFailure(action: DraftAction, failure: ActionFailur
 
   if (failure.status === 400) {
     // The edit route's validation: an empty or over-long reply.
-    return { message: 'Your reply needs some text — up to 2000 characters.', stale: false };
+    return { message: 'Your reply needs some text, up to 2000 characters.', stale: false };
   }
   if (failure.status === 401) {
-    return { message: 'Your session has expired — sign in again to continue.', stale: false };
+    return { message: 'Your session has expired. Sign in again to continue.', stale: false };
   }
   // 404 = no actionable draft; 409 = the draft is no longer pending (already
   // approved, superseded, or its location archived). Either way the row on
   // screen is stale, and the refreshed list is the honest answer.
   if (failure.status === 404 || failure.status === 409) {
-    return { message: 'This reply was already handled — refreshing your queue.', stale: true };
+    return { message: 'This reply was already handled. Refreshing your queue.', stale: true };
   }
 
-  return { message: `Couldn't ${ACTION_VERB[action]} — try again.`, stale: false };
+  return { message: `Couldn't ${ACTION_VERB[action]}. Try again.`, stale: false };
 }

@@ -49,7 +49,7 @@ export function RecentRatingBreakdown({ breakdown }: Props) {
         {/* Worded so it does NOT repeat the visible sub-label verbatim: an
             `sr-only` copy of the same sentence makes `getByText` ambiguous and
             gives a reader the line twice over. */}
-        <caption>{`Reviews by rating — ${total} rated ${reviewWord(total)} in the selected period`}</caption>
+        <caption>{`Reviews by rating: ${total} rated ${reviewWord(total)} in the selected period`}</caption>
         <thead>
           <tr>
             <th scope="col">Rating</th>

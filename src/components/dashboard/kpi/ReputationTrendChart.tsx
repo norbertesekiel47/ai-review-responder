@@ -89,7 +89,7 @@ export function ReputationTrendChart({ trend }: Props) {
         // the span instead of leaving the reader to guess both. One template
         // string, so JSX cannot split the phrase across text lines.
         <p className="rep-trend-empty">
-          {`Not enough reviews yet to chart a trend — this chart plots star-equivalent over the ${spanLabel}. Check back in a few weeks.`}
+          {`Not enough reviews yet to chart a trend. This chart plots star-equivalent over the ${spanLabel}, so check back in a few weeks.`}
         </p>
       ) : (
         <>

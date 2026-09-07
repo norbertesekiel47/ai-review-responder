@@ -40,7 +40,7 @@ export default async function PastRepliesPage({
     <>
       <TopBar
         title="All Reviews"
-        subtitle={`Every review for ${view.locationDisplayName} — unanswered first.`}
+        subtitle={`Every review for ${view.locationDisplayName}, unanswered first.`}
       />
       <div className="reviews-subnav">
         <ReviewsTabs active="history" />

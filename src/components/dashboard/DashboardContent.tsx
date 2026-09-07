@@ -264,7 +264,7 @@ function DashboardOperationalContent() {
     ? `Here's what's new for ${business.name}.`
     : "Here's what's new.";
   const subtitle = pastDueData
-    ? 'Payment overdue — please update your payment method'
+    ? 'Payment overdue. Please update your payment method.'
     : activeSubtitle;
   const hasPendingApprovals = reputation.pendingApprovalCount > 0;
 

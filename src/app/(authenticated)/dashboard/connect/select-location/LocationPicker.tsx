@@ -136,16 +136,16 @@ const FRIENDLY_MESSAGES = new Map<string, string>([
   ['connect_session_missing', SESSION_EXPIRED],
   ['connect_session_expired', SESSION_EXPIRED],
   ['connect_pending_missing', SESSION_EXPIRED],
-  ['invalid_location_id', 'That location isn’t recognized — please pick one from the list.'],
-  ['finalize_in_progress', 'Another tab is already finalizing this connection — please wait a moment and refresh.'],
+  ['invalid_location_id', 'That location isn’t recognized. Please pick one from the list.'],
+  ['finalize_in_progress', 'Another tab is already finalizing this connection. Please wait a moment and refresh.'],
   ['finalize_unknown_admin_required', 'This connection needs manual review by our support team.'],
   ['already_connected_by_parallel_flow', 'This business was just connected from another tab.'],
-  ['flow_changed', 'The connection flow changed — please start over from the dashboard.'],
+  ['flow_changed', 'The connection flow changed. Please start over from the dashboard.'],
   ['malformed_pending_marker', 'Something went wrong with this connect session. Please start over.'],
   ['business_mismatch', ACCOUNT_MISMATCH],
   ['user_mismatch', ACCOUNT_MISMATCH],
   ['zernio_auth_error', 'Google authorization expired before you finished. Please reconnect.'],
-  ['zernio_validation_error', 'Google rejected that selection — please pick a different location.'],
+  ['zernio_validation_error', 'Google rejected that selection. Please pick a different location.'],
   ['feature_disabled', 'Google Business publishing isn’t available right now.'],
   ['forbidden', NO_PERMISSION],
   ['unauthorized', NO_PERMISSION],
@@ -175,6 +175,6 @@ async function postConnectRoute(
     const payload: { error?: string } = await res.json().catch(() => ({}));
     return friendlyMessage(payload.error ?? `${fallbackCode}_${res.status}`);
   } catch {
-    return 'Network error — please try again.';
+    return 'Network error. Please try again.';
   }
 }

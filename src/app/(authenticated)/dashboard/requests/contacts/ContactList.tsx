@@ -117,7 +117,7 @@ function ContactListBody({
   }
   if (list.data == null) return null;
   if (list.data.contacts.length === 0) {
-    return <p className="ct-state">No contacts yet — upload a CSV above to get started.</p>;
+    return <p className="ct-state">No contacts yet. Upload a CSV above to get started.</p>;
   }
   return (
     <>
@@ -482,7 +482,7 @@ function ContactRow({
         <RowConfirmBanner
           id={deleteConfirmId}
           tone="danger"
-          message="Hard delete — removes this person and all their visits permanently."
+          message="Hard delete: this removes the person and all their visits permanently."
           actionLabel="Delete permanently"
           pendingLabel="Deleting…"
           pending={deletion.pendingId === contact.id}

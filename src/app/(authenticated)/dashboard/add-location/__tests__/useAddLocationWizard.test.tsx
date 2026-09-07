@@ -217,7 +217,7 @@ describe('useAddLocationWizard submit — terminal state (#781)', () => {
     await act(() => result.current.handleSubmit());
 
     expect(result.current.submitPhase).toBe('failed');
-    expect(result.current.submitError).toBe('Network error — please try again.');
+    expect(result.current.submitError).toBe('Network error. Please try again.');
     expect(routerCalls).toEqual([]);
   });
 });

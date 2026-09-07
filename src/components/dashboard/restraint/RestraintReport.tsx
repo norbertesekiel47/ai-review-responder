@@ -169,7 +169,7 @@ function policyGateLine(autoApprovalEnabled: boolean): string {
   // No activation history exists, so the current flag cannot prove coverage
   // across the selected window, even after automatic posting is enabled.
   if (autoApprovalEnabled) return 'Replies held by automatic policy checks while automatic posting was off are not included. Windows covering those periods may be incomplete.';
-  return 'One kind of decision — a reply an automatic policy check holds — is only recorded once automatic posting is switched on. It is off for your account today.';
+  return 'One kind of decision, a reply that an automatic policy check holds, is only recorded once automatic posting is switched on. It is off for your account today.';
 }
 
 function archivalTruncationLine(log: RestraintPayload): string | null {
@@ -450,7 +450,7 @@ function EntryRow({ entry }: { entry: RefusalLogEntry }) {
         <Link
           className="rst-row-link"
           href={href}
-          aria-label={`${LINK_LABEL[entry.linkKind]} — ${formatDate(entry.occurredAt)}`}
+          aria-label={`${LINK_LABEL[entry.linkKind]}, ${formatDate(entry.occurredAt)}`}
         >
           {LINK_LABEL[entry.linkKind]}
         </Link>

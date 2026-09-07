@@ -174,7 +174,7 @@ export function ChannelsTabClient(props: Props) {
         <div className="toggle-row">
           <div className="toggle-info">
             <div className="t-title">Monthly impact report</div>
-            <div className="t-sub">A bigger-picture brief on the first of the month: time saved, sentiment trends, suggested actions.</div>
+            <div className="t-sub">On the first of the month: time saved, sentiment trends, suggested actions.</div>
           </div>
           <Switch
             on={f.form.monthlyImpactEnabled}

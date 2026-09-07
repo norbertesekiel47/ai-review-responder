@@ -284,7 +284,7 @@ const HALT_BODY: Readonly<Record<HaltReason, string>> = {
   owner_halt:
     'You stopped this batch while it was sending. Whatever had already left has gone; nothing further will send.',
   admin_halt:
-    'RepWorth support stopped this batch. It cannot be resumed — get in touch if that was not expected.',
+    'RepWorth support stopped this batch. It cannot be resumed. Get in touch if that was not expected.',
   send_window_elapsed:
     'This batch ran out of time before everything went out, so the rest was cancelled. It cannot be resumed.',
   batch_expired:
@@ -295,7 +295,7 @@ const HALT_BODY: Readonly<Record<HaltReason, string>> = {
   // this owner's list or timing caused it, and an owner who reads the blander
   // line has no way to learn that. Say what happened, and do not make them ask.
   platform_halt:
-    'RepWorth paused review requests across the whole platform while this batch was waiting to send, and its send window ran out during that pause. The rest was cancelled. This was our doing, not anything about your list — get in touch and we will help you send these again.',
+    'RepWorth paused review requests across the whole platform while this batch was waiting to send, and its send window ran out during that pause. The rest was cancelled. This was our doing, not anything about your list. Get in touch and we will help you send these again.',
 };
 
 /** The read model ASSERTS `halt_reason` against its CHECK rather than
@@ -319,7 +319,7 @@ function panelCopy(mode: PanelMode, lane: SendLaneView): { heading: string; body
     case 'approvable':
       return {
         heading: 'Ready for your approval',
-        body: 'Read each message below — this is exactly what will be sent. Nothing sends until you approve. You can ask for a new version of any message, but you cannot write one yourself. Deselect anyone you would rather skip.',
+        body: 'Read each message below. This is exactly what will be sent, and nothing sends until you approve. You can ask for a new version of any message, but you cannot write one yourself. Deselect anyone you would rather skip.',
       };
     case 'nothing_to_send':
       return {
@@ -377,7 +377,7 @@ export function vetoDeadlineCopy(
 ): { absolute: string; remaining: string } {
   const absolute = VETO_TIME_FORMAT.format(new Date(deadlineMs));
   const left = deadlineMs - nowMs;
-  if (left <= 0) return { absolute, remaining: 'The window has closed — sending starts now.' };
+  if (left <= 0) return { absolute, remaining: 'The window has closed. Sending starts now.' };
   if (left < MINUTE_MS) return { absolute, remaining: 'Less than a minute left.' };
   const minutes = Math.ceil(left / MINUTE_MS);
   return { absolute, remaining: `${minutes} min left.` };

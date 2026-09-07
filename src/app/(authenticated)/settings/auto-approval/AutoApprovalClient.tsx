@@ -459,7 +459,7 @@ export function AutoApprovalClient({ initialState }: Props) {
             key={`account-cap-${capDraftEpoch}-${data.accountDefault.dailyAutoPostCap ?? 'default'}`}
             ariaLabel="Account default daily auto-post cap"
             label="Daily auto-post cap"
-            hint={`Most replies posted automatically per day — 1 to 50. Leave blank for the default (${data.accountDefault.effectiveDailyCap}).`}
+            hint={`Most replies posted automatically per day, from 1 to 50. Leave blank for the default (${data.accountDefault.effectiveDailyCap}).`}
             placeholder={`Default (${data.accountDefault.effectiveDailyCap})`}
             storedCap={data.accountDefault.dailyAutoPostCap}
             disabled={accountSaving}
@@ -660,14 +660,14 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): {
     if (overrideNames.length === 0) {
       return {
         tone: 'off',
-        title: 'Off — you approve every reply before it posts.',
+        title: 'Off. You approve every reply before it posts.',
         detail: ['Turn it on below by choosing which star ratings can post on their own.'],
         canTurnOff: false,
       };
     }
     return {
       tone: 'on',
-      title: `Off by default — ${joinNames(overrideNames)} ${overrideNames.length === 1 ? 'posts' : 'post'} replies automatically with ${overrideNames.length === 1 ? 'its' : 'their'} own settings.`,
+      title: `Off by default. ${joinNames(overrideNames)} ${overrideNames.length === 1 ? 'posts' : 'post'} replies automatically with ${overrideNames.length === 1 ? 'its' : 'their'} own settings.`,
       detail: ['Change or remove those settings on the location rows below.'],
       canTurnOff: false,
     };
@@ -675,7 +675,7 @@ function describePolicyStatus(data: AutoApprovalSettingsResponse): {
 
   const minutes = account.vetoWindowMinutes;
   const detailLines = [
-    `Those ${minutes} minutes are your veto window — the time you have to stop a reply before it posts.`,
+    `Those ${minutes} minutes are your veto window, the time you have to stop a reply before it posts.`,
   ];
   const differing = data.locations.filter(
     (location) => location.override.exists && !location.effective.inherited,
@@ -762,7 +762,7 @@ function describeExpansion(
   if (before.threshold !== after.threshold) {
     example = `For example: a ${stars}★ review saying ${reviewQuote} gets its reply posted ${minutes} minutes after you're notified, unless you stop it in that time.`;
   } else if (before.vetoWindowMinutes !== after.vetoWindowMinutes) {
-    example = `For example: a reply to a ${stars}★ review saying ${reviewQuote} posts after ${minutes} minutes instead of ${before.vetoWindowMinutes} — that is how long you have to stop it.`;
+    example = `For example: a reply to a ${stars}★ review saying ${reviewQuote} posts after ${minutes} minutes instead of ${before.vetoWindowMinutes}, so that is how long you have to stop it.`;
   } else {
     example = `For example: on a busy day, up to ${after.dailyAutoPostCap ?? defaultCap} replies could post without you approving each one.`;
   }
@@ -945,7 +945,7 @@ function LocationPolicyRow({
             key={`location-cap-${capDraftEpoch}-${location.override.dailyAutoPostCap ?? 'default'}`}
             ariaLabel={`Daily auto-post cap for ${location.displayName}`}
             label="Daily auto-post cap"
-            hint={`Most replies posted automatically per day for this location — 1 to 50. Leave blank for the default (${location.effective.effectiveDailyCap}).`}
+            hint={`Most replies posted automatically per day for this location, from 1 to 50. Leave blank for the default (${location.effective.effectiveDailyCap}).`}
             placeholder={`Default (${location.effective.effectiveDailyCap})`}
             // The commit baseline is the OVERRIDE's stored value — baselining on
             // the effective cap made retyping it a no-op.
@@ -1049,7 +1049,7 @@ function VetoWindowField({
         </option>
       </select>
       <span className="field-hint">
-        How long an approved reply waits before posting — the time you have to stop it.
+        How long an approved reply waits before posting, which is the time you have to stop it.
       </span>
     </label>
   );
@@ -1164,8 +1164,8 @@ function clampNoteFor(draft: string, normalized: number | null): string | null {
   if (normalized === null) return null;
   const parsed = Number.parseInt(draft.trim(), 10);
   if (Number.isNaN(parsed) || parsed === normalized) return null;
-  if (parsed > MAX_DAILY_CAP) return `Capped at ${MAX_DAILY_CAP} — the most that can post automatically in a day.`;
-  return `Raised to ${MIN_DAILY_CAP} — the lowest cap. Use “Off” above to stop auto-posting entirely.`;
+  if (parsed > MAX_DAILY_CAP) return `Capped at ${MAX_DAILY_CAP}, the most that can post automatically in a day.`;
+  return `Raised to ${MIN_DAILY_CAP}, the lowest cap. Use “Off” above to stop auto-posting entirely.`;
 }
 
 /**
@@ -1223,7 +1223,7 @@ function SolicitationSection({
         <div className="toggle-info">
           <div className="t-title">Auto-approve request batches</div>
           <div className="t-sub">
-            Each auto-approved batch notifies you first and waits out its veto window — the time you have to halt it from the Requests page.
+            Each auto-approved batch notifies you first and waits out its veto window, which is the time you have to halt it from the Requests page.
           </div>
         </div>
         <button
@@ -1278,7 +1278,7 @@ function SolicitationSection({
             key={`solicitation-cap-${capDraftEpoch}-${state.dailySendCap ?? 'default'}`}
             ariaLabel="Daily review request send cap"
             label="Daily send cap"
-            hint={`Most review requests sent per day — 1 to 50. Leave blank for the default; RepWorth never sends more than ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} in a day.`}
+            hint={`Most review requests sent per day, from 1 to 50. Leave blank for the default; RepWorth never sends more than ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} in a day.`}
             placeholder={`Default (${DEFAULT_DAILY_SEND_CAP_ACCOUNT})`}
             storedCap={state.dailySendCap}
             disabled={saving}

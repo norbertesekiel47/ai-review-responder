@@ -34,7 +34,7 @@ const STEPS = [
     bar: 'var(--rw-sage-bar)',
     tick: 'T + 0:00',
     kicker: 'Watch',
-    title: "We watch your reviews so you don't have to.",
+    title: 'We watch your Google reviews around the clock.',
     sub: 'Through our review partner, Google tells us within seconds when a new review lands. We also double-check every 5 minutes as a backup. We never draft the same review twice, and new reviews go straight to drafting.',
     bullets: [
       'Hears about new reviews within seconds, with a backup check every 5 minutes',
@@ -175,11 +175,11 @@ const LOOPS = [
 const GUARANTEES = [
   {
     title: 'Nothing posts without passing the gate',
-    desc: "On Copilot that gate is you. On Autopilot it's your settings, a veto window, a safety check, and the Judge on duty, which then reviews every auto-post. Negative reviews are never auto-posted.",
+    desc: "On Copilot that gate is you. On Autopilot it's your settings, a veto window, a safety check, and a Judge on duty to review the reply after it posts. Negative reviews are never auto-posted.",
   },
   {
     title: 'Sounds like you wrote it',
-    desc: 'RepWorth learns from the replies you edit and post. Your tone, your phrasing, your voice.',
+    desc: 'RepWorth learns your tone and phrasing from the replies you edit and post.',
   },
   {
     title: 'Pause anytime',

@@ -567,7 +567,7 @@ describe('RestraintReport', () => {
       attrs: {
         class: 'rst-row-link',
         href,
-        'aria-label': `${label} — Aug 20, 2026`,
+        'aria-label': `${label}, Aug 20, 2026`,
       },
     });
 
@@ -728,7 +728,7 @@ describe('RestraintReport', () => {
     // rows apart.
     const names = screen.getAllByRole('link').map((el) => el.getAttribute('aria-label'));
     expect(new Set(names).size).toBe(2);
-    expect(names).toContain('See your contacts — Aug 25, 2026');
+    expect(names).toContain('See your contacts, Aug 25, 2026');
   });
 
   // ── Which number this view shows (D3) ──────────────────────────────────

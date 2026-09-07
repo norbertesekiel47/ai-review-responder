@@ -213,7 +213,7 @@ function ConnectPageInner() {
       }, 2500);
       window.location.href = body.authUrl;
     } catch {
-      setActionError('Network error — please try again.');
+      setActionError('Network error. Please try again.');
       void enqueueConnectAnalytics('gbp_connect_failed', {
         ...scopeProps,
         reason: 'network_error',
@@ -240,7 +240,7 @@ function ConnectPageInner() {
       }
       await refresh();
     } catch {
-      setActionError('Network error — please try again.');
+      setActionError('Network error. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -569,7 +569,7 @@ function Spinner() {
 function friendlyErrorMessage(code: string): string {
   switch (code) {
     case 'feature_disabled':
-      return 'Google Business publishing isn’t available yet — please contact support.';
+      return 'Google Business publishing isn’t available yet. Please contact support.';
     case 'forbidden':
     case 'unauthorized':
       return 'You don’t have permission to do that.';
@@ -578,7 +578,7 @@ function friendlyErrorMessage(code: string): string {
     case 'subscription_required':
       return 'Update billing before connecting Google Business.';
     case 'unscoped_owner':
-      return 'Your account isn’t linked to a business yet — please contact support.';
+      return 'Your account isn’t linked to a business yet. Please contact support.';
     case 'connect_in_progress':
       return 'A connection is already in progress.';
     case 'oauth_denied':
@@ -592,7 +592,7 @@ function friendlyErrorMessage(code: string): string {
     case 'zernio_listlocations_failed':
       return 'Google authorization finished, but we could not load your business locations. Cancel this attempt and start again.';
     case 'finalize_in_progress':
-      return 'We’re finishing your connection — please wait a moment and refresh.';
+      return 'We’re finishing your connection. Please wait a moment and refresh.';
     case 'finalize_unknown_admin_required':
       return 'This connection needs manual review by our support team.';
     case 'already_connected':

@@ -153,7 +153,7 @@ export function Step3Voice({
         onClick={onUseDefaults}
         style={{ marginTop: 20, width: '100%' }}
       >
-        Skip — use the default voice
+        Skip and use the default voice
       </button>
     </div>
   );

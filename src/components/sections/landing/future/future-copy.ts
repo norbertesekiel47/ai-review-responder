@@ -322,4 +322,4 @@ export const STOPS_LABEL = 'The roadmap, in order';
 export const CLOSING_LEAD = 'Every new agent joins';
 export const CLOSING_ACCENT = 'the same supervised fleet,';
 export const CLOSING_TAIL =
-  'keeping the safety architecture that makes trusting AI with a business’s public reputation defensible.';
+  'which is what makes handing your public reputation to AI defensible at all.';

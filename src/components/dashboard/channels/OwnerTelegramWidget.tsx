@@ -13,7 +13,7 @@ const TELEGRAM_PRESENTATION: OwnerChannelPresentation = {
   iconClass: 'ch-tg',
   iconGlyph: '💬',
   idleText: 'Get approval requests in Telegram.',
-  unsubscribedText: 'You blocked the bot — start the bot in Telegram, then reconnect.',
+  unsubscribedText: 'You blocked the bot. Start the bot in Telegram, then reconnect.',
   qrAlt: 'Telegram QR',
   openOnPhoneLabel: 'Open Telegram on this phone',
   endpoints: {

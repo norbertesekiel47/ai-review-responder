@@ -96,7 +96,7 @@ describe('NeedsAttentionList', () => {
     expect(screen.getByText('Guardian flagged a high-severity issue and suggests you reply and reach out to the customer directly.')).toBeInTheDocument();
     expect(screen.queryByText('Respond and escalate')).not.toBeInTheDocument();
     expect(screen.queryByText('Escalated')).not.toBeInTheDocument();
-    expect(screen.getByText('New — needs a look')).toBeInTheDocument();
+    expect(screen.getByText('New, needs a look')).toBeInTheDocument();
     expect(screen.getByText("You've seen this")).toBeInTheDocument();
     expect(screen.getByText('Showing 2 of 24 open escalations.')).toBeInTheDocument();
 

@@ -227,7 +227,7 @@ describe('RequestsClient — batch absent and building', () => {
     // element, so the sentence is asserted on the paragraph that carries it.
     const fact = screen.getByText(/1,240 contacts on file/i).closest('p');
     expect(fact?.textContent).toMatch(
-      /^1,240 contacts on file — upload a new file to build your first batch\.$/i,
+      /^1,240 contacts on file\. Upload a new file to build your first batch\.$/i,
     );
     expect(screen.getByRole('link', { name: /upload/i })).toHaveAttribute(
       'href',

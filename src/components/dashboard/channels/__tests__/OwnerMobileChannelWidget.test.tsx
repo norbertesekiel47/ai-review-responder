@@ -123,7 +123,7 @@ describe('OwnerMobileChannelWidget disconnect (S11)', () => {
 describe('OwnerMobileChannelWidget sibling block (S12)', () => {
   it('disables Connect and explains inline when the other channel is taken', () => {
     arrange(snapshot({ state: 'idle' }));
-    const reason = 'Disconnect WhatsApp first — you can have one mobile channel at a time.';
+    const reason = 'Disconnect WhatsApp first. You can have one mobile channel at a time.';
     render(<OwnerMobileChannelWidget presentation={PRESENTATION} blockedReason={reason} />);
 
     const connect = screen.getByRole('button', { name: 'Connect' });

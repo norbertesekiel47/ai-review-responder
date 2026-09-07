@@ -51,10 +51,10 @@ export function otherChannelBlockedReason(
   const otherLabel = MOBILE_CHANNEL_LABEL[other];
   switch (states[other]) {
     case 'verified':
-      return `Disconnect ${otherLabel} first — you can have one mobile channel at a time.`;
+      return `Disconnect ${otherLabel} first. You can have one mobile channel at a time.`;
     case 'generating':
     case 'awaiting_scan':
-      return `Finish or cancel the ${otherLabel} setup first — you can have one mobile channel at a time.`;
+      return `Finish or cancel the ${otherLabel} setup first. You can have one mobile channel at a time.`;
     default:
       return null;
   }

@@ -14,7 +14,7 @@ export default function SettingsError({
       error={error}
       reset={reset}
       title="Settings didn't load"
-      description="We couldn't load this settings page. Nothing was changed — try again, or head back to your dashboard."
+      description="We couldn't load this settings page. Nothing was changed. Try again, or head back to your dashboard."
       secondaryHref="/dashboard"
       secondaryLabel="Back to dashboard"
     />

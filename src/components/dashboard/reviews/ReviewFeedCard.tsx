@@ -428,7 +428,7 @@ function RegeneratingDraft({
         Writing a new reply…
       </div>
       <p role="status" className="text-xs mt-1" style={{ color: 'var(--rw-app-text-muted)' }}>
-        This usually takes under a minute — the new draft will appear right here.
+        This usually takes under a minute, and the new draft will appear right here.
       </p>
     </>
   );

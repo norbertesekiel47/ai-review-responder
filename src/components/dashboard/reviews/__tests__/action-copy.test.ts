@@ -40,8 +40,8 @@ describe('describeActionFailure', () => {
   });
 
   it('falls back to an action-specific "try again" for unknown failures', () => {
-    expect(describeActionFailure('approve', { status: 500 }).message).toBe("Couldn't approve — try again.");
-    expect(describeActionFailure('edit', { status: 500, code: 'Internal server error' }).message).toBe("Couldn't save — try again.");
-    expect(describeActionFailure('regenerate', { status: 0 }).message).toBe("Couldn't regenerate — try again.");
+    expect(describeActionFailure('approve', { status: 500 }).message).toBe("Couldn't approve. Try again.");
+    expect(describeActionFailure('edit', { status: 500, code: 'Internal server error' }).message).toBe("Couldn't save. Try again.");
+    expect(describeActionFailure('regenerate', { status: 0 }).message).toBe("Couldn't regenerate. Try again.");
   });
 });

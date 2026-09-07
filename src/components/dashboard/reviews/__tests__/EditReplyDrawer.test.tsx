@@ -104,14 +104,14 @@ describe('EditReplyDrawer shell', () => {
     const close = screen.getByLabelText('Close (disabled while draft is being created)');
     expect(close).toBeDisabled();
     expect(close).not.toHaveAttribute('title');
-    expect(screen.getByRole('status')).toHaveTextContent('Hang on — setting up your draft.');
+    expect(screen.getByRole('status')).toHaveTextContent('Hang on, setting up your draft.');
   });
 
   it('explains the regenerating wait in plain language, with no worker jargon', () => {
     machine.isClosePending = true;
     renderDrawer({ kind: 'regenerating', outboxId: 'ob-1' });
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Still writing your reply — this usually takes under a minute.',
+      'Still writing your reply. This usually takes under a minute',
     );
     expect(screen.queryByText(/worker|polling/i)).toBeNull();
     expect(closeBlockedReason('preview')).toBeUndefined();

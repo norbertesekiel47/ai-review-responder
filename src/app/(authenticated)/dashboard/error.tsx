@@ -14,7 +14,7 @@ export default function DashboardError({
       error={error}
       reset={reset}
       title="Your dashboard hit a snag"
-      description="We couldn't load your reviews and replies just now. Your data is safe — try again, or come back in a moment."
+      description="We couldn't load your reviews and replies just now. Your data is safe. Try again, or come back in a moment."
       secondaryHref="/settings"
       secondaryLabel="Go to settings"
     />

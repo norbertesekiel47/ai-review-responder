@@ -56,9 +56,9 @@ type DraftMachine = ReturnType<typeof useEditReplyDraft>;
  * screen (UX audit D15). Exported for the drawer test.
  */
 export function closeBlockedReason(stateKind: DraftMachine['state']['kind']): string | undefined {
-  if (stateKind === 'creating_draft') return 'Hang on — setting up your draft.';
+  if (stateKind === 'creating_draft') return 'Hang on, setting up your draft.';
   if (stateKind === 'regenerating' || stateKind === 'regenerate_poll_error') {
-    return 'Still writing your reply — this usually takes under a minute. You can close this once it arrives.';
+    return 'Still writing your reply. This usually takes under a minute, and you can close this once it arrives.';
   }
   return undefined;
 }
@@ -279,7 +279,7 @@ function DrawerStateBody({
         <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', boxShadow: 'inset 4px 0 0 var(--rw-blush)', background: 'var(--rw-recess)' }}>
           <p className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{state.message}</p>
           <p className="text-xs" style={{ color: 'var(--rw-app-text-muted)' }}>
-            Still writing your reply — this usually takes under a minute. Closing is paused until
+            Still writing your reply. This usually takes under a minute. Closing is paused until
             the draft arrives; otherwise it would finish in the background and block your next
             attempt.
           </p>

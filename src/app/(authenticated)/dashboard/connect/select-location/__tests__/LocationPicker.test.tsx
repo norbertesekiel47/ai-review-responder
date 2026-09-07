@@ -132,7 +132,7 @@ describe('LocationPicker', () => {
     await selectAndSubmit(user);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Network error — please try again.',
+      'Network error. Please try again.',
     );
   });
 });
