@@ -110,6 +110,7 @@ function Stop({
   const style = {
     '--rw-lp-stop-x': `${(stop.x / STAGE_WIDTH) * 100}%`,
     '--rw-lp-stop-y': `${(stop.y / STAGE_HEIGHT) * 100}%`,
+    '--rw-lp-landmark-aspect': stop.landmarkAspect ?? 1,
   } as CSSProperties;
 
   return (

@@ -209,6 +209,19 @@ element is the trail, ~2,200px tall at 390px wide; `amount: 0.3` never fired the
 stops stayed at opacity 0. The bottom `margin` holds desktop arrival until the chart is
 15% up the screen.
 
+**Future — the landmark box is sized by the cutout's aspect.** `--rw-lp-landmark`
+is the box HEIGHT; the width is `landmark × max(1, aspect)` with the aspect on the stop
+(`landmarkAspect`, width ÷ height of the WebP). In a square box the two-set Phase 1
+cutout (1.56) rendered at 64% height at the bottom of the box, and its label — placed
+above the box — floated a box-height above the sets (owner, 2026-09-06). Tall cutouts
+keep a square box so the halo has room.
+
+**Future — small top padding, not the section gap.** The dial section above ends with
+its own `--rw-lp-section-gap`; adding this section's meant two stacked gaps (~190px)
+between "See plans and pricing" and the eyebrow, which the owner read as a hole. The
+section keeps `clamp(1rem, 3vh, 2rem)` on top and nothing below (the chart's fade is
+the hand-off).
+
 **Future — a fixed 20:9 stage, not a fluid one.** Stops are placed in percentages of the
 stage, and the road is an SVG in the same coordinate space; the two only agree while the
 box keeps the viewBox's ratio. `aspect-ratio: 20 / 9` on `.rw-lp-future-map` is the

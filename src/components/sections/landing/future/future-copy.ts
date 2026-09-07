@@ -83,6 +83,10 @@ export interface RoadmapStop {
   label: 'above' | 'below';
   /** Path under /public for the landmark cutout; undefined renders the marker glyph. */
   landmark?: string;
+  /** The cutout's width ÷ height. The landmark box is sized by it so a wide
+   *  cutout (the two joined sets, the gate) fills its box instead of sitting
+   *  small at the bottom of a square one with its label floating above. */
+  landmarkAspect?: number;
 }
 
 export const STAGE_WIDTH = 2000;
@@ -106,6 +110,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 720,
     label: 'below',
     landmark: '/future/stops/spine.webp',
+    landmarkAspect: 0.35,
   },
   {
     id: 'reply',
@@ -117,6 +122,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 560,
     label: 'below',
     landmark: '/future/stops/reply.webp',
+    landmarkAspect: 0.79,
   },
   {
     id: 'solicitor',
@@ -128,6 +134,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 375,
     label: 'below',
     landmark: '/future/stops/solicitor.webp',
+    landmarkAspect: 0.76,
   },
   {
     id: 'qr',
@@ -139,6 +146,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 300,
     label: 'above',
     landmark: '/future/stops/qr.webp',
+    landmarkAspect: 0.45,
   },
   {
     id: 'restraint',
@@ -150,6 +158,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 400,
     label: 'below',
     landmark: '/future/stops/restraint.webp',
+    landmarkAspect: 1.42,
   },
   {
     id: 'connectors',
@@ -161,6 +170,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 605,
     label: 'above',
     landmark: '/future/stops/connectors.webp',
+    landmarkAspect: 1.56,
   },
   {
     id: 'recovery',
@@ -172,6 +182,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 730,
     label: 'below',
     landmark: '/future/stops/recovery.webp',
+    landmarkAspect: 1.04,
   },
   {
     id: 'topics',
@@ -183,6 +194,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 680,
     label: 'above',
     landmark: '/future/stops/topics.webp',
+    landmarkAspect: 0.68,
   },
   {
     id: 'truth',
@@ -194,6 +206,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 500,
     label: 'above',
     landmark: '/future/stops/truth.webp',
+    landmarkAspect: 0.89,
   },
   {
     id: 'autonomy',
@@ -205,6 +218,7 @@ export const STOPS: readonly RoadmapStop[] = [
     y: 320,
     label: 'above',
     landmark: '/future/stops/autonomy.webp',
+    landmarkAspect: 0.74,
   },
   {
     id: 'platforms',

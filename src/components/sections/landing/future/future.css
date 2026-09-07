@@ -36,7 +36,10 @@
      No bottom padding: the chart is full-bleed and ends the section, and its
      own bottom fade is the hand-off to the closing band. A gap of ink
      between the two read as a hole (owner, 2026-09-06). */
-  padding: var(--rw-lp-section-gap, 6rem) 0 0;
+  /* Small top padding, not the section gap: the dial section above already
+     ends with its own gap, and two stacked gaps read as a hole (owner,
+     2026-09-06). */
+  padding: clamp(1rem, 3vh, 2rem) 0 0;
   background: var(--rw-lp-ink, #14201c);
 }
 
@@ -452,7 +455,10 @@
 .rw-lp-future-landmark {
   position: relative;
   display: block;
-  width: var(--rw-lp-landmark);
+  /* Height is the stage; width follows the cutout's aspect (never narrower
+     than the stage, so a tall cutout keeps its halo). A wide cutout in a
+     square box sat small at the bottom with its label floating above it. */
+  width: calc(var(--rw-lp-landmark) * max(1, var(--rw-lp-landmark-aspect, 1)));
   height: var(--rw-lp-landmark);
 }
 
