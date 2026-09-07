@@ -178,10 +178,13 @@ reasoning and the numbers are in [`measurements.md`](./measurements.md).
 |---|---|---|
 | Arrival fade | `0.2s`, opacity only, `easeOut` | `Reveal` — the quiet default for a block entering the viewport |
 | Arrival stagger | `60ms` per index, capped at 6 | `Reveal` |
-| Staged beat | `650ms` fade + 14px rise, `110ms` per beat, once in view | `Staged` / `StagedLine` (`staged.tsx`) — the hero-entrance grammar shared by sections 2–7; `rise={0}` (opacity only) is MANDATORY around the future cards; reduced motion renders the final frame via `initial: false` |
+| Staged beat | `650ms` fade + 14px rise, `110ms` per beat, once in view | `Staged` / `StagedLine` (`staged.tsx`) — the hero-entrance grammar shared by sections 2–7; `rise={0}` (opacity only) exists for any fixed-attachment surface (none on the page since the 2026-09-06 route map); reduced motion renders the final frame via `initial: false` |
 | Pill hover | `translateY(-1px)` + lifted gold, `200–240ms` | nav pill, hero CTA, closing action |
 | Hero entrance | 5 beats, `650ms` fade + 14px rise, `110ms` apart, once on load | hero copy column (`useHeroEntrance`); reduced motion renders the final frame via `initial: false` |
 | Bookend push-in / settle | scale `1 → 1.045` (hero exit) and `1.045 → 1` (closing-band arrival), scroll-linked | `.rw-lp-hero-zoom` / `.rw-lp-cta-zoom` — internal zoom layers, never the media wrapper (a transformed box grows the page's scrollable overflow) |
+| Route map arrival | ground fades (0.9s); lit road draws (`pathLength 0 → 1`, 1.1s); stops rise in travel order (0.55s, 70ms stagger); dashed roads and horizon fade after | `FutureSection` + `future.css`; one `useInView` arming signal, `amount: 'some'` |
+| Stop card | glass card fades 180ms beside the hovered/focused stop; stop lifts 4px | `.rw-lp-future-stop-item[data-active='true']` |
+| Lit-stop halo | opacity `1 → 0.55`, `4.5s`, infinite | `.rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before`; covered by the universal pause rule, skipped under reduced motion |
 | Fleet assembly | live wires draw in (motion `pathLength 0 → 1`, `0.9s`, `90ms` stagger); nodes/centre fade (opacity ONLY — they are measured); flow current + dashed NEXT wire fade in after (`data-armed` transitions) | `FleetSection` + `fleet.css`; one `useInView` arming signal |
 | Wire hover | hovered node's wire goes steady full-strength, flow to `0.85` | `g[data-hot='true']` in `fleet.css`, driven by node `pointerenter` |
 | Dial travel | needle + fill on a spring (`stiffness 170, damping 26`); needle swings via sprung endpoint math, never a CSS rotate on SVG | `TiersSection` — `useSpring`/`useTransform`; reduced motion jumps |
@@ -316,22 +319,34 @@ teal: it is an action, not part of the oversight diagram. A text link, not a pil
 
 ### Future (section 5)
 
-Role: what is coming — "screens not yet on" since 2026-08-24. **Static** cards (tag,
-name, body all visible — the flip was removed 2026-08-16; a roadmap does not need a
-reveal) whose glow is `background-attachment: fixed`. Each card opens with the
-generated off-CRT still: the same set the shipped agents live in, its screen dead —
-all four cards share one still on purpose (four identical unpowered units). An OFF
-screen cannot read as shipped; the dashed edge, tier disclaimer and `Planned` tag
-stay regardless. Card entrances are opacity-only `m.li` fades — never a transform
-near the glow's ancestry.
+Role: where this is going — the **route map** since 2026-09-06 (owner-directed; it
+replaced the four "screens not yet on" cards). One survey chart: a generated ground
+(`/future/roadmap-ground.jpg`, made against the agent stills), an SVG road in the
+chart's own 1600×900 space, and fifteen HTML stops positioned by the same
+coordinates (`future-copy.ts` owns them). Three states, and the difference is the
+honesty mechanism: **shipped** stops are lit — a solid gold road, a gold `Shipped`
+marker, a breathing halo, a landmark cutout with its screen on; **planned** stops are
+the roadmap's locked Phases 1–5 — dashed dim road, `Phase n` marker, unpowered
+landmark; **horizon** stops sit past the horizon line in fog — dotted branches fanning
+out from Phase 5 (the order past it "may be re-ordered"), a `Later` marker, a glyph and
+no landmark. A `Today` pin marks the end of the lit road. Every stop is a button:
+hover, focus or tap opens a glass card with the body beside it (`aria-pressed`,
+`aria-describedby` to the always-present body), and the chart's legend carries the
+"not available yet" disclaimer. Below 900px the chart is abandoned for a trail — same
+stops, same order, every body visible.
 
-- Nothing above the section may put a transform on an ancestor — a transformed ancestor
-  silently downgrades fixed attachment to `scroll`. `Reveal` is opacity-only for exactly
-  this reason.
-- The glow's `::after` uses two stacked gradients, **not** `filter: brightness()`.
-- The `PLANNED` tag is load-bearing: a skim reads the four names before a body, and the
-  tag is what marks them as unbuilt at that glance.
-- Card padding is `1.5rem` (24px); cards are sized by content.
+- The road draws in (`pathLength`) and the stops rise in travel order on one
+  `useInView` arming signal (`amount: 'some'` — the trail is taller than a phone
+  viewport, so a fraction never arms). Reduced motion renders the settled frame.
+- Landmarks are cutouts under `public/future/stops/*.webp` (asset rules in
+  `future-copy.ts`); lit stops stand taller than planned ones (`--rw-lp-landmark`).
+- Labels alternate above/below the road along its length (`data-label`), which is what
+  lets fifteen stops share one chart; neighbours never share a side.
+- The marker beside every unbuilt name is load-bearing: a skim reads names before
+  bodies. Do not give a planned or horizon stop the lit treatment, and do not move the
+  legend off the chart.
+- The old cards' `background-attachment: fixed` glow left with them; this section no
+  longer forbids transforms on its ancestors (see `staged.tsx` on `rise=0`).
 
 ### CTA (section 9)
 
@@ -401,8 +416,7 @@ is covered without anyone remembering to.
 - **Don't** collapse the gold and the teal — the temperature shift *is* the tier.
 - **Don't** fold the deliberate literals into tokens (see **Tokens — Colors**).
 - **Don't** reintroduce snap, smooth-scroll, or a scroll-linked transform on a section
-  wrapper. The page scrolls natively (2026-08-16); a transformed ancestor also breaks
-  the future section's fixed-attachment glow. The one sanctioned scroll-linked
+  wrapper. The page scrolls natively (2026-08-16). The one sanctioned scroll-linked
   transform is the bookends' internal zoom layer (2026-08-24, owner override) —
   inside sections 1 and 9, never on them.
 - **Don't** add a fourth gold-filled element. The nav pill, the hero CTA and the closing
@@ -432,8 +446,12 @@ reduced-motion still as well as the video.
 Two generated companions joined 2026-08-24, both made against the agent stills as
 style reference so they inherit the world: `public/problem/problem-diagram.{mp4,jpg}`
 (the reputation diagram — a café orbited by review artifacts; 10s seamless ping-pong
-loop, 108KB, locked camera) and `public/future/off-crt.jpg` (the unpowered set on the
-future cards, 13KB). Asset rules for the diagram live in `problem/problem-copy.ts`.
+loop, 108KB, locked camera) and — until 2026-09-06 — `public/future/off-crt.jpg` (the
+unpowered set on the old future cards). The route map's assets replaced it: the chart
+ground `public/future/roadmap-ground{,-960}.jpg` and ten landmark cutouts under
+`public/future/stops/` (Runway nano-banana-pro against the same stills; flat-ground
+cutouts via a PIL flood-fill, WebP with alpha). Asset rules for the diagram live in
+`problem/problem-copy.ts`, for the map in `future/future-copy.ts`.
 
 ### Ambient video
 

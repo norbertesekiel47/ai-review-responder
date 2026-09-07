@@ -835,3 +835,26 @@ agentic reputation-system positioning. Owner chose present tense for Solicitor
 - Tests: FleetSection (no NEXT tag), new JobsSection test, FeaturesContent
   and HowItWorksContent assertions for the new chapters and band.
 
+## 2026-09-06 — Landing section 5 became the route map (local, pre-merge)
+
+Owner asked for the "Where this is going" cards to become an interactive
+illustrated roadmap in the spirit of an antique survey map: shipped work lit,
+the forward roadmap (`docs/roadmap/2026-08-26-forward-roadmap.md`) dimmed.
+Owner decisions: the two old cards absent from the roadmap (Social media, Fake
+review disputes) ride as fog stops; Runway generates the ground and the
+landmarks.
+
+- `future/FutureSection.tsx`, `future.css`, `future-copy.ts` rewritten;
+  `future-route.ts` added (Catmull-Rom road). Fifteen stops in three states,
+  one `useInView` arming signal, `pathLength` draw-in, alternating label sides,
+  glass detail card, phone trail ≤ 900px.
+- Assets: chart ground + ten landmark cutouts (Runway nano-banana-pro against
+  the agent stills; PIL flood-fill cutouts because the Runway cutter dropped
+  every second object). `off-crt.jpg` deleted.
+- Tests: new `FutureSection.test.tsx` (buttons, aria, one-open-at-a-time,
+  tense/marker/ordering contract, route geometry); focus-ring row for
+  `.rw-lp-future-stop`. Docs: DESIGN.md § Future + motion rows,
+  measurements.md (four Future measurements + assets), `staged.tsx` comment.
+- Verified in the browser at 1440 and 390 with Playwright: every stop accepts a
+  hover at its centre, focus opens the card, no card open at rest.
+

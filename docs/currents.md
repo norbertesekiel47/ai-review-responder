@@ -9,7 +9,23 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-06 (Marketing pages rebalanced to the five jobs; local branch, not deployed.)
+Last updated: 2026-09-06 (Landing section 5 is the route map; local branch, not deployed.)
+
+## Quick summary — Landing "Where this is going" is a route map (2026-09-06; pre-merge)
+
+Section 5 of the landing page no longer shows four "Planned" cards. It is an
+interactive survey chart: a generated dark-green ground, an SVG road, and
+fifteen stops — five shipped (run spine, Reply, Solicitor, Review QR, Restraint
+tab) lit gold with landmark cutouts; the forward roadmap's locked Phases 1–5
+dim on a dashed road; Phases 6–8 plus the two former cards the roadmap does not
+name (Social media, Fake review disputes) in fog past a horizon line, on dotted
+branches from Phase 5. Each stop is a button that opens a glass card with its
+body; below 900px the chart becomes a vertical trail with every body visible.
+Honesty devices kept: on-chart "not available yet" legend, `Phase n` / `Later`
+markers beside every unbuilt name, future tense on every unbuilt body (pinned
+by `FutureSection.test.tsx`). Code: `src/components/sections/landing/future/`;
+assets: `public/future/roadmap-ground*.jpg`, `public/future/stops/*.webp`;
+design contract: `docs/design/landing/DESIGN.md` § Future + `measurements.md`.
 
 ## Quick summary — Marketing pages: one system, five jobs (2026-09-06; pre-merge)
 

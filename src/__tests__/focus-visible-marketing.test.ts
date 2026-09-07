@@ -52,6 +52,10 @@ const TIERS_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/tiers/tiers.css'),
   'utf-8',
 );
+const FUTURE_CSS = readFileSync(
+  resolve(process.cwd(), 'src/components/sections/landing/future/future.css'),
+  'utf-8',
+);
 const CAROUSEL_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/carousel.css'),
   'utf-8',
@@ -78,6 +82,8 @@ const FOCUS_RULES = [
   // The autonomy dial's two mode buttons (Copilot / Autopilot) — one rule
   // covers both, since both render the same class (2026-08-24 revamp).
   { css: TIERS_CSS, selector: '.rw-lp-tiers-mode-button:focus-visible', token: '--rw-lp-accent', offset: '3px' },
+  // The route map's stops (section 5, 2026-09-06): fifteen buttons, one rule.
+  { css: FUTURE_CSS, selector: '.rw-lp-future-stop:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   // The phone carousels' position dots (sections 2-4). The rule sits OUTSIDE
   // the file's `max-width: 767px` block on purpose — a ring must not depend on
   // a viewport query to exist.

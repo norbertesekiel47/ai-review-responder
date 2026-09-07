@@ -29,8 +29,8 @@ arrival with hover wire-highlighting, the watchdog rows carry a larger avatar st
 a front rule plate (`frontRule` on the shared flip card), the autonomy dial became a
 circular OPERABLE gauge (v4 — two `aria-pressed` mode buttons, sprung needle), the
 problem section pairs a trimmed left-column essay with a generated ambient diagram
-clip (looping-clip count 8 → 9), and the future cards open with a generated off-CRT
-still. One header grammar: prose left, instruments centered, shared heading + lead
+clip (looping-clip count 8 → 9), and the future cards opened with a generated off-CRT
+still (the cards became the route map on 2026-09-06 — see "Future" below). One header grammar: prose left, instruments centered, shared heading + lead
 scales (the problem heading is the stated exception). The focus test now asserts
 **16** landing controls across 15 rows (the dial's two buttons share one). New §2
 entries below: "Staged beats", "Fleet assembly", "The dial's needle", "Problem grid
@@ -94,7 +94,7 @@ src/components/sections/landing/
   problem/    {ProblemSection.tsx, problem.css, problem-copy.ts}
   tiers/      {TiersSection.tsx, tiers.css, tiers-copy.ts}
   watchdogs/  {WatchdogsSection.tsx, watchdogs.css, watchdogs-copy.ts}
-  future/     {FutureSection.tsx, future.css, future-copy.ts}
+  future/     {FutureSection.tsx, future.css, future-copy.ts, future-route.ts}
   cta/        {CtaSection.tsx, cta.css, cta-copy.ts}
   footer/     {LandingFooter.tsx, footer.css, footer-copy.ts}
 src/hooks/useMediaQuery.ts
@@ -182,22 +182,32 @@ to height and 32rem alone overflowed 1920×812. The row form also fixed a real c
 bug: the Governor's back needed 337px in a 288px `overflow: hidden` box. The `15rem` height
 floor is set by the 390px case — lower it and clipping returns.
 
-**Future — no transformed ancestor, ever.** The card glow is `background-attachment:
-fixed`, which a **transformed ancestor silently downgrades to `scroll`**. Until 2026-08-16
-this was guarded by `transform={false}` on the section's `SectionTransition` wrapper; the
-wrapper is gone, and the guard is now that `Reveal` animates opacity only (a `y` drift
-would put a transform on the `.rw-lp-future-grid` wrapper mid-animation). Reintroduce a
-transform above the section and the glow stops tracking the cursor.
+**Future — the route map (2026-09-06) replaced the cards, and the fixed-attachment
+glow went with them.** Until then the section's card glow was `background-attachment:
+fixed`, which a **transformed ancestor silently downgrades to `scroll`** — the reason
+`Reveal` is opacity-only and `Staged` has `rise={0}`. Both stay (the next fixed-attachment
+surface needs them), but nothing on the page depends on them today.
 
-**Future — the cards are static.** Tag, name and body all visible; no button, no flip, no
-`min-height`. They were flip cards sized `clamp(11rem, 37vh, 20rem)` (a share of the
-`100svh` section) with the body on the back — a roadmap does not need a reveal, and the
-flip hid every future-tense "will" from a skim. The `Planned` tag stays because a skim
-still reads names before paragraphs. The `Hover or tap a card` hint went with the flip.
+**Future — fifteen stops fit one 16:9 chart only because labels alternate sides.** The
+stage is 1600×900 in `future-copy.ts`; the lit stops span x 150–690, the planned 780–1205,
+the horizon past `HORIZON_X` (1255). Adjacent lit/planned stops sit ~105 units apart
+(≈70px at 1440), narrower than a landmark (`--rw-lp-landmark`, up to 7rem lit / 4.75rem
+planned), so a stop's label goes below the road on even indexes and above the landmark on
+odd ones (`data-label`), and the road wanders ±50 units so neighbouring landmarks do not
+stack. A horizon stop has no landmark, so its stage collapses to 1.375rem — leave it at a
+landmark's height and its label lands 80px from its glyph, on top of the next label (the
+2026-09-06 first cut). `hoverall.mjs`-style check: every stop must accept a hover at its
+centre; an obstructed stop means two buttons overlap.
 
-**Future — the glow's `::after` uses two stacked gradients, not `filter: brightness()`.** A
-filter would make the pseudo-element a containing block and break the same fixed
-attachment.
+**Future — the chart arms on `amount: 'some'`, never a fraction.** Below 900px the same
+element is the trail, ~2,200px tall at 390px wide; `amount: 0.3` never fired there and the
+stops stayed at opacity 0. The bottom `margin` holds desktop arrival until the chart is
+15% up the screen.
+
+**Future — a fixed 16:9 stage, not a fluid one.** Stops are placed in percentages of the
+stage, and the road is an SVG in the same coordinate space; the two only agree while the
+box keeps the viewBox's ratio. `aspect-ratio: 16 / 9` on `.rw-lp-future-map` is the
+contract — re-measure every stop before changing it.
 
 **CTA — the clip choice is the framing fix.** `hero3reverseVideo.mp4` puts the character at
 x 58–85%, clear of the 45% copy column. `hero3Video.mp4` puts it at x 19–37%, *behind* the
@@ -231,7 +241,7 @@ and the measurement behind each piece, so nobody re-derives them from scratch:
 `Reveal` is the whole scroll vocabulary: opacity 0→1 over **0.2s**, `easeOut`, 60ms
 stagger per index capped at 6, skipped under reduced motion. It was a 700ms `blur(10px)`
 + 22px drift; both were dropped for the same reason as the dissolve, and "opacity only" is
-also what keeps the future glow safe (above).
+also what kept the old future glow safe (above).
 
 **Bookend cinema — the accent still clears its floor under the push-in.** The hero's
 film scales `1 → 1.045` as the section scrolls out. The gold headline accent is the
@@ -258,11 +268,12 @@ The five-beat arrival keeps the same `m.*` elements in both branches and disable
 animation via props, so anything that ever observes those nodes can never capture a
 stale one — the `SectionTransition`/`ChapterRail` trap recorded below. The beats are
 finite and motion/react-driven, so the CSS pause rule (keyframes only) cannot strand
-them mid-flight; the y-drift sits on the hero's own children, never on an ancestor of
-the future glow.
+them mid-flight; the y-drift sits on the hero's own children, never on a section
+wrapper.
 
-**Three infinite CSS animations exist — the fleet's pulse and flow, and the tiers
-gauge halo's breathing; re-count before editing the pause-rule comment.** The tiers
+**Four infinite CSS animations exist — the fleet's pulse and flow, the tiers gauge
+halo's breathing, and the route map's lit-stop halo (2026-09-06); re-count before
+editing the pause-rule comment.** The tiers
 breathing joined 2026-08-24 (on the straight track's thumb; the v4 circular dial moved
 it to the hub's halo, opacity instead of box-shadow — SVG circles have no box-shadow);
 the universal `animation-play-state` rule covered both incarnations with zero changes,
@@ -270,12 +281,11 @@ which is the rule working as designed. Every OTHER motion added in the sections 
 is motion-driven and finite (staged beats, wire draw-in, needle travel) precisely so
 the pause rule — CSS keyframes only — can never strand it mid-flight.
 
-**Staged beats — same-element reduced motion, and the future-section rule.**
+**Staged beats — same-element reduced motion, and `rise={0}`.**
 `staged.tsx` renders ONE element type in both branches (`initial={false}` under
 reduced motion) — the `SectionTransition` observer trap, §2 below, is why. `rise={0}`
-writes NO transform at all and is MANDATORY for any `Staged` wrapping a
-`.rw-lp-future-card` or an ancestor of one; the future cards themselves enter as
-opacity-only `m.li` fades. Staged inline halves (`StagedLine` in a heading, quote or
+writes NO transform at all; it was mandatory around the old future cards' fixed
+glow and stays for the next fixed-attachment surface. Staged inline halves (`StagedLine` in a heading, quote or
 pivot) need `display: inline-block` at the call site — a transform is silently ignored
 on a plain inline box.
 
@@ -375,8 +385,9 @@ Five rails: the fleet's two tiers, the persona grid, the watchtower grid, and th
 grid. Stacked, those four sections ran **6,891px at 390px wide**, measured — over eight
 screens of cards to pass to reach the next argument. The rails bring them to **4,010px**.
 Four values are load-bearing. (a) The rail restyles the container each section ALREADY
-renders (`.rw-lp-personas-list`, `.rw-lp-watch-grid`, `.rw-lp-fleet-tier`,
-`.rw-lp-future-grid`); a wrapper would become the desktop grid item and every desktop rule
+renders (`.rw-lp-personas-list`, `.rw-lp-watch-grid`, `.rw-lp-fleet-tier`; the future
+grid was a fourth until the 2026-09-06 route map, whose trail is not a rail); a wrapper
+would become the desktop grid item and every desktop rule
 would have to be re-pointed at it. (b) `.rw-lp-carousel[data-carousel='true']` is 0,2,0 to
 match `.rw-lp-fleet-tier[data-tier='watchdog']`, and carousel.css is imported **after** every
 section file — move that import up and the fleet's watchdog tier stays a stacked column.
@@ -401,7 +412,8 @@ committed card's glow bleed put 570 into `scrollWidth` against a 556 client widt
 desktop 2x2 rendered a hidden dot row it had no use for.
 
 **Labels are one style: `--rw-lp-label-*` (mono, 12px, 0.04em, uppercase).** The five
-section eyebrows, the persona column note, and the watchdog and future tier labels all
+section eyebrows, the persona column note, the watchdog tier label and the route map's
+legend label all
 consume it. Their alphas were NOT changed (0.55 on the notes/tier labels, measured
 composited at 5.40 / 5.26 / 4.84 under the teal wash), but the face and size were: the
 mono at 12px is a larger glyph than the display face at 10px, so every one of those
@@ -418,7 +430,8 @@ contrast figures is now a floor, not a measurement.
 | `ctaVideo-{1600,960}.mp4` + poster | 515K/204K/115K from `hero3reverseVideo.mp4` (27MB) |
 | `repworth-explainer.mp4` + poster | 25MB, 2m26s, narrated. **Remuxed `+faststart`** — the moov atom was at the end, so playback would have blocked on the full 25MB download. Fetches 0 bytes until clicked. **Still has no captions** (probed 2026-08-04: video + audio streams only, and frames at 20s/75s carry no burned-in text). |
 | `problem/problem-diagram.{mp4,jpg}` | 108K/24K. The reputation diagram (2026-08-24): café + orbiting review artifacts, generated (Higgsfield, nano-banana still → seedance clip, agent still as style ref), 720×720, 10s seamless ping-pong loop, audio stripped, `+faststart`. Asset rules: `problem/problem-copy.ts`. |
-| `future/off-crt.jpg` | 13K. The unpowered set on the future cards (2026-08-24), generated against the same style ref. One still, shared by all four cards on purpose. |
+| `future/roadmap-ground{,-960}.jpg` | 143K/32K. The route map's chart ground (2026-09-06): a dark green survey chart, lamp-lit on the left, no text — generated (Runway, nano-banana-pro, the off-CRT still as style ref), 2752×1536 master downscaled with ffmpeg. Decorative; the road and stops carry the meaning. |
+| `future/stops/*.webp` | 10 landmark cutouts, 253K total (7–52K each, ≤480px tall). Reply and Solicitor are the agent stills cut out; the other eight were generated on a flat dark-green ground against the same stills and cut out with a PIL corner flood-fill (`thresh 70`, 1px erode, 0.8px feather) — the Runway cutter kept only the television and dropped every second object (book, cable, ring, gate arm). Lit stops' screens are ON; planned stops' screens are OFF. No red or orange (the first gate arm and life ring were re-made). Which stop uses which: `future-copy.ts`. `future/off-crt.jpg` (13K, the old cards' unpowered set) was deleted with the cards. |
 
 **The masters are no longer in the repo.** `heroVideo.mp4` (23M), `hero2Video.mp4` (30M),
 `hero3Video.mp4` (20M), `landing-hero.mp4` (13M) and `hero3reverseVideo.mp4` (27M, the CTA

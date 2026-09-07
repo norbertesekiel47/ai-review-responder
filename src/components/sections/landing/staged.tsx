@@ -22,12 +22,12 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
  * that branch (an observer captured the pre-swap node); keeping one element
  * type means nothing can ever observe a stale one.
  *
- * ── The future-section rule ───────────────────────────────────────────────
- * `rise=0` exists for the future section, where the card glow is
- * `background-attachment: fixed` and a transformed ANCESTOR silently breaks
- * it. With `rise=0` no transform is ever written — the beat is opacity only.
- * Any `Staged` wrapping a `.rw-lp-future-card` (or an ancestor of one) MUST
- * pass `rise={0}`.
+ * ── `rise=0` ─────────────────────────────────────────────────────────────
+ * `rise=0` writes NO transform at all — the beat is opacity only. It existed
+ * for the future section's cards, whose `background-attachment: fixed` glow a
+ * transformed ANCESTOR silently broke; the cards left with the 2026-09-06
+ * route map, so nothing on the page requires it today. It stays for the next
+ * fixed-attachment surface: pass it from any wrapper above one.
  */
 
 interface StagedProps {
