@@ -1,22 +1,26 @@
 /**
- * Where RepWorth is going.
+ * Where RepWorth is going — the route map (2026-09-06 revamp).
  *
- * ── Only committed direction appears on this page ─────────────────────────
- * The source material separates the roadmap into two categories with very
- * different standing, and the website design reference §3.2 is explicit that
- * mixing them is "the one genuinely damaging mistake available here":
+ * ── What is on the map, and why ───────────────────────────────────────────
+ * The section became a survey chart: one route from what has shipped into
+ * what comes next. Three states, and the difference between them is the
+ * whole honesty mechanism:
  *
- *   COMMITTED (§2.1) — direction the team has actually committed to. May be
- *       described concretely, but only ever in future tense.
- *   EXPLORING (§2.4) — "PROPOSED, NOT COMMITTED... treat as directional
- *       texture, NOT as roadmap promises."
+ *   shipped  — recorded in PRODUCT.md "Shipped today". Present tense is
+ *              allowed ONLY here. Lit gold.
+ *   planned  — the locked order of `docs/roadmap/2026-08-26-forward-roadmap.md`
+ *              (owner decision 2026-08-26, Phases 1–5). Future tense, every
+ *              sentence. Dim, dashed route, `Planned` tag.
+ *   horizon  — sequenced after Phase 5 and "may be re-ordered later" (the
+ *              roadmap's Phases 6–8), plus the two former cards that the
+ *              forward roadmap does not name (Social media, Fake review
+ *              disputes — kept as horizon stops by owner decision 2026-09-06).
+ *              Future tense, in fog, no phase number.
  *
- * The EXPLORING tier was cut from the page entirely (owner decision,
- * 2026-08-04): the eight ideas are hypothetical today, so the safest treatment
- * is not to show them. Removing speculation is always safe; the rule that
- * remains binding is the one below, about what happens now that COMMITTED is
- * the only tier on screen. The eight are kept here — as a comment, not an
- * export, so they cannot be rendered by accident — in case the tier returns:
+ * The EXPLORING tier (website design reference §2.4, "PROPOSED, NOT
+ * COMMITTED") is still cut from the page (owner decision 2026-08-04). The
+ * eight ideas stay here as a comment, not an export, so they cannot render by
+ * accident:
  *
  *     Competitor benchmarks — how you compare on your own street, not nationally
  *     Voice-of-customer themes turned into operational fixes
@@ -24,54 +28,247 @@
  *     Business-profile optimisation — hours, photos, Q&A kept fresh
  *     Right-moment asks, triggered by your POS or booking system
  *     Staff recognition, surfaced when reviews name people by name
- *     An agency tier, for running many businesses under one roof
  *     A reputation score you can actually share
  *
- * If they come back, they come back as plain text lines under their own label
- * and disclaimer — never as cards. Cards are what this section uses for
- * committed work, and the difference is the whole honesty mechanism.
+ * (The agency tier left this list: the forward roadmap's Phase 8 names it, so
+ * it is a horizon stop now.)
  *
- * ── The card tag is load-bearing ──────────────────────────────────────────
- * Every card carries `CARD_TAG` beside its name, so the roadmap status
- * survives a skim that never reaches the body. (Until 2026-08-16 the cards
- * flipped and the body — where every "will" lives — was hidden until the
- * visitor interacted, which made the tag the ONLY status marker a skim saw.
- * The body is on the card now; the tag stays because a skim still reads names
- * before paragraphs.) Do not remove it, and do not move the "not available
- * yet" disclaimer off the tier header.
+ * ── Unbuilt stops are HINTED, not named (owner decision 2026-09-06) ───────
+ * A planned or horizon stop never states the feature. Its `name` is a short
+ * tease ("A second chance"), its `body` one sentence that hints at the
+ * outcome without describing the mechanism, and its landmark is the only
+ * literal clue (a life ring, a cable, a card drawer). The roadmap itself
+ * stays in `docs/roadmap/2026-08-26-forward-roadmap.md`; the mapping from
+ * each stop `id` to its phase is the `marker` plus this comment:
+ *   connectors → Phase 1 event-triggered requests · recovery → Phase 2
+ *   recovery workflows · topics → Phase 3 review-topic ontology · truth →
+ *   Phase 4 Business Truth + policy · autonomy → Phase 5 per-action autonomy
+ *   · platforms → Phase 6 · impact → Phase 7 · api → Phase 8 · social /
+ *   disputes → the two former cards, sequenced later.
+ * Future tense still binds: every hint body carries "will".
  *
- * Nothing in this file may use present tense. Every committed item is "will",
- * and the section is labelled as future at three separate levels: the eyebrow,
- * the tier label, and the per-card tag.
+ * ── The tag is load-bearing ───────────────────────────────────────────────
+ * Every unbuilt stop carries its `marker` beside its name, so the roadmap
+ * status survives a skim that never opens a stop. The legend states "Not
+ * available yet" on the map itself. Do not remove either, and do not give a
+ * planned or horizon stop the lit treatment.
+ *
+ * ── Coordinates ───────────────────────────────────────────────────────────
+ * `x`/`y` are positions on a 2000×900 stage (the chart's 20:9 frame, which
+ * bleeds to the viewport edges — 2026-09-06 owner direction: "use the space
+ * on the left and right"). The road is a long serpentine — bottom-left, up
+ * over a crest, down through a trough, up again to the horizon — so
+ * consecutive stops sit ~230 units apart along it instead of ~130 on a
+ * flat line (owner: the flat road read "convoluted" and "cramped"). Keep
+ * every point in y 300–740: the top and bottom 100 units are fades. The lit
+ * stops sit in the left two-fifths, under the chart's lamp light; the fog
+ * starts at `HORIZON_X`. Below 900px the stage is abandoned for a trail and
+ * the coordinates are ignored.
  */
 
-export interface FutureAgent {
+export type StopState = 'shipped' | 'planned' | 'horizon';
+
+export interface RoadmapStop {
   id: string;
   name: string;
+  /** One or two sentences. Present tense only when `state === 'shipped'`. */
   body: string;
+  state: StopState;
+  /** The mono tag beside the name: "Shipped", "Phase 1", "Later". */
+  marker: string;
+  x: number;
+  y: number;
+  /** Which side of the road point the label sits. Chosen per stop so labels
+   *  stay on the OUTSIDE of each bend and clear of the top/bottom fades. */
+  label: 'above' | 'below';
+  /** Path under /public for the landmark cutout; undefined renders the marker glyph. */
+  landmark?: string;
+  /** The cutout's width ÷ height. The landmark box is sized by it so a wide
+   *  cutout (the two joined sets, the gate) fills its box instead of sitting
+   *  small at the bottom of a square one with its label floating above. */
+  landmarkAspect?: number;
 }
 
-/** §2.1 — committed direction. Future tense, concrete. */
-export const COMMITTED: readonly FutureAgent[] = [
+export const STAGE_WIDTH = 2000;
+export const STAGE_HEIGHT = 900;
+/** Where the fog begins. Horizon stops all sit to the right of it. */
+export const HORIZON_X = 1590;
+
+export const SHIPPED_MARKER = 'Shipped';
+export const PLANNED_MARKER = 'Planned';
+export const HORIZON_MARKER = 'Later';
+
+/** The route, in travel order. The lit stretch is every `shipped` stop. */
+export const STOPS: readonly RoadmapStop[] = [
   {
-    id: 'crm',
-    name: 'CRM Manager',
-    body: 'Will own contacts, follow-ups, and segmentation, so one-off review interactions become an ongoing relationship.',
+    id: 'spine',
+    name: 'The run spine',
+    body: 'Every action every agent takes is recorded here, so “what did it do, and why?” always has an answer.',
+    state: 'shipped',
+    marker: SHIPPED_MARKER,
+    x: 170,
+    y: 720,
+    label: 'below',
+    landmark: '/future/stops/spine.webp',
+    landmarkAspect: 0.35,
   },
   {
-    id: 'social',
-    name: 'Social Media Manager',
-    body: 'Will draft and schedule posts, answer comments and DMs, and hold one consistent brand voice across every channel it touches.',
+    id: 'reply',
+    name: 'Review responses',
+    body: 'Reply drafts a response to every review. It is the only agent that can publish, and only inside your bounds.',
+    state: 'shipped',
+    marker: SHIPPED_MARKER,
+    x: 330,
+    y: 560,
+    label: 'below',
+    landmark: '/future/stops/reply.webp',
+    landmarkAspect: 0.79,
   },
   {
-    id: 'disputes',
-    name: 'Fake Review Disputes',
-    body: 'Will flag fraudulent, fake, or policy-violating reviews and drive the removal process with the platforms. Every owner has been hit by a 1-star that was never a customer.',
+    id: 'solicitor',
+    name: 'Review requests',
+    body: 'Solicitor asks your past customers for reviews by email, in batches you approve first. Every opt-out is honoured for good.',
+    state: 'shipped',
+    marker: SHIPPED_MARKER,
+    x: 490,
+    y: 375,
+    label: 'below',
+    landmark: '/future/stops/solicitor.webp',
+    landmarkAspect: 0.76,
+  },
+  {
+    id: 'qr',
+    name: 'The Review QR',
+    body: 'One printable code per location sends walk-ins straight to your Google review form. No landing page, no contact capture.',
+    state: 'shipped',
+    marker: SHIPPED_MARKER,
+    x: 690,
+    y: 300,
+    label: 'above',
+    landmark: '/future/stops/qr.webp',
+    landmarkAspect: 0.45,
+  },
+  {
+    id: 'restraint',
+    name: 'The Restraint tab',
+    body: 'The refusal ledger: everything the agents decided not to do, when, and why.',
+    state: 'shipped',
+    marker: SHIPPED_MARKER,
+    x: 890,
+    y: 400,
+    label: 'below',
+    landmark: '/future/stops/restraint.webp',
+    landmarkAspect: 1.42,
+  },
+  {
+    id: 'connectors',
+    name: 'Something is plugging in',
+    body: 'Your booking system will have something to say, and the ask will take care of itself.',
+    state: 'planned',
+    marker: 'Phase 1',
+    x: 1040,
+    y: 605,
+    label: 'above',
+    landmark: '/future/stops/connectors.webp',
+    landmarkAspect: 1.56,
+  },
+  {
+    id: 'recovery',
+    name: 'A second chance',
+    body: 'A bad review will not be the end of the story.',
+    state: 'planned',
+    marker: 'Phase 2',
+    x: 1140,
+    y: 730,
+    label: 'below',
+    landmark: '/future/stops/recovery.webp',
+    landmarkAspect: 1.04,
+  },
+  {
+    id: 'topics',
+    name: 'What is slipping',
+    body: 'Your reviews will start telling you which part of the job is drifting, and where.',
+    state: 'planned',
+    marker: 'Phase 3',
+    x: 1320,
+    y: 680,
+    label: 'above',
+    landmark: '/future/stops/topics.webp',
+    landmarkAspect: 0.68,
+  },
+  {
+    id: 'truth',
+    name: 'Facts and rules',
+    body: 'The agents will know your business the way you do, and say why they wrote what they wrote.',
+    state: 'planned',
+    marker: 'Phase 4',
+    x: 1450,
+    y: 500,
+    label: 'above',
+    landmark: '/future/stops/truth.webp',
+    landmarkAspect: 0.89,
+  },
+  {
+    id: 'autonomy',
+    name: 'Your hand on the dial',
+    body: 'You will decide exactly how much rope each agent gets, action by action.',
+    state: 'planned',
+    marker: 'Phase 5',
+    x: 1550,
+    y: 320,
+    label: 'above',
+    landmark: '/future/stops/autonomy.webp',
+    landmarkAspect: 0.74,
   },
   {
     id: 'platforms',
-    name: 'Multi-Platform',
-    body: 'Will extend past a single review source to more review sites, maps, social, and directories, normalised into one system, one voice, one set of rules.',
+    name: 'More than one map',
+    body: 'Google will not be the only place the fleet keeps watch.',
+    state: 'horizon',
+    marker: HORIZON_MARKER,
+    x: 1700,
+    y: 250,
+    label: 'below',
+  },
+  {
+    id: 'impact',
+    name: 'Numbers you can defend',
+    body: 'What the fleet did for you will be counted the conservative way.',
+    state: 'horizon',
+    marker: HORIZON_MARKER,
+    x: 1870,
+    y: 420,
+    label: 'above',
+  },
+  {
+    id: 'api',
+    name: 'Doors for other tools',
+    body: 'Other software will be able to knock.',
+    state: 'horizon',
+    marker: HORIZON_MARKER,
+    x: 1855,
+    y: 770,
+    label: 'above',
+  },
+  {
+    id: 'social',
+    name: 'Beyond reviews',
+    body: 'The fleet will have more than reviews to speak for you.',
+    state: 'horizon',
+    marker: HORIZON_MARKER,
+    x: 1690,
+    y: 800,
+    label: 'above',
+  },
+  {
+    id: 'disputes',
+    name: 'The one that was never a customer',
+    body: 'Some reviews will get a second look.',
+    state: 'horizon',
+    marker: HORIZON_MARKER,
+    x: 1770,
+    y: 600,
+    label: 'below',
   },
 ];
 
@@ -95,12 +292,22 @@ export const HEADING_ACCENT = 'every business deserves.';
 export const LEAD_IN =
   'No small business can staff a review team, a CRM, a social manager and a fraud-dispute process. The ambition is to be all of it: one supervised fleet covering everything your business’s reputation touches, not only its reviews.';
 
-export const COMMITTED_LABEL = 'Committed direction';
-export const COMMITTED_NOTE = 'Not available yet. This is what the fleet grows into next.';
+/** The legend on the chart. The note is the section's disclaimer — it sits ON
+ *  the map, so it cannot be scrolled past independently of the stops. */
+export const LEGEND_LABEL = 'The route';
+export const LEGEND_NOTE = 'Lit stops are live today. The rest are hints of what comes next, not available yet.';
+export const LEGEND_SHIPPED = 'Live today';
+export const LEGEND_PLANNED = 'Planned, in order';
+export const LEGEND_HORIZON = 'Sequenced later';
 
-/** Per-card roadmap marker. See the note above on why the card cannot rely on
- *  the body copy alone to carry this. */
-export const CARD_TAG = 'Planned';
+/** The pin at the end of the lit road. */
+export const TODAY_LABEL = 'Today';
+
+/** The fog's own label, stamped on the horizon line. */
+export const HORIZON_LABEL = 'Beyond the horizon';
+
+/** Accessible name for the stop list. */
+export const STOPS_LABEL = 'The roadmap, in order';
 
 /**
  * §2.2 — flagged in the source as "the strongest strategic sentence in the

@@ -1,94 +1,70 @@
 /* ==========================================================================
-   Where this is going.
+   Where this is going — the route map (2026-09-06 revamp).
 
-   The section's whole job is to be exciting WITHOUT reading as available. Only
-   the COMMITTED tier is on the page now (the exploring tier was cut), so all
-   of the honesty load sits on this one group of cards. Three devices carry it,
-   and they are deliberately redundant:
+   One survey chart: a generated ground, an SVG road in the chart's own
+   1600×900 space, and HTML stops positioned by the same coordinates. The
+   section's whole job is to be exciting WITHOUT reading as available, and
+   three devices carry that, deliberately redundant:
 
-     1. The tier header states "Not available yet" above the whole grid.
-     2. Every card wears a dashed edge rather than the solid ring the shipped
-        sections use, so even a skim registers "not yet" before a word is read.
-     3. Every card carries the `Planned` tag beside its name.
+     1. The legend on the chart says "not available yet" about everything
+        past the lit stops.
+     2. Every unbuilt stop carries its marker (Phase n / Later) beside its
+        name, so a skim reads status before a body.
+     3. Unbuilt roads are dashed and dim; only the shipped road is solid gold.
 
-   (3) is the one that is easy to delete by accident: a skim reads the four
-   product names before it reads a body, and the tag is what marks them as
-   unbuilt at that glance. Do not remove it, and do not give these cards the
-   solid ring treatment.
+   Do not give a planned or horizon stop the lit treatment, and do not move
+   the legend off the chart.
 
-   Static since 2026-08-16. These were flip cards with the body on the back;
-   a roadmap does not need a reveal, and the flip hid every future-tense
-   "will" from a skim. The pointer-tracked glow stays.
+   Custom properties here are `--rw-lp-*` only (design-scope-purity). Stop
+   positions ride `--rw-lp-stop-x/y`, written inline by FutureSection.tsx as
+   percentages of the stage.
    ========================================================================== */
 
 .rw-lp-future {
   --rw-lp-future-text: #f4f2ec;
   --rw-lp-future-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
-
-  /* ---- pointer-tracked glow ----
-     `--rw-lp-glow-x/y` are VIEWPORT pixels, written by one rAF-coalesced
-     pointermove listener in FutureSection.tsx. They start far off-screen so
-     the cards render unlit before the first pointer event, and stay there
-     under `prefers-reduced-motion`, where the listener never attaches.
-
-     The hue is derived rather than fixed: `--rw-lp-glow-xp` is the pointer's
-     horizontal position as 0..1, so the light warms slightly as it travels.
-     The spread is 16 degrees, NOT the reference's 200 — this page has a
-     load-bearing gold/teal split (gold acts, teal watches), and a light that
-     sweeps 200 degrees of hue would drive straight through the teal and make
-     the temperature argument meaningless. 34-50 stays inside gold. */
-  --rw-lp-glow-x: -9999;
-  --rw-lp-glow-y: -9999;
-  --rw-lp-glow-xp: 0.5;
-  --rw-lp-glow-hue: calc(34 + (var(--rw-lp-glow-xp) * 16));
-  --rw-lp-glow-size: 300;
-  --rw-lp-glow-ring: 1.5px;
+  /* The landmark stage: the object stands on the road point, the label hangs
+     below it. Sized in vw so the chart and its objects scale together. */
+  --rw-lp-landmark: clamp(3.75rem, 6.2vw, 7rem);
+  --rw-lp-card-width: 18.5rem;
 
   position: relative;
   display: flex;
   flex-direction: column;
   /* As tall as its content plus the page's section rhythm — never bound to
-     the viewport (2026-08-16; docs/design/landing/measurements.md §2). */
-  padding: var(--rw-lp-section-gap, 6rem) 0;
-  background:
-    radial-gradient(ellipse 60% 45% at 50% 100%, rgb(var(--rw-lp-accent-rgb) / 0.07), transparent 70%),
-    var(--rw-lp-ink, #14201c);
+     the viewport (2026-08-16; docs/design/landing/measurements.md §2).
+     No bottom padding: the chart is full-bleed and ends the section, and its
+     own bottom fade is the hand-off to the closing band. A gap of ink
+     between the two read as a hole (owner, 2026-09-06). */
+  /* Small top padding, not the section gap: the dial section above already
+     ends with its own gap, and two stacked gaps read as a hole (owner,
+     2026-09-06). */
+  padding: clamp(1rem, 3vh, 2rem) 0 0;
+  background: var(--rw-lp-ink, #14201c);
 }
 
 .rw-lp-future-inner {
   /* `width: 100%` is load-bearing. The section is a column flex container, so
      this is a flex item; its `margin: 0 auto` then wins over the default
      `align-self: stretch` and collapses the block to fit-content, silently
-     narrowing every grid inside it. */
+     narrowing everything inside it. */
   width: 100%;
   max-width: var(--rw-lp-inner-max, 102rem);
   margin: 0 auto;
   padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
 }
 
-/* ---------- two columns ----------
-   Argument left, committed work right. Single-column left roughly a third of
-   the row empty at 16:9 while the card bodies wrapped to four lines; splitting
-   it spends that width on the cards instead. The left column is the narrower
-   of the two because it holds prose, which has a reading measure — the cards
-   are what should take the extra room. */
-
-.rw-lp-future-layout {
+/* ---------- header: the argument left, its conclusion right ---------- */
+.rw-lp-future-head {
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr);
-  gap: clamp(1.5rem, 4vw, 3.5rem);
-  align-items: center;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: clamp(1.5rem, 4vw, 4rem);
+  align-items: end;
+  margin-bottom: clamp(1.5rem, 3.5vh, 2.5rem);
 }
-
-.rw-lp-future-argument {
-  display: flex;
-  flex-direction: column;
-}
-
-/* ---------- intro ---------- */
 
 .rw-lp-future-intro {
-  max-width: 34rem;
+  max-width: 36rem;
 }
 
 /* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
@@ -103,15 +79,10 @@
 }
 
 .rw-lp-future-heading {
-  /* Height-aware: a 1440x810 laptop is wide but short, so `vw` alone sizes
-     this for a screen that is not there. The `vh` term dates from the `100svh`
-     bind and is kept — it still keeps the display type proportionate to short
-     laptops; only the section no longer has to fit one screen. */
   margin: 0;
   font-family: var(--rw-font-display);
   font-weight: 200;
-  /* The shared section-heading scale (2026-08-24 header-grammar pass): one
-     clamp for every section heading except the problem essay's exception. */
+  /* The shared section-heading scale (2026-08-24 header-grammar pass). */
   font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
   line-height: 1.06;
   letter-spacing: -0.025em;
@@ -133,221 +104,18 @@
   color: var(--rw-lp-future-muted);
 }
 
-/* ---------- tier header ---------- */
-
-.rw-lp-future-tier-head {
+.rw-lp-future-closing-slot {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem 1.25rem;
-  margin-bottom: clamp(0.625rem, 1.6vh, 1rem);
-  padding-bottom: clamp(0.5rem, 1.2vh, 0.875rem);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  justify-content: flex-end;
 }
 
-.rw-lp-future-tier-label {
-  margin: 0;
-  /* Same label role as the eyebrow. */
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: var(--rw-lp-label-size);
-  letter-spacing: var(--rw-lp-label-tracking);
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-/* The disclaimer sits ON the tier header, not in a footnote, so it cannot be
-   scrolled past independently of the items it qualifies.
-
-   Do not fade this further. It measured 4.70:1 at 0.5 alpha — passing, but
-   only just, and this is the text that keeps the section honest. It should be
-   comfortably readable, not technically compliant. */
-.rw-lp-future-tier-note {
-  margin: 0;
-  font-family: var(--rw-font-display);
-  font-weight: 400;
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  color: rgb(var(--rw-lp-text-rgb) / 0.6);
-}
-
-/* ---------- committed: 2x2 static cards ---------- */
-
-.rw-lp-future-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.875rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* The card is the GLOW HOST; the face is a plain block inside it. The glow
-   gradients are `background-attachment: fixed`, which a transformed ancestor
-   silently degrades to `scroll` — nothing here transforms any more (the flip
-   is gone), but keep the pseudo-elements on THIS element so a hover effect
-   added to the face later cannot break the tracking. */
-.rw-lp-future-card {
-  position: relative;
-  /* Sized by content since 2026-08-16 (was `clamp(11rem, 37vh, 20rem)`, a
-     share of the `100svh` section the cards had to fit inside). */
-  display: flex;
-  border-radius: 1.25rem;
-  /* Dashed, not the solid ring the shipped sections use — the roadmap signal
-     a skim reads before a word. On the card, not the face, so it sits under
-     the ::after spotlight ring at the same edge. */
-  outline: 1px dashed rgb(var(--rw-lp-accent-rgb) / 0.22);
-  outline-offset: -1px;
-}
-
-/* The soft wash — a wide, low-alpha pool of light that reaches beyond the card
-   edge so neighbouring cards catch the spill. No `filter: blur()`: a radial
-   gradient already has a soft falloff, and a filter here would create a
-   containing block that breaks the fixed attachment this depends on. */
-.rw-lp-future-card::before {
-  content: '';
-  position: absolute;
-  inset: -0.875rem;
-  z-index: 0;
-  border-radius: 1.75rem;
-  pointer-events: none;
-  background-image: radial-gradient(
-    calc(var(--rw-lp-glow-size) * 1px) calc(var(--rw-lp-glow-size) * 1px) at
-      calc(var(--rw-lp-glow-x) * 1px) calc(var(--rw-lp-glow-y) * 1px),
-    hsl(var(--rw-lp-glow-hue) 55% 70% / 0.22),
-    transparent 65%
-  );
-  background-attachment: fixed;
-}
-
-/* The border spotlight — the effect's signature. Same punched-ring idiom as
-   `.rw-lp-glass::before`: an inset box is padded, filled, then has its
-   interior masked out, leaving only the stroke. `-webkit-` prefixes are
-   load-bearing; Safari still needs them for mask-composite (as `xor`). */
-.rw-lp-future-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  border-radius: inherit;
-  padding: var(--rw-lp-glow-ring);
-  pointer-events: none;
-  /* Two stacked gradients, both anchored to the pointer: a tight white core
-     inside a wider gold falloff. First listed paints on top, so the core sits
-     over the gold. The reference gets this with `filter: brightness(2)` on a
-     single gradient — that is avoided here because a filter would make this
-     pseudo-element a containing block and degrade the fixed attachment the
-     whole effect rides on. Raising lightness directly is the same picture with
-     none of that risk. */
-  background-image:
-    radial-gradient(
-      calc(var(--rw-lp-glow-size) * 0.22px) calc(var(--rw-lp-glow-size) * 0.22px) at
-        calc(var(--rw-lp-glow-x) * 1px) calc(var(--rw-lp-glow-y) * 1px),
-      rgba(255, 255, 255, 0.85),
-      transparent 100%
-    ),
-    radial-gradient(
-      calc(var(--rw-lp-glow-size) * 0.75px) calc(var(--rw-lp-glow-size) * 0.75px) at
-        calc(var(--rw-lp-glow-x) * 1px) calc(var(--rw-lp-glow-y) * 1px),
-      hsl(var(--rw-lp-glow-hue) 82% 76%),
-      transparent 100%
-    );
-  background-attachment: fixed;
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-}
-
-/* The face. Deliberately thin, like the old flip faces: the glow wash lives
-   BEHIND it on the card, so an opaque face would hide the effect entirely. */
-.rw-lp-future-card-face {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-  width: 100%;
-  /* 24px, the page's card padding (Linear's `card padding: 24px`). */
-  padding: 1.5rem;
-  border-radius: 1.25rem;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.022);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-/* ---------- the unpowered set ("screens not yet on", 2026-08-24) ----------
-   Each card opens with the generated off-CRT still: the same set the
-   shipped agents live in, its screen dead (asset rules in future-copy.ts).
-   Decorative (aria-hidden in the JSX) — the tag, name and body carry the
-   information; the set argues membership of the fleet's CRT family while an
-   OFF screen cannot read as shipped. The still is slightly dimmed so even
-   its rim light sits below the live agents' cards. */
-
-.rw-lp-future-card-screen {
-  position: relative;
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  margin-bottom: 0.5rem;
-  border-radius: 0.875rem;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgb(var(--rw-lp-ink-rgb) / 0.92);
-}
-
-.rw-lp-future-card-screen-still {
-  object-fit: cover;
-  opacity: 0.88;
-}
-
-.rw-lp-future-card-tag {
-  align-self: flex-start;
-  margin-bottom: 0.25rem;
-  padding: 0.1875rem 0.5rem;
-  font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.5625rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
-  border: 1px dashed rgb(var(--rw-lp-accent-rgb) / 0.4);
-  border-radius: 999px;
-}
-
-.rw-lp-future-card-name {
-  margin: 0;
-  font-family: var(--rw-font-display);
-  font-weight: 200;
-  font-size: clamp(1.25rem, 1.9vw, 1.625rem);
-  line-height: 1.1;
-  letter-spacing: -0.015em;
-  color: var(--rw-lp-future-text);
-}
-
-.rw-lp-future-card-body {
-  margin: 0;
-  font-family: var(--rw-font-display);
-  font-weight: 400;
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  color: rgb(var(--rw-lp-text-rgb) / 0.82);
-}
-
-/* ---------- closing statement ----------
-   Left column, under the lead. It is the argument's conclusion, so it belongs
-   with the argument rather than centred under the grid. */
-
+/* The conclusion, set beside the argument so the visitor reads the promise
+   ("the same supervised fleet") before exploring what joins it. */
 .rw-lp-future-closing {
-  margin: clamp(1rem, 3vh, 2rem) 0 0;
+  margin: 0;
   padding: clamp(0.875rem, 2.2vh, 1.25rem) 0 0;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  max-width: 34rem;
+  max-width: 28rem;
 }
 
 .rw-lp-future-closing-quote {
@@ -364,48 +132,754 @@
   color: var(--rw-lp-accent, #dcc489);
 }
 
-/* ---------- reduced motion ----------
-   Nothing on the cards animates any more (the flip is gone). The glow is inert
-   in this branch — the listener never attaches, so the coordinates keep their
-   off-screen defaults and nothing chases the cursor. */
+/* ---------- the chart ----------
+   Full-bleed: a direct child of the section (a column flex container), so
+   `width: 100%` runs it edge to edge while the header above keeps the reading
+   measure. 20:9, not 16:9 — at viewport width a 16:9 chart is taller than a
+   laptop screen. The ground is 16:9 and crops top and bottom under `cover`;
+   it is decorative, and the lamp light stays on the left. */
+.rw-lp-future-map {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  aspect-ratio: 20 / 9;
+  overflow: hidden;
+  background: rgb(var(--rw-lp-ink-rgb));
+}
 
-@media (max-width: 1100px) {
-  .rw-lp-future-layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: clamp(1.5rem, 4vh, 2.5rem);
+/* Soft bands at the top and bottom edges so the full-bleed chart settles
+   into the section's ink instead of ending on a hard line. */
+.rw-lp-future-map::before,
+.rw-lp-future-map::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Above the fog and the clouds (z 2), so the mist cannot spill over the
+     chart's edges; the stops (z 3, later in the DOM) still paint over it. */
+  z-index: 3;
+  height: clamp(3rem, 8vh, 6rem);
+  pointer-events: none;
+}
+.rw-lp-future-map::before {
+  top: 0;
+  background: linear-gradient(180deg, rgb(var(--rw-lp-ink-rgb)), transparent);
+}
+.rw-lp-future-map::after {
+  bottom: 0;
+  background: linear-gradient(0deg, rgb(var(--rw-lp-ink-rgb)), transparent);
+}
+
+.rw-lp-future-ground {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.rw-lp-future-ground-img {
+  object-fit: cover;
+}
+
+/* Fog past the horizon. Under the stops (which dim themselves) and over the
+   ground and roads, so the branches sink into it. */
+.rw-lp-future-fog {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 70%,
+    rgb(var(--rw-lp-ink-rgb) / 0.45) 82%,
+    rgb(var(--rw-lp-ink-rgb) / 0.72) 100%
+  );
+}
+
+/* ---- clouds past the horizon ----
+   Screen blend: the plates are white mist on pure black, so black is a no-op
+   and only the mist lightens the chart. Under the stops (z 3), over the fog
+   wash (z 2) — the hints stay legible through them. Masked so they fade in
+   from the horizon line rather than starting on a hard edge. */
+.rw-lp-future-clouds {
+  position: absolute;
+  top: -8%;
+  bottom: -8%;
+  left: 58%;
+  right: -6%;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 38%, #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 38%, #000 100%);
+}
+
+.rw-lp-future-cloud {
+  object-fit: cover;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.rw-lp-future-cloud-a {
+  opacity: 0.55;
+  animation: rw-lp-future-drift-a 90s ease-in-out infinite alternate;
+}
+
+.rw-lp-future-cloud-b {
+  opacity: 0.4;
+  transform: scale(1.15);
+  animation: rw-lp-future-drift-b 130s ease-in-out infinite alternate;
+}
+
+@keyframes rw-lp-future-drift-a {
+  from {
+    transform: translate3d(-3%, 0, 0) scale(1.05);
   }
+  to {
+    transform: translate3d(3%, -2%, 0) scale(1.1);
+  }
+}
 
+@keyframes rw-lp-future-drift-b {
+  from {
+    transform: translate3d(4%, 2%, 0) scale(1.15);
+  }
+  to {
+    transform: translate3d(-4%, -1%, 0) scale(1.2);
+  }
+}
+
+.rw-lp-future-chart {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ---- roads ---- */
+.rw-lp-future-road-glow,
+.rw-lp-future-road-lit,
+.rw-lp-future-road-planned,
+.rw-lp-future-road-branch,
+.rw-lp-future-horizon-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* Keep the stroke a screen-pixel width no matter how the chart scales. */
+  vector-effect: non-scaling-stroke;
+}
+
+.rw-lp-future-road-glow {
+  stroke: rgb(var(--rw-lp-accent-rgb) / 0.32);
+  stroke-width: 14px;
+  filter: blur(6px);
+}
+
+.rw-lp-future-road-lit {
+  stroke: var(--rw-lp-accent, #dcc489);
+  stroke-width: 2px;
+}
+
+.rw-lp-future-road-planned {
+  stroke: rgb(var(--rw-lp-text-rgb) / 0.42);
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 8;
+  opacity: 0;
+  transition: opacity 0.7s ease-out 1.1s;
+}
+
+.rw-lp-future-road-branch {
+  stroke: rgb(var(--rw-lp-text-rgb) / 0.26);
+  stroke-width: 1.25px;
+  stroke-dasharray: 2 9;
+  opacity: 0;
+  transition: opacity 0.9s ease-out 1.5s;
+}
+
+.rw-lp-future-horizon-line {
+  stroke: rgb(var(--rw-lp-text-rgb) / 0.16);
+  stroke-width: 1px;
+  stroke-dasharray: 1 6;
+  opacity: 0;
+  transition: opacity 0.9s ease-out 1.5s;
+}
+
+.rw-lp-future-chart[data-armed='true'] .rw-lp-future-road-planned,
+.rw-lp-future-chart[data-armed='true'] .rw-lp-future-road-branch,
+.rw-lp-future-chart[data-armed='true'] .rw-lp-future-horizon-line {
+  opacity: 1;
+}
+
+.rw-lp-future-horizon-label {
+  position: absolute;
+  z-index: 2;
+  top: clamp(1.5rem, 4vh, 2.5rem);
+  left: var(--rw-lp-stop-x);
+  transform: translateX(0.75rem);
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(var(--rw-lp-text-rgb) / 0.34);
+  white-space: nowrap;
+}
+
+/* ---- "Today": the end of the lit road ---- */
+.rw-lp-future-today {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: calc(var(--rw-lp-landmark) + 0.625rem);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.1875rem 0.5rem 0.1875rem 0.375rem;
+  border-radius: 999px;
+  background: rgb(var(--rw-lp-ink-rgb) / 0.7);
+  box-shadow: 0 0 0 1px rgb(var(--rw-lp-accent-rgb) / 0.35);
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: 0.5625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rw-lp-future-today::before {
+  content: '';
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--rw-lp-accent, #dcc489);
+  box-shadow: 0 0 8px rgb(var(--rw-lp-accent-rgb) / 0.8);
+}
+
+/* ---- legend ---- */
+.rw-lp-future-legend {
+  position: absolute;
+  z-index: 4;
+  top: clamp(1.5rem, 4vh, 2.5rem);
+  left: var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+  max-width: 20rem;
+  padding: 1rem 1.125rem;
+  border-radius: 0.875rem;
+  background: rgb(var(--rw-lp-ink-rgb) / 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.rw-lp-future-legend-label {
+  margin: 0;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+/* The disclaimer. Do not fade it further: this is the text that keeps the
+   section honest, and it should be comfortably readable. */
+.rw-lp-future-legend-note {
+  margin: 0.25rem 0 0.625rem;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: rgb(var(--rw-lp-text-rgb) / 0.68);
+}
+
+.rw-lp-future-legend-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rw-lp-future-legend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: rgb(var(--rw-lp-text-rgb) / 0.78);
+}
+
+.rw-lp-future-legend-key::before {
+  content: '';
+  width: 1.25rem;
+  height: 0;
+  border-top: 2px solid var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-future-legend-key[data-state='planned']::before {
+  border-top: 2px dashed rgb(var(--rw-lp-text-rgb) / 0.5);
+}
+
+.rw-lp-future-legend-key[data-state='horizon']::before {
+  border-top: 2px dotted rgb(var(--rw-lp-text-rgb) / 0.3);
+}
+
+/* ---------- stops ---------- */
+.rw-lp-future-stops {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rw-lp-future-stop-item {
+  position: absolute;
+  left: var(--rw-lp-stop-x);
+  top: var(--rw-lp-stop-y);
+  width: 0;
+  height: 0;
+}
+
+.rw-lp-future-stop-item[data-active='true'] {
+  z-index: 6;
+}
+
+/* Horizon stops carry no landmark, only the glyph — a short stage keeps their
+   label beside the point instead of a landmark's height away from it. Lit
+   stops stand a little taller than the planned ones: what is real is bigger. */
+.rw-lp-future-stop-item[data-state='horizon'] {
+  --rw-lp-landmark: 1.375rem;
+}
+.rw-lp-future-stop-item[data-state='shipped'] {
+  --rw-lp-landmark: clamp(4.75rem, 8.7vw, 9.75rem);
+}
+
+/* The button is the whole stop: landmark above the road point, label below
+   (or, on every other stop, above the landmark — neighbours along the road
+   never share a side, which is what lets fifteen stops fit one chart).
+   Its box is centred on the point horizontally and its landmark's base sits
+   ON the point, so the road appears to arrive at the object's feet. */
+.rw-lp-future-stop {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  width: max-content;
+  max-width: 10rem;
+  margin: 0;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transform: translate(-50%, calc(-1 * var(--rw-lp-landmark) - 0.125rem));
+  transition: transform 0.2s ease-out;
+}
+
+.rw-lp-future-stop:focus-visible {
+  outline: 2px solid var(--rw-lp-accent);
+  outline-offset: 3px;
+}
+
+.rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop {
+  transform: translate(-50%, calc(-1 * var(--rw-lp-landmark) - 0.375rem));
+}
+
+/* Label above: the column flips and the box is pulled up by its own height,
+   so the landmark's base still lands on the road point. */
+.rw-lp-future-stop-item[data-label='above'] .rw-lp-future-stop {
+  flex-direction: column-reverse;
+  transform: translate(-50%, calc(-100% + 0.125rem));
+}
+.rw-lp-future-stop-item[data-label='above'][data-active='true'] .rw-lp-future-stop {
+  transform: translate(-50%, calc(-100% - 0.125rem));
+}
+
+.rw-lp-future-landmark {
+  position: relative;
+  display: block;
+  /* Height is the stage; width follows the cutout's aspect (never narrower
+     than the stage, so a tall cutout keeps its halo). A wide cutout in a
+     square box sat small at the bottom with its label floating above it. */
+  width: calc(var(--rw-lp-landmark) * max(1, var(--rw-lp-landmark-aspect, 1)));
+  height: var(--rw-lp-landmark);
+}
+
+.rw-lp-future-landmark-img {
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+/* The lit stop's halo: a pool of gold light under the landmark that breathes.
+   CSS keyframes on purpose — the ambient pause rule freezes them. */
+.rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -22%;
+  width: 210%;
+  height: 70%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgb(var(--rw-lp-accent-rgb) / 0.5),
+    rgb(var(--rw-lp-accent-rgb) / 0.14) 55%,
+    transparent 100%
+  );
+  animation: rw-lp-future-breathe 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes rw-lp-future-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* The marker glyph — the chart's marker for a stop with no landmark cutout,
+   and the trail's own bullet below 900px (where the cutouts are hidden). */
+.rw-lp-future-landmark[data-landmark='true'] .rw-lp-future-glyph {
+  display: none;
+}
+
+.rw-lp-future-glyph {
+  position: absolute;
+  left: 50%;
+  bottom: 0.25rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border: 2px solid var(--rw-lp-accent, #dcc489);
+  background: rgb(var(--rw-lp-accent-rgb) / 0.22);
+  box-shadow: 0 0 0 4px rgb(var(--rw-lp-accent-rgb) / 0.12);
+}
+
+.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-glyph {
+  border: 1.5px dashed rgb(var(--rw-lp-text-rgb) / 0.55);
+  background: rgb(var(--rw-lp-ink-rgb) / 0.6);
+  box-shadow: none;
+}
+
+.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-glyph {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.4);
+  background: rgb(var(--rw-lp-ink-rgb) / 0.6);
+  box-shadow: none;
+  transform: translateX(-50%) rotate(45deg);
+  border-radius: 0.125rem;
+}
+
+.rw-lp-future-stop-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  text-align: center;
+}
+
+.rw-lp-future-stop-marker {
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-future-stop-name {
+  font-family: var(--rw-font-display);
+  font-weight: 300;
+  font-size: clamp(0.8125rem, 1vw, 1rem);
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--rw-lp-future-text);
+  text-wrap: balance;
+  /* A thin ink shadow keeps the label legible over the chart's linework. */
+  text-shadow: 0 1px 8px rgb(var(--rw-lp-ink-rgb) / 0.9);
+}
+
+/* Planned and horizon stops are dim — the temperature of "not yet". */
+.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-stop-marker {
+  color: rgb(var(--rw-lp-text-rgb) / 0.6);
+}
+.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-stop-name {
+  color: rgb(var(--rw-lp-text-rgb) / 0.72);
+}
+.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-landmark {
+  opacity: 0.72;
+}
+
+.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-stop-marker {
+  color: rgb(var(--rw-lp-text-rgb) / 0.42);
+}
+.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-stop-name {
+  color: rgb(var(--rw-lp-text-rgb) / 0.5);
+}
+.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-landmark {
+  opacity: 0.5;
+}
+
+/* Hover/active lifts the dim stops a little into the light, never to lit. */
+.rw-lp-future-stop-item[data-active='true'][data-state='planned'] .rw-lp-future-stop-name,
+.rw-lp-future-stop-item[data-active='true'][data-state='horizon'] .rw-lp-future-stop-name {
+  color: rgb(var(--rw-lp-text-rgb) / 0.9);
+}
+
+/* ---- the detail card ---- */
+.rw-lp-future-stop-card {
+  position: absolute;
+  z-index: 2;
+  width: var(--rw-lp-card-width);
+  padding: 0.875rem 1rem 1rem;
+  border-radius: 1rem;
+  background: rgb(var(--rw-lp-ink-rgb) / 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 18px 40px rgb(var(--rw-lp-ink-rgb) / 0.6);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease-out,
+    visibility 0s linear 0.18s;
+}
+
+.rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop-card {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 0.18s ease-out,
+    visibility 0s;
+}
+
+/* Side: away from the nearer edge. Anchor: level with the stop, or pushed
+   down/up when the stop sits near the chart's top or bottom. */
+.rw-lp-future-stop-item[data-side='right'] .rw-lp-future-stop-card {
+  left: 1.5rem;
+}
+.rw-lp-future-stop-item[data-side='left'] .rw-lp-future-stop-card {
+  right: 1.5rem;
+}
+.rw-lp-future-stop-item[data-anchor='mid'] .rw-lp-future-stop-card {
+  top: calc(-0.5 * var(--rw-lp-landmark));
+  transform: translateY(-50%);
+}
+.rw-lp-future-stop-item[data-anchor='below'] .rw-lp-future-stop-card {
+  top: calc(-1 * var(--rw-lp-landmark));
+}
+.rw-lp-future-stop-item[data-anchor='above'] .rw-lp-future-stop-card {
+  bottom: 0;
+}
+
+.rw-lp-future-stop-card-marker {
+  display: block;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-stop-card-marker,
+.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-stop-card-marker {
+  color: rgb(var(--rw-lp-text-rgb) / 0.6);
+}
+
+.rw-lp-future-stop-card-name {
+  display: block;
+  margin-top: 0.125rem;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: 1.125rem;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--rw-lp-future-text);
+}
+
+.rw-lp-future-stop-card-body {
+  margin: 0.5rem 0 0;
+  font-family: var(--rw-font-display);
+  font-weight: 400;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: rgb(var(--rw-lp-text-rgb) / 0.82);
+}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before,
+  .rw-lp-future-cloud-a,
+  .rw-lp-future-cloud-b {
+    animation: none;
+  }
+  .rw-lp-future-stop,
+  .rw-lp-future-stop-card,
+  .rw-lp-future-road-planned,
+  .rw-lp-future-road-branch,
+  .rw-lp-future-horizon-line {
+    transition: none;
+  }
+}
+
+/* ---------- narrow: header stacks ---------- */
+@media (max-width: 1100px) {
+  .rw-lp-future-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(1rem, 3vh, 1.75rem);
+  }
   .rw-lp-future-intro,
-  .rw-lp-future-lead,
-  .rw-lp-future-closing {
+  .rw-lp-future-lead {
     max-width: none;
   }
-}
-
-@media (max-width: 640px) {
-  .rw-lp-future-grid {
-    grid-template-columns: 1fr;
+  .rw-lp-future-closing-slot {
+    justify-content: flex-start;
+  }
+  .rw-lp-future-closing {
+    max-width: 34rem;
   }
 }
 
-/* ---------- phone carousel ----------
-   Below 767px the 2x2 becomes a scroll-snap rail (../carousel.css owns the
-   rail mechanics; this sets only the two values that are this section's).
-   `grid-template-columns` above goes inert there — the rail switches the box
-   to `display: flex`.
-
-   The card is content-sized, so the slide width buys line count rather than
-   height: 78vw is 304px at 390px wide, which keeps the longest body (Solicitor)
-   to the same wrap it has in the desktop 2x2.
-
-   1.25rem of vertical padding, not the rail's 0.5rem default: the glow wash
-   (`.rw-lp-future-card::before`) sits at `inset: -0.875rem`, and the rail's
-   `overflow-y: hidden` would shear 14px off the top and bottom of it. Only a
-   pointer device at this width ever lights the glow, but it is the same pool
-   of light either way — clip it and the card reads as cut off. */
-@media (max-width: 767px) {
-  .rw-lp-future-grid {
-    --rw-lp-carousel-slide: min(78vw, 19rem);
-    --rw-lp-carousel-pad: 1.25rem;
+/* ---------- the trail (≤ 900px) ----------
+   The chart is abandoned — 15 stops cannot share a phone-wide 16:9 frame —
+   for a vertical trail: same stops, same order, same three states, every
+   body visible. The ground stays as a faint backdrop so the section keeps
+   its world; the roads, fog, and horizon label go. */
+@media (max-width: 900px) {
+  /* The trail has no fade, so the section rhythm returns below it. */
+  .rw-lp-future {
+    padding-bottom: var(--rw-lp-section-gap, 6rem);
+  }
+  .rw-lp-future-map {
+    aspect-ratio: auto;
+    padding: 1.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) 0;
+  }
+  .rw-lp-future-map::before,
+  .rw-lp-future-map::after {
+    display: none;
+  }
+  .rw-lp-future-ground-img {
+    opacity: 0.55;
+  }
+  .rw-lp-future-chart,
+  .rw-lp-future-fog,
+  .rw-lp-future-clouds,
+  .rw-lp-future-horizon-label,
+  .rw-lp-future-today {
+    display: none;
+  }
+  .rw-lp-future-legend {
+    position: relative;
+    top: auto;
+    left: auto;
+    max-width: none;
+    margin-bottom: 1.25rem;
+  }
+  .rw-lp-future-stops {
+    position: relative;
+    inset: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.125rem;
+    padding-left: 0.25rem;
+  }
+  /* The trail line the bullets sit on. */
+  .rw-lp-future-stops::before {
+    content: '';
+    position: absolute;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    left: 0.8125rem;
+    border-left: 1px dashed rgb(var(--rw-lp-text-rgb) / 0.22);
+  }
+  .rw-lp-future-stop-item {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: auto;
+    height: auto;
+    display: grid;
+    grid-template-columns: 1.375rem minmax(0, 1fr);
+    column-gap: 0.875rem;
+    align-items: start;
+  }
+  .rw-lp-future-stop {
+    position: relative;
+    display: contents;
+    transform: none;
+  }
+  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop {
+    transform: none;
+  }
+  .rw-lp-future-landmark {
+    width: 1.375rem;
+    height: 1.375rem;
+    margin-top: 0.125rem;
+  }
+  .rw-lp-future-landmark-img,
+  .rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before {
+    display: none;
+  }
+  .rw-lp-future-landmark[data-landmark='true'] .rw-lp-future-glyph {
+    display: block;
+  }
+  .rw-lp-future-glyph {
+    bottom: auto;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-glyph {
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+  /* The on-chart label and the card merge: name and marker once, body under. */
+  .rw-lp-future-stop-label {
+    display: none;
+  }
+  .rw-lp-future-stop-card {
+    position: static;
+    grid-column: 2;
+    width: auto;
+    padding: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: none;
+    transition: none;
+  }
+  .rw-lp-future-stop-item[data-anchor='mid'] .rw-lp-future-stop-card,
+  .rw-lp-future-stop-item[data-anchor='below'] .rw-lp-future-stop-card,
+  .rw-lp-future-stop-item[data-anchor='above'] .rw-lp-future-stop-card {
+    top: auto;
+    bottom: auto;
+    transform: none;
+  }
+  .rw-lp-future-stop-card-name {
+    font-size: 1.0625rem;
   }
 }

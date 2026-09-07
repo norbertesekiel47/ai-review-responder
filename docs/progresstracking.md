@@ -835,6 +835,43 @@ agentic reputation-system positioning. Owner chose present tense for Solicitor
 - Tests: FleetSection (no NEXT tag), new JobsSection test, FeaturesContent
   and HowItWorksContent assertions for the new chapters and band.
 
+## 2026-09-06 — Landing section 5 became the route map
+
+Owner asked for the "Where this is going" cards to become an interactive
+illustrated roadmap in the spirit of an antique survey map: shipped work lit,
+the forward roadmap (`docs/roadmap/2026-08-26-forward-roadmap.md`) dimmed.
+Owner decisions: the two old cards absent from the roadmap (Social media, Fake
+review disputes) ride as fog stops; Runway generates the ground and the
+landmarks.
+
+- `future/FutureSection.tsx`, `future.css`, `future-copy.ts` rewritten;
+  `future-route.ts` added (Catmull-Rom road). Fifteen stops in three states,
+  one `useInView` arming signal, `pathLength` draw-in, alternating label sides,
+  glass detail card, phone trail ≤ 900px.
+- Assets: chart ground + ten landmark cutouts (Runway nano-banana-pro against
+  the agent stills; PIL flood-fill cutouts because the Runway cutter dropped
+  every second object). `off-crt.jpg` deleted.
+- Tests: new `FutureSection.test.tsx` (buttons, aria, one-open-at-a-time,
+  tense/marker/ordering contract, route geometry); focus-ring row for
+  `.rw-lp-future-stop`. Docs: DESIGN.md § Future + motion rows,
+  measurements.md (four Future measurements + assets), `staged.tsx` comment.
+- Verified in the browser at 1440 and 390 with Playwright: every stop accepts a
+  hover at its centre, focus opens the card, no card open at rest.
+
+Owner review on staging, same day (three rounds): (1) the chart was cramped
+inside the 75rem column → it is full-bleed on a 20:9 stage; (2) the flat road
+still read cramped → a serpentine (crest, trough, rise) with hand-chosen
+label sides; (3) the ground looked low-resolution → `sizes="100vw"` (it had
+said 75rem, so a 1920px chart fetched a ~1200px variant), the ground upscaled
+2× and shipped at 3840px, `images.qualities` gains 88, landmarks served
+`unoptimized`; and the ink gap before the closing band → the section drops
+its bottom padding and the chart's fade is the hand-off.
+Round four: every TV grew ~15%, and the unbuilt stops stopped naming their
+features — each shows a short hint ("A second chance") and one teasing
+future-tense sentence; the phase markers and the legend's "not available
+yet" stay, and the stop-to-phase mapping lives in `future-copy.ts`.
+Round five: clouds past the horizon (two screen-blended plates, drifting).
+Rode `staging` throughout for owner review; merged to `main` via PR.
 ## 2026-09-06 — Admin MFA audit trail #468 (local, pre-merge)
 
 - Migration 117 `admin_audit_log`: actor-keyed admin control-plane trail,
