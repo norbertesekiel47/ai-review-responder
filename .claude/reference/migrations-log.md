@@ -2679,11 +2679,27 @@ Revisit triggers:
   105's, 108's, 110's and 111's entries describe.
 
 - **119** — `job_outbox` deny-all RLS (#1171). **Applied to STAGING
-  2026-09-07T11:42Z** (Supabase MCP `execute_sql`, project
-  `kubdiqdhqbhwmqfditeg`). **NOT YET IN PRODUCTION** — `udeyaqnvpojbwgoaxwdg`
-  still holds the pre-119 posture (RLS on since 2026-04-05, client grants
-  intact) and the lockstep is deliberately open until the promotion window.
-  Verified by introspection, never the ledger. Staging before → after:
+  2026-09-07T11:42Z and to PRODUCTION 2026-09-07T12:0xZ** (Supabase MCP
+  `execute_sql`, projects `kubdiqdhqbhwmqfditeg` then `udeyaqnvpojbwgoaxwdg`),
+  byte-identical SQL, staging first. Verified by introspection, never the
+  ledger.
+  **LOCKSTEP PROVEN BY HASH, not by assertion.** One identical query over all
+  54 `public` tables on each project — `relname | relrowsecurity |
+  relforcerowsecurity | relacl | policy count`, ordered and md5'd — returns
+  `3404cf07434a4d4ad9670f62ce573556` on BOTH, and the `job_outbox` row alone
+  hashes `40ec5814b6fcc41430af78ddf13d101a` on BOTH. The table comment is
+  byte-identical too (md5 `7b88d54454663e979bb8d4f2709c4d89`, 228 bytes). The
+  drift this migration exists to close is therefore closed for the WHOLE schema
+  posture, not merely for the one table.
+  **Production before → after.** RLS was already true (the legacy `ensure_rls`
+  trigger, 2026-04-05), so the guarded ALTER correctly SKIPPED and the REVOKE
+  was the only substantive statement — the first production exercise of the
+  guard added for that purpose. `anon` + `authenticated` 16 privileges → none;
+  `service_role` 8 → 8 unchanged; owner `postgres` 8 → 8 unchanged; policies
+  0 → 0; FORCE false → false; column ACLs 0 → 0. Post-apply, the OWNER read 4
+  rows WITH RLS enabled, and `has_table_privilege('anon', …)` returned false
+  for SELECT, INSERT and TRUNCATE.
+  Staging before → after:
   `relrowsecurity` false → **true**; `relforcerowsecurity` false → false;
   `pg_policies` 0 → 0; `anon` + `authenticated` 16 privileges → **none**;
   `service_role` 8 → **8 unchanged**; owner `postgres` 8 → **8 unchanged**;
