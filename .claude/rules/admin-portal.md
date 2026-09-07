@@ -25,6 +25,10 @@ Admin business query:
 
 - (a) the at-risk list is **filtered THEN capped**; (b) ranking is TypeScript and must never become `ORDER BY … LIMIT`; (c) Businesses fetches metrics for the current page's ids only.
 
+Auditing an admin page for a missing API route:
+
+- (a) `sql` in `src/app/admin/**/page.tsx` is USUALLY only the first argument to `requireAdminPage` (invariant #15), not a data read — 4 of the 6 pages #1163 listed as having an inline read had none; grep for a second `sql` use before calling a page a gap. (b) the **Beta comp coupon** id never leaves the server and never did: `businesses/new/page.tsx` passes only a boolean and the POST reads the id from the durable snapshot. (c) `businesses/[id]` may NOT gain a third parallel read path — `DB_POOL_MAX=3` on Vercel, and the fan-out re-appears at the HTTP layer where `ci:pool-fanout` cannot see it (ADR 0027 D1).
+
 ## Rules
 
 - `src/lib/admin/business-summary.ts` is the single owner of the query (`getBusinessSummaries`) and of churn derivation; `HealthBadge.tsx` owns health presentation.
