@@ -320,10 +320,12 @@ teal: it is an action, not part of the oversight diagram. A text link, not a pil
 ### Future (section 5)
 
 Role: where this is going — the **route map** since 2026-09-06 (owner-directed; it
-replaced the four "screens not yet on" cards). One survey chart: a generated ground
+replaced the four "screens not yet on" cards). One **full-bleed** survey chart — a
+sibling of the content column, edge to edge, 20:9 — a generated ground
 (`/future/roadmap-ground.jpg`, made against the agent stills), an SVG road in the
-chart's own 1600×900 space, and fifteen HTML stops positioned by the same
-coordinates (`future-copy.ts` owns them). Three states, and the difference is the
+chart's own 2000×900 space, and fifteen HTML stops positioned by the same
+coordinates (`future-copy.ts` owns them). The header above keeps the reading measure;
+the legend and horizon label inset by `--rw-lp-gutter`. Three states, and the difference is the
 honesty mechanism: **shipped** stops are lit — a solid gold road, a gold `Shipped`
 marker, a breathing halo, a landmark cutout with its screen on; **planned** stops are
 the roadmap's locked Phases 1–5 — dashed dim road, `Phase n` marker, unpowered

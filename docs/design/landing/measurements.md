@@ -188,11 +188,13 @@ fixed`, which a **transformed ancestor silently downgrades to `scroll`** — the
 `Reveal` is opacity-only and `Staged` has `rise={0}`. Both stay (the next fixed-attachment
 surface needs them), but nothing on the page depends on them today.
 
-**Future — fifteen stops fit one 16:9 chart only because labels alternate sides.** The
-stage is 1600×900 in `future-copy.ts`; the lit stops span x 150–690, the planned 780–1205,
-the horizon past `HORIZON_X` (1255). Adjacent lit/planned stops sit ~105 units apart
-(≈70px at 1440), narrower than a landmark (`--rw-lp-landmark`, up to 7rem lit / 4.75rem
-planned), so a stop's label goes below the road on even indexes and above the landmark on
+**Future — fifteen stops fit one chart only because labels alternate sides.** The
+stage is 2000×900 in `future-copy.ts` (20:9, full-bleed — the first cut was 1600×900
+inside the 75rem column and the owner called it cramped; the chart now runs edge to
+edge and the stops spread across it); the lit stops span x 170–860, the planned
+1005–1520, the horizon past `HORIZON_X` (1590). Adjacent lit/planned stops sit
+~130–175 units apart (≈95–125px at 1440), still narrower than a lit landmark
+(`--rw-lp-landmark`, up to 8.5rem lit / 6rem planned), so a stop's label goes below the road on even indexes and above the landmark on
 odd ones (`data-label`), and the road wanders ±50 units so neighbouring landmarks do not
 stack. A horizon stop has no landmark, so its stage collapses to 1.375rem — leave it at a
 landmark's height and its label lands 80px from its glyph, on top of the next label (the
@@ -204,10 +206,13 @@ element is the trail, ~2,200px tall at 390px wide; `amount: 0.3` never fired the
 stops stayed at opacity 0. The bottom `margin` holds desktop arrival until the chart is
 15% up the screen.
 
-**Future — a fixed 16:9 stage, not a fluid one.** Stops are placed in percentages of the
+**Future — a fixed 20:9 stage, not a fluid one.** Stops are placed in percentages of the
 stage, and the road is an SVG in the same coordinate space; the two only agree while the
-box keeps the viewBox's ratio. `aspect-ratio: 16 / 9` on `.rw-lp-future-map` is the
-contract — re-measure every stop before changing it.
+box keeps the viewBox's ratio. `aspect-ratio: 20 / 9` on `.rw-lp-future-map` is the
+contract — re-measure every stop before changing it. 20:9 and not 16:9 because at
+viewport width a 16:9 chart is 1080px tall on a 1920 screen. The road sits in the
+middle band (y 425–700): the bottom 6rem is a fade into the section ink, and a stop at
+y 740 put its label inside it.
 
 **CTA — the clip choice is the framing fix.** `hero3reverseVideo.mp4` puts the character at
 x 58–85%, clear of the 45% copy column. `hero3Video.mp4` puts it at x 19–37%, *behind* the

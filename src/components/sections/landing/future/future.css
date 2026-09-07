@@ -25,8 +25,8 @@
   --rw-lp-future-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
   /* The landmark stage: the object stands on the road point, the label hangs
      below it. Sized in vw so the chart and its objects scale together. */
-  --rw-lp-landmark: clamp(3rem, 5.2vw, 4.75rem);
-  --rw-lp-card-width: 17rem;
+  --rw-lp-landmark: clamp(3.25rem, 5.4vw, 6rem);
+  --rw-lp-card-width: 18.5rem;
 
   position: relative;
   display: flex;
@@ -128,18 +128,40 @@
   color: var(--rw-lp-accent, #dcc489);
 }
 
-/* ---------- the chart ---------- */
+/* ---------- the chart ----------
+   Full-bleed: a direct child of the section (a column flex container), so
+   `width: 100%` runs it edge to edge while the header above keeps the reading
+   measure. 20:9, not 16:9 — at viewport width a 16:9 chart is taller than a
+   laptop screen. The ground is 16:9 and crops top and bottom under `cover`;
+   it is decorative, and the lamp light stays on the left. */
 .rw-lp-future-map {
   position: relative;
   isolation: isolate;
-  aspect-ratio: 16 / 9;
-  border-radius: 1.25rem;
+  width: 100%;
+  aspect-ratio: 20 / 9;
   overflow: hidden;
   background: rgb(var(--rw-lp-ink-rgb));
-  /* A hairline ring, lit at the top like the glass surfaces. */
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* Soft bands at the top and bottom edges so the full-bleed chart settles
+   into the section's ink instead of ending on a hard line. */
+.rw-lp-future-map::before,
+.rw-lp-future-map::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  height: clamp(3rem, 8vh, 6rem);
+  pointer-events: none;
+}
+.rw-lp-future-map::before {
+  top: 0;
+  background: linear-gradient(180deg, rgb(var(--rw-lp-ink-rgb)), transparent);
+}
+.rw-lp-future-map::after {
+  bottom: 0;
+  background: linear-gradient(0deg, rgb(var(--rw-lp-ink-rgb)), transparent);
 }
 
 .rw-lp-future-ground {
@@ -161,8 +183,8 @@
   pointer-events: none;
   background: linear-gradient(
     90deg,
-    transparent 62%,
-    rgb(var(--rw-lp-ink-rgb) / 0.45) 76%,
+    transparent 70%,
+    rgb(var(--rw-lp-ink-rgb) / 0.45) 82%,
     rgb(var(--rw-lp-ink-rgb) / 0.72) 100%
   );
 }
@@ -233,7 +255,7 @@
 .rw-lp-future-horizon-label {
   position: absolute;
   z-index: 2;
-  top: 1.25rem;
+  top: clamp(1.5rem, 4vh, 2.5rem);
   left: var(--rw-lp-stop-x);
   transform: translateX(0.75rem);
   font-family: var(--rw-lp-label-font);
@@ -281,10 +303,10 @@
 .rw-lp-future-legend {
   position: absolute;
   z-index: 4;
-  top: 1.25rem;
-  left: 1.25rem;
-  max-width: 19rem;
-  padding: 0.875rem 1rem;
+  top: clamp(1.5rem, 4vh, 2.5rem);
+  left: var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+  max-width: 20rem;
+  padding: 1rem 1.125rem;
   border-radius: 0.875rem;
   background: rgb(var(--rw-lp-ink-rgb) / 0.55);
   backdrop-filter: blur(10px);
@@ -310,7 +332,7 @@
   margin: 0.25rem 0 0.625rem;
   font-family: var(--rw-font-display);
   font-weight: 400;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   line-height: 1.5;
   color: rgb(var(--rw-lp-text-rgb) / 0.68);
 }
@@ -378,7 +400,7 @@
   --rw-lp-landmark: 1.375rem;
 }
 .rw-lp-future-stop-item[data-state='shipped'] {
-  --rw-lp-landmark: clamp(4rem, 7.4vw, 7rem);
+  --rw-lp-landmark: clamp(4.25rem, 7.6vw, 8.5rem);
 }
 
 /* The button is the whole stop: landmark above the road point, label below
@@ -395,7 +417,7 @@
   align-items: center;
   gap: 0.375rem;
   width: max-content;
-  max-width: 8.5rem;
+  max-width: 10rem;
   margin: 0;
   padding: 0.25rem;
   border: 0;
@@ -515,7 +537,7 @@
 .rw-lp-future-stop-marker {
   font-family: var(--rw-lp-label-font);
   font-weight: 400;
-  font-size: 0.5625rem;
+  font-size: 0.625rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--rw-lp-accent, #dcc489);
@@ -524,7 +546,7 @@
 .rw-lp-future-stop-name {
   font-family: var(--rw-font-display);
   font-weight: 300;
-  font-size: clamp(0.75rem, 0.95vw, 0.875rem);
+  font-size: clamp(0.8125rem, 1vw, 1rem);
   line-height: 1.2;
   letter-spacing: -0.005em;
   color: var(--rw-lp-future-text);
@@ -684,7 +706,11 @@
 @media (max-width: 900px) {
   .rw-lp-future-map {
     aspect-ratio: auto;
-    padding: 1.25rem 1.25rem 1.5rem;
+    padding: 1.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) 2rem;
+  }
+  .rw-lp-future-map::before,
+  .rw-lp-future-map::after {
+    display: none;
   }
   .rw-lp-future-ground-img {
     opacity: 0.55;

@@ -55,8 +55,11 @@ import { routePath, type RoutePoint } from './future-route';
  * The old `background-attachment: fixed` glow left with the cards, so this
  * section no longer forbids transforms on its ancestors.
  *
- * Below 900px the chart is abandoned for a trail (the fleet does the same at
- * that width): the same stops, in the same order, stacked, every body visible.
+ * The chart is FULL-BLEED (owner direction 2026-09-06): it is a sibling of
+ * the content column, not a child, so it runs edge to edge while the header
+ * keeps the reading measure. Below 900px it is abandoned for a trail (the
+ * fleet does the same at that width): the same stops, in the same order,
+ * stacked, every body visible.
  */
 
 const LIT_STOPS = STOPS.filter((stop) => stop.state === 'shipped');
@@ -259,65 +262,66 @@ export function FutureSection() {
           </Staged>
         </div>
 
-        <div className="rw-lp-future-map" ref={stageRef}>
-          {/* The ground — decorative; the road and stops carry the meaning. */}
-          <m.div
-            className="rw-lp-future-ground"
-            aria-hidden="true"
-            initial={prefersReducedMotion ? false : { opacity: 0 }}
-            animate={armed ? { opacity: 1 } : undefined}
-            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.9, ease: 'easeOut' }}
-          >
-            <Image
-              src="/future/roadmap-ground.jpg"
-              alt=""
-              fill
-              sizes="(max-width: 900px) 100vw, 75rem"
-              className="rw-lp-future-ground-img"
-            />
-          </m.div>
-          <span className="rw-lp-future-fog" aria-hidden="true" />
+      </div>
 
-          <Roads armed={armed} />
+      <div className="rw-lp-future-map" ref={stageRef}>
+        {/* The ground — decorative; the road and stops carry the meaning. */}
+        <m.div
+          className="rw-lp-future-ground"
+          aria-hidden="true"
+          initial={prefersReducedMotion ? false : { opacity: 0 }}
+          animate={armed ? { opacity: 1 } : undefined}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.9, ease: 'easeOut' }}
+        >
+          <Image
+            src="/future/roadmap-ground.jpg"
+            alt=""
+            fill
+            sizes="(max-width: 900px) 100vw, 75rem"
+            className="rw-lp-future-ground-img"
+          />
+        </m.div>
+        <span className="rw-lp-future-fog" aria-hidden="true" />
 
-          <span
-            className="rw-lp-future-horizon-label"
-            aria-hidden="true"
-            style={{ '--rw-lp-stop-x': `${(HORIZON_X / STAGE_WIDTH) * 100}%` } as CSSProperties}
-          >
-            {HORIZON_LABEL}
-          </span>
+        <Roads armed={armed} />
 
-          <div className="rw-lp-future-legend">
-            <p className="rw-lp-future-legend-label">{LEGEND_LABEL}</p>
-            <p className="rw-lp-future-legend-note">{LEGEND_NOTE}</p>
-            <ul className="rw-lp-future-legend-keys">
-              <li className="rw-lp-future-legend-key" data-state="shipped">
-                {LEGEND_SHIPPED}
-              </li>
-              <li className="rw-lp-future-legend-key" data-state="planned">
-                {LEGEND_PLANNED}
-              </li>
-              <li className="rw-lp-future-legend-key" data-state="horizon">
-                {LEGEND_HORIZON}
-              </li>
-            </ul>
-          </div>
+        <span
+          className="rw-lp-future-horizon-label"
+          aria-hidden="true"
+          style={{ '--rw-lp-stop-x': `${(HORIZON_X / STAGE_WIDTH) * 100}%` } as CSSProperties}
+        >
+          {HORIZON_LABEL}
+        </span>
 
-          <ol className="rw-lp-future-stops" aria-label={STOPS_LABEL}>
-            {STOPS.map((stop, index) => (
-              <Stop
-                key={stop.id}
-                stop={stop}
-                index={index}
-                armed={armed}
-                active={activeId === stop.id}
-                onActivate={activate}
-                onDeactivate={deactivate}
-              />
-            ))}
-          </ol>
+        <div className="rw-lp-future-legend">
+          <p className="rw-lp-future-legend-label">{LEGEND_LABEL}</p>
+          <p className="rw-lp-future-legend-note">{LEGEND_NOTE}</p>
+          <ul className="rw-lp-future-legend-keys">
+            <li className="rw-lp-future-legend-key" data-state="shipped">
+              {LEGEND_SHIPPED}
+            </li>
+            <li className="rw-lp-future-legend-key" data-state="planned">
+              {LEGEND_PLANNED}
+            </li>
+            <li className="rw-lp-future-legend-key" data-state="horizon">
+              {LEGEND_HORIZON}
+            </li>
+          </ul>
         </div>
+
+        <ol className="rw-lp-future-stops" aria-label={STOPS_LABEL}>
+          {STOPS.map((stop, index) => (
+            <Stop
+              key={stop.id}
+              stop={stop}
+              index={index}
+              armed={armed}
+              active={activeId === stop.id}
+              onActivate={activate}
+              onDeactivate={deactivate}
+            />
+          ))}
+        </ol>
       </div>
     </section>
   );
