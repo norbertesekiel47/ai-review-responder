@@ -57,7 +57,10 @@ import { routePath, type RoutePoint } from './future-route';
  *
  * The chart is FULL-BLEED (owner direction 2026-09-06): it is a sibling of
  * the content column, not a child, so it runs edge to edge while the header
- * keeps the reading measure. Below 900px it is abandoned for a trail (the
+ * keeps the reading measure. From 1280px up the header sits OVER the chart's
+ * title band (the top ~30%, faded to ink), so the section starts straight
+ * under the dial with no ink gap between the two — the owner read that gap
+ * as a hole. Below 1280px the header stacks above the chart. Below 900px it is abandoned for a trail (the
  * fleet does the same at that width): the same stops, in the same order,
  * stacked, every body visible.
  */
@@ -256,15 +259,36 @@ export function FutureSection() {
             </header>
           </Staged>
 
-          <Staged beat={2} className="rw-lp-future-closing-slot">
-            <figure className="rw-lp-future-closing">
-              <blockquote className="rw-lp-future-closing-quote">
-                {CLOSING_LEAD}{' '}
-                <span className="rw-lp-future-closing-accent">{CLOSING_ACCENT}</span>{' '}
-                {CLOSING_TAIL}
-              </blockquote>
-            </figure>
-          </Staged>
+          <div className="rw-lp-future-aside">
+            <Staged beat={2}>
+              <figure className="rw-lp-future-closing">
+                <blockquote className="rw-lp-future-closing-quote">
+                  {CLOSING_LEAD}{' '}
+                  <span className="rw-lp-future-closing-accent">{CLOSING_ACCENT}</span>{' '}
+                  {CLOSING_TAIL}
+                </blockquote>
+              </figure>
+            </Staged>
+            {/* The legend lives with the argument, not on the chart: from 1280px
+                up the whole header sits over the chart's title band. */}
+            <Staged beat={3}>
+              <div className="rw-lp-future-legend">
+                <p className="rw-lp-future-legend-label">{LEGEND_LABEL}</p>
+                <p className="rw-lp-future-legend-note">{LEGEND_NOTE}</p>
+                <ul className="rw-lp-future-legend-keys">
+                  <li className="rw-lp-future-legend-key" data-state="shipped">
+                    {LEGEND_SHIPPED}
+                  </li>
+                  <li className="rw-lp-future-legend-key" data-state="planned">
+                    {LEGEND_PLANNED}
+                  </li>
+                  <li className="rw-lp-future-legend-key" data-state="horizon">
+                    {LEGEND_HORIZON}
+                  </li>
+                </ul>
+              </div>
+            </Staged>
+          </div>
         </div>
 
       </div>
@@ -319,22 +343,6 @@ export function FutureSection() {
         >
           {HORIZON_LABEL}
         </span>
-
-        <div className="rw-lp-future-legend">
-          <p className="rw-lp-future-legend-label">{LEGEND_LABEL}</p>
-          <p className="rw-lp-future-legend-note">{LEGEND_NOTE}</p>
-          <ul className="rw-lp-future-legend-keys">
-            <li className="rw-lp-future-legend-key" data-state="shipped">
-              {LEGEND_SHIPPED}
-            </li>
-            <li className="rw-lp-future-legend-key" data-state="planned">
-              {LEGEND_PLANNED}
-            </li>
-            <li className="rw-lp-future-legend-key" data-state="horizon">
-              {LEGEND_HORIZON}
-            </li>
-          </ul>
-        </div>
 
         <ol className="rw-lp-future-stops" aria-label={STOPS_LABEL}>
           {STOPS.map((stop, index) => (

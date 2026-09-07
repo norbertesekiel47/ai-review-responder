@@ -888,3 +888,12 @@ Rode `staging` throughout for owner review; merged to `main` via PR.
 - Plan reviewed by Codex (gpt-6-astra), 4 rounds → APPROVED; the review moved
   the factor lookup off the network and added the REVOKE + live suite.
 
+## 2026-09-06 — Route map: the header becomes the map's title (local, pre-merge)
+
+Owner rejected the seam between the dial section and the route map. The
+section now has no padding from 1280px up: the chart starts at the section's
+top edge, fades up from ink over a title band (top 36%), and the header —
+eyebrow, heading, lead, closing quote, legend — sits over that band inside
+the reading column. The stage grew to 2000×1440 so the road stays under the
+title; below 1280px the header stacks above the chart as before.
+

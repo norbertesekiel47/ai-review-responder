@@ -188,8 +188,19 @@ fixed`, which a **transformed ancestor silently downgrades to `scroll`** — the
 `Reveal` is opacity-only and `Staged` has `rise={0}`. Both stay (the next fixed-attachment
 surface needs them), but nothing on the page depends on them today.
 
+**Future — the header is the map's title from 1280px up.** The owner rejected the
+seam with the dial section three times: first two stacked section gaps, then one small
+gap, then the ink band the header sat on ("I really do not like the transition"). The
+fix is structural: the section has NO padding, the chart starts at its top edge and
+fades up from ink over `--rw-lp-title-band` (36%), and `.rw-lp-future-inner` goes
+`position: absolute` over that band. The stage grew 900 → 1440 units tall so the road
+stays under the title: every stop keeps y ≥ 820, and at 1280px (the narrowest overlay)
+the QR stop's label-above lands ~380px down against a header that ends ~330px down. At
+1100px the same numbers collide (the stage unit is 0.55px), which is why the overlay
+starts at 1280 and the header stacks above the chart below it.
+
 **Future — the road is a serpentine, and each stop names its own label side.** The
-stage is 2000×900 in `future-copy.ts` (20:9, full-bleed — the first cut was 1600×900
+stage is 2000×1440 in `future-copy.ts` (25:18, full-bleed — the first cut was 1600×900
 inside the 75rem column and the owner called it cramped; the second spread the stops
 along a near-flat road across the full width and the owner called THAT "convoluted"
 and "cramped even though it's stretched out"). The road now climbs from bottom-left
@@ -216,22 +227,21 @@ cutout (1.56) rendered at 64% height at the bottom of the box, and its label —
 above the box — floated a box-height above the sets (owner, 2026-09-06). Tall cutouts
 keep a square box so the halo has room.
 
-**Future — small top padding, not the section gap.** The dial section above ends with
-its own `--rw-lp-section-gap`; adding this section's meant two stacked gaps (~190px)
-between "See plans and pricing" and the eyebrow, which the owner read as a hole. The
-section keeps `clamp(1rem, 3vh, 2rem)` on top and nothing below (the chart's fade is
-the hand-off).
+**Future — no top padding from 1280px up; a small one below.** The dial section above
+ends with its own `--rw-lp-section-gap`; adding this section's meant two stacked gaps
+(~190px) between "See plans and pricing" and the eyebrow, which the owner read as a
+hole — and a single small gap still read as one, which is what led to the title-band
+overlay above. Below 1280px the header stacks and keeps `clamp(1rem, 3vh, 2rem)`.
 
-**Future — a fixed 20:9 stage, not a fluid one.** Stops are placed in percentages of the
-stage, and the road is an SVG in the same coordinate space; the two only agree while the
-box keeps the viewBox's ratio. `aspect-ratio: 20 / 9` on `.rw-lp-future-map` is the
-contract — re-measure every stop before changing it. 20:9 and not 16:9 because at
-viewport width a 16:9 chart is 1080px tall on a 1920 screen. Every road point stays in
-y 300–740: the top and bottom 6rem (~100 units) are fades into the section ink, and a
-stop at y 740 with its label below put the label inside the fade. The section has NO
-bottom padding — the chart ends it and its fade is the hand-off to the closing band
-(an ink gap between them read as a hole, owner 2026-09-06); below 900px the trail has
-no fade, so the section gap returns there.
+**Future — a fixed 25:18 stage, not a fluid one.** Stops are placed in percentages of
+the stage, and the road is an SVG in the same coordinate space; the two only agree while
+the box keeps the viewBox's ratio. `aspect-ratio: 25 / 18` on `.rw-lp-future-map` is the
+contract — re-measure every stop before changing it. Every road point stays in
+y 820–1320: above is the title band, and the bottom 6rem (~100 units) is a fade into
+the section ink; a stop at the bottom edge with its label below put the label inside
+the fade. The section has NO bottom padding — the chart ends it and its fade is the
+hand-off to the closing band (an ink gap between them read as a hole, owner
+2026-09-06); below 900px the trail has no fade, so the section gap returns there.
 
 **CTA — the clip choice is the framing fix.** `hero3reverseVideo.mp4` puts the character at
 x 58–85%, clear of the 45% copy column. `hero3Video.mp4` puts it at x 19–37%, *behind* the
