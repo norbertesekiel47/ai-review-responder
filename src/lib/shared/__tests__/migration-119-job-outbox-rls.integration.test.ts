@@ -147,6 +147,15 @@ describe('migration 119 registries', () => {
 
     // A later GRANT inside this same file would restore what the REVOKE took.
     expect(statements.filter((statement) => /^GRANT\b/i.test(statement))).toEqual([]);
+
+    // Belt for the statement parser's one blind spot: it MASKS dollar-quoted
+    // bodies, so `EXECUTE 'REVOKE ALL ON job_outbox FROM service_role'` inside
+    // the guarded DO block would be invisible above. Counted on
+    // comment-stripped text with the bodies left intact, so the two checks
+    // cannot share a hiding place.
+    const executable = migrationSql().replace(/--[^\n]*/g, '');
+    expect(executable.match(/\bREVOKE\b/gi)).toHaveLength(1);
+    expect(executable.match(/\bGRANT\b/gi)).toBeNull();
   });
 
   it('migration 119 grants no policy and does not force row level security', () => {

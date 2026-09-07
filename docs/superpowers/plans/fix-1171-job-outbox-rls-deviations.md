@@ -401,3 +401,28 @@ deny-all table. That is a separate reviewed change." Recorded here and carried
 to the follow-up issue with the table list.
 
 **Verdict: ACCEPT** (as a recorded non-goal, not as work for this branch).
+
+---
+
+## D17 — the D9 fix created its own hiding place (found by the root, pre round 2)
+
+**What happened.** D9's statement parser masks dollar-quoted bodies so their
+semicolons cannot split a statement. The migration now HAS a dollar-quoted body
+— the `DO` block guarding the ALTER (D12). So
+`EXECUTE 'REVOKE ALL ON job_outbox FROM service_role'` placed inside that block
+is invisible to the statement list, and the exact-match assertion never sees
+it. Two accepted fixes combined into a new gap that neither had alone.
+
+**What changed.** A second assertion counts `\bREVOKE\b` and `\bGRANT\b` on
+comment-stripped text with the dollar-quoted bodies left INTACT: exactly one
+revoke, zero grants. The two checks deliberately disagree about what to mask,
+so no construct is invisible to both.
+
+**Proof.** `EXECUTE 'REVOKE … service_role'` inside the DO block → 2 revokes,
+fails. `EXECUTE 'GRANT SELECT … TO anon'` inside it → 1 grant, fails.
+Unmutated passes. Suite 6/6.
+
+**Verdict: ACCEPT.** Recorded because the lesson generalises: a mutation-proof
+guard and a lock-scoping fix were each correct in isolation, and their
+interaction was the defect. Round 2 was dispatched against the fixed tree, so
+this is a finding the branch caught on itself rather than one round 2 had to.
