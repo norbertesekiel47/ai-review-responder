@@ -56,7 +56,7 @@ convention. All 12 enrollment routes are binding shims over these.
 | `verify-otp/route.ts` | Verifies the 6-digit OTP from the confirmation email; transitions user to the onboarding flow. |
 | `forgot-password/route.ts` | Requests password reset email via Supabase. |
 | `reset-password/route.ts` | Consumes reset token and updates password. Signs out immediately after. |
-| `mfa/challenge/route.ts` | **(Wave 2)** Same-origin, session-bound Supabase MFA challenge/verify endpoint with strict rate limiting. |
+| `mfa/challenge/route.ts` | **(Wave 2)** Same-origin, session-bound Supabase MFA challenge/verify/unenroll endpoint with strict rate limiting. **Audit (#468):** best-effort, routed by ROLE through ONE memoised `users` lookup per request — `role='admin'` → `writeAdminAuditLog` (`admin_audit_log`, migration 117); an owner with an account → `writeAccountAuditLog`; anything else (no row, or a non-admin with NULL `account_id`, possible since 039) → Sentry `audit_actor_unroutable`, no row. Events: `mfa_factor_enrolled` (factor `unverified` before `verify`, from `user.factors`), `mfa_challenge_succeeded`, `mfa_challenge_failed`, `mfa_factor_unenrolled`; every verify payload carries `factor_status_before`. An audit failure never blocks the MFA action. |
 | `resend-confirmation/route.ts` | Resends verification email. Owner-only. |
 | `signup-status/route.ts` | Polls whether the email confirmation has been clicked. |
 

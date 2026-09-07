@@ -61,6 +61,7 @@ export const EXPLICIT_ACCOUNT_OFFBOARDING_TABLES = [
   'analytics_events',
   'flagged_responses',
   'impersonation_sessions',
+  'admin_audit_log',
 ] as const;
 
 export const SPEC_ONLY_ACCOUNT_OFFBOARDING_TABLES = [
@@ -272,6 +273,14 @@ export const TABLE_DISPOSITIONS = [
     scopeEvidence: 'admin_control_account_id',
     purgeVerification: 'must_be_scrubbed',
     reason: 'Admin control-plane records may remain only after impersonated account/user references are scrubbed.',
+  },
+  {
+    table: 'admin_audit_log',
+    disposition: 'not_applicable',
+    scopeEvidence: 'not_applicable',
+    purgeVerification: 'not_checked',
+    reason:
+      'Admin control-plane actor trail (migration 117, #468): actor_user_id is always an ADMIN (role=admin, no account), never an offboarded owner, and the row carries no tenant reference — owner offboarding has nothing to purge or scrub. Listed because the actor_user_id column name is on the account-linked scan, so the omission would otherwise be silent.',
   },
   {
     table: 'google_connections',

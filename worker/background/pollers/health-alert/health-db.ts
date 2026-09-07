@@ -8,8 +8,8 @@
 // On `withTimeout` expiry the poller calls `recycleHealthSql`, which end+rebuilds
 // this client: the client-side FIN gives the wedged backend an EOF (plausible but
 // not guaranteed). A server-side backstop for the non-guaranteed case is tracked
-// under #477 (re-arm on a genuinely-reachable direct route); the prior #505-deleted
-// PoolWedgeReaperPoller was architecturally unreachable on Railway and never fired.
+// under #504 (REBUILD on a genuinely-reachable direct route — #477 closed without
+// it); the prior #505-deleted PoolWedgeReaperPoller was unreachable on Railway.
 //
 // Per invariant #15 this helper does NOT import the db/server factory: it holds
 // the module-level client + reclaim semantics and receives a `buildClient`

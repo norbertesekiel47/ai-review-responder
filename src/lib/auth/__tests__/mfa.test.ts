@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  factorStatusBefore,
   requireAal2FromSupabase,
   requireCurrentAal2FromSupabase,
   normalizeChallengeFactors,
@@ -158,5 +159,34 @@ describe('normalizeChallengeFactors', () => {
     expect(
       normalizeChallengeFactors({ totp: [{ friendly_name: 'X', status: 'verified' }] }),
     ).toEqual([]);
+  });
+});
+
+describe('factorStatusBefore', () => {
+  it('reports unverified for a factor still mid-enrollment', () => {
+    expect(
+      factorStatusBefore([{ id: 'f1', status: 'unverified', factor_type: 'totp' }], 'f1'),
+    ).toBe('unverified');
+  });
+
+  it('reports verified for an already-enrolled factor', () => {
+    expect(
+      factorStatusBefore(
+        [
+          { id: 'f0', status: 'unverified' },
+          { id: 'f1', status: 'verified' },
+        ],
+        'f1',
+      ),
+    ).toBe('verified');
+  });
+
+  it('reports unknown when the list is absent, the id is missing, or the status is not a known value', () => {
+    expect(factorStatusBefore(undefined, 'f1')).toBe('unknown');
+    expect(factorStatusBefore(null, 'f1')).toBe('unknown');
+    expect(factorStatusBefore([], 'f1')).toBe('unknown');
+    expect(factorStatusBefore([{ id: 'f2', status: 'verified' }], 'f1')).toBe('unknown');
+    expect(factorStatusBefore([{ id: 'f1', status: 'pending' }], 'f1')).toBe('unknown');
+    expect(factorStatusBefore([null, 'junk', 42], 'f1')).toBe('unknown');
   });
 });

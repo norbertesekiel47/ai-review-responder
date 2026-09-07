@@ -9,7 +9,7 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-06 (Landing section 5 is the route map.)
+Last updated: 2026-09-06 (Landing section 5 is the route map; admin MFA audit trail #468.)
 
 ## Quick summary — Landing "Where this is going" is a route map (2026-09-06)
 
@@ -26,6 +26,38 @@ markers beside every unbuilt name, future tense on every unbuilt body (pinned
 by `FutureSection.test.tsx`). Code: `src/components/sections/landing/future/`;
 assets: `public/future/roadmap-ground.jpg`, `public/future/stops/*.webp`;
 design contract: `docs/design/landing/DESIGN.md` § Future + `measurements.md`.
+## Quick summary — Admin MFA events get an audit sink (#468, 2026-09-06; pre-merge)
+
+Admins have `role='admin'` and no `account_id`, and `account_audit_log` requires
+one — so every admin MFA event (enrollment, step-up, factor removal) was silently
+dropped since the admin enrollment surface shipped (#467). Fixed by a dedicated
+sink, not by relaxing the account table.
+
+- **`admin_audit_log`** (migration 117): the admin control-plane actor trail,
+  keyed on `actor_user_id`, no account column. Deny-all RLS with zero policies
+  AND `REVOKE ALL … FROM anon, authenticated` (RLS filters rows, not table
+  privileges). FK with no referential action: deleting a referenced admin
+  fails rather than cascading the trail away. Keep forever. Not a
+  `TENANT_TABLES` member; `TABLE_DISPOSITIONS` `not_applicable` (the actor is
+  always an admin, never an offboarded owner).
+- **`writeAdminAuditLog`** joins `writeAccountAuditLog` in `src/lib/audit/log.ts`
+  — one writer per sink, both in one file.
+- **The MFA route routes by role** through ONE memoised `users` lookup:
+  admin → admin sink; owner with account → account sink; anything else →
+  Sentry `audit_actor_unroutable`, no row. Best-effort is preserved: an audit
+  failure never blocks the MFA action.
+- **Enrollment is its own event.** `mfa_factor_enrolled` when the factor was
+  `unverified` before `verify` (read from `user.factors`, which `getUser()`
+  already returns — no second Supabase call), else `mfa_challenge_succeeded`.
+  Every verify payload carries `factor_status_before`. Applies to owners too.
+- **Guard:** `ci:rls-audit` only covers `TENANT_TABLES`, so the read-only live
+  suite `migration-117-admin-audit-log.integration.test.ts` asserts RLS on,
+  zero policies, both client roles denied all four privileges, real-writer
+  persistence, and the named-FK rejections.
+- Out of scope: an admin viewer (SQL only), auditing enrollment *start* (runs
+  in the browser), moving other admin actions into the new sink, and
+  populating `ip`/`user_agent`/`request_id` on MFA rows.
+
 
 ## Quick summary — Marketing pages: one system, five jobs (2026-09-06; pre-merge)
 
