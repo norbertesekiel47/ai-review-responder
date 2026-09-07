@@ -2742,9 +2742,11 @@ Revisit triggers:
   `REVIEWED_NOT_TENANT_SCOPED` and OUT of `TENANT_TABLES` (owner decision,
   2026-09-07). Membership also switches on `ci:tenant-scope`, which demands an
   `account_id`/`business_id` predicate on every binding; the table carries
-  neither column and **55 production files BIND it in SQL** (78 reference the
-  identifier at all — the larger number was an `rg -c` file count and is not
-  the measure that matters), so membership would cost dozens of allowlist
+  neither column and **55 files under `src/` + `worker/`, excluding
+  `__tests__/`, BIND it in SQL** (78 reference the identifier at all under that
+  same scope; repo-wide, including tests and docs, it appears in 591 tracked
+  files). The scope is stated because neither number reproduces without it, and
+  the 55 is the one the decision rests on. Membership would cost dozens of allowlist
   entries and audit nothing real. `ci:rls-audit` therefore does NOT cover this
   table, and the regression guard is
   `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts` —

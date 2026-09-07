@@ -107,7 +107,10 @@ const BEHIND_HEAD = 'job_outbox RLS posture is not at migration head — run pnp
  */
 function topLevelStatements(sql: string): string[] {
   return sql
-    .replace(/\$\$[\s\S]*?\$\$/g, 'DOLLAR_QUOTED_BODY')
+    // TAGGED dollar quoting too, matched by backreference: `$tag$…$tag$` is
+    // as legal as `$$…$$`, and a pass that only masked the untagged form let
+    // a whole `DO $tag$ … $tag$` block through as loose fragments.
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1?\$/g, 'DOLLAR_QUOTED_BODY')
     .replace(/--[^\n]*/g, '')
     .replace(/'(?:[^']|'')*'/g, 'STRING_LITERAL')
     .split(';')
@@ -117,6 +120,32 @@ function topLevelStatements(sql: string): string[] {
 
 function migrationSql(): string {
   return readFileSync(join(process.cwd(), MIGRATION_FILE), 'utf8');
+}
+
+/**
+ * The file with every run of whitespace collapsed to one space.
+ *
+ * Every raw-text guard reads THIS, never the file: `/CREATE POLICY/i` against
+ * raw text is whitespace-literal, so `CREATE\nPOLICY` — valid SQL — evades it.
+ * `topLevelStatements` already normalises; the raw-text guards did not, and an
+ * independent pass found all three of them evadable that way.
+ */
+function normalizedSql(): string {
+  return migrationSql().replace(/\s+/g, ' ');
+}
+
+/**
+ * Comments stripped, THEN whitespace collapsed — that order, for the second
+ * time in this file. `--[^\n]*` needs the newlines, so stripping after
+ * normalisation deletes from the first `--` to end of file and every count
+ * below reads zero. It fails loudly rather than silently, but only because
+ * `.match()` returns null; a count-based guard written the other way round
+ * would have passed while checking nothing.
+ */
+function executableSql(): string {
+  return migrationSql()
+    .replace(/--[^\n]*/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
@@ -139,8 +168,11 @@ describe('migration 119 registries', () => {
     // production files bind it in SQL, so membership would cost dozens of
     // allowlist entries and audit nothing real. This suite is the guard
     // instead.
+    // MEMBERSHIP, not prose: the earlier form asserted the reason text matched
+    // /[Tt]ransactional outbox/, which a reworded-but-still-correct entry would
+    // break and a removed entry with matching prose elsewhere would not catch.
     const reviewed = REVIEWED_NOT_TENANT_SCOPED.find((entry) => entry.table === TABLE);
-    expect(reviewed?.reason).toMatch(/[Tt]ransactional outbox/);
+    expect(reviewed).toBeDefined();
     const tenantTables: readonly string[] = TENANT_TABLES;
     expect(tenantTables).not.toContain(TABLE);
   });
@@ -163,15 +195,32 @@ describe('migration 119 registries', () => {
     // Belt for the statement parser's one blind spot: it MASKS dollar-quoted
     // bodies, so `EXECUTE 'REVOKE ALL ON job_outbox FROM service_role'` inside
     // the guarded DO block would be invisible above. Counted on
-    // comment-stripped text with the bodies left intact, so the two checks
-    // cannot share a hiding place.
-    const executable = migrationSql().replace(/--[^\n]*/g, '');
+    // comment-stripped, whitespace-normalised text with the bodies left
+    // intact, so the two checks cannot share a hiding place.
+    const executable = executableSql();
     expect(executable.match(/\bREVOKE\b/gi)).toHaveLength(1);
     expect(executable.match(/\bGRANT\b/gi)).toBeNull();
+
+    // No text guard can survive string concatenation: `'REVO' || 'KE ALL …'`
+    // inside a DO block runs a widened revoke and contains no matchable token,
+    // and an independent pass proved exactly that. Rather than chase the
+    // spelling, forbid the only construct that can run dynamic SQL at all.
+    //
+    // Asserted on the whole executable text rather than per DO block, and
+    // deliberately: a first attempt matched blocks with a backreferenced
+    // dollar tag and collapsed TWO blocks into one match, which would have let
+    // an EXECUTE in the second one through. Counting `DO $` separately keeps
+    // the "one block, the guarded ALTER" fact visible without the guard
+    // depending on that regex being right.
+    expect(executable).not.toMatch(/\bEXECUTE\b/i);
+    expect(executable.match(/\bDO\s+\$/gi)).toHaveLength(1);
   });
 
   it('migration 119 grants no policy and does not force row level security', () => {
-    const text = migrationSql();
+    // Whitespace-normalised, never raw: `CREATE\nPOLICY` is valid SQL and
+    // evades a raw-text `/CREATE POLICY/i`. All three guards below read the
+    // normalised form for that reason.
+    const text = normalizedSql();
     expect(text).toMatch(/ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;/);
     // Matched against the raw text, not the statement list: the ALTER sits
     // inside a guarded DO block whose body the statement parser masks, and
@@ -320,6 +369,65 @@ describeWithDb(
       `;
 
       expect(effective).toEqual([]);
+
+      // Arm B fails OPEN if the derived privilege list is ever empty — an
+      // empty CROSS JOIN yields no rows and the assertion above passes
+      // vacuously. Unreachable today, and asserted anyway, because "the guard
+      // silently checks nothing" is the exact failure this suite keeps
+      // rediscovering.
+      const [derived] = await sql()<{ privilege_count: string }[]>`
+        SELECT count(DISTINCT acl.privilege_type)::text AS privilege_count
+          FROM aclexplode(
+                 acldefault('r', (
+                   SELECT relowner FROM pg_class WHERE oid = 'public.job_outbox'::regclass
+                 ))
+               ) AS acl
+      `;
+      expect(Number(derived?.privilege_count)).toBeGreaterThanOrEqual(7);
+
+      // ARM C — COLUMN-level effective privilege, which is the intersection
+      // arms A and B leave open between them. Arm A reads `attacl` but filters
+      // on grantee NAME, and Arm B's `has_table_privilege` does not consider
+      // column grants at all. So a column grant to a role that `anon` INHERITS
+      // is named nowhere Arm A looks and invisible to Arm B — proven: with
+      // `GRANT SELECT (payload) ON job_outbox TO <role anon inherits>`, Arm A
+      // reported nothing and this arm reports `anon | payload | SELECT`.
+      // `anon` and `authenticated` are `rolinherit = true` on the container and
+      // on both Supabase projects.
+      //
+      // The column-applicable set is intersected rather than derived:
+      // `acldefault('c', …)` is empty, because columns have no DEFAULT
+      // privileges. The four below are fixed by the SQL standard while the
+      // TABLE set is not, and the assertion on the count means a PostgreSQL
+      // that ever adds a fifth fails loudly here instead of quietly
+      // under-covering.
+      const columnPrivileges = ['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'];
+      const columnEffective = await sql()<
+        { role: string; attname: string; privilege_type: string }[]
+      >`
+        WITH column_privileges AS (
+          SELECT unnest(${columnPrivileges}::text[]) AS privilege_type
+        ),
+        client_roles AS (
+          SELECT unnest(ARRAY['anon', 'authenticated']) AS role
+        )
+        SELECT client_roles.role, att.attname, column_privileges.privilege_type
+          FROM client_roles
+          CROSS JOIN column_privileges
+          JOIN pg_attribute att
+            ON att.attrelid = 'public.job_outbox'::regclass
+           AND att.attnum > 0
+           AND NOT att.attisdropped
+         WHERE has_column_privilege(
+                 client_roles.role,
+                 'public.job_outbox',
+                 att.attname,
+                 column_privileges.privilege_type
+               )
+         ORDER BY 1, 2, 3
+      `;
+
+      expect(columnEffective).toEqual([]);
     });
   },
 );

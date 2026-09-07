@@ -389,9 +389,9 @@ register and the audit can be reconciled together rather than half-done here.
 
 ---
 
-## D16 — 19 sibling tables share the same shape (recorded, not fixed)
+## D16 — 20 sibling tables share the same shape (recorded, not fixed)
 
-Red team found 19 tables on both projects with RLS on, zero policies, and the
+Red team found 20 tables on both projects with RLS on, zero policies, and the
 client grants never revoked — including `auto_approval_policies` and the
 run-spine tables. `job_outbox` was distinguished only by having RLS OFF on
 staging, which is what made it an incident rather than a latent gap.
@@ -493,7 +493,9 @@ bound what the file may SAY, and only the catalogue bounds what it DOES.
 
 ### RT-6 (P2) — carried forward, confirmed accurately recorded
 
-The 19 sibling tables. Confirmed recorded as a non-goal in D16, nothing more.
+The sibling tables. Confirmed recorded as a non-goal in D16, nothing more. A
+later independent pass re-counted them as 20, not 19, and added that all 20
+grant TRUNCATE to `anon`; corrected above.
 
 ### What round 2 also proved about the D12 fix
 
@@ -504,3 +506,84 @@ confirmed no NULL hazard (the `::regclass` cast errors rather than returning
 NULL), no nested-transaction hazard (14 other migrations wrap, including 116),
 and that a behind-head container fails FIRST with the intended
 `run pnpm test:db:setup` message.
+
+---
+
+## D19 — FRESH INDEPENDENT PASS (3rd): three more P0s, all in the same artifact
+
+The owner authorised a fresh pass against the fixed tree after round 2's P0 was
+closed only by the root's own evidence. It found three P0s, and the pattern is
+now the finding: **three passes, three P0s, all in the privilege/text guard,
+none in the migration.** Every pass has confirmed the migration itself correct.
+
+### P0-a — a COLUMN grant to a role `anon` INHERITS escaped both arms
+
+**What happened.** Arm A reads `attacl` but filters on grantee NAME, so a grant
+to some role `R` is named `R`, not `anon`. Arm B's `has_table_privilege` does
+not consider column privileges at all. So the intersection — a column grant to
+a role `anon` inherits — was invisible to both. `anon` and `authenticated` are
+`rolinherit = true` on the container and on both Supabase projects.
+
+**Reproduced before fixing.** `CREATE ROLE rt_probe_role; GRANT rt_probe_role TO
+anon; GRANT SELECT (payload) ON job_outbox TO rt_probe_role;` → Arm A reported
+`(nothing)`; the new arm reports `anon | payload | SELECT`. Restored.
+
+**What changed.** **Arm C**: `has_column_privilege` for both client roles across
+every column × the column-applicable privileges. The column set is intersected
+rather than derived — `acldefault('c', …)` is EMPTY, because columns have no
+default privileges — and the four are fixed by the SQL standard while the table
+set is not. A count assertion means a PostgreSQL that ever adds a fifth fails
+loudly rather than under-covering silently.
+
+### P0-b — `DO $tag$ … EXECUTE 'REVO' || 'KE …' … $tag$;` passed every text check
+
+Two holes at once: `topLevelStatements` masked only UNTAGGED `$$`, and no
+guard can match a concatenated identifier. **What changed**: the mask now
+handles tagged dollar quotes by backreference, and — the real fix — the suite
+forbids `EXECUTE` anywhere in the executable text and pins exactly one `DO $`.
+Chasing spellings is unwinnable; bounding the only construct that runs dynamic
+SQL is not.
+
+A first attempt matched DO blocks with a backreferenced tag and **collapsed two
+blocks into one match**, which would have let an `EXECUTE` in the second block
+through. Caught by running it; the assertion no longer depends on that regex.
+
+### P0-c — the phrase guards were whitespace-literal
+
+`/CREATE POLICY/i`, `/FORCE ROW LEVEL SECURITY/i` and
+`/DISABLE ROW LEVEL SECURITY/i` ran against raw text, so `CREATE\nPOLICY` —
+valid SQL — evaded all three. This is the D17 pattern for the third time: D9
+normalised whitespace, RT-8's guards were added later and did not.
+
+**What changed.** A `normalizedSql()` helper collapses whitespace, and every
+phrase guard reads it. Fixing that immediately produced its own bug: collapsing
+whitespace first removes the newlines `--[^\n]*` needs, so comment stripping
+deleted from the first `--` to end of file and every count read zero. It failed
+loudly only because `.match()` returns null — **a count-based guard written the
+other way round would have passed while checking nothing.** Split into
+`normalizedSql()` and `executableSql()`, with the ordering constraint stated on
+both.
+
+### The P2s
+
+| # | Finding | Disposition |
+|---|---|---|
+| a | Arm B fails OPEN if the derived privilege list is ever empty (`acldefault('r',NULL)` → 0 rows → vacuous pass). Unreachable today. | FIXED — asserts ≥ 7 privilege types |
+| b | Sibling tables are **20**, not 19, and all 20 grant TRUNCATE to `anon`. | FIXED in D16 |
+| c | 55/78 reproduce only under an unstated scope; repo-wide the identifier is in 591 tracked files. | FIXED — scope now stated in both documents |
+| d | The registry case asserted on prose (`/[Tt]ransactional outbox/`) rather than membership. | FIXED — asserts the entry exists |
+| e | Six OTHER suites (117, 048, 049, 051, 053, 057) repeat the whitespace-literal guard, and no suite reads `118_poller_heartbeats.sql` at all. | **REJECTED for this branch** — outside `allowed_edit_surface`, and fixing six suites is its own change. Carried to the follow-up issue. |
+
+**Verified independently by this pass**: the 54-table drift claim, PostgreSQL 16
+(7 privileges) vs 17 (8, `MAINTAIN`) on both projects, zero `from('job_outbox')`
+matches, "10 of 11 `SET LOCAL` migrations wrap, 088 the sole exception", and the
+lock measurement reproduced at 53 ms guarded vs 5066 ms unconditional.
+
+**Verdict: ACCEPT** (P0-a, P0-b, P0-c, P2-a–d). **REJECT** (P2-e, to the
+follow-up issue).
+
+**The honest read.** None of these nine P0s was a defect in what ships to the
+database. All were gaps in a test's ability to detect a hypothetical FUTURE bad
+migration. The guard is now materially stronger than any sibling suite in the
+repo — this pass found the same whitespace weakness in six of them, and found
+that migration 118 has no suite reading it at all.
