@@ -55,6 +55,11 @@ import { routePath, type RoutePoint } from './future-route';
  * The old `background-attachment: fixed` glow left with the cards, so this
  * section no longer forbids transforms on its ancestors.
  *
+ * Below 900px the chart is a TRAIL, and since 2026-09-06 (owner: "it
+ * stretches for so long, not functional") an ACCORDION: one compact row per
+ * stop — glyph, marker, name — and a tap opens the hint under it. Fifteen
+ * open bodies ran ~2,300px on a phone; fifteen rows run ~900px.
+ *
  * The chart is FULL-BLEED (owner direction 2026-09-06): it is a sibling of
  * the content column, not a child, so it runs edge to edge while the header
  * keeps the reading measure. From 1280px up the header sits OVER the chart's
@@ -110,6 +115,7 @@ function Stop({
 }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const bodyId = useId();
+  const pointerFocus = useRef(false);
   const style = {
     '--rw-lp-stop-x': `${(stop.x / STAGE_WIDTH) * 100}%`,
     '--rw-lp-stop-y': `${(stop.y / STAGE_HEIGHT) * 100}%`,
@@ -138,11 +144,38 @@ function Stop({
         className="rw-lp-future-stop"
         aria-pressed={active}
         aria-describedby={bodyId}
-        onPointerEnter={() => onActivate(stop.id)}
-        onPointerLeave={() => onDeactivate(stop.id)}
-        onFocus={() => onActivate(stop.id)}
-        onBlur={() => onDeactivate(stop.id)}
-        onClick={() => (active ? onDeactivate(stop.id) : onActivate(stop.id))}
+        /* Not on touch: a tap fires enter + click together and the card
+           would close as soon as it opened. Touch toggles by click alone. */
+        onPointerEnter={(event) => {
+          if (event.pointerType !== 'touch') onActivate(stop.id);
+        }}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== 'touch') onDeactivate(stop.id);
+        }}
+        /* Keyboard focus opens the card; a pointer's focus does not, because
+           the click that follows would toggle it straight back. A ref set on
+           pointerdown tells the two apart — `:focus-visible` does not, under
+           touch (Chromium reports a tap's focus as keyboard-like). */
+        onPointerDown={() => {
+          pointerFocus.current = true;
+        }}
+        onFocus={() => {
+          if (!pointerFocus.current) onActivate(stop.id);
+        }}
+        /* Blur closes the card only when focus LEAVES the list. Tabbing or
+           tapping to another stop hands over without closing first: on the
+           trail a close collapses the list under the finger mid-tap, and
+           the click that follows lands on whichever row slid into place. */
+        onBlur={(event) => {
+          const next = event.relatedTarget;
+          if (next instanceof Element && next.closest('.rw-lp-future-stops')) return;
+          onDeactivate(stop.id);
+        }}
+        onClick={() => {
+          pointerFocus.current = false;
+          if (active) onDeactivate(stop.id);
+          else onActivate(stop.id);
+        }}
       >
         {/* The glyph is always rendered: it is the trail's bullet below 900px,
             and the chart's marker for a stop with no landmark cutout. */}

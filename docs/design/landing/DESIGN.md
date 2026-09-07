@@ -328,7 +328,9 @@ coordinates (`future-copy.ts` owns them). **From 1280px up the header is the map
 title**: the section starts straight under the dial with no ink gap, the chart fades
 up from ink over its top 36% (`--rw-lp-title-band`), and the header — eyebrow,
 heading, lead, closing quote, legend — sits over that band inside the reading column
-(`pointer-events: none`). Below 1280px the header stacks above the chart. Three states, and the difference is the
+(`pointer-events: none`). Below 1280px the header stacks above the chart; below 900px
+the chart is a trail, and the trail is an **accordion** — one row per stop (glyph,
+marker, name, chevron), a tap opens the hint under it, one open at a time. Three states, and the difference is the
 honesty mechanism: **shipped** stops are lit — a solid gold road, a gold `Shipped`
 marker, a breathing halo, a landmark cutout with its screen on; **planned** stops are
 the roadmap's locked Phases 1–5 — dashed dim road, `Phase n` marker, unpowered

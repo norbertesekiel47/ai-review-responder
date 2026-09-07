@@ -897,3 +897,12 @@ eyebrow, heading, lead, closing quote, legend — sits over that band inside
 the reading column. The stage grew to 2000×1440 so the road stays under the
 title; below 1280px the header stacks above the chart as before.
 
+## 2026-09-06 — Route map: the phone trail is an accordion (local, pre-merge)
+
+Owner: "not optimized for the phone, it stretches for so long, not functional".
+Below 900px each stop is one row (glyph, marker, name, chevron); a tap opens
+the hint under it, one at a time. Touch handling fixed alongside: the hover
+path ignores touch pointers, blur closes only when focus leaves the list, and
+focus opens a row only when no pointer caused it. Section height at 390px:
+~2,300px → ~1,500px.
+
