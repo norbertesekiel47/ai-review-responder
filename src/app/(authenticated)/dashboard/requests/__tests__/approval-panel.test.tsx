@@ -1203,7 +1203,7 @@ describe('withdraw control', () => {
 
     // `closed` is the server's fact, so the sentence may say "finished".
     expect(onChanged).toHaveBeenCalledWith(
-      'Withdrawn. That was the last one — this batch is finished.',
+      'Withdrawn. That was the last one, so this batch is finished.',
       'settled',
       'in_place',
     );

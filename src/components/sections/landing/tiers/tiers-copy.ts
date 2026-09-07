@@ -28,7 +28,7 @@ export const HEADING_ACCENT = 'not a switch.';
 export const HEADING_PLAIN = `${HEADING_LEAD} ${HEADING_ACCENT}`;
 
 export const LEAD_IN =
-  'Autonomy here is not on or off. It is a dial you set — how far the fleet may go on its own, and where it must stop and ask.';
+  'You set how far the fleet may go on its own, and where it has to stop and ask.';
 
 export interface TierPanel {
   id: string;
@@ -48,11 +48,11 @@ export const TIERS: readonly TierPanel[] = [
     id: 'autopilot',
     name: 'Autopilot',
     claim: 'Bounded autonomy.',
-    body: 'Positive reviews can post on their own — inside a rating band and a daily cap you set, after a veto window, with the Judge reviewing every auto-post.',
+    body: 'Positive reviews can post on their own, inside a rating band and a daily cap you set, after a veto window, with the Judge reviewing every auto-post.',
   },
 ] as const;
 
-export const MOVEMENT_NOTE = 'Start on Copilot. Move the dial when you are ready — and back, any time.';
+export const MOVEMENT_NOTE = 'Start on Copilot. Move the dial when you are ready, and move it back any time.';
 
 export const GOVERNOR_NOTE =
   'And if anything drifts, the Governor can suspend autonomy for the whole account.';

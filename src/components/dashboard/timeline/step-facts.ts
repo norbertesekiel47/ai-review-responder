@@ -134,8 +134,8 @@ export function stepStatusLabel(step: Pick<ReviewTimelineStep, 'stepKey' | 'stat
 // ── The run's decision headline ─────────────────────────────────────────────
 
 const DECISION_HEADLINES = {
-  held_by_safety_check: 'Held back by the safety check — nothing was posted.',
-  held_for_owner: 'Sent to you for approval — nothing posts until you say so.',
+  held_by_safety_check: 'Held back by the safety check. Nothing was posted.',
+  held_for_owner: 'Sent to you for approval. Nothing posts until you say so.',
   auto_approved:
     'Approved automatically under your Autopilot policy, with a window for you to stop it.',
   review_changed: 'The customer changed their review, so the earlier draft was set aside.',

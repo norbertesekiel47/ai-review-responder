@@ -76,7 +76,7 @@ const DECISION_REJECTIONS: Record<string, RejectionCopy> = {
   },
   already_answered: {
     title: 'This offer was already answered',
-    sub: 'Your earlier choice stands — nothing changed just now.',
+    sub: 'Your earlier choice stands, so nothing changed just now.',
     icon: 'check',
   },
   no_offer: {
@@ -277,7 +277,7 @@ function OfferPrompt({
         <div className="b-title">Import your recent reviews?</div>
         <div className="b-sub">
           We can pull in your 100 most recent Google reviews from the past year so you can generate
-          replies for them. Nothing gets posted — you choose what to reply to.
+          replies for them. Nothing gets posted, and you choose what to reply to.
         </div>
         <div className="b-sub">
           This is a one-time import, available for the next 7 days. New reviews will still be
@@ -469,7 +469,7 @@ function statusMessage(
     case 'importing':
       return 'Importing your reviews… this usually takes a minute.';
     case 'empty':
-      return 'No recent reviews found — nothing to import.';
+      return 'No recent reviews found, so there is nothing to import.';
     default:
       return `Imported ${view.count} reviews. They're in your reviews list.`;
   }

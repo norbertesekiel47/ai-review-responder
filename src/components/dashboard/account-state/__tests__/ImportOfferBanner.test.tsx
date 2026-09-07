@@ -201,7 +201,7 @@ describe('ImportOfferBanner', () => {
     // the same sentence. Both are intentional: the visible node is for sighted
     // users, the live region announces the transition.
     expect(
-      await screen.findByText('No recent reviews found — nothing to import.', {
+      await screen.findByText('No recent reviews found, so there is nothing to import.', {
         selector: '.b-title',
       }),
     ).toBeInTheDocument();
@@ -470,7 +470,7 @@ describe('ImportOfferBanner', () => {
 
     expect(
       await screen.findByText(
-        'We can pull in your 100 most recent Google reviews from the past year so you can generate replies for them. Nothing gets posted — you choose what to reply to.',
+        'We can pull in your 100 most recent Google reviews from the past year so you can generate replies for them. Nothing gets posted, and you choose what to reply to.',
       ),
     ).toBeInTheDocument();
     expect(

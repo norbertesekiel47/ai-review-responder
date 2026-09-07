@@ -63,7 +63,7 @@ export function RecentSentimentMix({ reviews }: Props) {
             the twin in `RecentRatingBreakdown`. "most recent" is kept, because
             that phrase IS this chart's window and the pair must stay
             distinguishable from the rating breakdown's "selected period". */}
-        <caption>{`Sentiment mix — across the ${total} most recent rated ${reviewWord}`}</caption>
+        <caption>{`Sentiment mix across the ${total} most recent rated ${reviewWord}`}</caption>
         <thead>
           <tr>
             <th scope="col">Sentiment</th>

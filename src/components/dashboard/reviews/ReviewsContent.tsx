@@ -114,7 +114,7 @@ function ReviewsQueue() {
     <>
       <TopBar
         title="Reviews"
-        subtitle="Drafts awaiting your approval — approve, edit, or regenerate."
+        subtitle="Drafts awaiting your approval. Approve, edit, or regenerate."
         showLive
         refresh={refresh}
         refreshing={refreshing}

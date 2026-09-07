@@ -56,7 +56,7 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
             kicker="Insights · every Monday"
             bar="var(--rw-teal-bar)"
             group="Brief"
-            title="A brief you'll actually read."
+            title="A brief you can read in a minute."
             lede="Insights is the reporting agent. Every Monday it sends a short, plain-language summary of what customers said this week: what they loved, what they complained about, and, when there is enough to say, one thing worth looking at on the ops side. Once a month it closes the books with an impact report. Both arrive by email; neither needs a login."
           >
             <ul className="rw-dl-bul">

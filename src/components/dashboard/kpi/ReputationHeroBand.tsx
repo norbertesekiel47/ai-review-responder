@@ -164,7 +164,7 @@ export function ReputationHeroBand({
             <InfoTip subject="Average rating">
               The mean star rating of the reviews written in this period. An
               imported review counts in the period it was written, not the day
-              RepWorth found it — and this is not your all-time Google rating.
+              RepWorth found it, and this is not your all-time Google rating.
             </InfoTip>
           </span>
           <Delta value={averageStar.delta} unit="rating points" decimals={1} />

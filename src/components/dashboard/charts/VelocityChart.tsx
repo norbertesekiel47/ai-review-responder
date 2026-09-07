@@ -86,7 +86,7 @@ export function VelocityAxisUnit() {
  */
 export function velocityCaption(subject: string, weeks: number): string {
   return weeks === 0
-    ? `${subject} — no weeks to plot yet`
+    ? `${subject}: no weeks to plot yet`
     : `${subject}, ${trendSpanLabel(weeks)}`;
 }
 

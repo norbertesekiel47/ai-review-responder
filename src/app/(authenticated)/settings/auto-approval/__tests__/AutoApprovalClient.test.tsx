@@ -139,7 +139,7 @@ describe('AutoApprovalClient', () => {
     it('says Off when the account default is manual and no location posts on its own', () => {
       render(<AutoApprovalClient initialState={baseState} />);
       const banner = screen.getByTestId('auto-approval-status');
-      expect(within(banner).getByText(/^Off — you approve every reply before it posts\.$/)).toBeInTheDocument();
+      expect(within(banner).getByText(/^Off\. You approve every reply before it posts\.$/)).toBeInTheDocument();
       expect(within(banner).queryByRole('button', { name: 'Turn off auto-posting' })).not.toBeInTheDocument();
     });
 
@@ -164,7 +164,7 @@ describe('AutoApprovalClient', () => {
       expect(within(banner).getByText(
         "4–5★ reviews post a reply automatically 30 minutes after you're notified, up to 12 a day.",
       )).toBeInTheDocument();
-      expect(within(banner).getByText(/Those 30 minutes are your veto window — the time you have to stop a reply before it posts\./))
+      expect(within(banner).getByText(/Those 30 minutes are your veto window, the time you have to stop a reply before it posts\./))
         .toBeInTheDocument();
 
       // Turning off is a contraction: no confirmation, straight to the same
@@ -179,7 +179,7 @@ describe('AutoApprovalClient', () => {
     it('names a location that posts on its own while the account default is Off', () => {
       render(<AutoApprovalClient initialState={{ ...baseState, locations: [overriddenLocation()] }} />);
       const banner = screen.getByTestId('auto-approval-status');
-      expect(within(banner).getByText(/Off by default — Main Cafe posts replies automatically with its own settings\./))
+      expect(within(banner).getByText(/Off by default. Main Cafe posts replies automatically with its own settings\./))
         .toBeInTheDocument();
     });
   });
@@ -930,14 +930,14 @@ describe('AutoApprovalClient', () => {
 
     render(<AutoApprovalClient initialState={baseState} />);
 
-    expect(screen.getByText(/Most replies posted automatically per day — 1 to 50\. Leave blank for the default \(10\)\./))
+    expect(screen.getByText(/Most replies posted automatically per day, from 1 to 50\. Leave blank for the default \(10\)\./))
       .toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Account default daily auto-post cap'), '100');
     await user.tab();
 
     // The clamp is stated before the owner confirms anything.
-    expect(screen.getByText(/Capped at 50 — the most that can post automatically in a day\./)).toBeInTheDocument();
+    expect(screen.getByText(/Capped at 50, the most that can post automatically in a day\./)).toBeInTheDocument();
     expect(screen.getByLabelText('Account default daily auto-post cap')).toHaveValue(50);
     await screen.findByRole('dialog', { name: 'Confirm auto-approval change' });
     await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));

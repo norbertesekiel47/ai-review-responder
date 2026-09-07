@@ -107,7 +107,7 @@ export function RepPulseCard({ summary }: Props) {
           className="pulse-gauge"
           viewBox="0 0 120 120"
           role="img"
-          aria-label={`Rep Pulse score ${pulse.score} of 100 — ${pulse.bandLabel}`}
+          aria-label={`Rep Pulse score ${pulse.score} of 100, ${pulse.bandLabel}`}
         >
           <circle className="pulse-track" cx="60" cy="60" r="46" />
           <circle

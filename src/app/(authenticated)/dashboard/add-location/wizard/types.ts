@@ -54,10 +54,10 @@ export interface BuildAddLocationPayloadInput extends Step1LocationInput {
 }
 
 export const STEP_INFO: Record<WizardStep, { title: string; subtitle: string }> = {
-  1: { title: 'Add location', subtitle: 'Step 1 of 4 — Select location' },
-  2: { title: 'Add location', subtitle: 'Step 2 of 4 — Google Business' },
-  3: { title: 'Add location', subtitle: 'Step 3 of 4 — Voice config' },
-  4: { title: 'Add location', subtitle: 'Step 4 of 4 — Confirm & pay' },
+  1: { title: 'Add location', subtitle: 'Step 1 of 4 · Select location' },
+  2: { title: 'Add location', subtitle: 'Step 2 of 4 · Google Business' },
+  3: { title: 'Add location', subtitle: 'Step 3 of 4 · Voice config' },
+  4: { title: 'Add location', subtitle: 'Step 4 of 4 · Confirm & pay' },
 };
 
 export const DEFAULT_VOICE: VoiceFormState = {

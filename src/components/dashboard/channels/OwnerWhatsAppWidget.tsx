@@ -13,7 +13,7 @@ const WHATSAPP_PRESENTATION: OwnerChannelPresentation = {
   iconClass: 'ch-wa',
   iconGlyph: '🟢',
   idleText: 'Get approval requests in WhatsApp.',
-  unsubscribedText: 'You opted out of WhatsApp — tap Reconnect to set it up again.',
+  unsubscribedText: 'You opted out of WhatsApp. Tap Reconnect to set it up again.',
   qrAlt: 'WhatsApp QR',
   openOnPhoneLabel: 'Open WhatsApp on this phone',
   endpoints: {

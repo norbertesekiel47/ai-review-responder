@@ -49,7 +49,7 @@ export function FeatQr({ innerRef }: { innerRef: RefObject<HTMLElement | null> }
             kicker="Review QR · on the counter"
             bar="var(--rw-sage-bar)"
             group="Request"
-            title="A code on the counter. A review on Google."
+            title="A code on the counter becomes a review on Google."
             lede="One printable code per location. A customer scans it and lands on your Google review form, with nothing of ours in between. Download the PNG or print it from your dashboard and put it where the happy customers are: the counter, the menu, the invoice, the mirror."
           >
             <ul className="rw-dl-bul">
@@ -77,7 +77,7 @@ export function FeatQr({ innerRef }: { innerRef: RefObject<HTMLElement | null> }
                 </div>
                 <div className="feat-qr-copy">
                   <p className="feat-qr-headline">Enjoyed your visit?</p>
-                  <p className="feat-qr-sub">Scan to leave us a review on Google. It takes a minute and it helps more than you know.</p>
+                  <p className="feat-qr-sub">Scan to leave us a review on Google. It takes a minute and it helps us a lot.</p>
                   <p className="feat-qr-route" aria-label="Scan route">
                     <span>scan</span>
                     <span aria-hidden="true">→</span>

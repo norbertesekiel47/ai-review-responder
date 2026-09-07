@@ -124,7 +124,7 @@ export function ReviewActions({
       ) {
         setState({
           kind: 'limit',
-          message: err.body.message ?? 'Daily regenerate limit reached — you can try again tomorrow.',
+          message: err.body.message ?? 'Daily regenerate limit reached. You can try again tomorrow.',
         });
         return;
       }
@@ -224,7 +224,7 @@ export function ReviewActions({
       </button>
       <button
         type="button"
-        onClick={() => runDraftAction('regenerate', 'Writing a new reply — it will appear here shortly.')}
+        onClick={() => runDraftAction('regenerate', 'Writing a new reply. It will appear here shortly.')}
         disabled={isLoading}
         className="btn btn-tertiary"
       >

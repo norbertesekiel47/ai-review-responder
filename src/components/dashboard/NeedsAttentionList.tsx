@@ -45,7 +45,7 @@ const OPEN_ESCALATION_STATUSES = new Set<unknown>([
 // with no explanation (UX audit D33). Exhaustive records so a new vocabulary
 // value forces a label.
 const STATUS_COPY: Record<OpenEscalationStatus, string> = {
-  escalated: 'New — needs a look',
+  escalated: 'New, needs a look',
   acknowledged: "You've seen this",
 };
 

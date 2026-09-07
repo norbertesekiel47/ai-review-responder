@@ -14,7 +14,7 @@ describe('JobsSection', () => {
   it('renders the five jobs as equal ledger rows with one verb each', () => {
     render(<JobsSection />);
     expect(screen.getByRole('heading', { level: 2 })).toHaveAccessibleName(
-      'Not a reply tool. A reputation department.'
+      'It runs a whole reputation department.'
     );
     const verbs = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
     expect(verbs).toEqual(['Respond', 'Protect', 'Request', 'Brief', 'Measure']);

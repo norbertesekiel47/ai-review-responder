@@ -86,7 +86,7 @@ export function PastDueBanner({
       ? 'Less than a day remains'
       : `${daysRemaining} ${daysRemaining === 1 ? 'day remains' : 'days remain'}`;
   const title = isReadOnly
-    ? 'Payment overdue — account is read-only'
+    ? 'Payment overdue, account is read-only'
     : daysRemaining !== null && daysRemaining <= 2
       ? 'Final payment reminder'
       : daysRemaining !== null && daysRemaining <= 4

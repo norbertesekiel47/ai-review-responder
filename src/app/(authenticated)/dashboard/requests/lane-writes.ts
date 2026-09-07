@@ -123,7 +123,7 @@ const LANE_REFUSAL_COPY: Readonly<Record<LaneStatus, string | null>> = {
   halted: null,
   already_halted: null,
   not_ready:
-    'Some messages are still being prepared. Nothing was approved — try again in a moment.',
+    'Some messages are still being prepared. Nothing was approved. Try again in a moment.',
   not_approvable:
     'This batch can no longer be approved. Reload the page to see where it stands.',
   unknown_exclusion:
@@ -199,13 +199,13 @@ type LaneOutcome =
    */
   | { kind: 'unconfirmed' };
 
-const GENERIC_REFUSAL = 'Something went wrong. Nothing changed — try again.';
+const GENERIC_REFUSAL = 'Something went wrong. Nothing changed. Try again.';
 
 /** Deliberately claims nothing about the write. The refetch it triggers is what
  *  answers the question, and both verbs are safe to repeat: approval is CAS'd
  *  on `approved_at IS NULL` and the Halt latch is monotone. */
 const UNCONFIRMED_OUTCOME =
-  'We could not confirm whether that went through. Reloading the batch now — check the state below before trying again.';
+  'We could not confirm whether that went through. Reloading the batch now, so check the state below before trying again.';
 
 async function postLaneAction(
   path: string,
@@ -313,7 +313,7 @@ const haltedAnnounce: Announce = (status) =>
  *  this browser) claims only what it knows. */
 const withdrawnAnnounce: Announce = (status, done) => {
   if (status === 'already_withdrawn') return 'This message was already withdrawn.';
-  if (done.closed === true) return 'Withdrawn. That was the last one — this batch is finished.';
+  if (done.closed === true) return 'Withdrawn. That was the last one, so this batch is finished.';
   if (done.remainingLive === null) return 'Withdrawn.';
   return `Withdrawn. ${countPhrase(done.remainingLive)} left to send.`;
 };

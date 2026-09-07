@@ -43,7 +43,7 @@ function LocationAddedNotice({ connectHref }: { connectHref: string | null }) {
     <div className="wizard-success" role="status">
       <Icon name="check" size={14} />
       <span>
-        Location added — taking you to setup.{' '}
+        Location added. Taking you to setup.{' '}
         {connectHref && (
           <a className="wizard-inline-link" href={connectHref}>
             Continue now

@@ -11,9 +11,9 @@ import { Icon } from '@/components/dashboard/shell/Icon';
 import type { RivalOption, RivalPickerView } from '@/lib/competitors/named-rival';
 
 const AUTO_DEFAULT_LABEL = 'Auto-selected (nearest ahead)';
-const DROPPED_SUFFIX = ' — not in the latest pack';
+const DROPPED_SUFFIX = ' (not in the latest pack)';
 const PACK_REFRESHED_MESSAGE =
-  "The competitor pack refreshed while you were choosing — we've reloaded the latest rivals.";
+  "The competitor pack refreshed while you were choosing, so we've reloaded the latest rivals.";
 const PACK_RELOAD_FAILED_MESSAGE =
   `${PACK_REFRESHED_MESSAGE} Reload the page to see the current rivals.`;
 const MISSING_VALUE = '—';
@@ -89,7 +89,7 @@ export function CompetitorsClient({ views: initialViews, locations }: Props) {
       setNotice({ businessId, message: saveErrorMessage(body, res.status) });
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'the request failed';
-      setNotice({ businessId, message: `Could not save your rival pick — ${detail}.` });
+      setNotice({ businessId, message: `Could not save your rival pick: ${detail}.` });
     } finally {
       setSavingId(null);
     }
@@ -106,8 +106,8 @@ export function CompetitorsClient({ views: initialViews, locations }: Props) {
             <h2 className="set-section-title">Named rival</h2>
             <div className="set-section-sub">
               Your weekly digest tracks one local-pack rival per location. Pick the one you
-              care about, or leave it on the auto-selected rival — the competitor just ahead
-              of you on review count.
+              care about, or leave it on the auto-selected rival, which is the competitor
+              just ahead of you on review count.
             </div>
           </div>
         </div>
@@ -167,7 +167,7 @@ function LocationRivalPicker({
 
       {view.state === 'awaiting_pack' && (
         <p className="set-section-sub">
-          {`We're watching '${view.keyword}' — the first competitor pack lands after the next check.`}
+          {`We're watching '${view.keyword}'. The first competitor pack lands after the next check.`}
         </p>
       )}
 
@@ -226,6 +226,6 @@ function errorCode(body: unknown): string | null {
 function saveErrorMessage(body: unknown, status: number): string {
   const code = errorCode(body);
   return code
-    ? `Could not save your rival pick — ${code.replace(/_/g, ' ')}.`
+    ? `Could not save your rival pick: ${code.replace(/_/g, ' ')}.`
     : `Could not save your rival pick (${status}).`;
 }

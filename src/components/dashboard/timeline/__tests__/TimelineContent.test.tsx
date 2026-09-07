@@ -236,7 +236,7 @@ describe('TimelineContent', () => {
     const run = (await screen.findByText('Draft written')).closest('article');
     expect(run).not.toBeNull();
     expect(
-      within(run!).getByText('Held back by the safety check — nothing was posted.'),
+      within(run!).getByText('Held back by the safety check. Nothing was posted.'),
     ).toBeInTheDocument();
   });
 
@@ -275,7 +275,7 @@ describe('TimelineContent', () => {
       ],
     }));
     expect(
-      await screen.findByText('Sent to you for approval — nothing posts until you say so.'),
+      await screen.findByText('Sent to you for approval. Nothing posts until you say so.'),
     ).toBeInTheDocument();
     const gateStep = screen.getByText('Approval decision').closest('li');
     expect(within(gateStep!).getByText('Sent to you')).toBeInTheDocument();
@@ -338,7 +338,7 @@ describe('TimelineContent', () => {
     const cta = screen.getByRole('link', { name: 'Approve or edit the draft' });
     expect(cta).toHaveAttribute('href', '/dashboard/reviews');
     expect(
-      screen.getByText('This reply is waiting for you — nothing posts until you approve it.'),
+      screen.getByText('This reply is waiting for you. Nothing posts until you approve it.'),
     ).toBeInTheDocument();
   });
 

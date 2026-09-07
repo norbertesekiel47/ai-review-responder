@@ -257,7 +257,7 @@ async function fetchPollOutcome(
       return {
         phase: {
           kind: 'error',
-          message: 'Upload not found — it may belong to another location.',
+          message: 'Upload not found. It may belong to another location.',
           field: 'generic',
         },
         completed: false,
@@ -473,7 +473,7 @@ function UploadActions({
         </button>
         {upload.kind === 'processing' && (
           <span style={{ fontSize: 13, color: 'var(--rw-app-text-muted)' }}>
-            Processing {fileName ?? 'your file'} — this usually takes a
+            Processing {fileName ?? 'your file'}. This usually takes a
             few seconds.
           </span>
         )}
@@ -693,7 +693,7 @@ function StillProcessing({ onCheckAgain }: { onCheckAgain: () => void }) {
   return (
     <div>
       <p style={{ fontSize: 14, color: 'var(--rw-app-text-muted)', margin: '0 0 14px' }}>
-        Still processing — this file is taking longer than usual. Check back in a
+        Still processing. This file is taking longer than usual. Check back in a
         few minutes; the import keeps running in the background.
       </p>
       <button type="button" className="btn btn-secondary" onClick={onCheckAgain}>

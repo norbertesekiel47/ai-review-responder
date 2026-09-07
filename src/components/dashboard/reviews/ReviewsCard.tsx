@@ -32,7 +32,7 @@ export function ReviewsCard({
       loadingMore={loadingMore}
       onLoadMore={onLoadMore}
       onActionSuccess={onActionSuccess}
-      emptyText="No replies waiting on you. We'll let you know when a new draft is ready — usually within an hour of a new review."
+      emptyText="No replies waiting on you. We'll let you know when a new draft is ready, usually within an hour of a new review."
       readOnly={readOnly}
     />
   );

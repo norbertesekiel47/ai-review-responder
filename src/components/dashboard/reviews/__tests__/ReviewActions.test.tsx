@@ -168,7 +168,7 @@ describe('ReviewActions approve and save-edit', () => {
     render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={onSuccess} />);
     fireEvent.click(screen.getByRole('button', { name: /approve/i }));
 
-    await waitFor(() => screen.getByText("Couldn't approve — try again."));
+    await waitFor(() => screen.getByText("Couldn't approve. Try again."));
     expect(screen.queryByText(/Failed \(500\)/)).toBeNull();
     expect(onSuccess).not.toHaveBeenCalled();
   });

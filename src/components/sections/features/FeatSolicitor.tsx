@@ -44,7 +44,7 @@ export function FeatSolicitor({ innerRef }: { innerRef: RefObject<HTMLElement | 
             kicker="Solicitor · managed batches"
             bar="var(--rw-gold-bar)"
             group="Request"
-            title="Asks the customers you served. Never the ones who said no."
+            title="Asks the customers you served, and never the ones who said no."
             lede="Solicitor is the requesting agent. You upload a visit list and attest the consent. It builds a batch, decides send or withhold for each person with a stated reason, writes each email in your voice, and waits for your approval. Every message carries one-click unsubscribe, and an opt-out is permanent: a later upload never undoes it. Solicitor never posts anything publicly."
           >
             <ul className="rw-dl-bul">

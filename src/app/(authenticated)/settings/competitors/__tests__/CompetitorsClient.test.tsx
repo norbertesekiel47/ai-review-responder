@@ -80,10 +80,10 @@ describe('CompetitorsClient', () => {
 
     const select = screen.getByRole<HTMLSelectElement>('combobox');
     expect(select.value).toBe('place-gone');
-    expect(optionTexts(select).at(-1)).toBe('Old Town Grill — not in the latest pack');
+    expect(optionTexts(select).at(-1)).toBe('Old Town Grill (not in the latest pack)');
 
     const dropped = within(select).getByRole<HTMLOptionElement>('option', {
-      name: 'Old Town Grill — not in the latest pack',
+      name: 'Old Town Grill (not in the latest pack)',
     });
     expect(dropped.selected).toBe(true);
   });
@@ -103,7 +103,7 @@ describe('CompetitorsClient', () => {
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(
       screen.getByText(
-        "We're watching 'coffee shop' — the first competitor pack lands after the next check.",
+        "We're watching 'coffee shop'. The first competitor pack lands after the next check.",
       ),
     ).toBeInTheDocument();
   });
@@ -150,7 +150,7 @@ describe('CompetitorsClient', () => {
 
     expect(
       await screen.findByText(
-        "The competitor pack refreshed while you were choosing — we've reloaded the latest rivals.",
+        "The competitor pack refreshed while you were choosing, so we've reloaded the latest rivals.",
         { selector: 'p' },
       ),
     ).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe('CompetitorsClient', () => {
     expect(within(harbour).queryByRole('combobox')).toBeNull();
     expect(
       within(harbour).getByText(
-        "We're watching 'bakery' — the first competitor pack lands after the next check.",
+        "We're watching 'bakery'. The first competitor pack lands after the next check.",
       ),
     ).toBeInTheDocument();
   });

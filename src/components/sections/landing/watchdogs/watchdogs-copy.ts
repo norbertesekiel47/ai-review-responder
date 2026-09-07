@@ -72,7 +72,7 @@ export const LEAD_IN =
 export const STATEMENT_LEAD = 'If the supervisor is down,';
 export const STATEMENT_ACCENT = 'nothing posts on its own.';
 export const STATEMENT_FOOTNOTE =
-  'Judge availability is a precondition for posting without you, not a nice-to-have. When it cannot run, replies wait for your approval instead.';
+  'Judge availability is a precondition for posting without you. When the Judge cannot run, replies wait for your approval instead.';
 
 /** Framing above the two cards. */
 export const TIER_LABEL = 'Oversight layer';

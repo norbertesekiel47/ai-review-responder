@@ -56,7 +56,7 @@ export function isConnectableState(state: EnrollmentState): boolean {
 const STATIC_HANDLE_TEXT: Partial<Record<EnrollmentState, string>> = {
   generating: 'Generating link…',
   awaiting_scan: 'Scan the QR code below, or open the link on this phone.',
-  disabled: 'Disconnected — reconnect to get approval requests here.',
+  disabled: 'Disconnected. Reconnect to get approval requests here.',
   expired: 'This QR code expired. Ask for a new link to try again.',
 };
 

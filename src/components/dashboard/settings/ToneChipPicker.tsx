@@ -6,9 +6,9 @@ import { inferActiveTone } from '@/components/dashboard/settings/ToneChipPicker.
 
 const TONES: { id: string; label: string; canonical: string; preview: string }[] = [
   { id: 'warm', label: 'Warm & friendly', canonical: 'warm, friendly', preview: "Thanks so much for the kind words! It really means the world to our little team." },
-  { id: 'witty', label: 'Warm + witty', canonical: 'warm, witty, occasionally cheeky', preview: "We're absolutely chuffed you enjoyed the oat latte — Marco will be insufferable about this all week." },
+  { id: 'witty', label: 'Warm + witty', canonical: 'warm, witty, occasionally cheeky', preview: "We're absolutely chuffed you enjoyed the oat latte. Marco will be insufferable about this all week." },
   { id: 'professional', label: 'Professional', canonical: 'professional', preview: 'Thank you for taking the time to share your experience. We are delighted you enjoyed your visit.' },
-  { id: 'casual', label: 'Casual', canonical: 'casual', preview: "Aw thanks! So happy you had a good one. Pop in any time — coffee's on us." },
+  { id: 'casual', label: 'Casual', canonical: 'casual', preview: "Aw thanks! So happy you had a good one. Pop in any time, coffee's on us." },
   { id: 'concise', label: 'Concise', canonical: 'concise', preview: 'Thank you. Glad you enjoyed it. See you next time.' },
 ];
 
@@ -17,7 +17,7 @@ const CUSTOM_ID = 'custom';
 /** Every chip in tab order — the five presets, then Custom. One is checked. */
 const CHIP_IDS = [...TONES.map((t) => t.id), CUSTOM_ID];
 
-const FALLBACK_PREVIEW = 'Thanks for the kind review — we appreciate you taking the time.';
+const FALLBACK_PREVIEW = 'Thanks for the kind review. We appreciate you taking the time.';
 
 interface Props {
   tone: string;

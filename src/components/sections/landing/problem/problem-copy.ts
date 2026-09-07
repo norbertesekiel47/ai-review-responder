@@ -41,7 +41,7 @@ export const HEADING_ACCENT = 'Tending it is a job.';
 export const HEADING_PLAIN = `${HEADING_LEAD} ${HEADING_ACCENT}`;
 
 export const BODY_PARAGRAPHS: readonly string[] = [
-  'Before anyone calls, books, or walks in, they look you up. Ratings, reviews, replies, silences — all of it is your reputation, working for or against you around the clock.',
+  'Before anyone calls, books, or walks in, they look you up. Ratings, reviews, replies, and the ones left unanswered all add up to your reputation, working for or against you around the clock.',
   'Tending it is real work: watch what is said, judge what is at stake, answer in the business’s voice, ask the happy customers to speak up, keep the score, and know each Monday what happened. That job was never staffed. It was added to the owner’s.',
 ] as const;
 

@@ -105,8 +105,8 @@ export function SecurityClient() {
 
         <p className="settings-body-copy security-recovery-note">
           <strong>If you lose your authenticator:</strong> there are no backup codes.{' '}
-          <Link href="/help/contact" className="settings-inline-link">Contact support</Link> — we&apos;ll
-          verify it&apos;s you and reset two-step sign-in so you can set it up again.
+          <Link href="/help/contact" className="settings-inline-link">Contact support</Link> and we&apos;ll
+          verify it&apos;s you, then reset two-step sign-in so you can set it up again.
         </p>
       </div>
 

@@ -148,9 +148,9 @@ function sendLaneLive(phase: Phase): boolean | null {
 }
 
 const WATCH_SUBTITLE =
-  'What RepWorth would ask for — and everyone it held back, with the reason.';
+  'What RepWorth would ask for, and everyone it held back, with the reason.';
 const SEND_SUBTITLE =
-  'Who RepWorth is asking for a review — and everyone it held back, with the reason.';
+  'Who RepWorth is asking for a review, and everyone it held back, with the reason.';
 
 export function RequestsClient() {
   const { currentScope } = useLocationScope();
@@ -271,7 +271,7 @@ function Screen({
           // making. The owner most likely to see this is the one whose approve
           // POST came back unreadable and whose refetch then failed too: the
           // one person for whom "nothing changed" is most likely to be false.
-          body="We could not read the latest state of this batch. That does not tell you whether anything changed — try again."
+          body="We could not read the latest state of this batch. That does not tell you whether anything changed. Try again."
           actionLabel="Try again"
           onAction={() => onReload('replace')}
         />
@@ -337,9 +337,9 @@ function Screen({
  *  a watch-mode fact (D6): with a live send lane the batch may be mid-send, so
  *  that arm claims only what a stale read can support. */
 const STALLED_BUILT_NOTE_WATCH =
-  'We stopped checking for updates after a few minutes. Nothing has been sent — this is the batch as we last read it.';
+  'We stopped checking for updates after a few minutes. Nothing has been sent. This is the batch as we last read it.';
 const STALLED_BUILT_NOTE_SEND =
-  'We stopped checking for updates after a few minutes. This is the batch as we last read it — check again for the latest.';
+  'We stopped checking for updates after a few minutes. This is the batch as we last read it, so check again for the latest.';
 
 /**
  * The built batch, rendered from ONE place so the `ready` and `stalled` arms

@@ -147,10 +147,10 @@ function isAggregateEmpty(data: AggregateDashboardData): boolean {
 
 function aggregateSubtitle(data: AggregateDashboardData): string {
   if (data.subscriptionStatus === SubscriptionStatus.PAST_DUE) {
-    return 'Payment overdue — please update your payment method';
+    return 'Payment overdue. Please update your payment method.';
   }
   const locationLabel = data.activeLocationCount === 1 ? 'location' : 'locations';
-  return `Welcome back — here's what's new across your ${data.activeLocationCount} ${locationLabel}.`;
+  return `Welcome back. Here's what's new across your ${data.activeLocationCount} ${locationLabel}.`;
 }
 
 function nullWhenUndefined<T>(value: T | undefined): T | null {

@@ -49,7 +49,7 @@ const PLANS: readonly PlanCopy[] = [
       'Everything in Copilot',
       'Only 4–5★ replies that pass our safety checks may post automatically',
       'Request batches that fit your policy may send on their own after the veto window',
-      'Owner-set policy and veto window remain in control',
+      'Your policy and your veto window stay in force',
       'Safety checks, the Judge, and the Governor must all clear it',
       'Negative and flagged reviews are never auto-posted',
     ],
@@ -367,7 +367,7 @@ function PricingHero({ heroIn }: { heroIn: boolean }) {
             ))}
           </h1>
           <p className="pr-lede pr-fade d1">
-            Two monthly plans. One location included. You decide what can post without your tap.
+            Two monthly plans, one location included. You decide what can post without your tap.
           </p>
           <div className="pr-hero-links pr-fade d2">
             <Link href="/how-it-works" className="rw-dl-txtlink">

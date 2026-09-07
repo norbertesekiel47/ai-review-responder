@@ -115,7 +115,7 @@ export function recoveryNote(postingError: string | null | undefined): {
   ) {
     return {
       reason: 'We took the old reply down on Google, but the new one did not post.',
-      next: 'We have been alerted and are sorting it out — no need to repost it yourself.',
+      next: 'We have been alerted and are sorting it out. There is no need to repost it yourself.',
     };
   }
   if (marker.startsWith(DELETE_FAILED_PREFIX)) {
@@ -126,7 +126,7 @@ export function recoveryNote(postingError: string | null | undefined): {
   }
   return {
     reason: 'This reply did not reach Google.',
-    next: 'We have been alerted and are sorting it out — no need to repost it yourself.',
+    next: 'We have been alerted and are sorting it out. There is no need to repost it yourself.',
   };
 }
 
@@ -218,7 +218,7 @@ function ReviewSide({ row, query }: { row: PastReplyRow; query?: string }) {
       {row.review_text ? (
         <p className="pr-body">{highlight(row.review_text, query)}</p>
       ) : (
-        <p className="pr-body italic">No review text — rating only.</p>
+        <p className="pr-body italic">No review text, rating only.</p>
       )}
     </div>
   );
@@ -549,7 +549,7 @@ function RecoveryControl({
         type="button"
         onClick={() => onRecoveryClick?.(row)}
         className="pr-recovery-btn"
-        aria-label="This reply needs attention — click to retry or restore"
+        aria-label="This reply needs attention: click to retry or restore"
       >
         <WarningIcon />
         This reply needs attention

@@ -28,7 +28,7 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
             bar="var(--rw-sage-bar)"
             group="Respond"
             title="Multilingual, automatically."
-            lede="RepWorth detects the language of every review and responds in the same language. No setup, no toggles."
+            lede="RepWorth detects the language of every review and responds in the same language. There is nothing to set up."
           >
             <div className="rw-dl-chips feat-lang-chips">
               {FEATURE_LANGS.map((l) => (

@@ -45,8 +45,8 @@ export function TemplateCard() {
       <p style={{ fontSize: 14, color: 'var(--rw-app-text-muted)', margin: '0 0 16px' }}>
         A ready-made CSV with the right column headings and three example rows.
         Replace the examples with your own customers and upload it below. Each
-        row needs a name, a visit date, and an email address or a phone number —
-        the note is optional.
+        row needs a name, a visit date, and an email address or a phone number.
+        The note is optional.
       </p>
       <button type="button" className="btn btn-secondary" onClick={downloadTemplate}>
         Download CSV template

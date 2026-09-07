@@ -48,7 +48,7 @@ export function RunTimeline({
       {/* "Waiting on you" offered no action (D21): the verb lives in the queue. */}
       {run.displayState === 'waiting_on_owner' && (
         <div className="timeline-run__cta">
-          <p>This reply is waiting for you — nothing posts until you approve it.</p>
+          <p>This reply is waiting for you. Nothing posts until you approve it.</p>
           <Link className="btn btn-primary" href={WAITING_ON_OWNER_CTA.href}>
             {WAITING_ON_OWNER_CTA.label}
           </Link>

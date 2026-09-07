@@ -10,7 +10,7 @@ export function computeHeroHeadline(summary: ReputationSummary): string {
   const { averageStar, responseRate, isRamping } = summary;
 
   if (isRamping) {
-    return 'Your agents are on the job — the baseline is still building.';
+    return 'Your agents are on the job. The baseline is still building.';
   }
 
   if (averageStar.current == null) {

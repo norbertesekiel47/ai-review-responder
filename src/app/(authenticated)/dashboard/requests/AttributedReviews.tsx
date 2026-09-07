@@ -59,7 +59,7 @@ const TITLE_ID = 'rq-attributed-title';
  * revenue framing, no "requests earned you N reviews".
  */
 const SHADOW_DISCLOSURE =
-  'A match is our best guess from the name on the review and when it appeared — not proof that your request caused it. This count is never billed and never changes what you pay.';
+  'A match is our best guess from the name on the review and when it appeared. It is not proof that your request caused it. This count is never billed and never changes what you pay.';
 
 export function AttributedReviews({ view }: { view: AttributedReviewsView }) {
   // The whole section is absent when the send lane is off, exactly as the
@@ -107,7 +107,7 @@ function Body({ view }: { view: AttributedReviewsView }) {
     return (
       <p className="rq-attributed-state">
         We could not read this list just now. Nothing else on this page is
-        affected — reload when you get a chance.
+        affected, so reload when you get a chance.
       </p>
     );
   }
