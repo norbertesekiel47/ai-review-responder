@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type { Sql } from 'postgres';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +9,8 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { applyTierChange } from '@/lib/accounts/tier-change';
+import { recordPollerCycle, POLLER_JUDGE_SWEEP } from '@/lib/shared/poller-liveness';
+import { startStage, type Stage } from '@/__tests__/helpers/concurrency-handoff';
 
 const {
   mockResolveTarget,
@@ -70,6 +72,14 @@ import {
   type PersistResponseInput,
 } from '../../response-generation/persist';
 import { resetServerConfigForTests } from '@/lib/config/server';
+// #889: the webhook path runs on the production singleton, NOT on a suite
+// client, so the singleton is a participant this file must be able to inspect
+// (admission stats) and shut down (teardown). Importing it here is legal —
+// `ci:db-imports` skips `__tests__` (scripts/ci/lib/ratchet-harness.ts) and
+// invariant #1's ESLint boundary covers src/app, src/components and
+// src/instrumentation, not worker tests.
+import { sql as productionSql } from '@/lib/db/server';
+import { admissionStats } from '@/lib/db/admission';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 let dbA: Sql | undefined;
@@ -127,6 +137,168 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ---------------------------------------------------------------------------
+// #889 bounded-wait scaffolding.
+//
+// This suite parks on deferreds that only a mocked call resolves. When the
+// operation returns early, rejects, or blocks, a bare `await` parks forever and
+// vitest reports the suite timeout with no reason — which is #889 verbatim.
+// Every wait below therefore runs through `startStage`, whose watchdog starts
+// when the OPERATION starts and fires before the server cancels a statement.
+// ---------------------------------------------------------------------------
+
+/** Mirrors the suite `timeout` on the describe block below. */
+const SUITE_TIMEOUT_MS = 30_000;
+
+/**
+ * Statement ceiling for every suite client. Below the suite timeout and far
+ * above anything this file legitimately runs (whole-file runtime is ~1.2s in
+ * CI), so it only ever fires on a genuine stall. Without it these clients
+ * inherit the container default of unlimited, and a blocked cleanup statement
+ * wedges the whole file. Same mechanism the production singleton uses.
+ */
+const SUITE_STATEMENT_TIMEOUT_MS = 10_000;
+
+/** Wall clock for the afterEach drain and for the afterAll cleanup sequence. */
+const DRAIN_DEADLINE_MS = 10_000;
+const CLEANUP_DEADLINE_MS = 10_000;
+
+function suiteClient(): Sql {
+  return postgres(testDatabaseUrl!, {
+    max: 1,
+    prepare: false,
+    connection: { statement_timeout: SUITE_STATEMENT_TIMEOUT_MS },
+  });
+}
+
+let testStartedAt = 0;
+/**
+ * Set when a drain expires. Throwing from `afterEach` does NOT stop the file —
+ * vitest records the hook failure and runs the remaining tests (`bail` defaults
+ * to 0) — so the latch is what actually stops a later `beforeEach` from
+ * resetting fixtures an abandoned operation may still be writing to.
+ */
+let suitePoisoned: string | null = null;
+let clientsClosed = false;
+const releases: Array<() => void> = [];
+const operations: Array<{ name: string; promise: Promise<unknown> }> = [];
+
+/** A `deferred()` whose resolver the drain will always call. */
+function releasable(): { promise: Promise<void>; resolve: () => void } {
+  const gate = deferred();
+  releases.push(gate.resolve);
+  return gate;
+}
+
+/**
+ * Reads every backend on the database, the advisory locks, and the production
+ * singleton's admission-gate state.
+ *
+ * All three parts matter. The webhook runs on the singleton, not on a suite
+ * client, so a four-connection dump would omit the session most likely to hold
+ * the entitlement lock. `pg_blocking_pids` names the blocker directly. And an
+ * operation queued behind the #773 admission chokepoint executes NO SQL, so
+ * without the gate counts a clean activity dump cannot tell that apart from a
+ * JavaScript lost wakeup.
+ */
+async function dumpLockState(label: string): Promise<string> {
+  const lines = [`--- ${label}: live database state ---`];
+  await observerSql().begin(async (tx) => {
+    await tx`SET LOCAL statement_timeout = 1500`;
+    const backends = await tx<{
+      pid: number;
+      application_name: string | null;
+      state: string | null;
+      wait_event_type: string | null;
+      wait_event: string | null;
+      blocked_by: number[];
+      query: string | null;
+    }[]>`
+      SELECT a.pid, a.application_name, a.state, a.wait_event_type, a.wait_event,
+             pg_blocking_pids(a.pid) AS blocked_by,
+             left(a.query, 200) AS query
+      FROM pg_stat_activity a
+      WHERE a.datname = current_database() AND a.pid <> pg_backend_pid()
+      ORDER BY a.application_name NULLS LAST, a.pid
+    `;
+    for (const row of backends) {
+      lines.push(
+        `  pid=${row.pid} app=${row.application_name ?? '-'} state=${row.state ?? '-'} ` +
+        `wait=${row.wait_event_type ?? '-'}/${row.wait_event ?? '-'} ` +
+        `blocked_by=[${row.blocked_by.join(',')}] query=${JSON.stringify(row.query)}`,
+      );
+    }
+    const locks = await tx<{
+      pid: number; granted: boolean; classid: number; objid: number;
+    }[]>`
+      SELECT l.pid, l.granted, l.classid, l.objid
+      FROM pg_locks l
+      WHERE l.locktype = 'advisory'
+      ORDER BY l.granted, l.pid
+    `;
+    lines.push(`  advisory locks: ${locks.length === 0 ? 'none' : ''}`);
+    for (const lock of locks) {
+      lines.push(
+        `    pid=${lock.pid} granted=${lock.granted} ` +
+        `key=${lock.classid}:${lock.objid}`,
+      );
+    }
+  });
+  const gate = admissionStats(productionSql);
+  lines.push(gate === undefined
+    ? '  singleton admission: ungated'
+    : `  singleton admission: inFlight=${gate.inFlight} waiting=${gate.waiting} ` +
+      `cap=${gate.cap} timeouts=${gate.timeouts} reentrantBypasses=${gate.reentrantBypasses}`);
+  return lines.join('\n');
+}
+
+/**
+ * Wraps one in-flight operation. Call it WHERE THE OPERATION IS CREATED: the
+ * watchdog clock starts here, and several tests create an operation, sleep,
+ * assert, and only then await it.
+ */
+function stage<T>(name: string, operation: Promise<T>): Stage<T> {
+  const wrapped = startStage(name, operation, {
+    budgetMs: SUITE_TIMEOUT_MS - (Date.now() - testStartedAt),
+    diagnose: dumpLockState,
+  });
+  operations.push({ name, promise: operation });
+  return wrapped;
+}
+
+/**
+ * Closes every participant, including the production singleton, concurrently
+ * and at most once. Concurrently because five sequential 5s closes would blow
+ * the hook budget; the singleton because closing it is the only thing that
+ * actually stops work still outstanding on it — a statement timeout bounds one
+ * statement, not an operation.
+ *
+ * Safe to call here because vitest defaults to `isolate: true`, so this file
+ * owns its own module registry and its own `productionSql` instance. If that
+ * ever changes, this call closes a client other suites share.
+ */
+async function closeAllClients(): Promise<void> {
+  if (clientsClosed) return;
+  clientsClosed = true;
+  const clients = [dbA, dbB, dbObserver, dbTier, productionSql].filter(
+    (client): client is Sql => client !== undefined,
+  );
+  await Promise.allSettled(clients.map((client) => client.end({ timeout: 5 })));
+}
+
+/** Resolves to `'expired'` instead of throwing, so callers decide the outcome. */
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | 'expired'> {
+  let handle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<'expired'>((resolve) => { handle = setTimeout(() => resolve('expired'), ms); }),
+    ]);
+  } finally {
+    if (handle !== undefined) clearTimeout(handle);
+  }
+}
+
 async function waitForGrantEntitlementLock(): Promise<{
   wait_event_type: string | null;
   query: string;
@@ -147,7 +319,10 @@ async function waitForGrantEntitlementLock(): Promise<{
     }
     await sleep(50);
   }
-  throw new Error('grant writer did not block on the tier-entitlement advisory lock');
+  throw new Error(
+    'grant writer did not block on the tier-entitlement advisory lock\n' +
+    await dumpLockState('waitForGrantEntitlementLock'),
+  );
 }
 
 async function waitForTierEntitlementLock(): Promise<{
@@ -174,7 +349,10 @@ async function waitForTierEntitlementLock(): Promise<{
     if (activity) return activity;
     await sleep(50);
   }
-  throw new Error('tier writer did not block on the tier-entitlement advisory lock');
+  throw new Error(
+    'tier writer did not block on the tier-entitlement advisory lock\n' +
+    await dumpLockState('waitForTierEntitlementLock'),
+  );
 }
 
 async function setTier(db: Sql, tier: 'copilot' | 'autopilot'): Promise<void> {
@@ -319,10 +497,10 @@ function persistInput(
 
 describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres)', { timeout: 30_000 }, () => {
   beforeAll(async () => {
-    dbA = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    dbB = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    dbObserver = postgres(testDatabaseUrl!, { max: 1, prepare: false });
-    dbTier = postgres(testDatabaseUrl!, { max: 1, prepare: false });
+    dbA = suiteClient();
+    dbB = suiteClient();
+    dbObserver = suiteClient();
+    dbTier = suiteClient();
     await dbA`SET application_name = 'ws8_grant_writer'`;
     await dbB`SET application_name = 'ws8_status_writer'`;
     await dbTier`SET application_name = 'ws8_tier_writer'`;
@@ -376,6 +554,14 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
   });
 
   beforeEach(async () => {
+    // #889 poison latch. FIRST statement: before any mock reset, before
+    // `setTier`, before any fixture write. A drain that expired already closed
+    // the clients, so nothing below could run anyway — and running it would
+    // reset fixtures an abandoned operation may still be writing to.
+    if (suitePoisoned !== null) throw new Error(suitePoisoned);
+    testStartedAt = Date.now();
+    releases.length = 0;
+    operations.length = 0;
     vi.clearAllMocks();
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.OPENAI_MODERATION_ENABLED = 'true';
@@ -383,6 +569,19 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     process.env.AUTOPILOT_PURCHASABLE = 'true';
     for (const [key, value] of Object.entries(PRICE_ENV)) process.env[key] = value;
     resetServerConfigForTests();
+    // "Judge available" is no longer just the flag (#949). This suite drives the
+    // publisher's judge gate (invariant #3) through the REAL `isJudgeHealthy`,
+    // whose third arm fails CLOSED on a missing sweep heartbeat — without this
+    // every auto-policy post here downgrades to owner review, the mocked
+    // `publishReply` is never entered, and the `postEntered` / `retrieveEntered`
+    // handoffs are never signalled. #1156 seeded the two suites it found and
+    // missed this third one.
+    //
+    // Upsert, never delete: `poller_heartbeats` is keyed by poller name, so the
+    // `judge_sweep` row is a singleton shared by every concurrent live-DB vitest
+    // process. A FRESHER timestamp is always safe under that sharing; deleting
+    // or back-dating it would break an unrelated suite.
+    await recordPollerCycle(sqlA(), POLLER_JUDGE_SWEEP);
     await setTier(sqlA(), 'autopilot');
     await sqlA()`
       DELETE FROM job_outbox
@@ -407,32 +606,78 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     mockSubscriptionItemDelete.mockResolvedValue({});
   });
 
+  // #889 layer 1 + 3: un-park the JavaScript, then drain under a wall clock.
+  // Resolving the release gates is the ONLY layer that helps a mock parked
+  // inside an open transaction — `statement_timeout` never sees it, because no
+  // command is in flight. The explicit hook timeout is required: vitest defaults
+  // hooks to 10s and the describe-level `timeout` is a TEST timeout only.
+  afterEach(async () => {
+    if (suitePoisoned !== null) return;
+    for (const release of releases) release();
+    if (operations.length === 0) return;
+
+    const drained = await withDeadline(
+      Promise.allSettled(operations.map((entry) => entry.promise)),
+      DRAIN_DEADLINE_MS,
+    );
+    if (drained !== 'expired') return;
+
+    // Abandoning the wait does not stop the work, and throwing does not stop the
+    // file. Poison the suite and close the clients — that is what stops it.
+    const outstanding = operations.map((entry) => entry.name).join(', ');
+    suitePoisoned =
+      `#889 drain expired after ${DRAIN_DEADLINE_MS}ms with operations still ` +
+      `outstanding: ${outstanding}. The suite is poisoned and its clients are ` +
+      'closed; every later test fails at beforeEach rather than running against ' +
+      'fixtures those operations may still be writing to.';
+    await closeAllClients();
+    throw new Error(suitePoisoned);
+  }, 20_000);
+
   afterAll(async () => {
     delete process.env.AUTO_APPROVAL_ENABLED;
     delete process.env.JUDGE_ENABLED;
     if (!dbA) return;
-    await dbA`DELETE FROM job_outbox WHERE aggregate_id IN (SELECT id FROM responses WHERE business_id = ${businessId}::uuid)`;
-    await dbA`DELETE FROM notification_deliveries WHERE business_id = ${businessId}::uuid`;
-    await dbA`DELETE FROM approval_audit_log WHERE business_id = ${businessId}::uuid`;
-    // #1012's rows. `refusal_events.business_id` REFERENCES `businesses(id)`
-    // with NO cascade (migration 116), and this suite reaches
-    // `downgradeAutoApprovedResponseForManualReviewInTx` through the judge
-    // gate, which now writes an `auto_post_revoked` Refusal. Without this the
-    // business DELETE below fails with `refusal_events_business_id_fkey`.
-    // Production purge hard-deletes this table for the same reason
-    // (`purge-stages.ts`).
-    await dbA`DELETE FROM refusal_events WHERE business_id = ${businessId}::uuid`;
-    await dbA`DELETE FROM responses WHERE business_id = ${businessId}::uuid`;
-    await dbA`DELETE FROM auto_approval_policies WHERE id = ${policyId}::uuid`;
-    await dbA`DELETE FROM zernio_connections WHERE business_id = ${businessId}::uuid`;
-    await dbA`DELETE FROM reviews WHERE id = ${reviewId}::uuid`;
-    await dbA`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
-    if (tenant) await cleanupTenantAccount(dbA, tenant);
-    if (dbB) await dbB.end({ timeout: 5 });
-    if (dbObserver) await dbObserver.end({ timeout: 5 });
-    if (dbTier) await dbTier.end({ timeout: 5 });
-    await dbA.end({ timeout: 5 });
-  });
+    if (suitePoisoned !== null) {
+      // Layer 3 already closed everything. Cleanup would only fail on a closed
+      // client, so skip straight to the idempotent shutdown.
+      console.warn(`[ws8-concurrency] skipping cleanup: ${suitePoisoned}`);
+      await closeAllClients();
+      return;
+    }
+    // #889 layer 4: cleanup runs under its own wall clock, and the shutdown is
+    // in `finally` so it is reached whether cleanup finished, threw, or expired.
+    const db = dbA;
+    try {
+      const cleaned = await withDeadline((async () => {
+        await db`DELETE FROM job_outbox WHERE aggregate_id IN (SELECT id FROM responses WHERE business_id = ${businessId}::uuid)`;
+        await db`DELETE FROM notification_deliveries WHERE business_id = ${businessId}::uuid`;
+        await db`DELETE FROM approval_audit_log WHERE business_id = ${businessId}::uuid`;
+        // #1012's rows. `refusal_events.business_id` REFERENCES `businesses(id)`
+        // with NO cascade (migration 116), and this suite reaches
+        // `downgradeAutoApprovedResponseForManualReviewInTx` through the judge
+        // gate, which now writes an `auto_post_revoked` Refusal. Without this the
+        // business DELETE below fails with `refusal_events_business_id_fkey`.
+        // Production purge hard-deletes this table for the same reason
+        // (`purge-stages.ts`).
+        await db`DELETE FROM refusal_events WHERE business_id = ${businessId}::uuid`;
+        await db`DELETE FROM responses WHERE business_id = ${businessId}::uuid`;
+        await db`DELETE FROM auto_approval_policies WHERE id = ${policyId}::uuid`;
+        await db`DELETE FROM zernio_connections WHERE business_id = ${businessId}::uuid`;
+        await db`DELETE FROM reviews WHERE id = ${reviewId}::uuid`;
+        await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+        if (tenant) await cleanupTenantAccount(db, tenant);
+      })(), CLEANUP_DEADLINE_MS);
+      if (cleaned === 'expired') {
+        console.warn(
+          `[ws8-concurrency] cleanup exceeded ${CLEANUP_DEADLINE_MS}ms — ` +
+          'closing clients anyway; fixture rows may survive this run',
+        );
+      }
+    } finally {
+      await closeAllClients();
+    }
+  }, 30_000);
 
   it('production persist grants auto_policy under the live review-business-entitlement lock spine', async () => {
     const outcome = await persistResponseAndNotify(
@@ -466,19 +711,22 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
 
   it('tier writer first makes the real persist grant wait before any response FK insert, then deny Copilot autonomy', async () => {
     const writerHoldsEntitlementAndAccount = deferred();
-    const releaseWriter = deferred();
+    const releaseWriter = releasable();
     mockRetrieveSubscription.mockImplementationOnce(async () => {
       writerHoldsEntitlementAndAccount.resolve();
       await releaseWriter.promise;
       return autopilotProviderSubscription();
     });
 
-    const tierWriter = applyTierChange(sqlB(), {
+    const tierStage = stage('tierWriter', applyTierChange(sqlB(), {
       accountId: accountId(),
       tier: 'copilot',
       operationKey: `grant-writer-first-${randomUUID()}`,
-    });
-    await writerHoldsEntitlementAndAccount.promise;
+    }));
+    await tierStage.awaitHandoff(
+      'writerHoldsEntitlementAndAccount',
+      writerHoldsEntitlementAndAccount.promise,
+    );
 
     const responseText = `WS8 grant wait ${randomUUID()}`;
     let grantFinished = false;
@@ -490,6 +738,7 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
       if (outcome.kind !== 'persisted') throw new Error('expected persisted');
       return outcome.responseId;
     });
+    const grantStage = stage('grant', grant);
 
     const blocked = await waitForGrantEntitlementLock();
     expect(blocked.wait_event_type).toBe('Lock');
@@ -505,8 +754,8 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     expect(beforeInsert?.count).toBe(0);
 
     releaseWriter.resolve();
-    await expect(tierWriter).resolves.toMatchObject({ ok: true });
-    const responseId = await grant;
+    await expect(tierStage.awaitSettled()).resolves.toMatchObject({ ok: true });
+    const responseId = await grantStage.awaitSettled();
 
     const [response] = await observerSql()<{
       status: string;
@@ -580,7 +829,7 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     async (waiterOrder) => {
     const ids = await seedAttempt();
     const statusApplied = deferred();
-    const releaseStatusCommit = deferred();
+    const releaseStatusCommit = releasable();
     const statusWriter = sqlB().begin(async (tx) => {
       const transition = await applyStripeSubscriptionState(
         tx,
@@ -596,20 +845,26 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
       await releaseStatusCommit.promise;
       return transition;
     });
-    await statusApplied.promise;
+    const statusStage = stage('statusWriter', statusWriter);
+    await statusStage.awaitHandoff('statusApplied', statusApplied.promise);
 
     let publisherFinished = false;
-    const startPublisher = () => publishAutoPolicyResponse(sqlA(), publishInput(ids)).then(() => {
-      publisherFinished = true;
-    });
-    const startTier = () => applyTierChange(tierSql(), {
+    // Each factory opens its own stage, so the watchdog starts when THAT
+    // operation starts — the two orders start them seconds apart.
+    const startPublisher = () => stage(
+      'publisher',
+      publishAutoPolicyResponse(sqlA(), publishInput(ids)).then(() => {
+        publisherFinished = true;
+      }),
+    );
+    const startTier = () => stage('tierWriter', applyTierChange(tierSql(), {
       accountId: accountId(),
       tier: 'copilot',
       operationKey: `three-party-${waiterOrder}-${ids.responseId}`,
-    });
+    }));
 
-    let publisher: Promise<void>;
-    let tierWriter: ReturnType<typeof applyTierChange>;
+    let publisher: Stage<void>;
+    let tierWriter: Stage<Awaited<ReturnType<typeof applyTierChange>>>;
     if (waiterOrder === 'publisher-first') {
       publisher = startPublisher();
       const blocked = await waitForGrantEntitlementLock();
@@ -643,7 +898,7 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
       toStatus: 'cancelled',
       changed: true,
     });
-    await Promise.all([publisher, tierWriter]);
+    await Promise.all([publisher.awaitSettled(), tierWriter.awaitSettled()]);
 
     const [committedAccount] = await observerSql()<{
       subscription_status: string;
@@ -684,32 +939,35 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
   it('tier/subscription writer first makes publisher wait, then downgrade with zero external calls', async () => {
     const ids = await seedAttempt();
     const writerHoldsLocks = deferred();
-    const releaseWriter = deferred();
+    const releaseWriter = releasable();
 
     mockRetrieveSubscription.mockImplementationOnce(async () => {
       writerHoldsLocks.resolve();
       await releaseWriter.promise;
       return autopilotProviderSubscription();
     });
-    const writer = applyTierChange(sqlB(), {
+    const writerStage = stage('writer', applyTierChange(sqlB(), {
       accountId: accountId(),
       tier: 'copilot',
       operationKey: `publisher-writer-first-${ids.responseId}`,
-    });
+    }));
 
-    await writerHoldsLocks.promise;
+    await writerStage.awaitHandoff('writerHoldsLocks', writerHoldsLocks.promise);
     let publisherFinished = false;
-    const publisher = publishAutoPolicyResponse(sqlA(), publishInput(ids)).then(() => {
-      publisherFinished = true;
-    });
+    const publisherStage = stage(
+      'publisher',
+      publishAutoPolicyResponse(sqlA(), publishInput(ids)).then(() => {
+        publisherFinished = true;
+      }),
+    );
     await sleep(200);
     expect(publisherFinished).toBe(false);
     expect(mockResolveTarget).not.toHaveBeenCalled();
     expect(mockPublishReply).not.toHaveBeenCalled();
 
     releaseWriter.resolve();
-    await expect(writer).resolves.toMatchObject({ ok: true });
-    await publisher;
+    await expect(writerStage.awaitSettled()).resolves.toMatchObject({ ok: true });
+    await publisherStage.awaitSettled();
 
     const [response] = await sqlA()<{
       status: string;
@@ -729,27 +987,30 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
   it('publisher first holds entitlement through bounded post/mark before tier mutation commits', async () => {
     const ids = await seedAttempt();
     const postEntered = deferred();
-    const releasePost = deferred();
+    const releasePost = releasable();
     mockPublishReply.mockImplementationOnce(async () => {
       postEntered.resolve();
       await releasePost.promise;
     });
 
-    const publisher = publishAutoPolicyResponse(sqlA(), publishInput(ids));
-    await postEntered.promise;
+    const publisherStage = stage(
+      'publisher',
+      publishAutoPolicyResponse(sqlA(), publishInput(ids)),
+    );
+    await publisherStage.awaitHandoff('postEntered', postEntered.promise);
 
     mockRetrieveSubscription.mockResolvedValueOnce(autopilotProviderSubscription());
-    const writer = applyTierChange(sqlB(), {
+    const writerStage = stage('writer', applyTierChange(sqlB(), {
       accountId: accountId(),
       tier: 'copilot',
       operationKey: `publisher-first-${ids.responseId}`,
-    });
+    }));
     await sleep(200);
     expect(mockRetrieveSubscription).not.toHaveBeenCalled();
 
     releasePost.resolve();
-    await publisher;
-    await expect(writer).resolves.toMatchObject({ ok: true });
+    await publisherStage.awaitSettled();
+    await expect(writerStage.awaitSettled()).resolves.toMatchObject({ ok: true });
 
     const [response] = await sqlA()<{ status: string; approval_method: string | null }[]>`
       SELECT status, approval_method FROM responses WHERE id = ${ids.responseId}::uuid
@@ -851,7 +1112,7 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
       WHERE id = ${accountId()}::uuid
     `;
     const retrieveEntered = deferred();
-    const releaseRetrieve = deferred();
+    const releaseRetrieve = releasable();
     const providerCurrent = {
       id: stripeSubscriptionId,
       customer: stripeCustomerId,
@@ -879,23 +1140,31 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
 
     // D6: the event context is a required argument. Fresh + in-window, so the
     // out-of-order retry window is open and behaviour is unchanged.
-    const webhook = processSubscriptionUpdated(
+    // #889's case. The webhook can return an `ignoredOutcome` or throw
+    // `AccountNotProvisionedYetError` BEFORE it ever reaches the mocked Stripe
+    // retrieve; a bare `await retrieveEntered.promise` then parks forever. The
+    // stage races the handoff against the webhook itself, so that path now
+    // reports the outcome reason instead of a 30s timeout with no message.
+    const webhookStage = stage('webhook', processSubscriptionUpdated(
       providerCurrent as never,
       { id: 'evt_test', created: Math.floor(Date.now() / 1000) },
-    );
-    await retrieveEntered.promise;
+    ));
+    await webhookStage.awaitHandoff('retrieveEntered', retrieveEntered.promise);
 
     let publisherFinished = false;
-    const publisher = publishAutoPolicyResponse(sqlA(), publishInput(ids)).then(() => {
-      publisherFinished = true;
-    });
+    const publisherStage = stage(
+      'publisher',
+      publishAutoPolicyResponse(sqlA(), publishInput(ids)).then(() => {
+        publisherFinished = true;
+      }),
+    );
     await sleep(200);
     expect(publisherFinished).toBe(false);
     expect(mockResolveTarget).not.toHaveBeenCalled();
 
     releaseRetrieve.resolve();
-    const webhookOutcome = await webhook;
-    await publisher;
+    const webhookOutcome = await webhookStage.awaitSettled();
+    await publisherStage.awaitSettled();
 
     expect(webhookOutcome).toMatchObject({ kind: 'updated', tier: 'copilot' });
     const [response] = await sqlA()<{
