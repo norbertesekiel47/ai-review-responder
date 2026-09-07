@@ -426,3 +426,81 @@ Unmutated passes. Suite 6/6.
 guard and a lock-scoping fix were each correct in isolation, and their
 interaction was the defect. Round 2 was dispatched against the fixed tree, so
 this is a finding the branch caught on itself rather than one round 2 had to.
+
+---
+
+## D18 — RED TEAM ROUND 2: the ACL guard filtered on grantee NAME (P0), plus two P2s
+
+Round 2 confirmed round 1's five findings CLOSED and found three new ones, all
+in the D8/D9/D12 fix hunks. This is the round-2 protocol working exactly as
+intended: the fixes were the subject, and the fixes carried the defects.
+
+### RT-7 (P0) — `GRANT … TO PUBLIC` sailed past the new guard
+
+**What happened.** D8's replacement filtered on `acl.grantee::regrole::text IN
+('anon','authenticated')`. `PUBLIC` is grantee OID **0** and renders as `-`, so
+`GRANT SELECT, INSERT ON job_outbox TO PUBLIC` left the suite **6/6 green**
+while `has_table_privilege('anon', …, 'SELECT')` returned true. A grant
+reaching `anon` through role membership escaped identically. The suite header
+positively claimed the opposite.
+
+**Why it graded P0.** Round 2 first graded it P1 on likelihood — neither
+project carries a PUBLIC ACL entry today and no repo migration emits one — then
+re-graded when the taxonomy refused it: a confirmed, executed, provably
+non-equivalent survivor has no non-blocking classification. The correct call.
+Likelihood is not the axis; the guard either holds or it does not.
+
+**What changed.** Title 4 now asks the question TWICE, because two rounds
+proved either half alone leaves a hole.
+- **Arm A** (ACL, `relacl` + `attacl`) now admits `acl.grantee = 0` alongside
+  the two named roles. It answers *who is NAMED*, across every privilege type
+  and both table and column.
+- **Arm B** is new and answers *what the roles can actually DO*:
+  `has_table_privilege` for `anon` and `authenticated` over a privilege list
+  **derived from `acldefault('r', owner)`**, never spelled. That derivation is
+  load-bearing across environments — the local container is PostgreSQL 16
+  (7 privilege types) and both Supabase projects are 17 (8, `MAINTAIN` added),
+  so a hardcoded list would either miss one there or raise `unrecognized
+  privilege type` here. `has_table_privilege` is sound for these two roles even
+  though it was the wrong tool for the OWNER: the superuser short-circuit
+  behind D8 does not apply to `anon` or `authenticated`, which are NOLOGIN
+  non-superuser roles.
+
+**Proof.** The exact round-2 mutation, run against the test container:
+`GRANT SELECT, INSERT ON job_outbox TO PUBLIC` → suite **1 failed, 5 passed**.
+`REVOKE ALL ON job_outbox FROM PUBLIC` → suite **6/6**. Before the fix the same
+mutation left it 6/6.
+
+**Verdict: ACCEPT.**
+
+### RT-8 (P2) — a self-cancelling `DISABLE` was not forbidden
+
+Appending `ALTER TABLE job_outbox DISABLE ROW LEVEL SECURITY;` passed every
+case: the text guard forbade `GRANT`, `CREATE POLICY` and `FORCE`, but not a
+`DISABLE` that undoes the file's own `ENABLE`. One assertion added.
+**Verdict: ACCEPT.**
+
+### RT-9 (P2) — a GRANT assembled by string concatenation
+
+`DO $$ … EXECUTE 'GRA' || 'NT ALL ON job_outbox TO anon' … $$;` evades both
+text checks and really grants `anon` ALL (round 2 verified it on a clone).
+No text guard can see it, and D17's belt cannot either.
+
+**Verdict: ACCEPT — and already closed by RT-7's Arm B.** The grant genuinely
+happens, so the catalogue sees it once `pnpm test:db:setup` applies the
+migration. This is the argument for having a catalogue arm at all: text guards
+bound what the file may SAY, and only the catalogue bounds what it DOES.
+
+### RT-6 (P2) — carried forward, confirmed accurately recorded
+
+The 19 sibling tables. Confirmed recorded as a non-goal in D16, nothing more.
+
+### What round 2 also proved about the D12 fix
+
+The guarded ALTER is not decoration. Under a concurrent `AccessShareLock`
+holder, the guarded file completes in **64 ms**; the same ALTER issued
+unconditionally dies at `lock_timeout` after **5090 ms**. Round 2 also
+confirmed no NULL hazard (the `::regclass` cast errors rather than returning
+NULL), no nested-transaction hazard (14 other migrations wrap, including 116),
+and that a behind-head container fails FIRST with the intended
+`run pnpm test:db:setup` message.

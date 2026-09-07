@@ -22,15 +22,27 @@
 //
 // ── the two guards, and which one is load-bearing where ─────────────────────
 //
-// CATALOGUE (titles 1, 2, 4) proves the posture that EXISTS. Title 4 reads
-// `relacl` and `attacl` through `aclexplode` and asserts the client roles hold
-// NOTHING — every privilege type, table and column, including ones this
-// PostgreSQL does not have yet. That is deliberately not an enumeration of
-// SELECT/INSERT: `TRUNCATE` is exempt from row policies entirely, so a later
-// `GRANT TRUNCATE … TO authenticated` would let a client role empty the
-// dispatch spine with RLS on and zero policies still true. A future migration's
-// GRANT is applied by `pnpm test:db:setup` on every container, so this case
-// genuinely fails on that regression.
+// CATALOGUE (titles 1, 2, 4) proves the posture that EXISTS. Title 4 asks the
+// question TWICE, because two red-team rounds proved that either half alone
+// leaves a hole:
+//
+//   ARM A reads `relacl` and `attacl` through `aclexplode` — who is NAMED in
+//   the ACL, table and column, every privilege type including ones this
+//   PostgreSQL does not have yet. Round 1's lesson: `TRUNCATE` is exempt from
+//   row policies entirely, so `GRANT TRUNCATE … TO authenticated` would let a
+//   client role empty the dispatch spine with RLS on and zero policies still
+//   true — an enumeration of SELECT/INSERT never sees it.
+//
+//   ARM B asks what the roles can actually DO, over a privilege list derived
+//   from `acldefault` rather than spelled. Round 2's lesson: Arm A filters on
+//   grantee NAME, so `GRANT … TO PUBLIC` (grantee OID 0) sailed past it with
+//   the suite 6/6 green while `has_table_privilege('anon', …)` returned true.
+//   Arm B also catches a grant reaching `anon` through role MEMBERSHIP, and
+//   one whose SQL text never contains the word GRANT.
+//
+// A future migration's GRANT — named, PUBLIC, inherited or concatenated — is
+// applied by `pnpm test:db:setup` on every container, so this case genuinely
+// fails on that regression. Verified by mutation for all four shapes.
 //
 // FILE TEXT (title 3) proves what migration 119 ITSELF may contain, and it is
 // the ONLY environment-independent guard against a WIDENED revoke — which is
@@ -169,6 +181,10 @@ describe('migration 119 registries', () => {
     // as. It is the one statement in this file that could take the platform
     // down.
     expect(text).not.toMatch(/FORCE ROW LEVEL SECURITY/i);
+    // A self-cancelling DISABLE appended below the ENABLE leaves the file
+    // reading as if it hardens the table while shipping the drift it exists to
+    // close. Red team appended exactly that and passed every other case.
+    expect(text).not.toMatch(/DISABLE ROW LEVEL SECURITY/i);
   });
 });
 
@@ -242,22 +258,68 @@ describeWithDb(
       // asserting the client roles appear NOWHERE covers every privilege type
       // — TRUNCATE, REFERENCES, TRIGGER, MAINTAIN — instead of the two an
       // enumeration remembered to name.
-      const grants = await sql()<{ role: string; privilege_type: string; scope: string }[]>`
+      // ARM A — the ACL, table and column. Catches a direct grant to either
+      // client role AND to PUBLIC (grantee OID 0, which renders as `-`): a
+      // red-team round proved that filtering on grantee NAME alone let
+      // `GRANT SELECT, INSERT ON job_outbox TO PUBLIC` through with the suite
+      // 6/6 green, while `has_table_privilege('anon', …)` returned true.
+      const acl = await sql()<{ role: string; privilege_type: string; scope: string }[]>`
         SELECT acl.grantee::regrole::text AS role, acl.privilege_type, 'table' AS scope
           FROM pg_class cls
           CROSS JOIN LATERAL aclexplode(cls.relacl) AS acl
          WHERE cls.oid = 'public.job_outbox'::regclass
-           AND acl.grantee::regrole::text IN ('anon', 'authenticated')
+           AND (acl.grantee = 0 OR acl.grantee::regrole::text IN ('anon', 'authenticated'))
         UNION ALL
         SELECT acl.grantee::regrole::text, acl.privilege_type, 'column'
           FROM pg_attribute att
           CROSS JOIN LATERAL aclexplode(att.attacl) AS acl
          WHERE att.attrelid = 'public.job_outbox'::regclass
-           AND acl.grantee::regrole::text IN ('anon', 'authenticated')
+           AND (acl.grantee = 0 OR acl.grantee::regrole::text IN ('anon', 'authenticated'))
          ORDER BY 3, 1, 2
       `;
 
-      expect(grants).toEqual([]);
+      expect(acl).toEqual([]);
+
+      // ARM B — EFFECTIVE privilege, which is not the same question. Arm A
+      // reads who is named in the ACL; this asks what the role can actually
+      // do, so it also catches a grant reaching `anon` through role
+      // MEMBERSHIP, and a grant whose text never contains the word GRANT
+      // (a `DO` block executing `'GRA' || 'NT ALL …'` really does grant, and
+      // no text guard can see it — this arm can).
+      //
+      // The privilege list is DERIVED, never spelled: `acldefault('r', owner)`
+      // is the built-in owner ACL for a relation, so exploding it yields every
+      // privilege type THIS server has. That is load-bearing across
+      // environments — the local container is PostgreSQL 16 (7 types) and both
+      // Supabase projects are 17 (8, `MAINTAIN` added). A hardcoded list would
+      // either miss one there or raise `unrecognized privilege type` here.
+      //
+      // `has_table_privilege` is sound for these two roles even though it was
+      // the wrong tool for the OWNER: the superuser short-circuit that made
+      // the owner arms unfalsifiable does not apply to `anon` or
+      // `authenticated`, which are NOLOGIN non-superuser roles.
+      const effective = await sql()<{ role: string; privilege_type: string }[]>`
+        WITH server_privileges AS (
+          SELECT DISTINCT acl.privilege_type
+            FROM aclexplode(
+                   acldefault('r', (
+                     SELECT relowner FROM pg_class WHERE oid = 'public.job_outbox'::regclass
+                   ))
+                 ) AS acl
+        ),
+        client_roles AS (
+          SELECT unnest(ARRAY['anon', 'authenticated']) AS role
+        )
+        SELECT client_roles.role, server_privileges.privilege_type
+          FROM client_roles
+          CROSS JOIN server_privileges
+         WHERE has_table_privilege(
+                 client_roles.role, 'public.job_outbox', server_privileges.privilege_type
+               )
+         ORDER BY 1, 2
+      `;
+
+      expect(effective).toEqual([]);
     });
   },
 );
