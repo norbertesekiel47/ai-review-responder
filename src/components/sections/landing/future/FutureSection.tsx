@@ -288,6 +288,27 @@ export function FutureSection() {
           />
         </m.div>
         <span className="rw-lp-future-fog" aria-hidden="true" />
+      {/* Clouds past the horizon (owner request 2026-09-06): two generated
+          plates, white mist on pure black, screen-blended so the black drops
+          out and only the mist stays. They drift on CSS keyframes (covered
+          by the ambient pause rule), fade in from the horizon line, and sit
+          under the stops so the hints stay readable. Decorative. */}
+      <span className="rw-lp-future-clouds" aria-hidden="true">
+        <Image
+          src="/future/clouds-a.jpg"
+          alt=""
+          fill
+          sizes="(max-width: 900px) 0px, 45vw"
+          className="rw-lp-future-cloud rw-lp-future-cloud-a"
+        />
+        <Image
+          src="/future/clouds-b.jpg"
+          alt=""
+          fill
+          sizes="(max-width: 900px) 0px, 45vw"
+          className="rw-lp-future-cloud rw-lp-future-cloud-b"
+        />
+      </span>
 
         <Roads armed={armed} />
 

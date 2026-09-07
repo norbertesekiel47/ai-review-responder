@@ -155,7 +155,9 @@
   position: absolute;
   left: 0;
   right: 0;
-  z-index: 2;
+  /* Above the fog and the clouds (z 2), so the mist cannot spill over the
+     chart's edges; the stops (z 3, later in the DOM) still paint over it. */
+  z-index: 3;
   height: clamp(3rem, 8vh, 6rem);
   pointer-events: none;
 }
@@ -191,6 +193,59 @@
     rgb(var(--rw-lp-ink-rgb) / 0.45) 82%,
     rgb(var(--rw-lp-ink-rgb) / 0.72) 100%
   );
+}
+
+/* ---- clouds past the horizon ----
+   Screen blend: the plates are white mist on pure black, so black is a no-op
+   and only the mist lightens the chart. Under the stops (z 3), over the fog
+   wash (z 2) — the hints stay legible through them. Masked so they fade in
+   from the horizon line rather than starting on a hard edge. */
+.rw-lp-future-clouds {
+  position: absolute;
+  top: -8%;
+  bottom: -8%;
+  left: 58%;
+  right: -6%;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 38%, #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 38%, #000 100%);
+}
+
+.rw-lp-future-cloud {
+  object-fit: cover;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.rw-lp-future-cloud-a {
+  opacity: 0.55;
+  animation: rw-lp-future-drift-a 90s ease-in-out infinite alternate;
+}
+
+.rw-lp-future-cloud-b {
+  opacity: 0.4;
+  transform: scale(1.15);
+  animation: rw-lp-future-drift-b 130s ease-in-out infinite alternate;
+}
+
+@keyframes rw-lp-future-drift-a {
+  from {
+    transform: translate3d(-3%, 0, 0) scale(1.05);
+  }
+  to {
+    transform: translate3d(3%, -2%, 0) scale(1.1);
+  }
+}
+
+@keyframes rw-lp-future-drift-b {
+  from {
+    transform: translate3d(4%, 2%, 0) scale(1.15);
+  }
+  to {
+    transform: translate3d(-4%, -1%, 0) scale(1.2);
+  }
 }
 
 .rw-lp-future-chart {
@@ -675,7 +730,9 @@
 
 /* ---------- reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before {
+  .rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before,
+  .rw-lp-future-cloud-a,
+  .rw-lp-future-cloud-b {
     animation: none;
   }
   .rw-lp-future-stop,
@@ -728,6 +785,7 @@
   }
   .rw-lp-future-chart,
   .rw-lp-future-fog,
+  .rw-lp-future-clouds,
   .rw-lp-future-horizon-label,
   .rw-lp-future-today {
     display: none;

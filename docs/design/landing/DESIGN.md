@@ -347,6 +347,8 @@ stops, same order, every body visible.
 - The marker beside every unbuilt name is load-bearing: a skim reads names before
   bodies. Do not give a planned or horizon stop the lit treatment, and do not move the
   legend off the chart.
+- **Clouds past the horizon**: two generated plates screen-blended over the fog, drifting
+  on CSS keyframes (pause-rule covered), under the stops. See `measurements.md` assets.
 - **Unbuilt stops are hinted, not named** (owner decision 2026-09-06): the name is a
   short tease, the body one future-tense sentence about the outcome, the landmark the
   only literal clue. The stop-to-phase mapping is a comment in `future-copy.ts`.
