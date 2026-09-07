@@ -799,7 +799,9 @@ describe('scanWorkerNodeEnvReads — the deployment lane owns the lane question 
     expect(scanWorkerNodeEnvReads('worker/sentry.ts', src)).toEqual([]);
   });
 
-  it('static-policy exempts AccountOffboardingPurgePoller.ts by name and records #614 as the removal trigger', async () => {
+  it('static-policy no longer exempts AccountOffboardingPurgePoller.ts — its old NODE_ENV guard is flagged like any worker file (#614)', async () => {
+    // The guard the poller carried before #614. It is now a finding on the
+    // poller's own path, so the exemption cannot quietly come back.
     const purgeGuard =
       "if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production') { return null; }";
     expect(
@@ -807,23 +809,19 @@ describe('scanWorkerNodeEnvReads — the deployment lane owns the lane question 
         'worker/background/pollers/AccountOffboardingPurgePoller.ts',
         purgeGuard,
       ),
-    ).toEqual([]);
-    // The exemption is by exact path — a sibling poller gets no pass.
+    ).toHaveLength(1);
     expect(
       scanWorkerNodeEnvReads('worker/background/pollers/OutboxPoller.ts', purgeGuard),
     ).toHaveLength(1);
 
-    // …and the removal trigger is recorded next to the exemption itself, so the
-    // entry cannot outlive #614 without someone deleting the reason too.
+    // And the real file on disk is clean under the rule.
     const { readFile } = await import('node:fs/promises');
-    const auditLines = (await readFile('scripts/ci/static-policy-audit.ts', 'utf8')).split('\n');
-    const exemptionIndex = auditLines.findIndex((line) =>
-      line.includes('AccountOffboardingPurgePoller.ts'),
-    );
-    expect(exemptionIndex).toBeGreaterThanOrEqual(0);
-    const nearby = auditLines
-      .slice(Math.max(0, exemptionIndex - 15), exemptionIndex + 2)
-      .join('\n');
-    expect(nearby).toContain('#614');
+    const pollerPath = 'worker/background/pollers/AccountOffboardingPurgePoller.ts';
+    const pollerSource = await readFile(pollerPath, 'utf8');
+    expect(scanWorkerNodeEnvReads(pollerPath, pollerSource)).toEqual([]);
+
+    // No exemption set exists in the audit any more.
+    const auditSource = await readFile('scripts/ci/static-policy-audit.ts', 'utf8');
+    expect(auditSource).not.toContain('NODE_ENV_READ_EXEMPT_FILES');
   });
 });

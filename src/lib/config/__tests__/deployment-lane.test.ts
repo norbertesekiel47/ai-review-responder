@@ -222,15 +222,20 @@ describe('requiresProductionConfig', () => {
     expect(requiresProductionConfig({ RAILWAY_ENVIRONMENT_NAME: '' })).toBe(false);
   });
 
-  it('requiresProductionConfig() is false when only VERCEL_ENV is production, which is why the purge poller is not migrated to it', () => {
+  it('requiresProductionConfig() is false when only VERCEL_ENV is production, which is why the purge poller was migrated to deploymentLane() and not to it (#614)', () => {
     const vercelOnly: SiteEnv = { VERCEL_ENV: 'production' };
     // AccountOffboardingPurgePoller.ts — the one site whose original expression
-    // carries a VERCEL_ENV term the union does not model.
+    // carried a VERCEL_ENV term the union does not model. It now refuses the
+    // purge-window override on `deploymentLane() === 'production'` only; the
+    // union was never a monotone substitute for it, and it would also be true on
+    // the staging Railway lane — the one lane the override exists for.
     const purgePollerOriginal = (env: SiteEnv) =>
       env.NODE_ENV === 'production' || env.VERCEL_ENV === 'production';
 
     expect(purgePollerOriginal(vercelOnly)).toBe(true);
     expect(requiresProductionConfig(vercelOnly)).toBe(false);
+    expect(requiresProductionConfig({ RAILWAY_ENVIRONMENT_NAME: 'staging', NODE_ENV: 'production' })).toBe(true);
+    expect(deploymentLane({ RAILWAY_ENVIRONMENT_NAME: 'staging', NODE_ENV: 'production' })).toBe('staging');
   });
 });
 

@@ -250,15 +250,26 @@ Confirm each before starting. Check the box and record the value/evidence.
 | `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES` | `3` (dry-run) | Confirmed `3` on the staging worker. §4.9 cap verified at 3. |
 | `ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_COOLDOWN_MS` | `60000` (dry-run) | Confirmed `60000` on the staging worker. |
 
-> ⚠️ **`ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` does NOT work on this staging
-> worker.** Confirmed: the Railway staging worker runs `NODE_ENV=production`, which
-> refuses the override. Purge/reminder timing was driven by shortening `purge_after`
-> directly via SQL on disposable rows. **Additional finding:** a DB trigger
-> (`enforce_account_offboarding_purge_after_token_expiry`) rejects setting
-> `purge_after` earlier than an *active* keep-my-data token's `expires_at`, so the
-> §4.5 shortcut also requires revoking/expiring the keep-my-data token first
-> (good safety invariant — but the bare `UPDATE purge_after = NOW()` in §4.5 is
-> insufficient on its own).
+> ⚠️ **`ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` on the staging worker.**
+> During the 2026-06-08 dry-run the override did NOT work there: the Railway staging
+> worker runs `NODE_ENV=production`, and the poller refused on that alone. Since
+> **#614** the refusal is `deploymentLane() === 'production'` (ADR 0013) — the
+> Railway environment name wins over `NODE_ENV`, so the `staging` lane honours the
+> override and the production lane refuses it. Two rules still apply:
+>
+> 1. **A live keep-my-data token blocks the claim, by design.** The claim query
+>    carries an active-token `NOT EXISTS` (#614), so an override-window row is not
+>    claimed while an unconsumed, unrevoked, unexpired token exists. To reach the
+>    purge early on a disposable row, **revoke** its live tokens first:
+>    `UPDATE account_offboarding_tokens SET revoked_at = NOW(), revoked_reason = 'staging_dry_run' WHERE account_offboarding_id = '<id>' AND consumed_at IS NULL AND revoked_at IS NULL;`
+>    Do NOT *consume* the token for this — consuming it is the keep-my-data path
+>    (§4.4): it sets `purge_cancelled_at` and moves the row to `churned`, which
+>    is the cancellation scenario, not a way to reach the purge.
+> 2. **Shortening `purge_after` by SQL (§4.5) is still guarded by a DB trigger.**
+>    `enforce_account_offboarding_purge_after_token_expiry` rejects a `purge_after`
+>    earlier than an *active* token's `expires_at`, so that shortcut also needs the
+>    revoke above first. The bare `UPDATE purge_after = NOW()` is insufficient on
+>    its own.
 
 The recovery/reminder pollers below were left **unset** (defaults exercised):
 

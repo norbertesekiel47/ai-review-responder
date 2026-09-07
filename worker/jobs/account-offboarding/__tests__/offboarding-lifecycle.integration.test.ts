@@ -141,7 +141,10 @@ import {
 import { requestCancelOnlyReactivation } from '../../../../src/lib/account-offboarding/reactivation-request';
 import { keepMyDataWithToken } from '../../../../src/lib/account-offboarding/keep-my-data';
 import { hashAccountOffboardingToken } from '../../../../src/lib/account-offboarding/tokens';
-import { runAccountOffboardingPurgeOnce } from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
+import {
+  getAccountOffboardingPurgeWindowOverrideMs,
+  runAccountOffboardingPurgeOnce,
+} from '../../../../worker/background/pollers/AccountOffboardingPurgePoller';
 import { handleAccountOffboardingPurge } from '../PurgeWorker';
 import { handleAccountOffboardingEmail } from '../AccountOffboardingEmailWorker';
 import {
@@ -962,6 +965,155 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       const topics = await outboxTopicsForOffboarding(offboardingId);
       expect(topics).toContain('account_offboarding_email');
     } finally {
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  // #614. This suite runs with the purge-window override at 2h, so a row whose
+  // purge_after is 1h out IS inside the claim window. The 056 trigger cannot
+  // help here — it guards writes to purge_after, and the override never writes
+  // purge_after — so the claim predicate itself must refuse a live token. Real
+  // predicate, real schema, real trigger (the token's expires_at must be <=
+  // purge_after or the 056 token trigger rejects the fixture).
+  it('the purge-window override never claims a row while a keep-my-data token is live, and claims it once the token is revoked (#614)', async () => {
+    expect(getAccountOffboardingPurgeWindowOverrideMs()).toBe(2 * 60 * 60 * 1000);
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    try {
+      const sql = getE2eSql();
+      const offboardingId = randomUUID();
+      const tokenId = randomUUID();
+      await sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO account_offboardings (
+            id, account_id, mode, status, purge_after, teardown_completed_at,
+            location_ids, recipient_email
+          ) VALUES (
+            ${offboardingId}::uuid, ${seed.accountId}::uuid, 'delete_data',
+            'purge_scheduled', NOW() + INTERVAL '1 hour', NOW(),
+            ${[seed.businessId]}::uuid[], ${seed.ownerEmail}
+          )
+        `;
+        await tx`
+          INSERT INTO account_offboarding_tokens (
+            id, account_offboarding_id, token_hash, expires_at, created_by_user_id
+          ) VALUES (
+            ${tokenId}::uuid, ${offboardingId}::uuid,
+            ${hashAccountOffboardingToken('seeded-live-keep-my-data-token-614')},
+            NOW() + INTERVAL '30 minutes', ${seed.userId}::uuid
+          )
+        `;
+      });
+
+      // Live token: the override window admits the date, the token refuses the row.
+      await runAccountOffboardingPurgeOnce();
+      const [blocked] = await sql<{
+        purge_started_at: Date | string | null;
+        revoked_at: Date | string | null;
+      }[]>`
+        SELECT ao.purge_started_at, t.revoked_at
+        FROM account_offboardings ao
+        JOIN account_offboarding_tokens t ON t.account_offboarding_id = ao.id
+        WHERE ao.id = ${offboardingId}::uuid AND t.id = ${tokenId}::uuid
+      `;
+      expect(blocked?.purge_started_at).toBeNull();
+      expect(blocked?.revoked_at).toBeNull();
+      expect(await outboxTopicsForOffboarding(offboardingId)).not.toContain('account_offboarding_purge');
+
+      // Token revoked (the keep-my-data window is over): the same row is claimable.
+      await sql`
+        UPDATE account_offboarding_tokens
+        SET revoked_at = NOW(), revoked_reason = 'integration_window_over'
+        WHERE id = ${tokenId}::uuid
+      `;
+      await runAccountOffboardingPurgeOnce();
+      const [claimed] = await sql<{ purge_started_at: Date | string | null }[]>`
+        SELECT purge_started_at FROM account_offboardings WHERE id = ${offboardingId}::uuid
+      `;
+      expect(claimed?.purge_started_at).not.toBeNull();
+      expect(await outboxTopicsForOffboarding(offboardingId)).toContain('account_offboarding_purge');
+    } finally {
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  // #614 Part C. The email worker reads the offboarding row UNLOCKED, then
+  // issues the keep-my-data token. A purge claim that commits in between would
+  // leave a live link on a purge already in flight. Two live connections: a
+  // competitor holds the parent row FOR UPDATE with an UNCOMMITTED
+  // purge_started_at — so the handler's outer read still passes validation and
+  // reaches the token path — and the handler must block on the parent lock,
+  // then refuse once the claim commits. Same parked-transaction pattern as the
+  // #582 test below.
+  it('does not issue a keep-my-data token once the purge claim has committed under the unlocked read (#614)', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const sql = getE2eSql();
+    const offboardingId = randomUUID();
+    let releaseClaim: (() => void) | undefined;
+    try {
+      await sql`
+        INSERT INTO account_offboardings (
+          id, account_id, mode, status, purge_after, teardown_completed_at,
+          location_ids, recipient_email
+        ) VALUES (
+          ${offboardingId}::uuid, ${seed.accountId}::uuid, 'delete_data',
+          'purge_scheduled', NOW() + INTERVAL '1 hour', NOW(),
+          ${[seed.businessId]}::uuid[], ${seed.ownerEmail}
+        )
+      `;
+
+      // Stand in for the poller's claim transaction: lock the parent, stamp
+      // purge_started_at, park before commit.
+      let signalLockHeld: (() => void) | undefined;
+      const lockHeld = new Promise<void>((resolve) => { signalLockHeld = resolve; });
+      const claimMayFinish = new Promise<void>((resolve) => { releaseClaim = resolve; });
+      const claim = sql.begin(async (tx) => {
+        await tx`SELECT id FROM account_offboardings WHERE id = ${offboardingId}::uuid FOR UPDATE`;
+        await tx`UPDATE account_offboardings SET purge_started_at = NOW() WHERE id = ${offboardingId}::uuid`;
+        signalLockHeld?.();
+        await claimMayFinish;
+      });
+      await lockHeld;
+
+      mockSendInternalEmail.mockClear();
+      const send = handleAccountOffboardingEmail(sql, {
+        id: 'race-614',
+        data: {
+          account_offboarding_id: offboardingId,
+          account_id: seed.accountId,
+          email_type: 'delete_data_confirmation',
+          outbox_id: randomUUID(),
+          outbox_attempt: 1,
+        },
+      } as Parameters<typeof handleAccountOffboardingEmail>[1]);
+      // Swallow here only so the race can observe "still pending"; the rejection
+      // itself is asserted after release.
+      const settled = Symbol('settled');
+      const outcome = await Promise.race([
+        send.then(() => settled, () => settled),
+        new Promise((resolve) => setTimeout(() => resolve('blocked'), 750)),
+      ]);
+      expect(outcome).toBe('blocked');
+
+      releaseClaim?.();
+      releaseClaim = undefined;
+      await claim;
+      await expect(send).rejects.toThrow('account_offboarding_purge_already_started');
+
+      const [tokens] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM account_offboarding_tokens
+        WHERE account_offboarding_id = ${offboardingId}::uuid
+      `;
+      expect(Number(tokens?.count ?? 0)).toBe(0);
+      expect(mockSendInternalEmail).not.toHaveBeenCalled();
+      // The delivery claim taken before the token path was released by the
+      // handler's rollback, so the BullMQ retry can re-run cleanly.
+      const [deliveries] = await sql<{ count: number | string | bigint }[]>`
+        SELECT COUNT(*) AS count FROM notification_deliveries
+        WHERE account_id = ${seed.accountId}::uuid
+      `;
+      expect(Number(deliveries?.count ?? 0)).toBe(0);
+    } finally {
+      releaseClaim?.();
       await cleanupOwnerOffboardingSeed(seed);
     }
   });

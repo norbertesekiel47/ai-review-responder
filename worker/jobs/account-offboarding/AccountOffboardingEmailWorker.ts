@@ -303,7 +303,7 @@ export async function handleAccountOffboardingEmail(
   let keepMyDataToken: KeepMyDataToken | null = null;
   try {
     keepMyDataToken = descriptor.needsKeepMyDataToken
-      ? await ensureKeepMyDataToken(sql, offboarding, deliveryId)
+      ? await ensureKeepMyDataToken(sql, offboarding, deliveryId, emailType)
       : null;
     const bodyHtml = descriptor.buildBody(offboarding, keepMyDataToken);
     const result = await sendInternalEmail({
@@ -565,6 +565,7 @@ async function ensureKeepMyDataToken(
   sql: postgres.Sql,
   row: AccountOffboardingEmailRow,
   deliveryId: string,
+  emailType: RowBackedEmailType,
 ): Promise<KeepMyDataToken> {
   if (!row.purge_after) {
     throw new Error('account_offboarding_missing_purge_after');
@@ -576,37 +577,60 @@ async function ensureKeepMyDataToken(
   const tokenHash = hashAccountOffboardingToken(rawToken);
   const tokenId = uuidv7();
 
-  const inserted = await sql<{ id: string }[]>`
-    INSERT INTO account_offboarding_tokens
-      (id, account_offboarding_id, token_hash, token_type, expires_at)
-    VALUES (
-      ${tokenId}::uuid,
-      ${row.id}::uuid,
-      ${tokenHash},
-      'keep_my_data',
-      ${row.purge_after}
-    )
-    ON CONFLICT (token_hash) DO NOTHING
-    RETURNING id
-  `;
-  if (inserted[0]) return { id: inserted[0].id, rawToken, created: true };
+  // #614: the token is issued only against a parent row that is still
+  // purge-eligible AT INSERT TIME. The handler's read above (`offboarding`) is
+  // unlocked, and AccountOffboardingPurgePoller's claim can commit between it
+  // and this insert — leaving a live keep-my-data link on a purge already in
+  // flight. The poller holds FOR UPDATE on the parent for its whole claim
+  // transaction, so this FOR UPDATE waits for it and then re-reads
+  // purge_started_at. (In the other order the poller's SKIP LOCKED skips this
+  // row for the cycle and the next cycle sees the committed token.)
+  // FOR UPDATE is only real inside sql.begin — never hoist this out of it.
+  return sql.begin(async (tx) => {
+    const [locked] = await tx<AccountOffboardingEmailRow[]>`
+      SELECT id, account_id, mode, status, access_ends_at, purge_after, purge_started_at,
+             purge_cancelled_at, terminal_at, recipient_email, location_ids
+      FROM account_offboardings
+      WHERE id = ${row.id}::uuid
+        AND account_id = ${row.account_id}::uuid
+      FOR UPDATE
+    `;
+    if (!locked) throw new Error('account_offboarding_not_found');
+    const revalidationError = validateEmailOffboarding(locked, emailType);
+    if (revalidationError) throw new Error(revalidationError);
 
-  const [existing] = await sql<{ id: string }[]>`
-    SELECT t.id
-    FROM account_offboarding_tokens t
-    JOIN account_offboardings ao ON ao.id = t.account_offboarding_id
-    WHERE t.token_hash = ${tokenHash}
-      AND t.account_offboarding_id = ${row.id}::uuid
-      AND ao.account_id = ${row.account_id}::uuid
-      AND t.token_type = 'keep_my_data'
-      AND t.consumed_at IS NULL
-      AND t.revoked_at IS NULL
-      AND t.expires_at > NOW()
-    LIMIT 1
-  `;
-  if (!existing) throw new Error('keep_my_data_token_conflict_unusable');
+    const inserted = await tx<{ id: string }[]>`
+      INSERT INTO account_offboarding_tokens
+        (id, account_offboarding_id, token_hash, token_type, expires_at)
+      VALUES (
+        ${tokenId}::uuid,
+        ${row.id}::uuid,
+        ${tokenHash},
+        'keep_my_data',
+        ${row.purge_after}
+      )
+      ON CONFLICT (token_hash) DO NOTHING
+      RETURNING id
+    `;
+    if (inserted[0]) return { id: inserted[0].id, rawToken, created: true };
 
-  return { id: existing.id, rawToken, created: false };
+    const [existing] = await tx<{ id: string }[]>`
+      SELECT t.id
+      FROM account_offboarding_tokens t
+      JOIN account_offboardings ao ON ao.id = t.account_offboarding_id
+      WHERE t.token_hash = ${tokenHash}
+        AND t.account_offboarding_id = ${row.id}::uuid
+        AND ao.account_id = ${row.account_id}::uuid
+        AND t.token_type = 'keep_my_data'
+        AND t.consumed_at IS NULL
+        AND t.revoked_at IS NULL
+        AND t.expires_at > NOW()
+      LIMIT 1
+    `;
+    if (!existing) throw new Error('keep_my_data_token_conflict_unusable');
+
+    return { id: existing.id, rawToken, created: false };
+  });
 }
 
 function buildKeepMyDataUrl(appUrl: string, rawToken: string): string {
