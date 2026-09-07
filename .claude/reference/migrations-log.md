@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **118** — next migration is **119**
+Current head: **119** — next migration is **120**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2678,6 +2678,58 @@ Revisit triggers:
   suite's requirement is an honest proof rather than the false-proof hazard
   105's, 108's, 110's and 111's entries describe.
 
+- **119** — `job_outbox` deny-all RLS (#1171). **LOCAL-ONLY.** No new relation,
+  column, index or constraint: `ALTER TABLE job_outbox ENABLE ROW LEVEL
+  SECURITY` PLUS `REVOKE ALL … FROM anon, authenticated`, under
+  `SET lock_timeout = '5s'`, plus a `COMMENT ON TABLE`. Session-scoped, NOT
+  `SET LOCAL`: `scripts/test-db-setup.sh` applies each file through psql
+  outside a transaction block, where `SET LOCAL` warns and does nothing, and a
+  bound that vanishes in one application path is worse than none on the
+  busiest table in the schema (092/101 precedent, not 088/109/114's).
+  **The drift it closes.** `job_outbox` was the ONLY table of the 54 in schema
+  `public` whose RLS state differed between the projects — prod
+  `relrowsecurity` true, staging FALSE, zero policies on both — while `anon`
+  and `authenticated` held Supabase's default table privileges on both. RLS
+  off plus `anon` INSERT is not a disclosure bug alone: `OutboxPoller`
+  dispatches whatever rows it finds without asking who wrote them, so anyone
+  holding the public staging anon key could enqueue a job. The local test
+  container carried staging's posture.
+  **Provenance — this is 107's deferred half.** Prod (2026-04-05) shipped with
+  the Supabase `ensure_rls` DDL event trigger; staging (2026-05-30) was
+  provisioned after Supabase dropped it, so prod acquired the posture for free
+  and staging never did. Migration 107 removed the GENERATOR and deliberately
+  left its past output alone, recording that the `job_outbox` repair was owed
+  its own reviewed migration. Convergence is UPWARD, toward the posture prod
+  has run without incident since 2026-04-05 — that five months is the strongest
+  safety evidence the change has.
+  **Why it cannot break the worker.** Nothing reaches `job_outbox` through
+  supabase-js (`rg` for `from('job_outbox')` in `src` + `worker`: zero
+  matches, 2026-09-07); every enqueue, claim, dispatch and sweep goes through
+  Postgres.js as the table OWNER, and PostgreSQL exempts the owner from RLS
+  unless FORCE is set. FORCE stays off, asserted in both catalogue and file
+  text — setting it would deny the outbox to its only writer and stop every
+  async job in the platform.
+  **Why the REVOKE, and why exactly two roles.** RLS filters rows, not table
+  privileges (117/118 precedent). The revoke names `anon` and `authenticated`
+  ONLY. The suite pins that there is exactly ONE `REVOKE` line and that it
+  mentions neither the owner, nor `service_role`, nor `PUBLIC`: the dangerous
+  mutation here is a WIDER revoke, not a missing one.
+  **Registries: none change.** `job_outbox` stays in
+  `REVIEWED_NOT_TENANT_SCOPED` and OUT of `TENANT_TABLES` (owner decision,
+  2026-09-07). Membership also switches on `ci:tenant-scope`, which demands an
+  `account_id`/`business_id` predicate on every binding; the table carries
+  neither column and 78 production files bind it, so membership would cost
+  dozens of allowlist entries and audit nothing real. `ci:rls-audit` therefore
+  does NOT cover this table, and the regression guard is
+  `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts` —
+  the role 117's suite plays for `admin_audit_log`.
+  **Known limit of the local guard.** `scripts/ci/test-db-bootstrap.sql` grants
+  `anon`/`authenticated` schema USAGE and nothing on any table, so a catalogue
+  privilege assertion is VACUOUS locally. The REVOKE's guard is the migration
+  file text (a DB-free case that can never silently skip); its proof in the two
+  real environments is post-apply introspection. `assertSchemaReady` likewise
+  cannot gate this suite — 119 creates no object for `SchemaRequirement` to
+  name — so the RLS case carries the "run pnpm test:db:setup" message itself.
 - **118** — `poller_heartbeats` (#949). **New table**, two columns, deny-all
   RLS (zero policies) PLUS `REVOKE ALL … FROM anon, authenticated`, no index
   beyond the primary key. Durable background-loop liveness: one row per poller,

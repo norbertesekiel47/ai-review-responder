@@ -1,0 +1,92 @@
+-- Migration 119: deny-all row level security on `job_outbox` (#1171)
+--
+-- Closes the last staging/prod RLS drift, surfaced by research ticket #1160
+-- (admin split map #1159) and introspected 2026-09-07.
+--
+-- WHAT WAS WRONG
+-- `job_outbox` was the ONLY table of the 54 in schema `public` whose RLS state
+-- differed between the two Supabase projects:
+--
+--   production  (udeyaqnvpojbwgoaxwdg)  relrowsecurity = true,  0 policies
+--   staging     (kubdiqdhqbhwmqfditeg)  relrowsecurity = FALSE, 0 policies
+--
+-- and on BOTH projects `anon` and `authenticated` still hold the Supabase
+-- default table privileges. With RLS off, that combination is not a disclosure
+-- bug alone: `anon` holds INSERT, and `OutboxPoller` dispatches whatever rows
+-- it finds to BullMQ without asking who wrote them. Anyone holding the public
+-- staging anon key could therefore enqueue a job of their choosing. The local
+-- test database carried the same posture as staging.
+--
+-- WHY THE DRIFT EXISTED (provenance: migration 107's header)
+-- Production was provisioned 2026-04-05 from a Supabase template carrying the
+-- `ensure_rls` DDL event trigger, which issued
+-- `ALTER TABLE <new table> ENABLE ROW LEVEL SECURITY` after every CREATE TABLE
+-- in `public`. Staging was provisioned 2026-05-30, after Supabase dropped it.
+-- Production therefore acquired this posture for free and staging never did;
+-- no migration in this repo ever asked for it. Migration 107 removed the
+-- generator and DELIBERATELY left its past output alone, recording that the
+-- `job_outbox` repair was a reviewed change owed its own migration. This is
+-- that migration, and it converges UPWARD — toward the stricter posture that
+-- production has already run without incident since 2026-04-05.
+--
+-- WHY THIS IS SAFE FOR THE WORKER
+-- Nothing reaches `job_outbox` through supabase-js: every enqueue, claim,
+-- dispatch and sweep goes through Postgres.js as the table OWNER, and
+-- PostgreSQL exempts a table's owner from RLS unless FORCE is set. FORCE is
+-- deliberately NOT set here, and the accompanying suite asserts
+-- `relforcerowsecurity = false` — setting it would deny the outbox to its only
+-- writer and stop every async job in the platform. `service_role` additionally
+-- carries BYPASSRLS. The strongest evidence is empirical: production has run
+-- this exact posture for five months.
+--
+-- WHY THE REVOKE
+-- RLS filters ROWS; it does not remove a table privilege (117/118 precedent).
+-- The revoke names `anon` and `authenticated` ONLY — never the owner, never
+-- `service_role`, never PUBLIC. It removes the relation from the PostgREST
+-- surface those two keys reach, so the deny is a permission error rather than
+-- an empty result set.
+--
+-- NO POLICY IS ADDED, deliberately. Zero policies IS the deny-all guarantee,
+-- the same posture as `auto_approval_policies`, `poller_heartbeats` (118) and
+-- `admin_audit_log` (117). There is no owner-facing read of the outbox, so any
+-- policy at all would open a wider door than the product needs.
+--
+-- REGISTRIES: none change. `job_outbox` stays in `REVIEWED_NOT_TENANT_SCOPED`
+-- and OUT of `TENANT_TABLES` (owner decision, 2026-09-07): membership also
+-- switches on `ci:tenant-scope`, which demands an account_id/business_id
+-- predicate on every binding, and the table carries neither column while 78
+-- production files bind it. `ci:rls-audit` audits only `TENANT_TABLES`, so the
+-- regression guard for this boundary is
+-- `src/lib/shared/__tests__/migration-119-job-outbox-rls.integration.test.ts`,
+-- exactly as 117's suite guards `admin_audit_log`.
+--
+-- LOCKING
+-- `job_outbox` is the busiest table in the schema and the ALTER takes an
+-- ACCESS EXCLUSIVE lock. `lock_timeout` bounds the acquisition so the
+-- statement fails fast rather than queueing behind a long-lived Supavisor
+-- session and blocking every outbox write for the duration.
+--
+-- IDEMPOTENT / LOCKSTEP
+-- The ALTER is a no-op on production (already enabled) and does not error; it
+-- is the substantive statement on staging and on the local test database. The
+-- revoke is a real change on both projects. Apply staging FIRST, then
+-- production, in the same change window. Verify by introspection
+-- (`pg_class.relrowsecurity` / `pg_class.relforcerowsecurity` /
+-- `pg_policies` count = 0 / `has_table_privilege`), NEVER the Supabase
+-- migration ledger, which does not track this repo's 0xx migrations.
+
+-- Session-scoped, NOT `SET LOCAL`: `scripts/test-db-setup.sh` applies each
+-- migration file through psql outside a transaction block, where `SET LOCAL`
+-- warns and does nothing. A bound that silently disappears in one application
+-- path is worse than no bound, and this statement takes ACCESS EXCLUSIVE on
+-- the busiest table in the schema (092/101 precedent).
+SET lock_timeout = '5s';
+
+ALTER TABLE job_outbox ENABLE ROW LEVEL SECURITY;
+
+-- Deliberately NO policies: deny-all. Server reaches the table through the
+-- RLS-bypassing owner role only.
+REVOKE ALL ON job_outbox FROM anon, authenticated;
+
+COMMENT ON TABLE job_outbox IS
+  'Transactional outbox (invariant #2): the platform dispatch spine. A state change and its follow-up job are written in ONE Postgres transaction; OutboxPoller dispatches pending rows to BullMQ. Platform-scoped — scoping rides the enqueuing transaction, so the table carries no tenant column and is REVIEWED_NOT_TENANT_SCOPED rather than a TENANT_TABLES member. Deny-all RLS since migration 119 (#1171), zero policies, client-role privileges revoked; FORCE is deliberately off because every writer connects as the table owner.';
