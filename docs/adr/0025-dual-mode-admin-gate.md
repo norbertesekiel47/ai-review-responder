@@ -138,6 +138,12 @@ Facts inherited from research #1160, not re-derived here:
    without a CORS preflight, and no CORS exists on this app
    (`next.config.mjs:24-63`), so the precedence rule is not a CSRF hole.
 
+   > **Amended by ADR 0026 D7 (2026-09-07).** CORS now exists. The premise
+   > "no CORS exists on this app" is stale; the operative control is the
+   > **Admin origin allowlist** — only an allowlisted origin receives a
+   > preflight that permits `Authorization`. The conclusion is unchanged.
+   > Read `docs/adr/0026-admin-api-cors.md` D7 before relying on this decision.
+
 8. **CSRF gets a second wrapper, `withSameOriginUnlessBearer()`, applied to admin
    mutation routes at the export.** `withSameOrigin()` keeps its meaning and
    owner routes are untouched.
