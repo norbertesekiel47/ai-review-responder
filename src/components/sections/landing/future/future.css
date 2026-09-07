@@ -253,8 +253,18 @@
   z-index: 2;
   pointer-events: none;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 38%, #000 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 38%, #000 100%);
+  /* Two masks intersected: fade in from the horizon line (left) AND thin
+     out at the layer's top and bottom, so its box never shows as an edge —
+     without the vertical fade the plates were cut flat at the layer's top,
+     a visible horizontal line under the legend (owner, 2026-09-06). */
+  -webkit-mask-image:
+    linear-gradient(90deg, transparent 0%, #000 38%, #000 100%),
+    linear-gradient(180deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(90deg, transparent 0%, #000 38%, #000 100%),
+    linear-gradient(180deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
+  mask-composite: intersect;
 }
 
 .rw-lp-future-cloud {
