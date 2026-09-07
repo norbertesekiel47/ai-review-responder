@@ -157,7 +157,7 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Your booking system will have something to say, and the ask will take care of itself.',
     state: 'planned',
     marker: 'Phase 1',
-    x: 1010,
+    x: 1040,
     y: 605,
     label: 'above',
     landmark: '/future/stops/connectors.webp',
