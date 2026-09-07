@@ -208,6 +208,11 @@ export const REVIEWED_NOT_TENANT_SCOPED: readonly { table: string; reason: strin
       'Analytics event outbox: rows carry tenant ids as event attributes, but every reader is the platform dispatch poller or an admin rollup — cross-tenant by design; no per-tenant access path flows through this table.',
   },
   {
+    table: 'poller_heartbeats',
+    reason:
+      'Background-loop liveness (migration 118, #949): one row per POLLER, no account_id and no foreign key of any kind — it records that a loop completed a cycle, not that a tenant did anything. Deny-all RLS with client-role privileges revoked; the only writer is recordPollerCycle (src/lib/shared/poller-liveness.ts) over the RLS-bypassing Postgres.js role. Deliberately ABSENT from TABLE_DISPOSITIONS, unlike admin_audit_log above: that table is classified only because `actor_user_id` is on the offboarding account-linked column scan, and this one has no such column, so table-disposition.test.ts (which asserts EXACT equality with TENANT_TABLES + the explicit lists) would fail on an entry here.',
+  },
+  {
     table: 'flagged_responses',
     reason:
       'Held-draft flag rows (invariant #4): admin dispositions address the flag row by id behind the admin gate, alerting counts are cross-tenant, and owner-facing holds ride the RESPONSE row (src/lib/moderation/held-draft.ts owns the convention note).',

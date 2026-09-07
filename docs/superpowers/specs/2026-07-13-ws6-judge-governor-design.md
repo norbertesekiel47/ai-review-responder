@@ -550,9 +550,16 @@ exponential + jitter).
   sitting in their veto window are braked only by the veto window itself
   (integration review 2026-07-13, accepted — a publisher-side suspension check
   is a candidate follow-up, not WS6 scope).
-- Judge-health staleness is throughput-based (see §6) and therefore blind to a
+- ~~Judge-health staleness is throughput-based (see §6) and therefore blind to a
   DEAD SWEEP that never enqueues: the `JUDGE_ENABLED`-off downgrade and the
-  error-density signal remain the covers for that mode.
+  error-density signal remain the covers for that mode.~~ **CLOSED (#949,
+  migration 118).** The covers named here never covered it: the kill-switch
+  downgrade fires on the FLAG, not on the loop, and error density needs verdicts
+  a dead sweep never produces. `isJudgeHealthy` now has a third arm reading a
+  durable `poller_heartbeats` row that `runJudgeSweepCycle` writes after each
+  completed cycle, stale past 15 minutes and FAILING CLOSED on a missing row.
+  `checkJudgeSweepLiveness` pages on the same signal so the downgrade is not
+  silent.
 - Governor detached-timeout overlap: a cycle that outlives its guarded-poll
   deadline keeps running detached and may interleave cursor writes with the
   next cycle — bounded and accepted (suspends are idempotent, circular
@@ -673,7 +680,8 @@ win over the body and the per-task amendments above.
   status) older than the limit exists — the judge system must have KNOWN about
   the row and produced nothing. An old unjudged post that merely re-enters
   eligibility (past-due recovery, admin extension, `JUDGE_ENABLED` off→on) no
-  longer downgrades the fleet. Accepted blind spot recorded in §5 (dead sweep).
+  longer downgrades the fleet. The dead-sweep blind spot this arm leaves is no
+  longer accepted — §5 records it as CLOSED by #949's sweep-liveness arm.
 - **§2.8 error density excludes budget decisions:** the failed hook classifies
   `CostLimitExceeded`/`GlobalCostLimitExceeded` exhaustions and marks their
   `error` verdicts `reasons: ['budget_exceeded']`; the density numerator

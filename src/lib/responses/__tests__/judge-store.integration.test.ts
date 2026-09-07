@@ -18,7 +18,9 @@ import {
   listUnjudgedAutoPosts,
   type InsertJudgeVerdictInput,
 } from '../judge-store';
-import { isJudgeHealthy } from '../judge-health';
+import { isJudgeHealthy, JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS } from '../judge-health';
+import { POLLER_JUDGE_SWEEP, recordPollerCycle } from '@/lib/shared/poller-liveness';
+import { assertSchemaReady } from '@/lib/shared/__tests__/helpers/schema-ready';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -139,6 +141,23 @@ async function sqlPublisherEligibilityPair(flags: postgresType.JSONValue): Promi
 describeWithDb('judge verdict store against live local Postgres', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     db = postgres(assertExactLocalDatabaseUrl(testDatabaseUrl), { max: 1, prepare: false });
+    await assertSchemaReady(db, [
+      { migration: '118_poller_heartbeats', tables: ['poller_heartbeats'] },
+    ]);
+    // #949 arm 3 fails CLOSED, so EVERY `isJudgeHealthy(...) === true` assertion
+    // in this suite now depends on a fresh sweep heartbeat existing. Without
+    // this line each of them would flip to false, and — worse — the two
+    // `=== false` assertions would start passing for the wrong reason, proving
+    // nothing about staleness or error density.
+    //
+    // Upsert and NEVER delete. `poller_heartbeats` is keyed by poller name, so
+    // the `judge_sweep` row is a process-wide singleton that concurrent live-DB
+    // vitest PROCESSES (scripts/verify-gate.sh runs several) all share. An
+    // upsert is safe under that sharing because every writer writes the same
+    // thing — a fresher timestamp — and a fresher heartbeat can never break
+    // another suite's expectation. A DELETE in afterAll could, which is exactly
+    // why this suite does not clean the row up.
+    await recordPollerCycle(db, POLLER_JUDGE_SWEEP);
     activeTenant = await seedTenantAccount(db, {
       userName: 'Judge Store Active Owner',
       accountDisplayName: 'Judge Store Active Account',
@@ -384,6 +403,66 @@ describeWithDb('judge verdict store against live local Postgres', { timeout: 30_
         )
     `;
     await expect(isJudgeHealthy(sql())).resolves.toBe(false);
+  });
+
+  // ── #949: the sweep-liveness arm against real Postgres ────────────────────
+  // The unit suite pins the thresholds. What only a live database can prove is
+  // that the upsert and the read agree about the same row, and that the age is
+  // computed on the DATABASE clock rather than the worker's.
+  it('reads the sweep heartbeat it just wrote, and ages it on the database clock', async () => {
+    await recordPollerCycle(sql(), POLLER_JUDGE_SWEEP);
+
+    const [row] = await sql()<{ age_seconds: number; name: string }[]>`
+      SELECT
+        poller_name AS name,
+        EXTRACT(EPOCH FROM (NOW() - last_cycle_at))::int AS age_seconds
+      FROM poller_heartbeats
+      WHERE poller_name = ${POLLER_JUDGE_SWEEP}
+    `;
+    expect(row?.name).toBe(POLLER_JUDGE_SWEEP);
+    expect(row!.age_seconds).toBeLessThan(JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS);
+
+    // A second call UPDATES rather than inserting: the row is a singleton.
+    await recordPollerCycle(sql(), POLLER_JUDGE_SWEEP);
+    const [count] = await sql()<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM poller_heartbeats WHERE poller_name = ${POLLER_JUDGE_SWEEP}
+    `;
+    expect(count!.n).toBe(1);
+  });
+
+  it('goes unhealthy on a stale sweep heartbeat while the other two arms stay clean', async () => {
+    // Run the whole case inside a transaction that is ROLLED BACK. The
+    // `judge_sweep` row is a process-wide singleton shared by every concurrent
+    // live-DB vitest process, so committing a stale timestamp would make an
+    // unrelated suite's `isJudgeHealthy === true` assertion fail. Inside an
+    // uncommitted transaction the stale value is invisible to every other
+    // session, and `isJudgeHealthy` accepts a TransactionSql, so the probe reads
+    // exactly the state this case wrote.
+    const rollback = new Error('rollback: judge sweep liveness probe');
+    await expect(sql().begin(async (tx) => {
+      await tx`
+        UPDATE poller_heartbeats
+        SET last_cycle_at = NOW() - make_interval(secs => ${JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS + 60})
+        WHERE poller_name = ${POLLER_JUDGE_SWEEP}
+      `;
+
+      // Arms 1 and 2 are structurally silent here — a dead sweep writes no
+      // outbox row and produces no verdict — so a `false` can only be arm 3.
+      await expect(isJudgeHealthy(tx)).resolves.toBe(false);
+      throw rollback;
+    })).rejects.toBe(rollback);
+
+    // Assert what the ROLLBACK guarantees — the heartbeat is fresh again — not
+    // that the whole probe answers healthy. By this point an earlier case in
+    // this suite has deliberately left three systemic error verdicts behind, so
+    // arm 2 legitimately vetoes and `isJudgeHealthy` here would be false for a
+    // reason that has nothing to do with the rollback.
+    const [restored] = await sql()<{ age_seconds: number }[]>`
+      SELECT EXTRACT(EPOCH FROM (NOW() - last_cycle_at))::int AS age_seconds
+      FROM poller_heartbeats
+      WHERE poller_name = ${POLLER_JUDGE_SWEEP}
+    `;
+    expect(restored!.age_seconds).toBeLessThan(JUDGE_SWEEP_LIVENESS_LIMIT_SECONDS);
   });
 
   it.each([
