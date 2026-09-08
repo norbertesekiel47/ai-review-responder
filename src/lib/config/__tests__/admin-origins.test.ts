@@ -53,7 +53,7 @@ describe('readAdminAppOrigins', () => {
     expect(readAdminAppOrigins()).toEqual([ADMIN_ORIGIN, 'https://admin.repworth.net']);
   });
 
-  it('admits nothing but loopback and this app\'s own origin when ADMIN_APP_ORIGINS is empty', () => {
+  it("admits nothing but loopback and this app's own origin when ADMIN_APP_ORIGINS is empty", () => {
     for (const raw of [undefined, '', '   ', ',,']) {
       withEnv({ ADMIN_APP_ORIGINS: raw });
       const allowlist = readAdminAppOrigins();

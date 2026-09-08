@@ -1,5 +1,42 @@
 # Architecture review log
 
+2026-09-08 — **feat/1186-admin-api-cors (pre-merge):** CORS for the **Admin API**
+(#1186, ADR 0026), the last edge-level blocker on the admin split. Nothing in this
+repo admitted a cross-origin caller before this, so the **Admin app** could not
+reach a single admin route and ADR 0025's dual-mode gate was inert. Four
+production files, no migration, no flag, no dependency, one new server-only env
+var (`ADMIN_APP_ORIGINS`, registered in both inventories). Four design points are
+the reviewable ones. (1) **The seam is decision-out, headers-in.**
+`src/lib/config/admin-origins.ts` owns which origins are admitted;
+`src/proxy.ts` stays the only writer of an `Access-Control-*` header (ADR 0026
+D1), so the glossary sentence and invariant #12 are both satisfied without the
+proxy growing a parser. The block runs FIRST inside `proxy()`, before
+`isProtectedRoute` — a preflight that reached branch 4 would 401 from a cookie the
+browser may not send, and the browser would report an unreadable CORS failure
+rather than a status. (2) **The existing body moved verbatim into `handleProxy`**
+so the exported `proxy()` can stamp `Vary: Origin` and the echoed
+`Access-Control-Allow-Origin` on EVERY `/api/admin/**` response. Four exits carry
+one today and #1185/#1190 add more; hand-stamping call sites is a defect waiting
+for the fifth. Branch 4's cookie/bearer logic is untouched — that is #1185. (3)
+**`isSelfOrigin` becomes the single owner of the own-origin comparison**, shared by
+CSRF and the CORS decision (ADR 0026 D4), and the allowlist deliberately does NOT
+flow the other way: `assertSameOrigin` still refuses an allowlisted Admin app
+origin and a loopback origin, pinned by a test, because the alternative silently
+exempts every allowlisted origin from CSRF. The implicit self-allowance is
+load-bearing in the other direction — without it every **Legacy admin portal**
+mutation 403s, since a same-origin `POST` carries an `Origin` header. (4) **Two
+rules are code, not configuration**: an entry containing `*` throws at read (which
+is what keeps ADR 0026 D7's CSRF argument true), and loopback is decided
+TERMINALLY by `!isProductionEnvironment()` so a listed `http://localhost` cannot
+re-admit it in production. The lane predicate is `VERCEL_TARGET_ENV`, never
+`requiresProductionConfig()`, which would have made the rule inert on staging —
+the one environment ADR 0024 D7 built it for. Governance surface: one new file
+under `src/lib/config/` with its `docs/directory` row. Three Codex plan-skeptic
+rounds to APPROVED, 21 of 22 round-1 findings accepted (the owed test list grew
+19 → 40 as a result); 40 proxy tests + 37 config/CSRF tests. Counter: not
+incremented — this is a pre-merge trace, and the number is the architecture
+pass's judgement.
+
 2026-09-08 — **feat/1178-mint-admin (pre-merge):** The first admin-minting path
 (`scripts/mint-admin.ts`, #1178). Every admin account to date was made by hand
 in two halves that a hand process can half-succeed at, and the database has no
