@@ -158,8 +158,10 @@ Scoping the catch tightly costs no observability, and that is verifiable rather 
 hoped: an infrastructure fault reaches us through the RETURNED channel in both
 calls, because `_request` → `handleError` raises an `AuthError`
 (`lib/fetch.js:24-30, 72`) which `getClaims` and `getUser` each catch via
-`isAuthError` and return. The two rethrow rows above are therefore the complete
-infra arm.
+`isAuthError` and return. The three rethrow rows above are therefore the complete
+infra arm: of the five shapes `handleError` raises, those three are faults and the
+remaining two (`AuthSessionMissingError`, `AuthWeakPasswordError`) are genuine
+credential refusals that correctly fall through to 401.
 
 `isAuthRetryableFetchError` and `isAuthApiError` compare `error.name`
 (`lib/errors.js:49-51, 222-224`), so they survive a duplicated module instance in a

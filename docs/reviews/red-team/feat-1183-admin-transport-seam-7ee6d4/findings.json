@@ -5,11 +5,11 @@
   "branch": "feat/1183-admin-transport-seam",
   "fork_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
   "merge_base_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
-  "head_sha": "dbefb3b80fdbfdf135b62b568cf5af1499f95088",
+  "head_sha": "217a6e4aad0a10544cef2c7e3ce97463e865a058",
   "intake_sha256": "f03eda84ed250d0b092116bdb03d38885c58e596b9039c144a10fc93280f6679",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-09-08T04:29:18Z",
+  "generated_at": "2026-09-08T04:52:50Z",
   "inventory": [
     {
       "id": "M1",
@@ -153,6 +153,30 @@
       "file": "src/lib/auth/admin-mfa-gate.ts",
       "outcome": "excluded",
       "reason": "Statically proven to exercise no ordering branch: with a null identity the gate refuses at admin-mfa-gate.ts:98 before loadAppUser at :100, so the test's OWNER_ROW is inert. The only separating mutation also kills its sibling at :475, so running it would manufacture an uninformative row. Reported as RT11."
+    },
+    {
+      "id": "M24",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M25",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M26",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M27",
+      "test": "admin-transport-seam.test.ts > answers Unauthorized when the credential is bad AND the user is a non-admin",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "killed"
     }
   ],
   "findings": [
@@ -220,7 +244,7 @@
       "title": "The Edge zero-imports guard is line-oriented and misses two of the three natural import forms: a wrapped `import { x } from 'node:crypto'` (M19) and a bare `import 'node:crypto'` (M20) both survive, so the sole mechanical enforcement of the module's hard Edge-safety constraint has a hole",
       "at": "src/lib/auth/__tests__/admin-transport.test.ts:118",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "arbiter_reasoning": "Not equivalent: after M19 (`import {\\n  createHash,\\n} from 'node:crypto';`) and after M20 (`import 'node:crypto';`) the module genuinely imports a node: builtin, which is exactly the condition the test title ('has no imports at all') and the module header ('nothing here may import node:*') declare impossible \u2014 the Edge bundle for src/proxy.ts would break in #1185. Not on an unexecuted branch: the test reads the mutated file off disk with readFileSync and scans every line of it, and the control mutation M18 (the same import on one line) turned the same test red at the same SHA, so the assertion does execute and does discriminate. M19 evades because the filter regex requires `import` and `from` on ONE line; M20 evades because a side-effect import has no `from` at all. M19's shape is what Prettier emits for any import list past the print width, so it is a formatter away from being the default rather than an adversarial construction."
     },
     {
@@ -229,7 +253,7 @@
       "title": "The corrected comment substitutes one false enumeration for another: handleError does not raise 'exactly three shapes' \u2014 it has five throw sites (AuthRetryableFetchError x2, AuthUnknownError, AuthWeakPasswordError, AuthSessionMissingError, AuthApiError). No behavioural consequence; restated in the intake and the plan, plus two stale 'both predicates' claims",
       "at": "src/lib/auth/verified-identity.ts:76",
       "duty": 3,
-      "disposition": "open"
+      "disposition": "fixed"
     },
     {
       "id": "RT10",
@@ -237,7 +261,7 @@
       "title": "The unstubbed premise test is named 'throws non-AuthError' but asserts only .rejects.toThrow(), which an AuthError also satisfies \u2014 so the exact channel move it exists to catch (a thrown AuthApiError(500) letting an unauthenticated caller force 500s) would keep it green",
       "at": "src/lib/auth/__tests__/verified-identity.test.ts:206",
       "duty": 2,
-      "disposition": "open"
+      "disposition": "fixed"
     },
     {
       "id": "RT11",
@@ -245,7 +269,7 @@
       "title": "The second 'refusal precedence' test pins no precedence: with a null identity the gate refuses at :98 before loadAppUser at :100, so its OWNER_ROW is inert and the case is behaviourally identical to 'bearer with a forged signature' at :320",
       "at": "src/lib/auth/__tests__/admin-transport-seam.test.ts:490",
       "duty": 2,
-      "disposition": "open"
+      "disposition": "fixed"
     },
     {
       "id": "RT12",
@@ -253,7 +277,8 @@
       "title": "The cookie-arm revert is complete for fault classification but not byte-for-byte for every outcome: an ordering change makes {live session, no users row or non-admin role} x {AAL call THROWS} a 500 where the fork answered 401/403, and every refused cookie request now pays an AAL round-trip the fork short-circuited",
       "at": "src/lib/auth/verified-identity.ts:106",
       "duty": 1,
-      "disposition": "open"
+      "disposition": "rejected",
+      "reason": "Declared rather than fixed, and the declaration is defensible. deviations D6 states both consequences (non-admin or no users row + a THROWING AAL read -> 500 instead of 401/403; one extra AAL round-trip per refused cookie request), the gate docblock repeats the narrower half and points at D6, and the stated cost of fixing it is real: a lazy AAL read means returning a thunk instead of the flat { authUserId, aal, transport } that ADR 0025 D1 says the seam returns. The delta is fail-closed and needs a Supabase fault and a non-admin at the same moment. One labelling nit, not worth reopening: D6 calls this \"a fifth cookie-path difference\", counting the two deltas the classifier revert removed \u2014 at HEAD there are three."
     },
     {
       "id": "RT13",
@@ -261,7 +286,7 @@
       "title": "Two facts dropped in the 2,999/3,000-word trim are not verbatim in the file their row points at: mfa.ts's remaining consumers (page-gate.ts, shell-context.ts, the impersonate view, the mfa challenge route) and reset-password-error.ts's 'the house rule for EVERY Supabase error' generalization. The other seven dropped facts re-resolve clean",
       "at": "docs/directory/lib-platform.md:82",
       "duty": 3,
-      "disposition": "open"
+      "disposition": "fixed"
     },
     {
       "id": "RT14",
@@ -269,7 +294,7 @@
       "title": "namedAuthError('AuthUnknownError', 500) is a shape the SDK cannot produce \u2014 AuthUnknownError's constructor is (message, originalError) and never sets status \u2014 presented under a comment calling these 'the THREE shapes handleError can raise'",
       "at": "src/lib/auth/__tests__/admin-transport-seam.test.ts:368",
       "duty": 2,
-      "disposition": "open"
+      "disposition": "fixed"
     },
     {
       "id": "RT15",
@@ -277,25 +302,33 @@
       "title": "Rejection #16 states the limitation was 'recorded in the test', but src/lib/db/__tests__/auth.test.ts is byte-unchanged since 344dcbc0 and its :122-128 comment records the counterexample (why the assertion is strong), not the limitation (that a behaviour-preserving reformat turns it red)",
       "at": "docs/reviews/feat-1183-admin-transport-seam/triage.md:16",
       "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT16",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/superpowers/plans/feat-1183-admin-transport-seam-intake.json:58",
+      "title": "RT9's fix corrected the module comment but not its two restatements: the intake still says the 500 arm \"covers all THREE shapes handleError can raise\" (there are five), and plan:161 still calls the rethrow rows \"the two rethrow rows above\" after a third was inserted into the table at plan:149",
       "disposition": "open"
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 23,
-    "killed": 18,
+    "inventory_total": 27,
+    "killed": 22,
     "survived_confirmed_p0": 2,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 3,
-    "findings_total": 15,
-    "p0_open": 1,
-    "p1_open": 3,
-    "p2_open": 5,
+    "findings_total": 16,
+    "p0_open": 0,
+    "p1_open": 1,
+    "p2_open": 1,
     "accepted_risk": 0,
-    "fixed": 4,
-    "rejected": 2
+    "fixed": 11,
+    "rejected": 3
   },
-  "status": "OPEN_P0"
+  "status": "OPEN_P1"
 }

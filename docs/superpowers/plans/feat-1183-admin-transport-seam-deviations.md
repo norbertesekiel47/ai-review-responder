@@ -71,13 +71,16 @@ files could not be documented without breaking
 `src/__tests__/reference-shape.test.ts`. `docs/agents/context-layout.md` gives three
 remedies — split the page, archive the oldest sections, or move the WHY to the page
 the pointer already names. The first two need `docs/directory.md` plus a sibling
-page, which would have been surface amendment #2 and therefore a hard stop.
+page, i.e. a further surface amendment.
 
 Applied the third, confined to the `auth/` section this ticket already edits: each
 row was brought to the row shape `.claude/CLAUDE.md` itself prescribes (WHERE + up
 to three one-clause traps, WHY delegated to the module docblock, the rule file or
-ADR 0025). Nine rows were tightened; no row lost a fact that does not exist verbatim
-in the file it now points at. Final: 2,998 words, `ci:directory-map` passing.
+ADR 0025). Nine rows were tightened. Two of them DID lose a fact absent from the file
+they point at — `mfa.ts`'s remaining consumers and `reset-password-error.ts`'s
+"house rule for every Supabase error" — which red-team round 2 caught (RT13) and
+which are now restored; the other seven re-resolve clean. Final: exactly 3,000 words,
+`ci:directory-map` and `reference-shape` passing.
 
 Verdict: ACCEPT — the documented remedy, applied to the section under change. Flag
 for the orchestrator: the page is again at exactly its cap, so the NEXT ticket
@@ -116,7 +119,7 @@ estimate was corrected to the measured value instead.
 
 Verdict: ACCEPT — with the flag above carried into the final report verbatim.
 
-## D6 — a fifth cookie-path difference, declared rather than fixed
+## D6 — a THIRD cookie-path difference, declared rather than fixed
 
 Red-team round 2 (P2) found one cookie-path difference the revert in D2/triage #1 does
 NOT remove, because it comes from ORDER rather than from classification.

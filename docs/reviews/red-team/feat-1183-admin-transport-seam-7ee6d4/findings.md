@@ -937,3 +937,80 @@ finding RT2:  a high-risk run cannot ship an open P1
 finding RT9:  a high-risk run cannot ship an open P1
 finding RT10: a high-risk run cannot ship an open P1
 ```
+
+---
+---
+
+# Round-2 fix verification — re-bound to `217a6e4a`
+
+- **head** `217a6e4aad0a10544cef2c7e3ce97463e865a058` (was `dbefb3b8` when the round-2
+  report above was written) · **intake sha256** unchanged
+  (`f03eda84ed250d0b092116bdb03d38885c58e596b9039c144a10fc93280f6679`)
+- **Status** `OPEN_P1` — RT2 only, escalated to the owner. **No open P0.**
+
+This is a VERIFICATION pass, not a third round: `round-start` was NOT called, no new
+front was opened, and every claim below is measured against
+`git diff dbefb3b8..217a6e4a`. Four confirming mutations were run inside round 2's
+remaining budget (18 of 30 runs used in total) with the same allowlisted environment
+and dotenv swap; `finalize` reaped 18 process groups and restored the dotenv file, and
+`git status --porcelain` is empty outside this report directory.
+
+| # | Sev | Disposition | Verified how |
+|---|---|---|---|
+| RT8 | P0 | **fixed** | The guard is now `expect(code).not.toMatch(/\bimport\b/)` over the whole comment-stripped file instead of a per-line shape match. Re-measured rather than taken on trust: green individual baseline, then the two round-2 survivors plus the dynamic form — `import {`⏎`  createHash,`⏎`} from 'node:crypto';`, `import 'node:crypto';`, and `const h = await import('node:crypto');` — each applied via `mutation-runner mutate` and each run under a paused supervisor with `assert-one-test`. **3 mutants, 3 killed, 0 survivors** (M24–M26). |
+| RT9 | P1 | **fixed** *(at the P1 site)* | `verified-identity.ts:75-96` now says "raises FIVE shapes", lists the three faults, and adds a paragraph naming `AuthSessionMissingError` and `AuthWeakPasswordError` as genuine credential refusals that correctly fall through to 401 — which matches the five throw sites at `dist/module/lib/fetch.js:25, 29, 36, 59/63, 69, 72`. Residual restatements survive elsewhere → **RT16**. |
+| RT10 | P1 | **fixed** | `verified-identity.test.ts:222-236` now captures the rejected value and asserts `isAuthError(thrown) === false` (with `isAuthError` pulled from the same `vi.importActual`), plus `not.toBeNull()` so a RESOLVE still fails. The test now asserts the sentence its name makes. |
+| RT11 | P2 | **fixed** | The `sql` mock counts calls and the test asserts `sqlRows.calls === 0`. Measured failable: baseline green, then hoisting `loadAppUser` above the identity null-check in `admin-mfa-gate.ts` — a mutation that leaves the STATUS at 401, so the old assertions could not see it — turned the test red (M27). The new assertion is the load-bearing one, exactly as its comment claims, and it pins a property worth having on its own (a refused credential costs no DB round-trip). |
+| RT12 | P2 | **rejected** | Declared, not fixed — and the declaration is defensible. `deviations D6` states both consequences accurately (non-admin **or no `users` row** + a THROWING AAL read → 500 rather than 401/403; one extra AAL round-trip per refused cookie request), the gate docblock repeats the narrower half and points at D6, and the cost of fixing it is real: a lazy AAL read means handing back a thunk instead of the flat `{ authUserId, aal, transport }` ADR 0025 D1 says the seam returns. The delta is fail-closed and needs a Supabase fault and a non-admin simultaneously. One labelling nit, not worth reopening: D6's title calls this "a fifth cookie-path difference", which counts the two deltas the classifier revert already removed — at HEAD there are three. |
+| RT13 | P2 | **fixed** | Both dropped facts are back: the `mfa.ts` row now names `requireCurrentAal2FromSupabase`'s consumers ("page gate, shell-context, impersonate view, MFA challenge route"), and the `reset-password-error.ts` row restores "**`code`, never message — the house rule for every Supabase error**". The page is at exactly 3,000 words, paid for by wording trims elsewhere, none of which drops a fact absent from its target file. One bonus correction rides along: the `verified-identity.ts` row dropped "the cookie arm is **byte-for-byte today's path**", which RT12 had just shown to be an overstatement. |
+| RT14 | P2 | **fixed** | `namedAuthError('AuthUnknownError', 500)` is gone; a comment in its place records that the class's constructor is `(message, originalError)` and never sets a status, and that the `?? 500` in the classifier is for `AuthApiError`'s optional status. |
+| RT15 | P2 | **fixed** | `src/lib/db/__tests__/auth.test.ts:123-133` now carries the limitation itself — a behaviour-preserving reformat turns it red, and it is the ASSERTION that needs updating then, not the query — alongside why the live-DB alternative was declined. The `ci:live-db-suites` workaround (not naming the env var literally) is a genuine constraint of that audit, not an evasion, and the sentence is still unambiguous about which variable it means. |
+| RT2 | **P1** | **open** | Unchanged and correctly left open. Re-verified at this HEAD: `internalError` (`admin-mfa-gate.ts:22-25`) still emits `console.error` only, `src/instrumentation.ts` still has no `integrations` array in either runtime branch, and `beta-launch-alerting.md` still has no admin-5xx row. Only the CLAIM was corrected. Escalating rather than self-accepting is the right call — the protocol's `accepted-risk` needs an authorization entry, and a session that cannot reach the owner cannot mint one. |
+| RT1, RT3, RT5, RT6 | — | **fixed** | Unchanged from the round-2 report. |
+| RT4, RT7 | — | **rejected** | Unchanged. RT4's rejection is now fully sound, because RT15's fix supplied the one stated fact that was false. |
+
+### RT16 — P2 — `docs/superpowers/plans/feat-1183-admin-transport-seam-intake.json:58` (Duty 3)
+
+RT9's title named three sites; the fix reached one. The two restatements of the same
+false enumeration are untouched by `dbefb3b8..217a6e4a`:
+
+- `intake.json:58` — "The 500 arm … **covers all THREE shapes handleError can raise**".
+  The module comment one file away now says five. A locked contract document and the
+  code it governs assert different counts of the same SDK behaviour.
+- `plan.md:161-162` — "**The two rethrow rows** above are therefore the complete infra
+  arm", written when the table had two; the `AuthUnknownError` row was inserted at
+  `plan.md:149` in the previous commit and the sentence beneath it was not updated. The
+  conclusion ("the complete infra arm") is still TRUE — it is the count that is stale.
+
+Both are one-word edits. Recorded rather than waved through because RT9 was P1
+precisely on the argument that a false enumeration in the authoritative place is worth
+fixing, and the intake is the authoritative place for the contract.
+
+Re-resolved and CORRECT at this HEAD, so not findings: `plan.md:164`
+(`isAuthRetryableFetchError` and `isAuthApiError` compare `error.name`, `lib/errors.js:49-51,
+222-224` — both lines still resolve, and the sentence no longer claims those are the
+only arms) and `plan.md:161` (`lib/fetch.js:24-30, 72` — `:25`/`:29` are the two
+`AuthRetryableFetchError` throws, `:72` the `AuthApiError` fall-through).
+
+### One residual on the new Edge guard, recorded not reopened
+
+`/\bimport\b/` over the comment-stripped source is fail-CLOSED where the old guard was
+fail-open, which is the right direction, and it costs a false red if anyone ever writes
+the word "import" in a trailing `// …` comment (the strip only removes full-line `//`).
+That is a conversation, not a bypass. The theoretical string-swallowing hazard noted in
+RT8 (`const s = '/*'; … '*/'` eating the lines between) is unchanged and still
+theoretical; stripping string literals before the block-comment pass would close it.
+Neither is worth a finding against a guard that now kills every import form tested.
+
+### Verification mutation inventory (M24–M27)
+
+| # | Mutation | Covering test | Outcome |
+|---|---|---|---|
+| M24 | wrapped `import {`⏎`  createHash,`⏎`} from 'node:crypto';` (the round-2 M19 survivor) | admin-transport > has no imports at all… | **killed** |
+| M25 | `import 'node:crypto';` (the round-2 M20 survivor) | admin-transport > has no imports at all… | **killed** |
+| M26 | `const h = await import('node:crypto');` (dynamic form, not previously tested) | admin-transport > has no imports at all… | **killed** |
+| M27 | hoist `loadAppUser` above the identity null-check, leaving the 401 status intact | seam > answers Unauthorized when the credential is bad AND the user is a non-admin | **killed** |
+
+M19 and M20 keep their `survived-confirmed-P0` rows: they are the measurement that was
+true at `dbefb3b8`, and deleting them would erase why RT8 exists. RT8's disposition,
+not its inventory row, is what records that it is now fixed.
