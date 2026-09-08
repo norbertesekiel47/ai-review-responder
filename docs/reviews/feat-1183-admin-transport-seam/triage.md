@@ -83,3 +83,10 @@ The one rejected finding still worth carrying forward is **#13** — the migrati
 duplicated verbatim across 22 suites. It is deferred to **#1184**, which edits all 22
 of those files anyway; its miss mode is a silently vacuous authorization test, so it
 should not be lost.
+
+## Post-PR: `ci:fallow` (CI, coverage-informed)
+
+| Finding | Verdict |
+|---|---|
+| **Unused export** — `IdentityTransportError` at `verified-identity.ts:63` had no consumer. | **FIXED.** Un-exported. The gate catches it as `unknown` and maps every throw to the same 500, so the export was surface with no caller; its `name` still reaches the log through `internalError`'s `console.error`, which is the class's whole purpose. If a caller ever needs to branch on it, it gets exported in that change. |
+| **`resolveBearerIdentity` HIGH complexity** — cyclomatic 16, cognitive 15, 57 lines, CRAP 71.3 — reported by a LOCAL `pnpm ci:fallow` but **not** by CI. | **ACCEPTED, recorded.** The `!` marks CRAP as the breached dimension, and CRAP is estimated from export references when no coverage is supplied; CI runs `ci:fallow:coverage`, where the function's real coverage brings it under threshold — which is why the coverage-informed run flagged only the export. The remaining cyclomatic count is inherent: every branch is a distinct row of the ticket's refusal table, and the contract suite enumerates them one-to-one. Decomposing it now would also invalidate the 27 mutations the red team ran against this exact shape. Noted for whoever touches it in #1185. |

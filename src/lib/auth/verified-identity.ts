@@ -56,11 +56,17 @@ export interface VerifiedIdentity {
  * comment overclaimed it: the gate's `internalError` writes a `console.error` line,
  * which is a queryable Vercel log and a distinguishable status — it is NOT a paged
  * alert. Nothing in `docs/runbooks/beta-launch-alerting.md` watches admin 5xx.
- * Routing this to an alert sink is real work and belongs to its own ticket; the
- * value here is that the signal is CORRECT and greppable, so that ticket has
+ * Routing this to an alert sink is real work and belongs to its own ticket (#1212);
+ * the value here is that the signal is CORRECT and greppable, so that ticket has
  * something true to alert on.
+ *
+ * NOT exported, deliberately. The gate catches it as `unknown` and maps every
+ * throw to the same 500, so an export would be a symbol with no consumer — which
+ * `ci:fallow` correctly flagged. Its `name` still reaches the log through
+ * `internalError`'s `console.error`, which is the whole point of the class. If a
+ * caller ever needs to branch on it, export it in that change, not in advance.
  */
-export class IdentityTransportError extends Error {
+class IdentityTransportError extends Error {
   constructor(readonly cause: unknown) {
     super('Supabase identity transport failure');
     this.name = 'IdentityTransportError';
