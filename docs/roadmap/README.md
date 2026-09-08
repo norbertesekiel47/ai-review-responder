@@ -15,6 +15,13 @@ The [forward roadmap](2026-08-26-forward-roadmap.md) owns the current order of
 work. Its Phase 1–8 labels identify areas of future work; they are no longer
 a mandatory sequence or a checklist that must be finished before launch.
 
+**Four-founder assignment draft (September 7):** the owner clarified a
+CEO/CTO, COO, CFO and CMO, each available 40–60 hours weekly, with the CFO
+also helping marketing. The [90-day founder plan](2026-09-08-founder-90-day-plan/README.md)
+contains separate role briefs for September 8–December 6, a marketing
+strategy, milestones and conditions for faster growth. It adds operating
+assignments; its numeric targets are proposed, not achieved results.
+
 ## Files
 
 | File | Purpose |
@@ -61,7 +68,8 @@ a mandatory sequence or a checklist that must be finished before launch.
   baseline effort; the five interested prospects are not automatically five
   active beta users or paying customers.
 - Cash on hand, payment obligations, minimum founder support, cash-needed
-  date, and each founder's available hours.
+  date, and each founder's week-specific allocation within the reported
+  40–60 available hours.
 - The first engineering improvement, its acceptance criteria, and the
   customer evidence needed to continue, change direction, or stop it.
 - Actual investor feedback on RepWorth and any financing timeline.
