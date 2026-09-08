@@ -52,3 +52,44 @@ makes a hard stop).
 |---|---|---|
 | M3 | `assertMintTarget` is a third connection-target mode living outside `scripts/staging-guard.ts`, whose docblock calls itself "the SINGLE owner" with "Two modes" — so the diff makes that docblock false. | The fix edits `scripts/staging-guard.ts`, outside `allowed_edit_surface`. Amendment #1 is already spent on `.claude/reference/arch-review-log.md`; a second is a hard stop under the orchestrator brief. M2's fix removes the duplicated PARSER (the part with a correctness consequence); what remains is placement and a stale docblock sentence. **Owner decision required** — see the run report. |
 | M9 | `scripts/mint-admin.ts` has no row in `docs/directory/repo-surfaces.md`'s `scripts/` table. | Same reason. Note the table is **curated, not complete**: 9 of ~18 scripts are absent, including `staging-guard.ts` and `ws8-staging-smoke.ts` — the two precedents this change cites — and `ci:directory-map` does not scan `scripts/`. So the omission matches the page's actual practice rather than breaking a maintained invariant. **Owner decision required.** |
+
+---
+
+# Triage — red-team round 2 (scoped to the fix hunks)
+
+Round 2 ran against `2eaac333`, scoped to
+`git diff 8c4108b4..2eaac333`. **0 P0.** It verified all 10 round-1 findings
+fixed and confirmed both round-1 survivors now KILLED:
+
+- class `08` added to `CONFIRMED_ROLLBACK_SQLSTATE` → **exactly 3** tests fail
+  (08006, 08007, 08003), 51 pass.
+- `PROJECT_REF_PATTERN` `{20}` → `{16,}` → the complete-ref test fails; both
+  halves of that fix are load-bearing (the 16/19/21-char inputs AND the
+  attributed message).
+
+It then found **4 P1 and 3 P2 defects the fixes themselves introduced**. All
+four P1s and two of the three P2s are now closed:
+
+| Id | Finding | Verdict |
+|---|---|---|
+| RT-07 (widened) | My M2 fix did not close RT-07 — it WIDENED it. Moving the parser out made the guard depend entirely on `extractProjectRefForLog`, which has **zero tests anywhere in the repo**; stubbing its whole body to `return '(ref-not-found)'` survived 146 tests across 5 suites, because every `assertMintTarget` test injects `dbProjectRef` as a literal. | **ACCEPT.** A new `describe('extractProjectRefForLog — the parser assertMintTarget depends on')` pins both real forms (`postgres.<ref>@…`, `db.<ref>.supabase.co`) by equality against a specific ref, and pins that a miss returns a parenthesised sentinel that cannot satisfy the 20-char shape. The stub mutant now dies by construction: a constant `'(ref-not-found)'` cannot equal `kubdiqdhqbhwmqfditeg`. **The guard itself was never weakened** — round 2 confirms a sentinel can never equal a 20-character `--confirm-ref`, so the failure direction is closed (the mutant refuses every mint rather than allowing a wrong one). It is an oracle gap under an auth guard, which is reason enough. |
+| RT2-01 | `flagValue`'s new `--` guard had no test; reverting it survived 54/54. | **ACCEPT** — `treats a flag-shaped value as a missing value, not as the value`, covering all three required flags. |
+| RT2-02 | The new TARGET-line test was a tautology: all three fixture fields contained `STAGING_REF`, and the assertion compared the line to `formatMintTarget`'s own output, so deleting `project=` survived. | **ACCEPT** — distinct per-field fixtures and the exact line asserted, plus a no-password-in-the-descriptor check. |
+| RT2-04 | The duplicate-email fixture carried BOTH `code: 'email_exists'` and an "already registered" message, so deleting either arm of `isDuplicateEmailError` survived — the same "looks strengthened, cannot discriminate" shape as RT-05. | **ACCEPT** — split into an `it.each` with ONE signal per case. |
+| RT2-03 (P2) | The `dbProjectRef` row added to the prod-denylist loop was unasserted. | **ACCEPT** — `refuses a production ref reaching the guard through dbProjectRef alone`. |
+| RT2-06 (P2) | The exit-code table called `2` "a flag"; a missing env var also exits 2. | **ACCEPT** — table row corrected. |
+| RT2-05 (P2) | The sibling `argValue` in `scripts/diff-coverage.ts:36` has the same unguarded-next-token shape. | **REJECT for this branch.** Real, but pre-existing, in an unrelated ops script, outside `allowed_edit_surface`, and not introduced by this change — fixing it would spend surface amendment #2 (a hard stop) on a defect this feature did not create. Worth its own ticket. |
+
+**No hole in the unsafe direction.** Round 2 re-verified that every
+`createUser` error returns BEFORE the transaction, so the 422 narrowing can
+never MINT a duplicate; that every absence claim in the diff is true; that
+`orphanAuthId` is set at all 10 construction sites; that `abortingExecutor`'s
+`begin(options, cb)` forwarding is intact; and that every changed doc claim
+re-resolves, including `staging-guard.ts:82` and `:126`.
+
+**No round 3** — `mutation-runner.mjs round-start` refuses one at the hard cap
+of 2, and the RT-07 stub could not be re-run as a journaled mutation for the
+same reason (its target is also outside this branch's edit surface, so the
+write guard blocks it). The kill is established by construction from the
+assertion instead, which is weaker evidence than a re-run and is recorded here
+as such.

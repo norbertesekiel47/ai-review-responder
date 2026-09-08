@@ -118,7 +118,7 @@ A wrapper should branch on these, not on the text.
 | Code | Meaning |
 |---|---|
 | `0` | Minted, or a dry run that passed every check. |
-| `2` | Usage error — a missing or malformed flag. Prints the usage block. |
+| `2` | Usage error. A missing or malformed flag, **or a required environment variable that is not set for the chosen target** — both raise the same error type and print the usage block. |
 | `3` | Refused. Nothing was written, unless the output names an orphaned Auth identity. |
 | `4` | Failed, including every target-guard refusal and any uncaught error. Read the output before retrying. |
 

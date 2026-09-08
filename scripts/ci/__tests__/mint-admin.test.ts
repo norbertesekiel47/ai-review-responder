@@ -23,6 +23,7 @@ import {
   mkTaggedResult,
   type MockSqlHarness,
 } from '../../../worker/__tests__/helpers/mock-sql';
+import { extractProjectRefForLog } from '../../staging-guard';
 import {
   assertMintTarget,
   buildAdminRecoveryUrl,
@@ -57,6 +58,9 @@ vi.mock('node:crypto', async (importOriginal) => {
 const PROD_REF = 'udeyaqnvpojbwgoaxwdg';
 const STAGING_REF = 'kubdiqdhqbhwmqfditeg';
 const OTHER_REF = 'aaaabbbbccccddddeeee';
+
+/** Mirrors mint-admin's own PROJECT_REF_PATTERN — a complete Supabase ref. */
+const PROJECT_REF_SHAPE = /^[a-z0-9]{20}$/;
 
 const stagingSupabaseUrl = `https://${STAGING_REF}.supabase.co`;
 const stagingDbTarget = `postgres.${STAGING_REF}@aws-0-eu-west-2.pooler.supabase.com:6543`;
@@ -100,6 +104,21 @@ describe('parseMintAdminArgs', () => {
     expect(() =>
       parseMintAdminArgs(['--email', 'admin@repworth.net', '--name', 'Admin Person']),
     ).toThrow(MintAdminUsageError);
+  });
+
+  it('treats a flag-shaped value as a missing value, not as the value', () => {
+    // `--email --dry-run` used to parse the email as "--dry-run" and pass the
+    // required-flag checks (review finding S3). Reverting that guard survived
+    // the whole suite until this test existed (red team RT2-01).
+    expect(() =>
+      parseMintAdminArgs(['--email', '--dry-run', '--name', 'A', '--confirm-ref', STAGING_REF]),
+    ).toThrow(/--email is required/);
+    expect(() =>
+      parseMintAdminArgs(['--email', 'a@b.net', '--name', '--dry-run', '--confirm-ref', STAGING_REF]),
+    ).toThrow(/--name is required/);
+    expect(() =>
+      parseMintAdminArgs(['--email', 'a@b.net', '--name', 'A', '--confirm-ref', '--dry-run']),
+    ).toThrow(/--confirm-ref is required/);
   });
 
   it('refuses when --email or --name is missing', () => {
@@ -191,6 +210,20 @@ describe('assertMintTarget', () => {
     ).toThrow(/produc/i);
   });
 
+  it('refuses a production ref reaching the guard through dbProjectRef alone', () => {
+    // The denylist loop gained a `dbProjectRef` row with the M2 fix; without
+    // this, deleting that row survives (red team RT2-03). A production ref must
+    // be refused on the PROD path, never fall through to the ref-mismatch path.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: stagingSupabaseUrl,
+        dbTarget: stagingDbTarget,
+        dbProjectRef: PROD_REF,
+        confirmRef: STAGING_REF,
+      }),
+    ).toThrow(/produc/i);
+  });
+
   it('accepts a staging target whose parsed refs both equal the confirmation', () => {
     expect(() =>
       assertMintTarget({
@@ -200,6 +233,42 @@ describe('assertMintTarget', () => {
         confirmRef: STAGING_REF,
       }),
     ).not.toThrow();
+  });
+});
+
+/**
+ * `assertMintTarget` takes `dbProjectRef` from `extractProjectRefForLog`
+ * (`scripts/staging-guard.ts`), so the guard is only as good as that parser —
+ * and it has NO tests anywhere in the repo. Red team round 2 proved the gap:
+ * replacing its whole body with `return '(ref-not-found)'` survived 146 tests
+ * across five suites.
+ *
+ * The failure direction is closed (a sentinel can never equal a 20-character
+ * `--confirm-ref`, so the mutant refuses every mint rather than allowing a
+ * wrong one), but an unpinned parser under an auth guard is exactly what this
+ * feature must not rely on. These pin the shapes mint-admin depends on.
+ */
+describe('extractProjectRefForLog — the parser assertMintTarget depends on', () => {
+  it('parses the pooler user form, postgres.<ref>@…', () => {
+    expect(
+      extractProjectRefForLog(`postgres://postgres.${STAGING_REF}:pw@aws-0-eu-west-2.pooler.supabase.com:6543/postgres`),
+    ).toBe(STAGING_REF);
+  });
+
+  it('parses the direct host form, db.<ref>.supabase.co', () => {
+    expect(
+      extractProjectRefForLog(`postgres://postgres:pw@db.${STAGING_REF}.supabase.co:5432/postgres`),
+    ).toBe(STAGING_REF);
+  });
+
+  it('returns a sentinel — never a bare ref — when it cannot parse one', () => {
+    // Both sentinels must fail `dbProjectRef === confirmRef`, which is what
+    // makes an unparseable target a refusal rather than a pass.
+    for (const url of ['postgres://user:pw@localhost:5432/postgres', 'not a url at all']) {
+      const parsed = extractProjectRefForLog(url);
+      expect(parsed).toMatch(/^\(.*\)$/);
+      expect(PROJECT_REF_SHAPE.test(parsed)).toBe(false);
+    }
   });
 });
 
@@ -609,13 +678,19 @@ describe('mintAdmin', () => {
 
   // ── oracles the red-team pass found missing ──────────────────────────────
 
-  it('refuses when the Auth API itself reports a duplicate email', async () => {
-    // The plan's SECOND independent closer, and on any database without an
-    // `auth.users` relation it is the ONLY one (red team RT-01).
-    supabase.createUser.mockResolvedValueOnce({
-      data: { user: null },
-      error: { code: 'email_exists', status: 422, message: 'User already registered' },
-    });
+  // The plan's SECOND independent closer, and on any database without an
+  // `auth.users` relation it is the ONLY one (red team RT-01).
+  //
+  // ONE SIGNAL PER CASE, deliberately. A single fixture carrying both
+  // `code: 'email_exists'` AND an "already registered" message cannot tell the
+  // two arms of `isDuplicateEmailError` apart, so deleting either one survives
+  // (red team RT2-04) — the same "looks strengthened, cannot discriminate"
+  // shape as RT-05.
+  it.each([
+    ['the email_exists code alone', { code: 'email_exists', status: 400, message: 'nope' }],
+    ['the message alone', { code: 'unexpected_failure', status: 500, message: 'User already registered' }],
+  ])('refuses when the Auth API itself reports a duplicate email — %s', async (_label, error) => {
+    supabase.createUser.mockResolvedValueOnce({ data: { user: null }, error });
     queuePreflight({ authSchema: false });
 
     const result = await mintAdmin(sql, supabase.client, MINT_INPUT);
@@ -764,9 +839,27 @@ describe('formatMintReport', () => {
   };
 
   it('leads every report with the TARGET line', () => {
-    const line = formatMintTarget(target);
-    expect(line).toContain(STAGING_REF);
-    expect(formatMintReport({ status: 'would_mint', authProbe: 'checked' }, target)[0]).toBe(line);
+    // DISTINCT values per field, and the labels asserted explicitly. Comparing
+    // the first report line to `formatMintTarget(target)` is a tautology, and a
+    // fixture whose three fields all contain STAGING_REF cannot see `project=`
+    // deleted from the line (red team RT2-02).
+    const distinct = {
+      projectRef: 'aaaaaaaaaaaaaaaaaaaa',
+      supabaseHost: 'bbbbbbbbbbbbbbbbbbbb.supabase.co',
+      databaseTarget: 'postgres.cccccccccccccccccccc@pooler.example.com:6543',
+    };
+    const line = formatMintTarget(distinct);
+
+    expect(line).toBe(
+      'TARGET: project=aaaaaaaaaaaaaaaaaaaa ' +
+        'supabase=bbbbbbbbbbbbbbbbbbbb.supabase.co ' +
+        'db=postgres.cccccccccccccccccccc@pooler.example.com:6543',
+    );
+    // It must never carry a password: the descriptor is password-free by
+    // construction (describeConnectionTarget), and this is the line printed
+    // before every run.
+    expect(line).not.toMatch(/:[^@\s]*@/);
+    expect(formatMintReport({ status: 'would_mint', authProbe: 'checked' }, distinct)[0]).toBe(line);
   });
 
   it('warns loudly when a dry run could not verify the Auth half', () => {
