@@ -1064,3 +1064,38 @@ red-team-status: FAILED (2 issue(s))
 ```
 
 Both lines are the same fact.
+
+---
+---
+
+# Owner adjudication of RT2 — re-bound to `35e48224`, status `CLEAR`
+
+The owner answered on **2026-09-07** and chose **accept the risk plus a follow-up
+ticket**, the first of the two options this report put to them.
+
+- **RT2 → `accepted-risk`**, referencing authorization `AUTH-RT2`, whose verbatim
+  text is *"owner 2026-09-07: accepted-risk, follow-up alerting ticket"*.
+- **Follow-up ticket: RepWorth/ai-review-responder#1212**, "Admin API 5xx
+  (internal_error) has no alert path", labelled `wayfinder:task,area:alerting`. It
+  carries the measurements verbatim — `internalError` is `console.error` only;
+  `src/instrumentation.ts` has no `integrations` array in either runtime branch, so
+  no `captureConsoleIntegration`; `onRequestError` fires only for errors that escape
+  a handler and this one is caught by design; no admin-5xx row in
+  `beta-launch-alerting.md` — plus the two new sources #1183 adds (a bearer transport
+  fault, and the D6 ordering case) and the two suggested fixes (a sanitized, tagged
+  Sentry capture in `internalError`, or a `health-alert` check with its runbook row).
+  They are recorded there so the next session does not re-derive them.
+
+**Nothing about the finding changed — only its disposition.** The gap is real,
+pre-existing, and still open in the codebase; what the owner accepted is shipping
+#1183 while it is open, on the argument that this branch made the 500 signal
+*correct* rather than laundering an outage into 401s, and that routing it somewhere
+is a separate piece of work. The counts move `p1_open` 1 → 0 and `accepted_risk`
+0 → 1; no finding was reclassified, closed, or downgraded to get there.
+
+Final checker output:
+
+```
+red-team-status: passed (feature run feature-feat-1183-admin-transport-seam-7ee6d4,
+round 2, status CLEAR, 27 inventory row(s), 16 finding(s))
+```

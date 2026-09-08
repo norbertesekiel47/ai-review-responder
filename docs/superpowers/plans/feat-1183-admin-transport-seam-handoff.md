@@ -68,6 +68,21 @@ fixtures only — no `route.ts` and no audit changes. Rationale and the enumerat
 command are in the plan, § "T5 is a surface amendment, not scope creep". **A second
 amendment is a hard stop** — report to the orchestrator instead.
 
+**A second one was taken and escalated, and the owner APPROVED it on 2026-09-07**
+("CI-mandated ledger files, zero behaviour"): `.claude/reference/arch-review-log.md`
+and `scripts/ci/tenant-scope-allowlist.ts`, both demanded by a CI audit of any
+production change. Deviations D5 carries the detail. `surfaceAmendments=2`.
+
+## RESOLVED 2026-09-07 — both escalations decided, run resumed
+
+The block recorded below was lifted. The owner approved amendment #2 (above) and
+chose **accept-risk plus a follow-up ticket** for RT2, which is now `accepted-risk`
+against authorization `AUTH-RT2`; the follow-up is **#1212**
+(`wayfinder:task,area:alerting`). `red-team-status.mjs` passes with status `CLEAR`.
+The run continued into step 8 — staging ride, then a draft PR to `main`, stopping
+before merge. The section below is kept as the record of what was escalated and why,
+because the underlying alerting gap is still real and still open in the codebase.
+
 ## Step 8 authority (granted in the orchestrator brief)
 
 Ride staging from the shared worktree
@@ -79,7 +94,7 @@ Smoke `https://staging.repworth.net`. Then `gh pr create --draft` → red-team-s
 ticket resolution comment (the orchestrator does that after merge); a progress
 comment with the PR link and staging evidence is allowed.
 
-## TERMINAL STATE — BLOCKED on one owner decision
+## What was escalated (historical) — the RT2 block, since lifted
 
 The build is COMPLETE and the gate is GREEN at `2fba0fc1`. The branch is **local
 only**: nothing has been pushed, no staging ride, no PR. That is deliberate.

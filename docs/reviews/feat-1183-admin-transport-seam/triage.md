@@ -62,3 +62,24 @@ things I had just added.
 **RT2 remains open by design**: the alert-path finding is answered by correcting the
 claim, not by building the alert. No authorization to add an alert sink was sought or
 granted; it is named as a follow-up in the PR description.
+
+## Owner adjudication — 2026-09-07
+
+Both items this run escalated came back decided.
+
+| Item | Owner decision | Recorded as |
+|---|---|---|
+| **Surface amendment #2** — `.claude/reference/arch-review-log.md` + `scripts/ci/tenant-scope-allowlist.ts`, both CI-mandated for any production change | **APPROVED** — "CI-mandated ledger files, zero behaviour" | Deviations D5, with the approval line. `surfaceAmendments=2` stands. |
+| **RT2** — the admin 5xx has no alert path | **ACCEPT RISK + follow-up ticket** | Sidecar: RT2 → `accepted-risk` referencing `AUTH-RT2` ("owner 2026-09-07: accepted-risk, follow-up alerting ticket"). Follow-up cut as **#1212**, `wayfinder:task,area:alerting`, carrying the measurements so they are not re-derived. |
+
+RT2's disposition changed; the finding did not. The gap is still real and still open
+in the codebase — `internalError` remains `console.error` only. What was accepted is
+shipping #1183 while it is open, on the argument that this branch made the 500 signal
+*correct* rather than laundering an outage into 401s, and that routing it is separate
+work. `red-team-status.mjs` now passes with status `CLEAR`: `p0_open` 0, `p1_open` 0,
+`p2_open` 0, `accepted_risk` 1, 12 fixed, 3 rejected.
+
+The one rejected finding still worth carrying forward is **#13** — the migration shim
+duplicated verbatim across 22 suites. It is deferred to **#1184**, which edits all 22
+of those files anyway; its miss mode is a silently vacuous authorization test, so it
+should not be lost.

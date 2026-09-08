@@ -5,7 +5,7 @@
   "branch": "feat/1183-admin-transport-seam",
   "fork_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
   "merge_base_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
-  "head_sha": "38151f189bef9e24c686f351aa9b89e54bf35254",
+  "head_sha": "35e482247b9019ea1614712ae43f8e7450f52b72",
   "intake_sha256": "ae4de848af5a3e665df8db537bd7fa953c801a3cd343fd2c54154db6144e5cb1",
   "risk": "high",
   "round": 2,
@@ -194,7 +194,9 @@
       "title": "The terminal 5xx class this diff newly routes into internalError has no emitting Sentry signal and no rule row in beta-launch-alerting.md; a cookie-transport Supabase fault moved 401 -> 500 silently, and no log line distinguishes the bearer transport",
       "at": "src/lib/auth/admin-mfa-gate.ts:23",
       "duty": 5,
-      "disposition": "open"
+      "disposition": "accepted-risk",
+      "authorization": "AUTH-RT2",
+      "reason": "Owner accepted the risk on 2026-09-07 with a follow-up ticket. The gap is pre-existing (admin 5xx have never been alerted); #1183 adds new sources of it and made the signal correct rather than laundering an outage into 401s. Routed to RepWorth/ai-review-responder#1212, which carries the measurements so they are not re-derived."
     },
     {
       "id": "RT3",
@@ -313,7 +315,14 @@
       "disposition": "fixed"
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "AUTH-RT2",
+      "date": "2026-09-07",
+      "text": "owner 2026-09-07: accepted-risk, follow-up alerting ticket",
+      "finding_ids": ["RT2"]
+    }
+  ],
   "counts": {
     "inventory_total": 27,
     "killed": 22,
@@ -324,11 +333,11 @@
     "excluded": 3,
     "findings_total": 16,
     "p0_open": 0,
-    "p1_open": 1,
+    "p1_open": 0,
     "p2_open": 0,
-    "accepted_risk": 0,
+    "accepted_risk": 1,
     "fixed": 12,
     "rejected": 3
   },
-  "status": "OPEN_P1"
+  "status": "CLEAR"
 }

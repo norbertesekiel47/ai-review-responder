@@ -117,7 +117,11 @@ overage is entirely the amendment-#1 migration (22 suites × ~37 lines) plus the
 new contract files. SIZE and RISK are unchanged, so step 0 was not re-run; the
 estimate was corrected to the measured value instead.
 
-Verdict: ACCEPT — with the flag above carried into the final report verbatim.
+**OWNER-APPROVED 2026-09-07: CI-mandated ledger files, zero behaviour.** The flag was
+raised in the step-7 report and the owner approved the amendment as recorded. The two
+hunks stand as described; no further action.
+
+Verdict: ACCEPT — flagged, and approved by the owner.
 
 ## D6 — a THIRD cookie-path difference, declared rather than fixed
 
