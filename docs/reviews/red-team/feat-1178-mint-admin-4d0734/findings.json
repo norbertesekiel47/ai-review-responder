@@ -5,327 +5,329 @@
   "branch": "feat/1178-mint-admin",
   "fork_sha": "b23172836bc5c435dc429f1fa7505812c168fa87",
   "merge_base_sha": "b23172836bc5c435dc429f1fa7505812c168fa87",
-  "head_sha": "2eaac3339ed131523b11cd286a22f66dd8ada308",
-  "intake_sha256": "1d4fdd7c867d8fa0feae75518b9ee5175d193a6836813b2c480180a85a3fb36f",
+  "head_sha": "f51ae7f009dfdab13d8ba9189d31bd450f84f712",
+  "intake_sha256": "6ac30407ecf4ff62b17ce3a627d499b9443d01e2e92187083b6f305e7ab936a0",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-08T03:41:40.422346Z",
+  "round": 1,
+  "generated_at": "2026-09-08T06:29:33Z",
   "inventory": [
     {
-      "id": "IV2-01",
-      "test": "confirmsRollback never confirms a rollback for 08006/08007/08003 (3 rows of the it.each)",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:728",
+      "id": "IV3-01",
+      "test": "assertMintTarget refuses a production target when --env production is not selected",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:228",
       "outcome": "killed",
-      "reason": "M1: CONFIRMED_ROLLBACK_SQLSTATE /^(22|23|42)\\d{3}$/ -> /^(08|22|23|42)\\d{3}$/ (mint-admin.ts:394). Mutant DIED: exactly 3 failures, 51 passes. Round-1 survivor IV-01 is now dead."
+      "reason": "S1: staging-guard.ts:255 `allowProduction = false` -> `allowProduction = true` (the destructuring default). Mutant DIED: the test calls assertMintTarget(input) with no allowProduction, so the default IS the control. Baseline green under the isolated env."
     },
     {
-      "id": "IV2-02",
+      "id": "IV3-02",
+      "test": "assertMintTarget refuses a production target when --env production is not selected (2nd mutation)",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:228",
+      "outcome": "killed",
+      "reason": "S2: staging-guard.ts:257 `if (!allowProduction) {` -> `if (allowProduction) {` (inverted selector guard). Mutant DIED."
+    },
+    {
+      "id": "IV3-03",
+      "test": "assertMintTarget refuses a production target when --confirm-ref does not match",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:243",
+      "outcome": "killed",
+      "reason": "S3: inserted `if (allowProduction) return;` as the first statement of assertMintTarget (staging-guard.ts:256), i.e. the selector short-circuits EVERY check rather than only the denylist. Mutant DIED — this is the oracle for the runbook's 'neither control is sufficient alone' claim."
+    },
+    {
+      "id": "IV3-04",
+      "test": "assertMintTarget accepts a production target under --env production with the matching ref",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:277",
+      "outcome": "killed",
+      "reason": "S4: staging-guard.ts:257 `if (!allowProduction) {` -> `if (allowProduction || true) {` (denylist becomes unconditional again, i.e. the owner's reversal is undone). Mutant DIED."
+    },
+    {
+      "id": "IV3-05",
       "test": "assertMintTarget refuses a confirmed ref that is not a full Supabase project ref",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:140",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:184",
       "outcome": "killed",
-      "reason": "M2: PROJECT_REF_PATTERN /^[a-z0-9]{20}$/ -> /^[a-z0-9]{16,}$/ (mint-admin.ts:186). Mutant DIED (1 failure). Failure message confirms the mechanism: the widened pattern lets the 16/19/21-char inputs through the complete-ref guard and they hit the Supabase-URL equality guard, whose message does not match the new attributed /complete Supabase project ref/i. Round-1 survivor IV-02 is now dead."
+      "reason": "S5: staging-guard.ts:192 PROJECT_REF_PATTERN /^[a-z0-9]{20}$/ -> /^[a-z0-9]{16,}$/. Mutant DIED. RT-05's fix (the load-bearing 16-, 19- and 21-character entries) survived the file move verbatim."
     },
     {
-      "id": "IV2-03",
-      "test": "parseMintAdminArgs (all four cases) vs the new flagValue guard",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:66-113",
+      "id": "IV3-06",
+      "test": "assertMintTarget leaves the other two modes production-proof — the selector is mint-mode only",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:300",
+      "outcome": "killed",
+      "reason": "S6: staging-guard.ts:48 `if (target.includes(prodRef))` -> `if (false && target.includes(prodRef))` inside rejectProdTarget, neutering the denylist assertStagingTarget and assertEphemeralBranchTarget share. Mutant DIED: both older modes remain unconditionally production-denying and are pinned."
+    },
+    {
+      "id": "IV3-07",
+      "test": "assertMintTarget refuses when the Supabase host does not contain the confirmed project ref",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:162",
+      "outcome": "killed",
+      "reason": "S7: staging-guard.ts:284 `if (supabaseRef !== confirmRef) {` -> `if (supabaseRef !== confirmRef && false) {` (delete the Supabase-half check). Mutant DIED — but only because the following dbProjectRef check then also passes and the function returns silently; the message is not asserted. See IV3-15 / RT3-01."
+    },
+    {
+      "id": "IV3-08",
+      "test": "parseMintAdminArgs lowercases and trims the email before use",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:82",
+      "outcome": "killed",
+      "reason": "A1: mint-admin.ts:109 `flagValue(argv, '--env')?.trim() ?? 'ambient'` -> `?? 'production'` (production becomes the DEFAULT env mode). Mutant DIED on `expect(args.envMode).toBe('ambient')`. The 'never a default' half of the production contract is pinned."
+    },
+    {
+      "id": "IV3-09",
+      "test": "parseMintAdminArgs treats a flag-shaped value as a missing value, not as the value",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:102",
+      "outcome": "killed",
+      "reason": "A2: mint-admin.ts:101 `value === undefined || value.startsWith('--') ? undefined : value` -> `value === undefined ? undefined : value`. Mutant DIED. Round-2 finding RT2-01 is fixed and stays fixed."
+    },
+    {
+      "id": "IV3-10",
+      "test": "mintAdmin preserves the auth user when the transaction outcome is ambiguous",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:346",
+      "outcome": "killed",
+      "reason": "A3: mint-admin.ts:435 `if (!confirmsRollback(error)) {` -> `if (false && !confirmsRollback(error)) {` (compensating delete becomes unconditional). Mutant DIED. The conditional-compensation rule — delete only on a CONFIRMED rollback — still holds at this HEAD."
+    },
+    {
+      "id": "IV3-11",
+      "test": "mintAdmin treats a reconciled row with a different id as a failure, not a mint",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:374",
+      "outcome": "killed",
+      "reason": "A4: mint-admin.ts:421 `if (linked?.id === userId) {` -> `if (Boolean(linked)) {` (row EXISTENCE instead of row IDENTITY). Mutant DIED. The reconciliation row-identity rule still holds."
+    },
+    {
+      "id": "IV3-12",
+      "test": "mintAdmin dry run performs the refusal checks and writes nothing",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:418",
+      "outcome": "killed",
+      "reason": "A5: mint-admin.ts:524 `if (input.dryRun) {` -> `if (false && input.dryRun) {` (early return removed). Mutant DIED. Combined with S3 (the guard runs before mintAdmin at main():744) this is the oracle for the runbook's '--dry-run works against production too'."
+    },
+    {
+      "id": "IV3-13",
+      "test": "mintAdmin never prints a password",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:451",
+      "outcome": "killed",
+      "reason": "A6: added `password: randomUUID(),` to the supabase.auth.admin.createUser argument object (mint-admin.ts:538). Mutant DIED on the EXACT key-set assertion. The no-password property still holds."
+    },
+    {
+      "id": "IV3-14",
+      "test": "mintAdmin against live local Postgres commits the users row and its admin_audit_log row in one transaction",
+      "file": "scripts/ci/__tests__/mint-admin.integration.test.ts:133",
+      "outcome": "killed",
+      "reason": "A7: mint-admin.ts:616 `await writeAdminAuditLog(tx, {` -> `await writeAdminAuditLog(sql, {` — the audit write leaves the transaction onto the outer pool. Mutant DIED against the REAL local Postgres (the NOT NULL FK to the still-uncommitted users row raises 23503). The single-transaction property is pinned by a live database, not by a mock."
+    },
+    {
+      "id": "IV3-15",
+      "test": "assertMintTarget refuses when the Supabase host does not contain the confirmed project ref (2nd mutation)",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:162",
+      "outcome": "survived-confirmed-P0",
+      "reason": "S8: staging-guard.ts:284 `if (supabaseRef !== confirmRef) {` -> `if (!supabaseUrl.toLowerCase().includes(confirmRef)) {`. Mutant SURVIVED the individual test AND a full run of all three suites (84/84 passed). ARBITER: not equivalent — `refFromSupabaseUrl(url) === confirmRef` requires the first host label to be exactly 20 lowercase alphanumerics AND equal to the confirmation, whereas containment accepts `https://xx<ref>.supabase.co` (22-char label, different host) and `https://attacker.example.com/<ref>`, both of which HEAD refuses. Not an unexecuted branch — the test's own title names this check and its `.toThrow(/supabase/i)` oracle is satisfied by all four messages the function can throw.",
+      "finding_id": "RT3-01"
+    },
+    {
+      "id": "IV3-16",
+      "test": "assertMintTarget refuses when the database target does not contain the confirmed project ref",
+      "file": "scripts/ci/__tests__/staging-guard.test.ts:173",
+      "outcome": "survived-confirmed-P0",
+      "reason": "S9: staging-guard.ts:291 `if (dbProjectRef !== confirmRef) {` -> `if (!dbTarget.toLowerCase().includes(confirmRef)) {`. Mutant SURVIVED a full run of all three suites (84/84 passed). ARBITER: not equivalent — under the mutant `dbProjectRef` is never read at all, which also falsifies the documented sentinel guarantee ('(ref-not-found)' / '(unparseable)' fail the equality, so an unparseable target is a refusal). The sentinel test at :208 still passes only because its fixture `postgres@localhost:5432` happens not to contain the ref; a target such as `postgres@<ref>-shadow.example.com:5432` is accepted by the mutant. Not an unexecuted branch — the :173 and :208 tests both execute it.",
+      "finding_id": "RT3-01"
+    },
+    {
+      "id": "IV3-17",
+      "test": "main()'s `allowProduction: args.envMode === 'production'` wiring",
+      "file": "scripts/mint-admin.ts:751",
       "outcome": "inconclusive",
-      "reason": "M3: flagValue's `return value === undefined || value.startsWith('--') ? undefined : value;` -> `return value;` (mint-admin.ts:97). Mutant SURVIVED, 54/54 green. Arbiter: the guard's branch is executed by no test -- every parse case supplies a well-formed value -- so this is a claim about the ORACLE. See RT2-01.",
+      "reason": "No covering candidate exists. Reverse import search (Step 2 Direction B): `rg -l mint-admin` returns only scripts/mint-admin.ts and its three suites; `main` is not exported, `runDirectCli` invokes it only when Node ran the module directly, and no test spawns the script as a process. A mutant `allowProduction: true` would let ambient/local/staging reach production with a matching --confirm-ref and would ship green. Not executed because there is nothing to execute it with — an oracle claim, not a mutant claim.",
       "inconclusive_class": "oracle",
-      "finding_id": "RT2-01"
+      "finding_id": "RT3-02"
     },
     {
-      "id": "IV2-04",
-      "test": "formatMintReport leads every report with the TARGET line",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:766",
+      "id": "IV3-18",
+      "test": "parseMintAdminArgs accepting `--env production`",
+      "file": "scripts/mint-admin.ts:114",
       "outcome": "inconclusive",
-      "reason": "M9: `TARGET: project=${target.projectRef} supabase=...` -> `TARGET: supabase=...` (mint-admin.ts:759). Mutant SURVIVED. Arbiter: all three fixture fields contain STAGING_REF, so `toContain(STAGING_REF)` cannot discriminate, and `toBe(formatMintTarget(target))` is a tautology. The mutant preserves the behaviour the TITLE names, so this is an oracle claim, not a confirmed P0. See RT2-02.",
+      "reason": "No covering candidate. `rg \"'production'|\\\"production\\\"\"` over all three suites returns zero matches: no test ever produces envMode 'production'. The validation branch that admits the selector is unexercised. Fail-closed direction (removing it makes production unreachable), hence P1 not P0.",
       "inconclusive_class": "oracle",
-      "finding_id": "RT2-02"
+      "finding_id": "RT3-03"
     },
     {
-      "id": "IV2-05",
-      "test": "mintAdmin does not report a duplicate for a non-duplicate 422",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:627",
-      "outcome": "killed",
-      "reason": "M5: isDuplicateEmailError's `if (error.code === 'email_exists') return true;` -> `if (error.code === 'email_exists' || error.status === 422) return true;` (mint-admin.ts:565), i.e. the pre-fix over-match restored. Mutant DIED."
-    },
-    {
-      "id": "IV2-06",
-      "test": "mintAdmin refuses when the Auth API itself reports a duplicate email",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:612",
+      "id": "IV3-19",
+      "test": "readMintConfig's `envMode !== 'production'` ambient branch",
+      "file": "scripts/mint-admin.ts:185",
       "outcome": "inconclusive",
-      "reason": "M13: the `email_exists` code arm of isDuplicateEmailError DELETED, leaving only the message regex (mint-admin.ts:565). Mutant SURVIVED. Arbiter: the fixture carries both `code: 'email_exists'` and the message 'User already registered', so it satisfies the surviving disjunct. Executed, not equivalent in general, but indistinguishable for this input -- an oracle claim. See RT2-04.",
+      "reason": "No covering candidate. readMintConfig('ambient') is tested twice; readMintConfig('production') is never called. Dropping `&& envMode !== 'production'` destructures ENV_FILES['production'] (undefined) and throws a TypeError rather than the documented MintAdminUsageError. Loud and fail-closed, hence P2.",
       "inconclusive_class": "oracle",
-      "finding_id": "RT2-04"
+      "finding_id": "RT3-04"
     },
     {
-      "id": "IV2-07",
-      "test": "mintAdmin reports an unknown Auth outcome when createUser fails, never absence",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:642",
-      "outcome": "killed",
-      "reason": "M10: the createUser-error detail reverted to `Supabase createUser failed: ${created.error.message}` (mint-admin.ts:639-645). Mutant DIED."
+      "id": "IV3-20",
+      "test": "confirmsRollback SQLSTATE class boundary (12 it.each rows)",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:641",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run round budget was spent on the production path (S1-S9) and the four invariants the brief named. The class-08/57 boundary was killed by the previous pass and confirmsRollback is byte-identical at this HEAD (git diff over the region since 2eaac333 is empty)."
     },
     {
-      "id": "IV2-08",
-      "test": "mintAdmin treats createUser returning no user and no error as an unknown outcome",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:659",
-      "outcome": "killed",
-      "reason": "M14: the no-user/no-error detail stripped of its UNKNOWN language (mint-admin.ts:651-657). Mutant DIED."
+      "id": "IV3-21",
+      "test": "isDuplicateEmailError two arms (it.each, one signal per case)",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:541",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed (budget). Verified by inspection instead: the fixtures now carry ONE discriminating signal each, so deleting either arm fails a case. RT2-04 is structurally fixed."
     },
     {
-      "id": "IV2-09",
-      "test": "mintAdmin reports a committed mint with no link when generateLink fails",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:673",
-      "outcome": "killed",
-      "reason": "M15: `recoveryLinkError: link.error?.message ?? '...'` -> `null` (mint-admin.ts:735). Mutant DIED."
+      "id": "IV3-22",
+      "test": "probeAuthIdentity to_regclass availability guard",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:440",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed (budget)."
     },
     {
-      "id": "IV2-10",
-      "test": "mintAdmin records the mint through writeAdminAuditLog with the new admin as its own actor",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:562",
-      "outcome": "killed",
-      "reason": "Two mutations, both DIED. M11: `actorUserId: userId` -> `actorUserId: authId` (mint-admin.ts:699) -- the positional bind assertion `values[1]` that replaced round 1's `toContain` catches it, closing RT-06. M6: `actor_is_subject: true` -> `false` (mint-admin.ts:711) -- the new toMatchObject over the payload catches it."
+      "id": "IV3-23",
+      "test": "buildAdminRecoveryUrl query parameters",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:164",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed (budget)."
     },
     {
-      "id": "IV2-11",
-      "test": "assertMintTarget refuses a production project ref outright",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:172",
-      "outcome": "inconclusive",
-      "reason": "M4: the `['database project ref', dbProjectRef]` row deleted from the prod-denylist loop (mint-admin.ts:247). Mutant SURVIVED -- the only prod-branch test also passes a prod supabaseUrl, which throws first. See RT2-03.",
-      "inconclusive_class": "oracle",
-      "finding_id": "RT2-03"
+      "id": "IV3-24",
+      "test": "formatMintReport warning arms (would_mint/unavailable, minted-without-link, orphan on both arms)",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:717,726,741",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed (budget). The TARGET-line test (RT2-02s fix) was verified by inspection: three distinct 20-character fixture values and a literal whole-line assertion."
     },
     {
-      "id": "IV2-12",
-      "test": "formatMintReport surfaces an orphaned Auth identity on both the refused and failed arms",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:796",
-      "outcome": "killed",
-      "reason": "M16: the refused arm's `if (result.orphanAuthId)` short-circuited to false (mint-admin.ts:799). Mutant DIED. This is the arm the `orphanAuthId: string | null` unification (review finding M5) created; all ten construction sites were read and every one sets the field explicitly."
+      "id": "IV3-25",
+      "test": "resolveMintEnv prefix mapping and empty-SUPABASE_URL fallback",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts:128,146",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed (budget)."
     },
     {
-      "id": "IV2-13",
-      "test": "readMintConfig reads the ambient environment when no --env is given",
-      "file": "scripts/ci/__tests__/mint-admin.test.ts:813",
-      "outcome": "killed",
-      "reason": "M17: `let source = process.env` -> `{}` (mint-admin.ts:169). Mutant DIED."
+      "id": "IV3-26",
+      "test": "live-DB rollback and second-mint refusal",
+      "file": "scripts/ci/__tests__/mint-admin.integration.test.ts:167,216",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed (budget). Both were confirmed to RUN (not skip) against the local test Postgres in the re-derived suite run: 3/3 live tests passed."
     },
     {
-      "id": "IV2-14",
-      "test": "extractProjectRefForLog -- the parser assertMintTarget now depends on (5 suites, 146 tests)",
-      "file": "scripts/staging-guard.ts:154-165",
-      "outcome": "inconclusive",
-      "reason": "M12: the whole body of extractProjectRefForLog replaced with `return '(ref-not-found)'`. Mutant SURVIVED all 146 tests of staging-guard.test.ts, mint-admin.test.ts, burst-drill-load.test.ts, health-bundle-differential.test.ts and wedge-repro.test.ts. Reverse import search: `rg extractProjectRefForLog` -> 5 production files, 0 test files. See RT-07.",
-      "inconclusive_class": "oracle",
-      "finding_id": "RT-07"
-    },
-    {
-      "id": "IV2-15",
-      "test": "mintAdmin against live local Postgres -- all three live-DB cases",
-      "file": "scripts/ci/__tests__/mint-admin.integration.test.ts:141,170,223",
+      "id": "IV3-27",
+      "test": "documentation, .claude/reference and .feature hunks of the branch diff",
+      "file": "docs/**, .claude/reference/arch-review-log.md",
       "outcome": "excluded",
-      "reason": "Executed for real against the local test Postgres (TEST_DATABASE_POOL_URL threaded into the runner via --test-db; 3/3 passed, no skip). Excluded from round-2 MUTATION because round 1 already mutated this surface (its M12 audit-writer mutation died here) and the round-2 diff touches these tests only by threading `operator` through the input and swapping the inline `{ begin } as unknown as Sql` cast for the canonical `abortingExecutor`. The substitution was read line by line and is behaviour-identical for this caller: the poison statement is byte-identical, and mintAdmin calls `sql.begin(cb)` in the one-argument form."
+      "reason": "Not a mutation surface. Handled statically under Duty 3: prevalidate-plan.py on all four changed plan/runbook docs plus a hand re-resolution of every path:line citation in the changed code and every changed prose claim."
     },
     {
-      "id": "IV2-16",
-      "test": "abortingExecutor begin(options, cb) leading-argument forwarding",
-      "file": "src/lib/shared/__tests__/helpers/abort-injection.ts:61-83",
+      "id": "IV3-28",
+      "test": "supabase/migrations/",
+      "file": "(none in this diff)",
       "outcome": "excluded",
-      "reason": "Read and confirmed correct at HEAD: `const leading = args.slice(0, -1)` is spread ahead of the wrapped callback, so the options form is forwarded untouched. NOT mutated: the helper is unchanged by the fix hunks and round 2 is scoped to them. Recorded gap for the owning ticket -- the helper has no test of its own, and none of its eight callers uses the options form, so a regression to `target.begin(wrapped)` would ship green."
+      "reason": "Out of scope per Step 2, and the branch adds no migration."
     },
     {
-      "id": "IV2-17",
-      "test": "Duty 5 -- operational completeness of the fix hunks",
+      "id": "IV3-29",
+      "test": "Duty 5 — operational completeness of the diff",
       "file": "scripts/mint-admin.ts",
       "outcome": "excluded",
-      "reason": "No alert path in scope. The diff adds no Sentry signal, no swallowed background failure and no worker/poller surface; mint-admin is an operator-invoked CLI whose terminal paths are reported on stdout and mapped to exit codes 2/3/4, which the runbook now documents. No rule row is owed in docs/runbooks/beta-launch-alerting.md and none is claimed."
+      "reason": "No alert path in scope. The diff adds no Sentry signal, no swallowed background failure and no worker/poller/ingress surface; mint-admin is an operator-invoked CLI whose terminal paths print to stdout/stderr and map to exit codes 2/3/4, both tables of which the runbook documents and this pass re-resolved. docs/runbooks/beta-launch-alerting.md is untouched and owes no rule row."
+    },
+    {
+      "id": "IV3-30",
+      "test": "Duty 4 — sibling search over the production-selector shape",
+      "file": "scripts/staging-guard.ts",
+      "outcome": "excluded",
+      "reason": "Sound search, zero siblings. Patterns: the three assert* mode names; `udeyaqnvpojbwgoaxwdg|PROD_PROJECT_REFS`; `--env|allowProduction|allow_production` over scripts/**/*.ts. Scope: repo minus node_modules/docs/.feature/coverage. Result: assertMintTarget has exactly ONE caller (mint-admin.ts:744); no other call site passes or could pass allowProduction; the denylist is defined once and re-implemented nowhere; no other script carries a production selector."
     }
   ],
   "findings": [
     {
-      "id": "RT-01",
-      "severity": "P1",
-      "title": "The Auth-API duplicate-email refusal \u2014 the plan's second 'independent closer' \u2014 has no test at all",
-      "at": "scripts/mint-admin.ts:522",
-      "duty": 1,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. `scripts/ci/__tests__/mint-admin.test.ts:612` now drives the createUser error arm. Mutation M5 (`isDuplicateEmailError` widened back to accept a bare `status === 422`) KILLED `does not report a duplicate for a non-duplicate 422`. Residual gap raised as RT2-04.",
-      "arbiter_reasoning": "Not mutation-derived: an uncovered production hunk with no covering candidate is a P1 by Step 2. Verified by reading both suites and by an istanbul coverage run of mint-admin.ts at HEAD under both suites."
-    },
-    {
-      "id": "RT-02",
-      "severity": "P1",
-      "title": "'The Supabase createUser call returns no user with no error' is a locked intake edge case with no test",
-      "at": "scripts/mint-admin.ts:597",
-      "duty": 1,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. `mint-admin.test.ts:659` covers the no-user/no-error shape. Mutation M14 (the arm's detail loses its UNKNOWN language) KILLED it.",
-      "arbiter_reasoning": "Uncovered change, coverage-verified at HEAD."
-    },
-    {
-      "id": "RT-03",
-      "severity": "P1",
-      "title": "'generateLink fails after the transaction committed' is a locked intake edge case with no test",
-      "at": "scripts/mint-admin.ts:662",
-      "duty": 1,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. `mint-admin.test.ts:673` covers a failed generateLink after a committed mint. Mutation M15 (`recoveryLinkError` forced to null) KILLED it.",
-      "arbiter_reasoning": "Uncovered change, coverage-verified at HEAD."
-    },
-    {
-      "id": "RT-04",
-      "severity": "P1",
-      "title": "confirmsRollback's class-08/57 ambiguity \u2014 the asymmetric safety property \u2014 has no oracle; a mutant that adds class 08 to the confirmed-rollback set survives",
-      "at": "scripts/mint-admin.ts:363",
-      "duty": 1,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. `describe('confirmsRollback')` at `mint-admin.test.ts:714` pins the classes. Mutation M1 (`/^(22|23|42)\\d{3}$/` -> `/^(08|22|23|42)\\d{3}$/`) KILLED exactly three tests: the 08006, 08007 and 08003 rows. The orchestrator's claim of three is exact.",
-      "arbiter_reasoning": "Mutation M1 survived. It is not executed on the candidate test's path (the injected error carries no `code`), so the inventory row is inconclusive/oracle rather than a confirmed survivor \u2014 a claim about the oracle. Not raised as P0 because the production code at HEAD is CORRECT; what is missing is the assertion that keeps it correct."
-    },
-    {
-      "id": "RT-05",
-      "severity": "P1",
-      "title": "Fragile assertion: 'refuses a confirmed ref that is not a full Supabase project ref' asserts only that something throws",
-      "at": "scripts/ci/__tests__/mint-admin.test.ts:137",
-      "duty": 2,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. Mutation M2 (`PROJECT_REF_PATTERN` `{20}` -> `{16,}`) KILLED `refuses a confirmed ref that is not a full Supabase project ref`. BOTH halves of the fix are load-bearing: the attributed `.toThrow(/complete Supabase project ref/i)` is what fails (the widened pattern lets the 16/19/21-char inputs reach the equality guard, which throws a DIFFERENT message), and it only reaches that guard because the 16-, 19- and 21-character entries were added.",
-      "arbiter_reasoning": "Mutation M3 survived on an executed line. Archetype 1 (a proxy assertion that passes while the bug exists)."
-    },
-    {
-      "id": "RT-06",
-      "severity": "P1",
-      "title": "Fragile assertion: `inTransaction` is a time-window flag, not a connection identity, so the audit write can leave the transaction undetected",
-      "at": "scripts/ci/__tests__/mint-admin.test.ts:544",
-      "duty": 2,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. The `inTransaction` proxy is replaced by a positional bind assertion plus a users-before-audit ordering assertion. Mutation M11 (`actorUserId: userId` -> `actorUserId: authId`) KILLED `records the mint through writeAdminAuditLog with the new admin as its own actor`; mutation M6 (`actor_is_subject: true` -> `false`) killed the same test.",
-      "arbiter_reasoning": "Mutation M12 survived the unit candidate and was killed by the integration candidate. The row is inconclusive/oracle rather than survived-confirmed-P0 precisely because the property IS covered elsewhere."
-    },
-    {
-      "id": "RT-07",
-      "severity": "P1",
-      "title": "Two documented target-parser behaviours are unreachable by any test: the direct `db.<ref>.` form and the unparseable-target refusal",
-      "at": "scripts/mint-admin.ts:207",
-      "duty": 4,
-      "disposition": "open",
-      "reason": "NOT FIXED -- WIDENED by the fix. The fix deleted mint-admin's own `refFromDatabaseTarget` and made `assertMintTarget` take `dbProjectRef` from the caller, produced by `extractProjectRefForLog` (`scripts/staging-guard.ts:154-165`). Every `assertMintTarget` test now passes `dbProjectRef` as a LITERAL, so the parser is stubbed out of the guard's test surface entirely -- and `extractProjectRefForLog` has no test of its own anywhere in the repo (`scripts/ci/__tests__/staging-guard.test.ts` tests `describeConnectionTarget`, never this). Mutation M12 replaced its whole body with `return '(ref-not-found)'` and SURVIVED 146 tests across staging-guard, mint-admin, burst-drill-load, health-bundle-differential and wedge-repro. That mutant would make every mint refuse and print `project=(ref-not-found)`, and nothing in CI notices. At round-1 HEAD the pooler branch WAS covered (round 1 recorded only `:208` direct and `:194` invalid-URL as 0-covered); at round-2 HEAD none of it is. Fix: add `describe('extractProjectRefForLog')` to `staging-guard.test.ts` -- pooler username form, direct `db.<ref>.` host form, a host that matches neither (`(ref-not-found)`), and an unparseable URL (`(unparseable)`).",
-      "arbiter_reasoning": "Mutation-derived (M12) plus a reverse import search: `rg extractProjectRefForLog` returns five production files and zero test files. The mutant is meaningful and non-equivalent, but it sits on a branch no test in the inventory executes -- the guard's tests inject `dbProjectRef` directly -- so the inventory row is `inconclusive`/`oracle`, a claim about the ORACLE, not a confirmed P0."
-    },
-    {
-      "id": "RT-08",
-      "severity": "P2",
-      "title": "readMintConfig, requireValue and the --env validation throw are entirely untested",
-      "at": "scripts/mint-admin.ts:149",
-      "duty": 1,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. `describe('readMintConfig')` at `mint-admin.test.ts:812`. Mutation M17 (ambient mode reads `{}` instead of `process.env`) KILLED `reads the ambient environment when no --env is given`."
-    },
-    {
-      "id": "RT-09",
-      "severity": "P2",
-      "title": "Only the `minted` arm of formatMintReport is ever rendered; the operator-facing warning lines are unasserted",
-      "at": "scripts/mint-admin.ts:707",
-      "duty": 5,
-      "disposition": "fixed",
-      "reason": "Round 2 re-verified. `describe('formatMintReport')` at `mint-admin.test.ts:759` renders the would_mint/unavailable, minted-without-link, refused and failed arms. Mutation M16 (the refused arm stops surfacing the orphan) KILLED `surfaces an orphaned Auth identity on both the refused and failed arms`. The TARGET line's own content oracle is still weak: RT2-02."
-    },
-    {
-      "id": "RT-10",
-      "severity": "P1",
-      "title": "Plan \u00a71 cites `staging-guard.ts:65,76` as 'the includes() test'; :76 is an equality test and the includes() is at :82",
-      "at": "docs/superpowers/plans/feat-1178-mint-admin-plan.md:21",
-      "duty": 3,
-      "disposition": "fixed",
-      "reason": "Round 2 re-resolved against HEAD. `scripts/staging-guard.ts:82` and `:126` are both `if (!target.includes(ref)) {` -- the containment tests, exactly as the corrected citation claims. `prevalidate-plan.py docs/superpowers/plans/feat-1178-mint-admin-plan.md --repo .` -> PASS, 23 citations, 0 unresolved.",
-      "arbiter_reasoning": "P1, not P0: the claim the citation supports is verifiable and correct at :82; only the line numbers mislead. Every other path:line in the changed docs re-resolved cleanly at HEAD \u2014 29 citations checked by hand (prevalidate-plan.py exists but is plan-shaped, so citations were resolved directly against HEAD)."
-    },
-    {
-      "id": "RT-11",
-      "severity": "P2",
-      "title": "The runbook documents no exit codes, and omits the two createUser FAILED outputs from its refusal table",
-      "at": "docs/runbooks/mint-admin.md:103",
-      "duty": 5,
-      "disposition": "fixed",
-      "reason": "Round 2 re-resolved against HEAD. The Exit codes table (`docs/runbooks/mint-admin.md:114`) matches `EXIT_OK=0 / EXIT_USAGE=2 / EXIT_REFUSED=3 / EXIT_FAILED=4` and `runDirectCli`'s onError mapping at `scripts/mint-admin.ts:869-878`. The two FAILED strings quoted at `:125` match the emitted details byte-for-byte in substance. One imprecision raised separately as RT2-06."
-    },
-    {
-      "id": "RT2-01",
-      "severity": "P1",
+      "id": "RT3-01",
+      "severity": "P0",
+      "title": "Both halves of the \"must EQUAL, not merely appear in\" confirmation are unpinned: degrading either exact-ref equality to substring containment survives all 84 tests",
+      "at": "scripts/staging-guard.ts:284,291",
       "duty": 1,
       "disposition": "open",
-      "at": "scripts/mint-admin.ts:93-97",
-      "title": "The `flagValue` `--`-prefixed-value guard (review finding S3) shipped with no test at all",
-      "reason": "Mutation M3 reverted the guard to the pre-fix `return argv[index + 1];` and SURVIVED the whole unit suite (54/54 green). No test anywhere passes an argv where a flag's value is itself a flag. The fix's own docblock names the hazard it prevents -- `--email --dry-run` minting an admin named `--dry-run` -- and nothing pins it. Fix: two cases on `parseMintAdminArgs` -- `['--email','--dry-run','--name','X','--confirm-ref',REF]` throws `MintAdminUsageError` naming `--email`, and a trailing `--confirm-ref` with no following token does the same.",
-      "arbiter_reasoning": "The mutant is meaningful and non-equivalent, but it is on a branch no existing test executes (every parse test supplies well-formed values), so per step 5 it is `inconclusive`/`oracle`, not a confirmed P0. This is an uncovered production hunk under Step 2 direction B, which is a P1 on its own."
+      "reason": "The docblock, MINT_ADMIN_USAGE and docs/runbooks/mint-admin.md all promise that --confirm-ref must EQUAL the ref parsed out of BOTH halves of the target, 'not merely appear in it'. Once --env production lifts the denylist, those two equalities are the ONLY controls left between a typed selector and a production write. Mutants S8 (Supabase half) and S9 (database half) each replace the equality with substring containment and each survives the individual test and a full 84-test run. Fix: add a superstring case per half that only equality can refuse — supabaseUrl 'https://xx' + STAGING_REF + '.supabase.co' with confirmRef STAGING_REF, and dbTarget 'postgres@' + STAGING_REF + '-shadow.example.com:5432' with dbProjectRef '(ref-not-found)' — and assert the discriminating message /resolves to project ref .*, not the confirmed/ instead of /supabase/i and /database/i. Each addition kills its mutant.",
+      "arbiter_reasoning": "Mutation-derived, both confirmed non-equivalent and both on branches the named tests execute. S8: refFromSupabaseUrl requires the first host label to be exactly /^[a-z0-9]{20}$/ AND equal to the confirmation; containment additionally accepts a 22-character label and a ref appearing anywhere in the URL path or query. S9: the mutant never reads dbProjectRef at all, so the documented sentinel guarantee ((ref-not-found)/(unparseable) can never confirm) is destroyed while the sentinel test still passes on fixture luck. Neither is an equivalent mutation and neither is unexecuted, so these are claims about the MUTANT surviving a real oracle — survived-confirmed-P0, not inconclusive."
     },
     {
-      "id": "RT2-02",
+      "id": "RT3-02",
       "severity": "P1",
+      "title": "main()'s `allowProduction: args.envMode === 'production'` — the only wiring between the operator's selector and the guard — has no covering test at any level",
+      "at": "scripts/mint-admin.ts:751",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "Both ends of the join are pinned (the guard by six killed mutants S1-S6; the parse default by A1) but the join itself is executed by nothing. A mutant `allowProduction: true` would let ambient, local and staging reach a production project with a matching --confirm-ref and would ship green. Fix: extract the guard-input assembly (e.g. `export function buildMintGuardInput(args, config): MintTargetInput`) and assert allowProduction is true for 'production' and false for each of 'ambient', 'local', 'staging' — a four-row it.each.",
+      "arbiter_reasoning": "Not mutation-derived: Step 2 Direction B classifies a production hunk with no identified covering candidate as P1 (uncovered change) with an inconclusive/oracle inventory row. Established by reverse import search — `rg -l mint-admin` returns only the module and its three suites, `main` is not exported, and the unit suite's own header records that importing the module runs nothing because runDirectCli fires only on direct Node invocation."
+    },
+    {
+      "id": "RT3-03",
+      "severity": "P1",
+      "title": "`--env production` is never parsed by any test: parseMintAdminArgs’ acceptance of the production selector is uncovered",
+      "at": "scripts/mint-admin.ts:114",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "A grep for the literal 'production' across all three suites returns zero matches, so no test ever produces envMode 'production'. The validation branch added to admit the selector, and the MintEnvMode widening behind it, ship unexercised. Fix: expect(parseMintAdminArgs([..., '--env', 'production']).envMode).toBe('production') plus expect(() => parseMintAdminArgs([..., '--env', 'prod'])).toThrow(/--env must be/).",
+      "arbiter_reasoning": "Uncovered change (Direction B), not a survivor. Kept separate from RT3-01 because its failure direction is fail-closed: deleting the branch makes production UNREACHABLE, not reachable. That is why it is P1 rather than P0."
+    },
+    {
+      "id": "RT3-04",
+      "severity": "P2",
+      "title": "readMintConfig's production branch (ambient config source under the production selector) is uncovered",
+      "at": "scripts/mint-admin.ts:185",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "readMintConfig('ambient') is tested twice; readMintConfig('production'), which the comment at :181-184 says must take the same ambient-source branch, is never called. Dropping `&& envMode !== 'production'` destructures ENV_FILES['production'] (undefined) and throws a TypeError rather than the documented MintAdminUsageError/exit 2. Fix: one assertion that readMintConfig('production') returns the ambient values.",
+      "arbiter_reasoning": "Uncovered change, but the failure is loud, immediate and fail-closed (a TypeError before any client is built), so it never reaches a write. P2."
+    },
+    {
+      "id": "RT3-05",
+      "severity": "P1",
+      "title": "Fragile assertions: the three new mint-mode refusal tests match on a substring that nearly every message assertMintTarget can throw already contains",
+      "at": "scripts/ci/__tests__/staging-guard.test.ts:170,181,218",
       "duty": 2,
       "disposition": "open",
-      "at": "scripts/ci/__tests__/mint-admin.test.ts:766-770",
-      "title": "Fragile assertion: the new TARGET-line test cannot see the TARGET line lose its project ref",
-      "reason": "`it('leads every report with the TARGET line')` asserts `expect(line).toContain(STAGING_REF)` where `line = formatMintTarget(target)`, then `expect(formatMintReport(...)[0]).toBe(line)`. The second assertion compares the function's output to itself -- it is a tautology over content -- and the first cannot discriminate, because ALL THREE fixture fields contain `STAGING_REF` (`projectRef` is the ref, `supabaseHost` is `<ref>.supabase.co`, `databaseTarget` is `postgres.<ref>@...`). Mutation M9 deleted `project=${target.projectRef} ` from `formatMintTarget` and SURVIVED. Review finding S1 exists precisely so the operator sees which project they are pointed at before the first write; nothing pins that field. Fix: assert the whole line against an expected string built from three DISTINCT fixture values, e.g. `expect(line).toBe(`TARGET: project=${STAGING_REF} supabase=${host} db=${dbTarget}`)` with a `projectRef` that does not appear in the other two.",
-      "arbiter_reasoning": "The mutant changes the emitted string, so it is not equivalent in general. Against the behaviour this test NAMES -- that the report leads with the TARGET line -- the mutant preserves it, so the survivor is recorded `inconclusive`/`oracle` rather than a confirmed P0. The defect is in the oracle, and that is the finding."
+      "reason": "assertMintTarget throws four distinct messages. .toThrow(/supabase/i) at :170 is satisfied by ALL FOUR (the prod-denylist message for label 'Supabase URL', the complete-project-ref message which contains 'Supabase' and 'supabase', the Supabase-half mismatch message, and the database-half message which names 'The Supabase URL and the database URL'). .toThrow(/database/i) at :181 and :218 is satisfied by two. None can distinguish the check it names from a different check firing first, which is the mechanism that let S8 and S9 through. Fix: assert /resolves to project ref .*, not the confirmed/ on all three — the shape the production tests next door already use (/not the confirmed/, /--env production/, /complete Supabase project ref/i).",
+      "arbiter_reasoning": "Duty 2, established by exhaustive inspection of every throw site in assertMintTarget and rejectProdTarget against each matcher, not by mutation. Recorded separately from RT3-01 because it also covers the sentinel test at :218, which RT3-01's repair does not by itself reach."
     },
     {
-      "id": "RT2-03",
+      "id": "RT3-06",
       "severity": "P2",
-      "duty": 1,
-      "disposition": "open",
-      "at": "scripts/mint-admin.ts:247",
-      "title": "The new `['database project ref', dbProjectRef]` prod-denylist row has no oracle",
-      "reason": "Mutation M4 deleted the row from `assertMintTarget`'s production-denylist loop and SURVIVED. The only test that reaches the prod branch (`refuses a production project ref outright`) also passes a prod `supabaseUrl`, which throws first. P2 rather than P1 because for the sole production caller the row is redundant: `main()` derives `dbProjectRef` by substring extraction from `config.databasePoolUrl`'s hostname or username, and `dbTarget` = `${username}@${hostname}:${port}` is a superset of both, so any prod ref in `dbProjectRef` is already in `dbTarget` -- which IS checked. It is not PROVABLY equivalent, because `assertMintTarget` is exported and a future caller could pass an unrelated pair. Fix: one case passing a clean supabaseUrl/dbTarget with a prod `dbProjectRef`.",
-      "arbiter_reasoning": "Executed but indistinguishable under the current fixture; recorded inconclusive/oracle."
-    },
-    {
-      "id": "RT2-04",
-      "severity": "P1",
-      "duty": 2,
-      "disposition": "open",
-      "at": "scripts/ci/__tests__/mint-admin.test.ts:612-624",
-      "title": "The duplicate-email test's fixture satisfies BOTH arms of `isDuplicateEmailError`, so neither is pinned",
-      "reason": "The new `refuses when the Auth API itself reports a duplicate email` injects `{ code: 'email_exists', status: 422, message: 'User already registered' }` -- which matches the `email_exists` code arm AND the `/already (been )?registered|already exists/i` message arm. Mutation M13 deleted the code arm entirely and SURVIVED the whole suite. Round 1's RT-01 asked for one case PER ARM; the fix landed one case that covers the disjunction rather than either disjunct. This is the same shape as RT-05: an assertion that reads as strengthened but whose input cannot distinguish the mutation. Fix: split into two -- `{ code: 'email_exists', message: 'Email address is in use' }` (code arm only) and `{ status: 422, message: 'User already registered' }` with no code (message arm only).",
-      "arbiter_reasoning": "The mutant changes `isDuplicateEmailError` for inputs outside this fixture, so it is not equivalent in general; against THIS input the function's result is unchanged, so it is recorded `inconclusive`/`oracle` rather than a confirmed P0. The gap is in the fixture, not in production behaviour."
-    },
-    {
-      "id": "RT2-05",
-      "severity": "P2",
-      "duty": 4,
-      "disposition": "open",
-      "at": "scripts/diff-coverage.ts:34-42",
-      "title": "Sibling of the fixed `flagValue` shape: `argValue` in scripts/diff-coverage.ts is still unguarded",
-      "reason": "Duty-4 sibling hunt for the S3 pattern. Patterns searched: `indexOf\\(flag\\)`, `argv\\[index \\+ 1\\]`, `args\\[index \\+ 1\\]`, `args\\[i \\+ 1\\]`. Scope: the whole repo. Exclusions: `node_modules/`, `docs/`. Exactly two hits: `scripts/mint-admin.ts:93` (fixed by this diff) and `scripts/diff-coverage.ts:36-40`, which still does `const value = args[index + 1]; if (value) return value;`. `--min --base origin/main` therefore yields `Number('--base')` = NaN for the coverage floor. P2: it gates a CI coverage percentage, not a write path, and it is outside this diff. Recorded, not fixed.",
-      "arbiter_reasoning": "Search-derived, not mutation-derived. The result is reported with its exact patterns, scope and exclusions."
-    },
-    {
-      "id": "RT2-06",
-      "severity": "P2",
+      "title": "The usage synopsis and the module docblock still read `[--env local|staging]`, omitting the production selector the same block documents three lines later",
+      "at": "scripts/mint-admin.ts:16,74",
       "duty": 3,
       "disposition": "open",
-      "at": "docs/runbooks/mint-admin.md:122",
-      "title": "The new exit-code table calls code 2 'a missing or malformed flag'; a missing ENV VAR also exits 2",
-      "reason": "`readMintConfig` -> `requireValue` throws `MintAdminUsageError` ('SUPABASE_URL is not set for this target -- export it, or pass --env local|staging'), and `runDirectCli`'s onError maps every `MintAdminUsageError` to `EXIT_USAGE` (2). So exit 2 also means 'a required environment variable is unset', which the table does not say. Every other row in the table verified true against HEAD. Fix: one clause -- 'or a required environment variable is unset'.",
-      "arbiter_reasoning": "Doc-vs-code re-resolution against HEAD (Duty 3). A merely imprecise -- not false -- claim, hence P2."
+      "reason": "MINT_ADMIN_USAGE:74 and the file docblock:16 both still show `[--env local|staging]`, while MINT_ADMIN_USAGE:81-85 documents `production` in full and docs/runbooks/mint-admin.md now names `--env production` as the only route to production. Incomplete rather than false, so P2 — but an operator who reads only the synopsis concludes production is unreachable, which is exactly the claim this branch reversed. Fix: `[--env local|staging|production]` in both places.",
+      "arbiter_reasoning": "Re-resolved against HEAD by reading both strings. Not P0: no reader is told something untrue, only something incomplete, and the correction is three lines below in the same block."
+    },
+    {
+      "id": "RT3-07",
+      "severity": "P2",
+      "title": "The deviations doc quotes `.feature/state.json` as `phase=gate_green head=82b19407`; the file does not contain that value at HEAD",
+      "at": "docs/superpowers/plans/feat-1178-mint-admin-deviations.md:54",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "prevalidate-plan.py reports `HEAD claimed as 82b19407, but HEAD is f51ae7f0`. At this HEAD the file read {\"phase\":\"gate_green\",\"head\":null} before this pass's gate re-run and head=f51ae7f0 after it. Fix: drop the SHA from the parenthetical, or mark it as the value observed on 2026-09-07.",
+      "arbiter_reasoning": "Stale rather than misleading, and P2 rather than the P1 the skill assigns a stale line number: it is a dated quotation inside an append-only deviation record, the argument it supports (state.json, not the ladder, is the phase authority) is unaffected by the value, and no operator or tool follows it. The other three changed plan/runbook docs prevalidate clean (1/1, 23/23 + 3/3 fixtures, 1/1 commit)."
+    },
+    {
+      "id": "RT3-08",
+      "severity": "P2",
+      "title": "Orphan section header left behind by the guard move",
+      "at": "scripts/mint-admin.ts:202",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "`// -- the target guard ---` owns nothing after assertMintTarget moved to staging-guard.ts; it sits immediately above `// -- the recovery link ---`. Fix: delete the line.",
+      "arbiter_reasoning": "Cosmetic residue of the fold, confirmed by reading mint-admin.ts:200-206 at HEAD. No behavioural claim attached, so P2."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 17,
-    "killed": 9,
-    "survived_confirmed_p0": 0,
+    "inventory_total": 30,
+    "killed": 14,
+    "survived_confirmed_p0": 2,
     "equivalent": 0,
-    "inconclusive": 5,
-    "skipped_budget": 0,
-    "excluded": 3,
-    "findings_total": 17,
-    "p0_open": 0,
-    "p1_open": 4,
-    "p2_open": 3,
+    "inconclusive": 3,
+    "skipped_budget": 7,
+    "excluded": 4,
+    "findings_total": 8,
+    "p0_open": 1,
+    "p1_open": 3,
+    "p2_open": 4,
     "accepted_risk": 0,
-    "fixed": 10,
+    "fixed": 0,
     "rejected": 0
   },
-  "status": "INCOMPLETE_ORACLE"
+  "status": "OPEN_P0"
 }
