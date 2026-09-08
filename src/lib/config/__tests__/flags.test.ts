@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readFlag, isPreviewEnvironment } from '../flags';
+import { readFlag, isPreviewEnvironment, isProductionEnvironment } from '../flags';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -57,5 +57,35 @@ describe('isPreviewEnvironment', () => {
     process.env.VERCEL_ENV = 'preview';
     process.env.VERCEL_TARGET_ENV = 'staging';
     expect(isPreviewEnvironment()).toBe(false);
+  });
+});
+
+describe('isProductionEnvironment', () => {
+  it('isProductionEnvironment is true only for VERCEL_TARGET_ENV=production', () => {
+    // #1186: the "production lane" the Admin origin allowlist's loopback rule is
+    // inert in. requiresProductionConfig() cannot answer this — Vercel sets
+    // NODE_ENV=production on staging and preview builds too, which would make
+    // loopback inert on staging, the one environment ADR 0024 D7 built it for.
+    delete process.env.VERCEL_ENV;
+    delete process.env.VERCEL_TARGET_ENV;
+    expect(isProductionEnvironment()).toBe(false);
+
+    process.env.VERCEL_TARGET_ENV = 'production';
+    expect(isProductionEnvironment()).toBe(true);
+
+    // exact match only
+    process.env.VERCEL_TARGET_ENV = 'Production';
+    expect(isProductionEnvironment()).toBe(false);
+
+    for (const lane of ['preview', 'staging', 'development', '']) {
+      process.env.VERCEL_TARGET_ENV = lane;
+      expect(isProductionEnvironment(), `lane=${lane}`).toBe(false);
+    }
+
+    // NODE_ENV is not the signal, and neither is VERCEL_ENV.
+    process.env.VERCEL_TARGET_ENV = 'staging';
+    process.env.NODE_ENV = 'production';
+    process.env.VERCEL_ENV = 'production';
+    expect(isProductionEnvironment()).toBe(false);
   });
 });

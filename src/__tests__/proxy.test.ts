@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { proxy } from '../proxy';
+import { addVaryOrigin, proxy } from '../proxy';
+import { AdminOriginConfigError } from '@/lib/config/admin-origins';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 
 const {
@@ -274,5 +275,424 @@ describe('proxy public launch host behavior', () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'mfa_required' });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin API CORS (#1186 · ADR 0026)
+//
+// The CORS block is the FIRST thing inside proxy(), ahead of isProtectedRoute.
+// `createServerClient` is the probe for "did any Supabase work happen": ADR 0026
+// D4 requires a refused origin and an allowlisted preflight to return BEFORE it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const APP_ORIGIN = 'https://repworth.net';
+const ADMIN_ORIGIN = 'https://admin.staging.repworth.net';
+const EVIL_ORIGIN = 'https://evil.example';
+const ADMIN_API_URL = 'https://repworth.net/api/admin/overview';
+
+const ALL_ACCESS_CONTROL_HEADERS = [
+  'access-control-allow-origin',
+  'access-control-allow-methods',
+  'access-control-allow-headers',
+  'access-control-max-age',
+  'access-control-allow-credentials',
+  'access-control-expose-headers',
+] as const;
+
+function accessControlHeaderNames(response: Response): string[] {
+  return Array.from(response.headers.keys())
+    .map((key) => key.toLowerCase())
+    .filter((key) => key.startsWith('access-control-'))
+    .sort();
+}
+
+function corsRequest(
+  url: string,
+  init: { method?: string; origin?: string; headers?: Record<string, string> } = {},
+): NextRequest {
+  const parsed = new URL(url);
+  const headers: Record<string, string> = { host: parsed.host, ...(init.headers ?? {}) };
+  if (init.origin !== undefined) headers.origin = init.origin;
+  return new NextRequest(url, { method: init.method ?? 'GET', headers });
+}
+
+describe('admin API CORS', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUser.mockResolvedValue({ data: { user: null } });
+    getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal1', nextLevel: 'aal1' },
+      error: null,
+    });
+    selfRow.value = null;
+    setSupabaseCookies.value = false;
+    process.env.MFA_ENFORCEMENT_ENABLED = 'false';
+    process.env.NEXT_PUBLIC_APP_URL = APP_ORIGIN;
+    process.env.ADMIN_APP_ORIGINS = ADMIN_ORIGIN;
+    delete process.env.VERCEL_TARGET_ENV;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('echoes Access-Control-Allow-Origin for an allowlisted admin origin', async () => {
+    const response = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+
+    // The request is NOT short-circuited: it reaches branch 4 and gets its
+    // pre-existing 401 — the CORS headers ride on top of that answer.
+    expect(response.status).toBe(401);
+    expect(response.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends no Access-Control-Allow-Origin for a disallowed origin', async () => {
+    const response = await proxy(corsRequest(ADMIN_API_URL, { origin: EVIL_ORIGIN }));
+
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('answers an OPTIONS preflight from an allowlisted origin with 204 and the full header set, never reaching branch 4', async () => {
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, {
+        method: 'OPTIONS',
+        origin: ADMIN_ORIGIN,
+        headers: {
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'authorization',
+        },
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe('');
+    expect(response.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
+    expect(response.headers.get('access-control-allow-methods')).toBe(
+      'GET, POST, PUT, PATCH, OPTIONS',
+    );
+    expect(response.headers.get('access-control-allow-headers')).toBe(
+      'Authorization, Content-Type',
+    );
+    expect(response.headers.get('access-control-max-age')).toBe('600');
+    // Branch 4 would have 401'd a cookie-less preflight. It must never run.
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('refuses an OPTIONS preflight from a disallowed origin with 403 origin', async () => {
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'OPTIONS', origin: EVIL_ORIGIN }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'origin' });
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('sets Vary: Origin on both the allowed and the refused preflight', async () => {
+    const allowed = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'OPTIONS', origin: ADMIN_ORIGIN }),
+    );
+    const refused = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'OPTIONS', origin: EVIL_ORIGIN }),
+    );
+
+    expect(allowed.headers.get('vary')).toBe('Origin');
+    expect(refused.headers.get('vary')).toBe('Origin');
+  });
+
+  it('refuses a non-OPTIONS admin API request from a disallowed origin with 403 before any Supabase call', async () => {
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'POST', origin: EVIL_ORIGIN }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'origin' });
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it("lets a same-origin POST from this app's own origin past the CORS block", async () => {
+    // The Legacy admin portal's own mutations carry Origin: <this app>. Without
+    // the implicit self-allowance every one of them 403s in production.
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'POST', origin: APP_ORIGIN }),
+    );
+
+    expect(response.status).not.toBe(403);
+    expect(response.status).toBe(401); // branch 4's pre-existing refusal
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an admin API request with no Origin header to the existing auth branch', async () => {
+    const response = await proxy(corsRequest(ADMIN_API_URL));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: 'Unauthorized' });
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('admits a loopback origin on an arbitrary port outside the production lane', async () => {
+    process.env.ADMIN_APP_ORIGINS = '';
+    process.env.VERCEL_TARGET_ENV = 'staging';
+
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'OPTIONS', origin: 'http://localhost:54321' }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:54321');
+  });
+
+  it('refuses a loopback origin inside the production lane', async () => {
+    process.env.VERCEL_TARGET_ENV = 'production';
+
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'OPTIONS', origin: 'http://localhost:54321' }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'origin' });
+  });
+
+  it('sets Vary: Origin on every admin API response, including a branch 4 refusal', async () => {
+    // Every exit an /api/admin/** request can take today.
+    const noOrigin = await proxy(corsRequest(ADMIN_API_URL));
+    const allowed = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    const refused = await proxy(corsRequest(ADMIN_API_URL, { origin: EVIL_ORIGIN }));
+
+    expect(noOrigin.headers.get('vary')).toBe('Origin');
+    expect(allowed.headers.get('vary')).toBe('Origin');
+    expect(refused.headers.get('vary')).toBe('Origin');
+  });
+
+  it('writes no Access-Control header on a non-admin route', async () => {
+    const publicPage = await proxy(corsRequest('https://repworth.net/', { origin: ADMIN_ORIGIN }));
+    const ownerApi = await proxy(
+      corsRequest('https://repworth.net/api/billing/checkout', {
+        method: 'POST',
+        origin: ADMIN_ORIGIN,
+      }),
+    );
+
+    expect(accessControlHeaderNames(publicPage)).toEqual([]);
+    expect(accessControlHeaderNames(ownerApi)).toEqual([]);
+    expect(publicPage.headers.get('vary')).toBeNull();
+  });
+
+  it('validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts', async () => {
+    // ADR 0026 D2: an entry containing '*' is a configuration error that throws
+    // AT READ. If the read happened only on the path that consults the list, a
+    // wildcard would sit undetected for every self-origin and no-Origin request.
+    process.env.ADMIN_APP_ORIGINS = '*';
+
+    await expect(proxy(corsRequest(ADMIN_API_URL, { origin: APP_ORIGIN }))).rejects.toThrow(
+      AdminOriginConfigError,
+    );
+    await expect(
+      proxy(corsRequest(ADMIN_API_URL, { origin: 'http://localhost:3000' })),
+    ).rejects.toThrow(AdminOriginConfigError);
+    await expect(proxy(corsRequest(ADMIN_API_URL))).rejects.toThrow(AdminOriginConfigError);
+  });
+
+  it('does not read ADMIN_APP_ORIGINS on a non-admin request', async () => {
+    // A bad value must never take down /admin/login or a public page.
+    process.env.ADMIN_APP_ORIGINS = 'https://ok.example, *';
+
+    await expect(proxy(corsRequest('https://repworth.net/admin/login'))).resolves.toBeDefined();
+    await expect(proxy(corsRequest('https://repworth.net/'))).resolves.toBeDefined();
+  });
+
+  it('refuses empty, literal null, malformed and multi-valued Origin headers without throwing or constructing Supabase', async () => {
+    const cases = ['', 'null', 'not a url', `${ADMIN_ORIGIN} ${EVIL_ORIGIN}`, 'file://'];
+
+    for (const origin of cases) {
+      vi.clearAllMocks();
+      const response = await proxy(corsRequest(ADMIN_API_URL, { method: 'POST', origin }));
+
+      expect(response.status, `origin=${JSON.stringify(origin)}`).toBe(403);
+      expect(await response.json()).toEqual({ error: 'origin' });
+      expect(response.headers.get('vary')).toBe('Origin');
+      expect(response.headers.get('access-control-allow-origin')).toBeNull();
+      expect(createServerClient).not.toHaveBeenCalled();
+    }
+  });
+
+  it('refuses a disallowed origin on every method, and with cookies, Authorization or same-site fetch metadata present', async () => {
+    for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS', 'DELETE', 'HEAD']) {
+      vi.clearAllMocks();
+      const response = await proxy(
+        corsRequest(ADMIN_API_URL, {
+          method,
+          origin: EVIL_ORIGIN,
+          headers: {
+            cookie: 'sb-access-token=stolen',
+            authorization: 'Bearer stolen',
+            'sec-fetch-site': 'same-site',
+          },
+        }),
+      );
+
+      expect(response.status, `method=${method}`).toBe(403);
+      expect(createServerClient).not.toHaveBeenCalled();
+    }
+  });
+
+  it('returns the fixed preflight contract regardless of the requested method and headers', async () => {
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, {
+        method: 'OPTIONS',
+        origin: ADMIN_ORIGIN,
+        headers: {
+          'access-control-request-method': 'DELETE',
+          'access-control-request-headers': 'x-admin-override, authorization',
+        },
+      }),
+    );
+
+    // Never echoed: DELETE is absent because no admin route exports one, and the
+    // allowed header list is a constant, not the caller's wish list.
+    expect(response.headers.get('access-control-allow-methods')).toBe(
+      'GET, POST, PUT, PATCH, OPTIONS',
+    );
+    expect(response.headers.get('access-control-allow-methods')).not.toContain('DELETE');
+    expect(response.headers.get('access-control-allow-headers')).toBe(
+      'Authorization, Content-Type',
+    );
+    expect(response.headers.get('access-control-allow-headers')).not.toContain('x-admin-override');
+  });
+
+  it('never sends Allow-Credentials or Expose-Headers, and sends no Access-Control header on a refusal', async () => {
+    const preflight = await proxy(
+      corsRequest(ADMIN_API_URL, { method: 'OPTIONS', origin: ADMIN_ORIGIN }),
+    );
+    const actual = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    const refused = await proxy(corsRequest(ADMIN_API_URL, { origin: EVIL_ORIGIN }));
+
+    for (const response of [preflight, actual, refused]) {
+      expect(response.headers.get('access-control-allow-credentials')).toBeNull();
+      expect(response.headers.get('access-control-expose-headers')).toBeNull();
+    }
+    // Preflight-only headers must not ride on an actual response.
+    expect(accessControlHeaderNames(actual)).toEqual(['access-control-allow-origin']);
+    // A refusal carries nothing at all.
+    expect(accessControlHeaderNames(refused)).toEqual([]);
+    expect(ALL_ACCESS_CONTROL_HEADERS).toHaveLength(6); // the list this test sweeps
+  });
+
+  it('lets an OPTIONS request with no Origin reach the existing auth branch and adds only Vary', async () => {
+    // Not a preflight: no Origin, so no CORS check and no short-circuit.
+    const response = await proxy(corsRequest(ADMIN_API_URL, { method: 'OPTIONS' }));
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get('vary')).toBe('Origin');
+    expect(accessControlHeaderNames(response)).toEqual([]);
+    expect(createServerClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves every branch 4 outcome and refreshed Supabase cookies while stamping CORS headers', async () => {
+    // 401 — no session
+    const unauthorized = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    expect(unauthorized.status).toBe(401);
+    expect(await unauthorized.json()).toEqual({ error: 'Unauthorized' });
+
+    // 403 Forbidden — authenticated, not an admin
+    vi.clearAllMocks();
+    getUser.mockResolvedValue({ data: { user: { id: 'auth-owner' } } });
+    selfRow.value = { role: 'owner', account_id: 'acct-1' };
+    const forbidden = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toEqual({ error: 'Forbidden' });
+    expect(forbidden.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
+
+    // 403 mfa_required — admin at aal1 under enforcement, with refreshed cookies
+    vi.clearAllMocks();
+    process.env.MFA_ENFORCEMENT_ENABLED = 'true';
+    getUser.mockResolvedValue({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
+      error: null,
+    });
+    setSupabaseCookies.value = true;
+    const mfa = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    expect(mfa.status).toBe(403);
+    expect(await mfa.json()).toEqual({ error: 'mfa_required' });
+    expect(mfa.headers.get('set-cookie')).toContain('sb-refresh-token=updated');
+    expect(mfa.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
+    expect(mfa.headers.get('vary')).toBe('Origin');
+
+    // pass-through — a verified aal2 admin, downstream headers intact
+    vi.clearAllMocks();
+    process.env.MFA_ENFORCEMENT_ENABLED = 'false';
+    getUser.mockResolvedValue({ data: { user: { id: 'auth-admin' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    setSupabaseCookies.value = true;
+    const passthrough = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    expect(passthrough.status).toBe(200);
+    expect(passthrough.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
+    expect(passthrough.headers.get('vary')).toBe('Origin');
+    expect(passthrough.headers.get('x-middleware-request-cookie')).toContain(
+      'sb-refresh-token=updated',
+    );
+    expect(passthrough.headers.get(`x-middleware-request-${REQUEST_PATHNAME_HEADER}`)).toBe(
+      '/api/admin/overview',
+    );
+  });
+
+  it('matches bare and normalized admin API paths and excludes admin lookalike paths', async () => {
+    for (const url of [
+      'https://repworth.net/api/admin',
+      'https://repworth.net/api/admin/',
+      'https://repworth.net/API/Admin/Overview',
+      'https://repworth.net/api/admin/businesses/abc',
+    ]) {
+      vi.clearAllMocks();
+      const response = await proxy(corsRequest(url, { origin: EVIL_ORIGIN }));
+      expect(response.status, `url=${url}`).toBe(403);
+      expect(await response.json()).toEqual({ error: 'origin' });
+    }
+
+    // /api/adminfoo is not the Admin API. No CORS, no refusal from this block.
+    vi.clearAllMocks();
+    const lookalike = await proxy(
+      corsRequest('https://repworth.net/api/adminfoo', { origin: EVIL_ORIGIN }),
+    );
+    expect(accessControlHeaderNames(lookalike)).toEqual([]);
+    expect(lookalike.headers.get('vary')).toBeNull();
+  });
+
+  it('adds Origin to an existing Vary header without dropping or duplicating a token', async () => {
+    const cases: Array<[string | null, string]> = [
+      [null, 'Origin'],
+      ['Accept-Encoding', 'Accept-Encoding, Origin'],
+      ['Origin', 'Origin'],
+      ['origin', 'origin'],
+      ['Accept-Encoding, Origin', 'Accept-Encoding, Origin'],
+      ['*', '*'],
+    ];
+
+    for (const [existing, expected] of cases) {
+      const headers = new Headers();
+      if (existing !== null) headers.set('Vary', existing);
+      addVaryOrigin(headers);
+      expect(headers.get('vary'), `existing=${JSON.stringify(existing)}`).toBe(expected);
+    }
+  });
+
+  it('echoes the normalized allowed origin, never the raw Origin header', async () => {
+    // A browser always sends a canonical origin, so the two agree in practice.
+    // What this pins is that the header we WRITE is the origin we DECIDED about.
+    const response = await proxy(
+      corsRequest(ADMIN_API_URL, {
+        method: 'OPTIONS',
+        origin: 'https://ADMIN.Staging.RepWorth.net',
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
   });
 });
