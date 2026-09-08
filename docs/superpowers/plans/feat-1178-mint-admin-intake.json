@@ -3,7 +3,7 @@
   "size": "standard",
   "risk": "high",
   "risk_reasons": [
-    "It creates a privileged admin identity — the authorization surface of the whole admin control plane",
+    "It creates a privileged admin identity \u2014 the authorization surface of the whole admin control plane",
     "It writes public.users and admin_audit_log with the service_role key, outside any request-scoped gate",
     "It runs against a shared Supabase project, so a mis-targeted invocation mutates the wrong environment"
   ],
@@ -11,13 +11,13 @@
   "db_touching": true,
   "goal": "One command mints a RepWorth admin identity end to end: it creates the Supabase Auth login, inserts the linked public.users row (role='admin', account_id NULL) and its admin_audit_log row in ONE Postgres transaction, refuses when either half already exists, prints a single-use recovery link and never a password, and refuses to run against a Supabase project the operator did not name.",
   "non_goals": [
-    "Revoking, resetting or enrolling existing admins — that is ticket #1182",
+    "Revoking, resetting or enrolling existing admins \u2014 that is ticket #1182",
     "A UI page or API route for minting; the service_role key makes this a script, per the ticket's Constraints",
     "Any migration or schema change; admin_audit_log.actor_user_id stays NOT NULL and users keeps its role CHECK",
     "MFA enrolment and the MFA_ENFORCEMENT_ENABLED flip (#1182)",
     "Any touch of impersonation, the dual-mode admin gate, src/proxy.ts, CORS or the Admin app",
     "Any production Supabase write in this run; production stays untouched until #1179",
-    "Repairing, re-linking or deleting an existing users row — the script refuses instead",
+    "Repairing, re-linking or deleting an existing users row \u2014 the script refuses instead",
     "A package.json script alias; the script is invoked with pnpm tsx like every sibling under scripts/"
   ],
   "user_visible_behavior": [
@@ -26,15 +26,15 @@
     "A password is never generated, set or printed; the new admin sets one through the recovery link",
     "--dry-run runs every refusal check and the target guard, prints the plan, and writes nothing to Postgres or Supabase Auth",
     "Re-running for an email that already has a users row exits non-zero naming the existing row's id and role, and writes nothing",
-    "An email that already has a Supabase Auth login exits non-zero — in dry run on the read-only auth.users probe, and on a real run on the Auth API's own duplicate-email refusal; the half-succeeded hand process is reported and sent to the runbook, never silently adopted",
+    "An email that already has a Supabase Auth login exits non-zero \u2014 in dry run on the read-only auth.users probe, and on a real run on the Auth API's own duplicate-email refusal; the half-succeeded hand process is reported and sent to the runbook, never silently adopted",
     "A --confirm-ref that is not exactly the project ref parsed out of BOTH the Supabase URL host and the database connection target exits non-zero before any call; a partial or common substring is refused, and a production project ref is refused outright",
     "--env staging maps the STAGING_-prefixed variables out of .env.staging.local so one command targets the staging project; with no --env the script uses the ambient environment"
   ],
   "invariants": [
-    "Invariant #8 — users.auth_id maps to the Supabase Auth identity, and SUPABASE_SERVICE_KEY is read only inside this Node script, never by browser code",
-    "Invariant #10 — node:crypto only; no crypto-js",
-    "Invariants #12 and #15 — the script is the composition root: it builds its own postgres and Supabase clients from env and passes them into the domain helpers, which never import @/lib/db/server",
-    "admin_audit_log is written ONLY through writeAdminAuditLog (src/lib/audit/log.ts, migration 117) — never a raw INSERT",
+    "Invariant #8 \u2014 users.auth_id maps to the Supabase Auth identity, and SUPABASE_SERVICE_KEY is read only inside this Node script, never by browser code",
+    "Invariant #10 \u2014 node:crypto only; no crypto-js",
+    "Invariants #12 and #15 \u2014 the script is the composition root: it builds its own postgres and Supabase clients from env and passes them into the domain helpers, which never import @/lib/db/server",
+    "admin_audit_log is written ONLY through writeAdminAuditLog (src/lib/audit/log.ts, migration 117) \u2014 never a raw INSERT",
     "The users row and its admin_audit_log row commit together in ONE sql.begin transaction, or neither exists",
     "admin_audit_log.actor_user_id stays NOT NULL and is satisfied without a migration: the minted admin is its own actor, resolved inside that same transaction",
     "users.id has no default so the script supplies the UUID; users.auth_id is varchar; users.role obeys users_role_check ('owner','admin'); an admin's account_id is NULL",
@@ -42,41 +42,41 @@
     "Production Supabase is never a target in this run; the prod project-ref denylist in scripts/staging-guard.ts is reused unweakened"
   ],
   "edge_cases": [
-    "A public.users row already exists for the email in any role — refuse, naming its id and role, before any Auth call",
-    "A Supabase Auth login already exists for the email with no matching public.users row — the half-succeeded hand process the ticket describes. Two independent refusals close it: a read-only auth.users probe that runs BEFORE the dry-run return (guarded by to_regclass, because the local and CI test databases provision no auth.users relation), and the duplicate-email error auth.admin.createUser returns on the real run",
-    "The auth.users probe is unavailable on the target — the run says so loudly, dry run reports that it could not verify the Auth half, and the real run still refuses on the Auth API's own duplicate-email error",
-    "The mint transaction rejects but the COMMIT actually landed (a lost acknowledgement) — the script reconciles by reading back the users row for the new auth_id and reports a successful mint only when that row carries THIS invocation's generated id; a row with a different id is a failure, never a mint",
-    "The mint transaction rejects with an AMBIGUOUS outcome (no SQLSTATE, or class 08 / 57) and the reconciliation read finds nothing — the transaction may still be in flight, so the Auth identity is PRESERVED and the run reports the uncertainty; the compensating delete runs only on a confirmed rollback (a MintRefusal this script raised, or a deterministic SQLSTATE in class 22, 23 or 42)",
+    "A public.users row already exists for the email in any role \u2014 refuse, naming its id and role, before any Auth call",
+    "A Supabase Auth login already exists for the email with no matching public.users row \u2014 the half-succeeded hand process the ticket describes. Two independent refusals close it: a read-only auth.users probe that runs BEFORE the dry-run return (guarded by to_regclass, because the local and CI test databases provision no auth.users relation), and the duplicate-email error auth.admin.createUser returns on the real run",
+    "The auth.users probe is unavailable on the target \u2014 the run says so loudly, dry run reports that it could not verify the Auth half, and the real run still refuses on the Auth API's own duplicate-email error",
+    "The mint transaction rejects but the COMMIT actually landed (a lost acknowledgement) \u2014 the script reconciles by reading back the users row for the new auth_id and reports a successful mint only when that row carries THIS invocation's generated id; a row with a different id is a failure, never a mint",
+    "The mint transaction rejects with an AMBIGUOUS outcome (no SQLSTATE, or class 08 / 57) and the reconciliation read finds nothing \u2014 the transaction may still be in flight, so the Auth identity is PRESERVED and the run reports the uncertainty; the compensating delete runs only on a confirmed rollback (a MintRefusal this script raised, or a deterministic SQLSTATE in class 22, 23 or 42)",
     "A reconciliation read that itself fails preserves the Auth identity and reports the uncertainty",
-    "Another users row already holds the freshly created auth_id — the refusal is reported and the Auth identity is PRESERVED, because deleting it would revoke a different admin's login; the reconciliation read runs before every compensating delete, with no special case for a refusal",
-    "A public.users row already exists for the resolved auth_id — refuse",
-    "The mint transaction fails after the Auth user was created — compensating auth.admin.deleteUser runs, and when that delete also fails the orphan auth id is printed for manual cleanup",
-    "generateLink fails after the transaction committed — the mint stands and the script tells the operator to re-issue a recovery link rather than re-mint",
-    "--confirm-ref is absent, or matches only the Supabase host and not the database target (a mismatched credential pair) — refuse before any write",
-    "STAGING_SUPABASE_URL is empty in .env.staging.local — the --env staging mapping falls back to STAGING_NEXT_PUBLIC_SUPABASE_URL, as docs/runbooks/mfa-factor-reset.md records",
+    "Another users row already holds the freshly created auth_id \u2014 the refusal is reported and the Auth identity is PRESERVED, because deleting it would revoke a different admin's login; the reconciliation read runs before every compensating delete, with no special case for a refusal",
+    "A public.users row already exists for the resolved auth_id \u2014 refuse",
+    "The mint transaction fails after the Auth user was created \u2014 compensating auth.admin.deleteUser runs, and when that delete also fails the orphan auth id is printed for manual cleanup",
+    "generateLink fails after the transaction committed \u2014 the mint stands and the script tells the operator to re-issue a recovery link rather than re-mint",
+    "--confirm-ref is absent, or matches only the Supabase host and not the database target (a mismatched credential pair) \u2014 refuse before any write",
+    "STAGING_SUPABASE_URL is empty in .env.staging.local \u2014 the --env staging mapping falls back to STAGING_NEXT_PUBLIC_SUPABASE_URL, as docs/runbooks/mfa-factor-reset.md records",
     "Email is trimmed and lowercased before every comparison and before the INSERT, so casing cannot create a second identity for one human",
-    "The Supabase createUser call returns no user with no error — treated as a failure, not as a mint"
+    "The Supabase createUser call returns no user with no error \u2014 treated as a failure, not as a mint"
   ],
   "existing_patterns_to_follow": [
-    "src/lib/onboarding/admin-onboarding-service.ts — the COMPENSATION precedent (it creates the database rows first, then invites, then patches auth_id, compensating at each failure) and the never-leave-auth_id-NULL rule; the Auth-first ordering is this script's own decision, taken because it removes the auth_id IS NULL window entirely",
-    "e2e/harness.ts createAdminUser — auth.admin.createUser plus the bare role='admin', account_id NULL users INSERT",
-    "e2e/harness.ts getResetUrl — build the app callback URL from properties.hashed_token, never properties.action_link",
-    "scripts/staging-guard.ts — PROD_PROJECT_REFS, describeConnectionTarget and extractProjectRefForLog as the password-free target descriptor",
-    "scripts/ws8-staging-smoke.ts — requireEnv plus its own postgres client with prepare:false and an explicit statement_timeout",
-    "scripts/run-direct-cli.ts — the import-safe entry point that lets a script module be unit-tested",
-    "src/lib/audit/log.ts writeAdminAuditLog — the only sanctioned admin_audit_log writer",
-    "src/lib/channels/unique-violation.ts — the house shape for classifying a thrown Postgres error by SQLSTATE structurally (asPostgresError + a code test), without importing postgres's PostgresError class",
-    "src/lib/shared/auth-flow.ts resetPasswordPathForFlow — the admin reset path, not a hardcoded string",
-    "scripts/ci/__tests__/staging-guard.test.ts — where a scripts/ module's unit tests live in this repo",
-    "src/lib/refusals/__tests__/write.integration.test.ts — live-DB suite shape: describeWithDb, assertSchemaReady, INSERT-only, no run-time DDL",
-    "docs/runbooks/mfa-factor-reset.md — the sibling admin-identity runbook whose environment-selection section this one mirrors"
+    "src/lib/onboarding/admin-onboarding-service.ts \u2014 the COMPENSATION precedent (it creates the database rows first, then invites, then patches auth_id, compensating at each failure) and the never-leave-auth_id-NULL rule; the Auth-first ordering is this script's own decision, taken because it removes the auth_id IS NULL window entirely",
+    "e2e/harness.ts createAdminUser \u2014 auth.admin.createUser plus the bare role='admin', account_id NULL users INSERT",
+    "e2e/harness.ts getResetUrl \u2014 build the app callback URL from properties.hashed_token, never properties.action_link",
+    "scripts/staging-guard.ts \u2014 PROD_PROJECT_REFS, describeConnectionTarget and extractProjectRefForLog as the password-free target descriptor",
+    "scripts/ws8-staging-smoke.ts \u2014 requireEnv plus its own postgres client with prepare:false and an explicit statement_timeout",
+    "scripts/run-direct-cli.ts \u2014 the import-safe entry point that lets a script module be unit-tested",
+    "src/lib/audit/log.ts writeAdminAuditLog \u2014 the only sanctioned admin_audit_log writer",
+    "src/lib/channels/unique-violation.ts \u2014 the house shape for classifying a thrown Postgres error by SQLSTATE structurally (asPostgresError + a code test), without importing postgres's PostgresError class",
+    "src/lib/shared/auth-flow.ts resetPasswordPathForFlow \u2014 the admin reset path, not a hardcoded string",
+    "scripts/ci/__tests__/staging-guard.test.ts \u2014 where a scripts/ module's unit tests live in this repo",
+    "src/lib/refusals/__tests__/write.integration.test.ts \u2014 live-DB suite shape: describeWithDb, assertSchemaReady, INSERT-only, no run-time DDL",
+    "docs/runbooks/mfa-factor-reset.md \u2014 the sibling admin-identity runbook whose environment-selection section this one mirrors"
   ],
   "test_seams": [
-    "parseMintAdminArgs — the CLI contract, exported from scripts/mint-admin.ts",
-    "resolveMintEnv — the STAGING_ prefix mapping and its empty-URL fallback",
-    "assertMintTarget — the project-ref target guard over the Supabase host and the database descriptor",
-    "buildAdminRecoveryUrl — the callback URL built from hashed_token",
-    "mintAdmin — the orchestration, exercised with an injected postgres client and an injected Supabase admin double",
+    "parseMintAdminArgs \u2014 the CLI contract, exported from scripts/mint-admin.ts",
+    "resolveMintEnv \u2014 the STAGING_ prefix mapping and its empty-URL fallback",
+    "assertMintTarget \u2014 the project-ref target guard over the Supabase host and the database descriptor",
+    "buildAdminRecoveryUrl \u2014 the callback URL built from hashed_token",
+    "mintAdmin \u2014 the orchestration, exercised with an injected postgres client and an injected Supabase admin double",
     "The live test database, exercising mintAdmin against the real users and admin_audit_log schema"
   ],
   "allowed_edit_surface": [
@@ -84,6 +84,7 @@
     "scripts/ci/__tests__/mint-admin.test.ts",
     "scripts/ci/__tests__/mint-admin.integration.test.ts",
     "docs/runbooks/mint-admin.md",
+    ".claude/reference/arch-review-log.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
   ],
@@ -120,12 +121,12 @@
     "refuses a second mint for the same email against the live schema"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 300,
-  "estimated_test_lines": 420,
+  "estimated_prod_lines": 1000,
+  "estimated_test_lines": 800,
   "dependencies_added": [],
-  "rollback_plan": "No migration, no flag, no schema change, and no runtime caller — the script is operator tooling. Roll back by reverting the squash commit on main. A mint already performed is undone by #1182's revoke path (revoke, never row deletion): the disposable staging smoke identity minted during verification is named in the PR body and in this run's report so the owner can revoke it; its rows are deliberately left in place.",
+  "rollback_plan": "No migration, no flag, no schema change, and no runtime caller \u2014 the script is operator tooling. Roll back by reverting the squash commit on main. A mint already performed is undone by #1182's revoke path (revoke, never row deletion): the disposable staging smoke identity minted during verification is named in the PR body and in this run's report so the owner can revoke it; its rows are deliberately left in place.",
   "observability": [
-    "Every run prints TARGET (project ref, Supabase host, user@host:port database descriptor) before any write, and every refusal exits non-zero naming the reason — the script is interactive, so the terminal is the primary signal",
+    "Every run prints TARGET (project ref, Supabase host, user@host:port database descriptor) before any write, and every refusal exits non-zero naming the reason \u2014 the script is interactive, so the terminal is the primary signal",
     "The durable signal is the admin_audit_log row with event_type 'admin_minted': a users row with role='admin' and no matching audit row is the silent-failure shape, and it is exactly what the live-DB suite pins"
   ],
   "required_approvals": [
