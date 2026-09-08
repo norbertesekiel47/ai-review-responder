@@ -113,9 +113,11 @@ workflow, effort, quality, paid preference and repeated use. “AI-native” and
 
 ## 4. Cash and investor evidence run alongside the beta
 
-The co-founder leads cash reconciliation and financing discovery; the founder
-joins conversations where product knowledge and follow-up decisions matter.
-Both confirm available hours before commitments are assigned. A new feature,
+The CFO leads cash reconciliation and the financial ask. The COO prepares
+the pitch and owns the investor process, pitching alongside the CEO/CTO;
+the CMO supplies buyer, market and distribution evidence, with CFO support.
+The four founders report 40–60 hours each per week; the [role assignment draft](2026-09-08-founder-90-day-plan/README.md)
+plans around 40 and confirms weekly commitments. A new feature,
 public launch or polished deck is not a prerequisite for private investor
 discovery.
 
@@ -131,8 +133,9 @@ and escalation rules. These dates are planning targets, not completed work.
 In week 1, prepare an honest brief with zero paying customers, founder-reported
 beta participation, current product scope, evidence gaps and a costed funding
 ask once cash inputs arrive. Obtain permission before messaging anyone,
-submitting an application or spending money. The co-founder records actual
-responses, decisions, conditions and next dates; researched names are not
+submitting an application or spending money. The COO records actual
+responses, decisions, conditions and next dates; CFO verifies financial
+figures and received cash. Researched names are not
 investor interest, and signed commitments are not cleared funds.
 
 Run only three active learning questions this month:
