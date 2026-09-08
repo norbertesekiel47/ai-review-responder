@@ -25,6 +25,9 @@ Facts measured at charting time (2026-09-07) that constrain the design:
   `src/lib/admin/*` or `sql` directly (`src/lib/auth/page-gate.ts:41`). 17 of
   them have a matching `GET /api/admin/…` route; 5 have none (business-detail
   batch summary, suppressions list, security, runbook, businesses/new coupon).
+  > **Corrected at validation (2026-09-08).** The inventory table held six page
+  > rows without a matching GET. ADR 0027 established that four of them read
+  > nothing, so only two gaps are real (0027 D1–D2).
 - Every admin guard is cookie-only. `src/lib/db/auth.ts:27-37` builds a
   `@supabase/ssr` client from `request.cookies`; no route or gate reads an
   `Authorization` header. `src/proxy.ts:137-150` returns 401/403 on
@@ -54,6 +57,10 @@ Facts measured at charting time (2026-09-07) that constrain the design:
    founder keeps every secret; the Admin app holds the Supabase URL and anon
    key only — never `SUPABASE_SERVICE_KEY`, never a database URL.
 
+   > **Amended by ADR 0030 D4 (2026-09-07).** The Admin app holds the Supabase
+   > **publishable** key, not the legacy anon key. The intent — no secret, no
+   > service role — is unchanged.
+
 2. **The Admin API stays in this repo, as the existing Next.js routes under
    `src/app/api/admin/**` on the main Vercel app.** Invariant #1 allows it:
    these routes do short DB work and outbox enqueues, nothing long-running.
@@ -78,6 +85,14 @@ Facts measured at charting time (2026-09-07) that constrain the design:
    `/api/admin/**` is removed. Rejected: a second bearer-only prefix
    (`/api/admin-v1/`), which duplicates every route for the migration window.
 
+   > **Amended at validation (2026-09-08).** Cookie mode is removed from
+   > `/api/admin/**` EXCEPT `/api/admin/impersonation/**`. Impersonation never
+   > moves (D5); its start/end routes are called same-origin from pages that
+   > survive, and the `rw_impersonation` cookie cannot be set cross-site. Those
+   > routes keep cookie mode and `withSameOrigin` permanently, and `src/proxy.ts`
+   > branch 4 keeps its cookie path for that prefix only. Carried into ADR 0031
+   > D6 and ticket #1203.
+
 5. **Impersonation stays in this repo, entirely.** Start, view, end, the
    `rw_impersonation` cookie and the pages under `/admin/impersonate/**`
    remain on the main app. The Admin app LINKS OUT to the main app's
@@ -94,10 +109,20 @@ Facts measured at charting time (2026-09-07) that constrain the design:
    big-bang cutover (two copies diverge for longer) and keeping both
    indefinitely (two admin UIs to maintain).
 
+   > **Amended by ADR 0031 D3/D5 (2026-09-07).** The `admin-aal2-audit` fixtures
+   > are NOT touched per deletion (they cannot fail on a deleted page), and the
+   > `docs/directory/app-admin.md` rows are swept once at the end (#1203); the
+   > per-page row drop stays on the checklist, unguarded.
+
 7. **The second developer works against the STAGING Admin API only, never a
    local full stack.** They receive a staging admin account enrolled in MFA,
    and later a production admin account. The staging CORS allowlist admits
    `http://localhost:*`; production admits the Admin app's domain only.
+
+   > **Amended by ADR 0026 D4 (2026-09-07).** The production **Admin origin
+   > allowlist** admits the Admin app's origin; this app's own origin is allowed
+   > implicitly on every method, because a same-origin request carries no CORS
+   > check.
 
 8. **The Console visual system is exported once — tokens, the admin
    component kit under `src/components/admin/ui/`, and a curated set of docs

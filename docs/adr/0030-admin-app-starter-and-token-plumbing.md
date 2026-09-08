@@ -231,7 +231,8 @@ resolve it:
    | 9 | A non-allowlisted `Origin` is refused `403 {error:'origin'}` | B |
 
    **Check 7 names that route deliberately.** It is `requireAdminWithAal2` plus
-   `withSameOrigin()`
+   `withSameOrigin()` today — `withSameOriginUnlessBearer()` once #1185 lands,
+   which Gate B is blocked on —
    (`src/app/api/admin/suppressions/lookup/route.ts:20-21`) and it is a READ
    that is a `POST` by design. It exercises the AAL2 gate and the CSRF wrapper
    with zero staging state change. Send an address that matches nothing.
