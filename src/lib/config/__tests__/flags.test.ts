@@ -87,17 +87,41 @@ describe('isProductionEnvironment', () => {
     // environment variables are not exposed has no VERCEL_TARGET_ENV on a real
     // production deployment; reading that absence as "not production" would
     // admit http://localhost:* there. Adversarial review A1 (#1186).
+    //
+    // The fallback keys on NODE_ENV, NOT on VERCEL. `VERCEL` is itself a system
+    // environment variable meaning "system variables are exposed", so it is
+    // absent in exactly the configuration this fallback exists for — red-team
+    // round 2 (RT-10) caught the first version of this fix keying on it.
     for (const missing of [undefined, '', '   ']) {
       if (missing === undefined) delete process.env.VERCEL_TARGET_ENV;
       else process.env.VERCEL_TARGET_ENV = missing;
 
-      process.env.VERCEL = '1';
-      expect(isProductionEnvironment(), `on Vercel, target=${JSON.stringify(missing)}`).toBe(true);
-
+      // A Vercel build — production or not — with the precise signal gone.
+      // Note VERCEL is deliberately UNSET here: that is A1's actual scenario.
       delete process.env.VERCEL;
-      expect(isProductionEnvironment(), `off Vercel, target=${JSON.stringify(missing)}`).toBe(
-        false,
-      );
+      Object.assign(process.env, { NODE_ENV: 'production' });
+      expect(
+        isProductionEnvironment(),
+        `built for production, target=${JSON.stringify(missing)}`,
+      ).toBe(true);
+
+      // Local dev and the test runner keep loopback, which is the whole point.
+      for (const nodeEnv of ['development', 'test']) {
+        Object.assign(process.env, { NODE_ENV: nodeEnv });
+        expect(
+          isProductionEnvironment(),
+          `NODE_ENV=${nodeEnv}, target=${JSON.stringify(missing)}`,
+        ).toBe(false);
+      }
+    }
+
+    // An affirmative non-production target BEATS NODE_ENV=production — this is
+    // the staging case, and getting it wrong makes the loopback rule inert on
+    // the one environment ADR 0024 D7 built it for.
+    Object.assign(process.env, { NODE_ENV: 'production' });
+    for (const lane of ['staging', 'preview']) {
+      process.env.VERCEL_TARGET_ENV = lane;
+      expect(isProductionEnvironment(), `NODE_ENV=production + target=${lane}`).toBe(false);
     }
 
     // NODE_ENV is not the signal, and neither is VERCEL_ENV. (@types/node types

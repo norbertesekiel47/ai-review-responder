@@ -52,21 +52,36 @@ export function isPreviewEnvironment(): boolean {
  * A non-empty `VERCEL_TARGET_ENV` is affirmative evidence and is trusted
  * verbatim: `production` is production, and any other value (`preview`,
  * `staging`, a future custom-environment name) is a target Vercel does not call
- * production. An empty or missing value means either "on Vercel with the signal
- * switched off" — treat as production — or "not a Vercel deployment at all"
- * (local dev, a test run, the Railway worker), where `VERCEL` is unset and
- * loopback is the whole point.
+ * production. That branch answers every environment this repo actually runs.
  *
- * `requiresProductionConfig()` (src/lib/config/deployment-lane.ts) is NOT a
- * substitute and must not be swapped in: it is the UNION of the lane signals,
- * and Vercel sets `NODE_ENV=production` on staging AND preview builds too, so
- * it would make the loopback rule inert on staging — the one environment
- * ADR 0024 D7 built it for. The two ask different questions: that one asks
- * "must this process satisfy production-grade config?" (broad on purpose),
- * this one asks "is this the production deployment TARGET?".
+ * The fallback is for the case where the precise signal is GONE, and it keys on
+ * `NODE_ENV`. It cannot key on `VERCEL`: that variable is itself a system
+ * environment variable whose documented meaning is "system environment
+ * variables ARE exposed", so in the exact configuration this fallback exists
+ * for — exposure switched off — `VERCEL` is absent too, and the hole stays
+ * open. Red-team round 2 (RT-10) caught the first version of this fix making
+ * precisely that mistake.
+ *
+ * `NODE_ENV === 'production'` is true on EVERY Vercel build, production or not.
+ * That imprecision is the right trade here and only here: it is reached solely
+ * when the precise signal is missing, and it errs toward denying loopback. The
+ * cost is bounded and stated — a staging deployment with system variables
+ * switched off would lose the loopback allowance and need an explicit
+ * `ADMIN_APP_ORIGINS` entry. Local dev (`development`) and `pnpm test` (`test`)
+ * are unaffected, which is where loopback actually matters.
+ *
+ * `requiresProductionConfig()` (src/lib/config/deployment-lane.ts) is still NOT
+ * a substitute for the whole predicate and must not be swapped in: it is the
+ * UNION of the lane signals, so it would answer "production" on staging even
+ * when `VERCEL_TARGET_ENV=staging` is right there, making the loopback rule
+ * inert on the one environment ADR 0024 D7 built it for. The difference is that
+ * this function consults `NODE_ENV` only after the precise signal has failed.
+ * The two ask different questions: that one asks "must this process satisfy
+ * production-grade config?" (broad on purpose), this one asks "is this the
+ * production deployment TARGET?".
  */
 export function isProductionEnvironment(): boolean {
   const target = process.env.VERCEL_TARGET_ENV?.trim();
   if (target) return target === 'production';
-  return process.env.VERCEL !== undefined;
+  return process.env.NODE_ENV === 'production';
 }

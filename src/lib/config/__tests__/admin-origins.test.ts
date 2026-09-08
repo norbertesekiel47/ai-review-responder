@@ -31,10 +31,10 @@ afterEach(() => {
 function withEnv(env: Record<string, string | undefined>): void {
   process.env.NEXT_PUBLIC_APP_URL = APP_ORIGIN;
   delete process.env.VERCEL_TARGET_ENV;
-  // Off Vercel unless a case says otherwise: isProductionEnvironment fails
-  // CLOSED when VERCEL is set with no target-env signal, so leaving a stray
-  // VERCEL in the environment would silently make every lane read as production.
-  delete process.env.VERCEL;
+  // With no target-env signal, isProductionEnvironment falls back to NODE_ENV.
+  // Vitest sets NODE_ENV=test, so the default here is "not production" and the
+  // loopback rule is live — which is what the unset-lane cases below assume.
+  // A case that wants production says so with an explicit VERCEL_TARGET_ENV.
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -203,6 +203,9 @@ describe('Edge safety', () => {
       'src/lib/config/admin-origins.ts',
       'src/lib/config/flags.ts',
       'src/lib/shared/csrf.ts',
+      // Fix 3 (#1186) made this the owner of the CORS block's gate predicate,
+      // so it joined the proxy's Edge-critical set — red-team round 2 (RT-12).
+      'src/lib/shared/protected-routes.ts',
     ];
     const forbidden = [
       'node:',
@@ -223,11 +226,14 @@ describe('Edge safety', () => {
       // guard: the bare form has no `from` clause at all, and the prefix match
       // below was `s.startsWith('node:/')`, which no real specifier ever is.
       // The same bypass is documented on this test's own cited precedent.
+      // The quote class includes a BACKTICK: round 2 (RT-14) showed that
+      // `import(\`node:crypto\`)` walked through a ['"]-only class.
+      const Q = String.raw`['"\``;
       const specifiers = [
-        ...code.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g),
-        ...code.matchAll(/\bimport\s+['"]([^'"]+)['"]/g),
-        ...code.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]/g),
-        ...code.matchAll(/\brequire\s*\(\s*['"]([^'"]+)['"]/g),
+        ...code.matchAll(new RegExp(String.raw`\bfrom\s*${Q}]([^${Q}]+)${Q}]`, 'g')),
+        ...code.matchAll(new RegExp(String.raw`\bimport\s+${Q}]([^${Q}]+)${Q}]`, 'g')),
+        ...code.matchAll(new RegExp(String.raw`\bimport\s*\(\s*${Q}]([^${Q}]+)${Q}]`, 'g')),
+        ...code.matchAll(new RegExp(String.raw`\brequire\s*\(\s*${Q}]([^${Q}]+)${Q}]`, 'g')),
       ].map((m) => m[1] ?? '');
 
       for (const bad of forbidden) {

@@ -95,8 +95,17 @@ assertSameOrigin(request)   // unchanged observable behaviour
 ### `src/lib/config/flags.ts`
 
 ```
-isProductionEnvironment(): boolean   // process.env.VERCEL_TARGET_ENV === 'production'
+isProductionEnvironment(): boolean
+  - a non-empty trimmed VERCEL_TARGET_ENV is trusted verbatim → === 'production'
+  - MISSING signal → falls back to NODE_ENV === 'production' (fail closed)
 ```
+
+The fallback is the round-1 review's A1 fix, corrected by red-team round 2 (RT-10). It
+cannot key on `VERCEL`: that variable IS a system environment variable meaning "system
+variables are exposed", so it is absent in exactly the configuration the fallback exists
+for. `NODE_ENV === 'production'` is true on every Vercel build, production or not — an
+imprecision that is acceptable ONLY here, because it is reached solely when the precise
+signal is gone and it errs toward denying loopback.
 
 Sibling of `isPreviewEnvironment()`, same file, same comment block.
 **Not** `requiresProductionConfig()` — see §5 D-1.
@@ -219,8 +228,11 @@ resolve and the code does. **None contradicts a locked decision.**
   (`src/lib/config/deployment-lane.ts:107`) is the WRONG one: Vercel sets
   `NODE_ENV=production` on staging and preview builds too, so it would make loopback inert
   on staging — the exact environment ADR 0024 D7 built the loopback rule for. The lane test
-  is `VERCEL_TARGET_ENV === 'production'` (`src/lib/config/flags.ts:32-37` documents why
-  `VERCEL_TARGET_ENV`, not `VERCEL_ENV`: the staging custom env reports `VERCEL_ENV='preview'`).
+  is `VERCEL_TARGET_ENV` — never `VERCEL_ENV`, because the staging custom env reports
+  `VERCEL_ENV='preview'`. `isProductionEnvironment()` in `src/lib/config/flags.ts` owns it;
+  its JSDoc carries the reasoning, including the fail-closed fallback the review wave added
+  (see §8 round 1 A1 and the red-team round-2 correction RT-10) for the case where
+  `VERCEL_TARGET_ENV` is absent on a real production deployment.
 - **D-2 — `Vary: Origin` needs a wrapper, not four stamps.** A `/api/admin/**` request
   leaves `proxy()` from four sites today — branch 4's `401 Unauthorized`, its
   `403 Forbidden`, its `403 mfa_*` (all three inside `handleProxy`'s

@@ -33,9 +33,10 @@ re-admit it in production. The lane predicate is `VERCEL_TARGET_ENV`, never
 the one environment ADR 0024 D7 built it for. Governance surface: one new file
 under `src/lib/config/` with its `docs/directory` row. Three Codex plan-skeptic
 rounds to APPROVED, 21 of 22 round-1 findings accepted (the owed test list grew
-19 → 40 as a result). Test surface: 24 new CORS cases in `proxy.test.ts` (40
-file-wide) and 18 new cases across `admin-origins.test.ts` / `flags.test.ts` /
-`csrf.test.ts` (31 file-wide). Red team: 28 mutations, all 13 named security
+19 → 40 as a result). Test surface: 23 new CORS cases in `proxy.test.ts` and 19
+new cases across `admin-origins.test.ts`, `flags.test.ts` and `csrf.test.ts`
+(counts re-derived by red-team round 2 after two earlier attempts got them
+wrong — an `it(`-grep misses `it.each`). Red team: 28 mutations, all 13 named security
 properties killed; two P0s in the TEST surface (an unreachable scheme-guard
 fixture, an Edge-safety pattern that could never match) fixed in round 1's
 triage. Adversarial review added two: `isProductionEnvironment` now fails CLOSED
