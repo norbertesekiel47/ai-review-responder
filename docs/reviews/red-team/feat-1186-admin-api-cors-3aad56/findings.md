@@ -443,6 +443,83 @@ supervisor is left active. **The dotenv swap is left OPEN by design** — the or
 `finalize` owns that restore, exactly as in rounds 1 and 2. Nothing outside this directory
 was created or modified.
 
+## Re-stamp at `7ae59bed` — verification only, NOT a fourth round
+
+**No mutation was run. `round-start` was not called. This is not round 4.** The owner's
+"no fourth round" stands; what follows is the round-3 verifier confirming that its own
+evidence survives one docs-and-tests commit, and re-deriving the four fields that go stale
+when HEAD moves.
+
+`7ae59bed` ("red-team round 3 triage") fixes all six round-3 findings. What I checked, in
+order, before touching the sidecar:
+
+**1. Does `7ae59bed` touch a production file? NO — confirmed, not taken on trust.** The whole
+delta is four docs, the two report artifacts, and one test file
+(`src/lib/config/__tests__/admin-origins.test.ts`). I checked the stronger property directly:
+for each of the five production modules my 21 mutations targeted, the blob OID at `7ae59bed`
+equals the blob OID at `c0181b01`, equals the worktree blob, **and equals the `originalOid`
+this run's journal recorded before the first mutation**:
+
+| Module | blob at `c0181b01` = `7ae59bed` = worktree |
+|---|---|
+| `src/lib/config/flags.ts` | `b45b114c094a…` (= journaled `originalOid`) |
+| `src/lib/config/admin-origins.ts` | `214d10ea88f9…` |
+| `src/lib/auth/flags.ts` | `6cdc4b52d6d1…` |
+| `src/lib/shared/protected-routes.ts` | `f188e5005b76…` |
+| `src/proxy.ts` | `efd36f44cc5e…` |
+
+Every module I mutated is byte-identical to what I mutated, so all 21 verdicts still describe
+the code at HEAD. Journal: 21/21 `restored`, dotenv closed — the finalizer ran.
+
+**2. Do the covering suites still pass, and still cover the same assertions? YES.** All five
+changed suites at `7ae59bed`, under the same allowlist environment as the round-3 baseline
+(`vitest.setup.ts` loads no dotenv, so the closed swap changes nothing for these suites):
+**151 passed / 151**, with the identical per-file split — proxy 40, protected-routes 73,
+csrf 14, admin-origins 13, flags 11. Not one case added, removed or renamed among the titles
+my inventory rows name. The one changed suite got strictly *more* to assert (the Edge graph
+grew from five files to seven) and one renamed title — the *sibling* scope test at `:259`,
+which no inventory row references.
+
+**3. Each fix verified.** RT3-1: D5 now carries its own dated correction, correctly saying its
+first control is untouched, that `SameSite` remains real against a genuinely cross-**site**
+caller, and that **D4** is what stops the request and the only control covering a same-site
+sibling origin — and the Context correction now leads with D4. The contradiction is closed.
+RT3-2: all three durable docs now state the two-branch predicate, and the CI-enforced
+directory-map row's justification for rejecting `requiresProductionConfig()` is re-argued
+correctly (it would read staging as production *even when `VERCEL_TARGET_ENV=staging` is
+present*). RT3-3: see below. RT3-4: the graph gained both remaining proxy imports.
+RT3-5: fixed at the site this report cites — **and partial against the remedy this report
+wrote**; the residual is recorded on the finding rather than smoothed over. RT3-6: 70
+mutations over three rounds, the fifth suite included, counts still 23 and 19.
+
+**`INV-312` was moved by the orchestrator, applying the remedy this row prescribed.** Stated
+plainly because it is the one place someone else changed adversarial evidence: the row went
+`inconclusive/oracle` → `excluded` because `admin-origins.test.ts:259` now states the scan's
+**lexical** limit in the guard's own suite. I checked the move and I endorse it — the reason
+preserves the original survival verdict verbatim, names who moved it, and records the stricter
+alternative as not taken. One caveat kept rather than waived: `excluded` normally means "never
+executed", and INV-312 *was* executed and its mutant survived; the row's own text makes that
+unmissable, so this is a scope statement, not a concealment.
+
+**Re-derived, not hand-edited:** `head_sha` → `7ae59bed0aef9f30f7447a56cfc619d109252931`;
+`intake_sha256` recomputed from `.feature/intake.json` and **unchanged**
+(`0ffb7529…` — the intake did not move); `counts` and `status` recomputed by the same
+arithmetic the checker uses. Every `at` citation in the six round-3 findings was re-resolved
+against `7ae59bed` and updated where the fix commit shifted a line — a re-stamp makes those
+Duty-3 claims about the *new* HEAD, and letting them drift would be the exact defect this run
+filed twice. `round` stays `2` (the schema cap); the true round number is still 3, per the
+Provenance box above.
+
+**Status recomputes to `CLEAR`** — 21 rows: 19 killed, 1 equivalent, 1 excluded; 24 findings:
+21 fixed, 3 rejected, 0 open, 0 accepted-risk.
+
+**One thing left on the floor, and it is not a new finding.** RT3-5's remedy named two sites;
+one was fixed. `flags.test.ts`'s opening assertion still deletes `VERCEL_TARGET_ENV` and
+asserts `false` *before* the test sets `NODE_ENV` itself, and `proxy.test.ts`'s `beforeEach`
+was not updated — so an exported `NODE_ENV=production` in a developer's shell still fails
+that one suite. It is P2, it never blocked, and the failure direction is loud rather than
+silent, so it does not hold the stamp. It is a one-line follow-up, recorded on the finding.
+
 ## For the arbiter
 
 **No P0. Say that plainly: there is nothing here that must wake the owner as a defect.** The
