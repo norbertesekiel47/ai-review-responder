@@ -95,7 +95,11 @@ const MINT_ADMIN_USAGE = [
  * through the required-flag checks — minting an admin named `--dry-run`, or
  * sending an invalid address to Supabase (review finding S3).
  */
-function flagValue(argv: readonly string[], flag: string): string | undefined {
+// Exported for `scripts/revoke-admin.ts` (#1182), which parses the same flag
+// shape. Shared rather than copied: the `--email --dry-run` trap below is a
+// fixed review finding (S3, red team RT2-01), and a second hand-written parser
+// is exactly how a fixed trap comes back.
+export function flagValue(argv: readonly string[], flag: string): string | undefined {
   const index = argv.indexOf(flag);
   if (index < 0) return undefined;
   const value = argv[index + 1];
@@ -268,7 +272,10 @@ export interface MintOperator {
   provenance: 'unauthenticated_shell';
 }
 
-function describeOperator(): MintOperator {
+// Exported for `scripts/revoke-admin.ts` (#1182): one owner of the
+// operator-provenance shape, so both scripts record `provenance` the same way
+// and a reader of `admin_audit_log` sees one payload vocabulary.
+export function describeOperator(): MintOperator {
   return {
     os_user: userInfo().username,
     host: hostname(),
