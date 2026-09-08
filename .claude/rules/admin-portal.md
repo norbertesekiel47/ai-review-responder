@@ -35,7 +35,7 @@ Building the Admin app starter (ADR 0030):
 
 Retiring a Legacy admin portal page (ADR 0031):
 
-- (a) a test that names an `/admin/<page>` path is not automatically a pin — only the ones that `readFileSync` the file break on deletion (`console-admin-palette`, `page-chrome`, `runbook-empty-polish`, `runbook-import-consent`, `no-yellow-star-colors`); `admin-aal2-audit.test.ts` and `db-imports-audit.test.ts:103` pass a path STRING plus synthetic text and stay green, so do NOT touch them per page. (b) `ci:directory-map` scans `worker/` + `src/lib/` only, so a stale `docs/directory/app-admin.md` row fails nothing — drop it by hand. (c) prune `src/components/admin/nav-config.ts` or the sidebar links to a 404; `AdminSidebar.test.tsx` asserts several of those hrefs.
+- (a) a test that names an `/admin/<page>` path is not automatically a pin — only the ones that `readFileSync` the file break on deletion (`console-admin-palette`, `page-chrome`, `runbook-empty-polish`, `runbook-import-consent`, `no-yellow-star-colors`); `admin-aal2-audit.test.ts` and `db-imports-audit.test.ts:103` pass a path STRING plus synthetic text and stay green, so do NOT touch them per page. (b) `ci:directory-map` scans `worker/` + `src/lib/` only, so a stale `docs/directory/app-admin.md` row fails nothing — drop it by hand. (c) prune `src/components/admin/nav-config.ts` AND the page's `NON_NAV_PAGES` entry if it has one (`/admin/businesses/new` does) — `AdminSidebar.test.tsx`'s nav-versus-filesystem block walks `src/app/admin` and fails on a stale href or a stale exclusion, so this is a hard pin the gate reports, not a 404 that ships.
 
 ## Rules
 
