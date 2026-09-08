@@ -70,3 +70,53 @@ the explicit `::text` cast on both sides — without it Postgres raises
 5. **The production admin set is one row deep**, and it is the owner's own. The
    production plan therefore has no "revoke everyone" step worth batching: it
    is one revoke, one flag flip and one restore, each gated on the owner's go.
+
+## What was executed on staging (2026-09-08)
+
+Staging only. **Production was read and never written** — no revoke, no flag
+flip, no mint. Ordered: dry-run every identity, revoke every identity, flip the
+flag, restore the two that stay.
+
+| Step | Evidence |
+|---|---|
+| Dry runs | All five printed `TARGET: project=kubdiqdhqbhwmqfditeg …` then `DRY RUN (revoke): every refusal check passed; nothing was written`, each naming the `users.id`/`auth_id` this file records. No "auth.users is not readable" warning, so the ban-state probe reached the real schema. |
+| Revokes | All five `REVOKED`, exit 0. Read back: `banned_until = 2126-08-15…` (the 100-year ban), `role` still `admin` on every row, exactly one `admin_revoked` audit row each. |
+| Idempotency | A second revoke of `mint-admin-smoke-20260907@repworth.net` printed `ALREADY REVOKED … nothing written`, exit 0, no second audit row. |
+| Flag flip | `MFA_ENFORCEMENT_ENABLED` `false` → `true` at **2026-09-08T08:57:39Z**, Vercel project `prj_wIMnzHKefoQRdzCeMZesg2mIgNc0`, env-var id `pXwSH5EurhenTy6f`, scoped `target: []` + `customEnvironmentIds: ["env_Xdvi79MDL9zMt5LmTMRLFSBBeKGT"]` — the staging Custom Env and nothing else. That is the ONLY row for this key in the whole project: production has none, so production reads it unset. The Railway staging worker's copy was set to `true` in the same flip for parity (`skipDeploys`), and is inert — the flag has **zero** reads under `worker/**`. |
+| Redeploy | Push to `staging` (`8a798628`) auto-deployed the staging Custom Env; that deployment was `READY` before the proof below ran. |
+| Restores | `norbertesekiel@gmail.com` and `yoknyei@repworth.net` both `RESTORED`, trail `admin_revoked,admin_restored`, `banned_now = false`, one verified factor each. |
+| **The flip, proven behaviourally** | A disposable admin (`mfa-flip-check-20260908@repworth.net`) was minted, given a password, enrolled with a real TOTP factor, then signed in with the password ALONE — `{"currentLevel":"aal1","nextLevel":"aal2"}`. `GET https://staging.repworth.net/admin/overview` with that session: **`307 → /mfa/challenge?next=%2Fadmin%2Foverview`**. The no-session control on the same URL went to `/admin/login?from=…`, so the assertion discriminates. With the flag off, `getAalGate()` returns `ok` before reading anything and that session reaches the page. The disposable identity was revoked immediately afterwards. |
+
+### Final staging admin set
+
+| email | banned | verified factor | audit trail |
+|---|---|---|---|
+| `norbertesekiel@gmail.com` | no | 1 | `admin_revoked,admin_restored` |
+| `yoknyei@repworth.net` | no | 1 | `admin_revoked,admin_restored` |
+| `daoni@repworth.net` | **yes** | 1 | `admin_revoked` |
+| `gate-a-admin-20260907@repworth.net` | **yes** | 1 | `admin_revoked` |
+| `mint-admin-smoke-20260907@repworth.net` | **yes** | 0 | `admin_minted,admin_revoked` |
+| `mfa-flip-check-20260908@repworth.net` | **yes** | 1 | `admin_minted,admin_revoked` |
+
+Two admins can sign in, which is what Gate B (#1197) needs. Both hold a verified
+factor, so both are challenged at `/mfa/challenge` on their next sign-in — the
+intended effect of the flip, not a fault.
+
+## The production plan — NOT executed, each step needs the owner's go
+
+Production holds ONE admin row and it is the owner's own, so the sequence is
+short and the owner is both the subject and the approver of every step.
+
+1. `pnpm tsx scripts/revoke-admin.ts --email norbertesekiel@gmail.com --confirm-ref udeyaqnvpojbwgoaxwdg --env production --dry-run`
+2. the same command without `--dry-run`
+3. flip `MFA_ENFORCEMENT_ENABLED` to `true` in the Vercel **Production** scope —
+   **there is no row for the key there today**, so this is a CREATE
+   (`POST /v9/projects/prj_wIMnzHKefoQRdzCeMZesg2mIgNc0/env?upsert=true` with
+   `target:["production"]`), then redeploy `main`
+4. `pnpm tsx scripts/revoke-admin.ts --email norbertesekiel@gmail.com --confirm-ref udeyaqnvpojbwgoaxwdg --env production --restore`
+
+`--env production` reads the AMBIENT environment, never a file in the repo, so
+steps 1, 2 and 4 run from a production-scoped shell. Step 3 is what makes the
+owner's own production sign-in require the TOTP challenge; the owner must have
+their authenticator to hand before step 3, and step 4 must follow step 2 in the
+same sitting or production has no admin who can sign in.
