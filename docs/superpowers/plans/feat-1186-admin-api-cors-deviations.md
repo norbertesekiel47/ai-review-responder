@@ -84,3 +84,31 @@ no code on this branch changes. Raised to the owner as an ADR-text correction; r
 the plan §5 and in the final report as an open owner question.
 
 **Verdict:** ACCEPT.
+
+---
+
+## DEV-5 — T1's test files carry two type errors of their own (found by T2)
+
+**What happened.** `pnpm typecheck` at the end of T2 reports five errors. One is T2's
+expected `isSelfOrigin` gap (T3) and one is T4's not-yet-written `addVaryOrigin` export.
+The remaining two are defects **inside the eval-task test files**, unrelated to any tracer's
+production code, and neither can be fixed from T2's edit lease (`__tests__` is forbidden):
+
+- `src/lib/config/__tests__/admin-origins.test.ts:205` — `TS18048: 's' is possibly
+  'undefined'`. The Edge-safety scan does
+  `[...code.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1])`, which is
+  `(string | undefined)[]` under `noUncheckedIndexedAccess`; the later
+  `specifiers.filter((s) => s === bad || s.startsWith(...))` then dereferences it.
+- `src/lib/config/__tests__/flags.test.ts:87` — `TS2540: Cannot assign to 'NODE_ENV'`.
+  `@types/node` types `NODE_ENV` as read-only on `ProcessEnv`.
+
+Both suites nevertheless RUN and pass (vitest transpiles without typechecking), so the
+failure surfaces only in the `lint` job, not in the test job.
+
+**Resolution.** Owner is whoever holds the `__tests__` lease — T1's author or the step-7
+gate run. Both are one-line fixes: `.map((m) => m[1] ?? '')` for the first, and for the
+second an `Object.assign(process.env, { NODE_ENV: 'production' })` (element access does not
+escape the `readonly` modifier, so an indexed write is not the fix). Recorded here rather
+than silently absorbed, because T2 must not edit a test file to make its own gate green.
+
+**Verdict:** PENDING

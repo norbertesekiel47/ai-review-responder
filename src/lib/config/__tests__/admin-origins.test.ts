@@ -13,6 +13,17 @@ const ADMIN_ORIGIN = 'https://admin.staging.repworth.net';
 
 const ORIGINAL_ENV = { ...process.env };
 
+/**
+ * Comments out, LINE comments first. Order is load-bearing: these modules
+ * document their own rules, and a line comment naming `/api/admin/**` contains
+ * a literal `/*` that opens a phantom block comment which then swallows the
+ * import statements up to the next `*` + `/`. Stripping line comments first
+ * removes the phantom opener before the block pass ever sees it.
+ */
+function stripComments(source: string): string {
+  return source.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
 });
@@ -193,12 +204,8 @@ describe('Edge safety', () => {
     ];
 
     for (const file of graph) {
-      const source = readFileSync(join(repoRoot, file), 'utf8');
-      // Strip comments first: these modules NAME the things they must not import.
-      const code = source
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/^\s*\/\/.*$/gm, '');
-      const specifiers = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
+      const code = stripComments(readFileSync(join(repoRoot, file), 'utf8'));
+      const specifiers = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1] ?? '');
 
       for (const bad of forbidden) {
         expect(

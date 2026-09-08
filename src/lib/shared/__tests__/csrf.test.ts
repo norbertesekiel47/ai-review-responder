@@ -184,10 +184,13 @@ describe('isSelfOrigin', () => {
     // agreement is not enough — two equivalent copies pass every behavioural
     // test and then drift apart in someone else's PR.
     const repoRoot = join(__dirname, '..', '..', '..', '..');
+    // LINE comments first: a line comment naming `/api/admin/**` carries a
+    // literal `/*` that would otherwise open a phantom block comment and eat
+    // the import statements after it.
     const read = (file: string) =>
       readFileSync(join(repoRoot, file), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/^\s*\/\/.*$/gm, '');
+        .replace(/^\s*\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
 
     const csrf = read('src/lib/shared/csrf.ts');
     const adminOrigins = read('src/lib/config/admin-origins.ts');

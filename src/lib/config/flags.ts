@@ -33,6 +33,19 @@ export function readFlagEnabledByDefault(name: string): boolean {
 // `staging` reports VERCEL_ENV='preview' but VERCEL_TARGET_ENV='staging'. Only genuine
 // per-PR previews have VERCEL_TARGET_ENV='preview'. Both are runtime-available. This is
 // the one home for the target-env resolution (moved here from auto-approval/flags.ts).
+//
+// `requiresProductionConfig()` (src/lib/config/deployment-lane.ts) is NOT a substitute for
+// isProductionEnvironment and must not be swapped in: it is the UNION of the lane signals,
+// and Vercel sets NODE_ENV=production on staging AND preview builds. Using it for the Admin
+// origin allowlist's loopback rule (#1186) would make that rule inert on staging — the one
+// environment ADR 0024 D7 built it for. The two predicates ask different questions:
+// requiresProductionConfig asks "must this process satisfy production-grade config?" (broad
+// on purpose), while this asks "is this the production deployment target?" — and only
+// VERCEL_TARGET_ENV distinguishes that target from a preview-type custom environment.
 export function isPreviewEnvironment(): boolean {
   return process.env.VERCEL_TARGET_ENV === 'preview';
+}
+
+export function isProductionEnvironment(): boolean {
+  return process.env.VERCEL_TARGET_ENV === 'production';
 }

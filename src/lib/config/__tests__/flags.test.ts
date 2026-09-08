@@ -82,9 +82,10 @@ describe('isProductionEnvironment', () => {
       expect(isProductionEnvironment(), `lane=${lane}`).toBe(false);
     }
 
-    // NODE_ENV is not the signal, and neither is VERCEL_ENV.
+    // NODE_ENV is not the signal, and neither is VERCEL_ENV. (@types/node types
+    // NODE_ENV as read-only on ProcessEnv, so it is set through Object.assign.)
     process.env.VERCEL_TARGET_ENV = 'staging';
-    process.env.NODE_ENV = 'production';
+    Object.assign(process.env, { NODE_ENV: 'production' });
     process.env.VERCEL_ENV = 'production';
     expect(isProductionEnvironment()).toBe(false);
   });

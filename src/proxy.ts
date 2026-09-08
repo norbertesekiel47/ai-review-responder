@@ -8,6 +8,11 @@ import {
 } from '@/lib/shared/protected-routes';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 import { mfaEnforcementEnabled } from '@/lib/auth/flags';
+import {
+  isAllowedAdminOrigin,
+  normalizeOrigin,
+  readAdminAppOrigins,
+} from '@/lib/config/admin-origins';
 
 // Role lookups use the cookie-bound anon client below, relying on the
 // users_self_select RLS policy (migration 006) that lets any authenticated
@@ -19,7 +24,131 @@ import { mfaEnforcementEnabled } from '@/lib/auth/flags';
 // users.account_id. The readSelf() function now selects account_id instead
 // of business_id. Validation contract: VAL-AUTH-029.
 
-export async function proxy(request: NextRequest) {
+// ── Admin API CORS (#1186 · ADR 0026) ────────────────────────────────────────
+//
+// This file is the SINGLE owner of CORS for the Admin API (ADR 0026 D1): the
+// three constants below are the only `Access-Control-*` values in the repo, and
+// nothing else writes one of those headers. The DECISION — which origins are
+// admitted — belongs to `@/lib/config/admin-origins`; only the header writing
+// lives here.
+//
+// Fixed constants, never echoed from the request (ADR 0026 D3). `DELETE` is
+// absent because no admin route exports one; adding a `DELETE` route later is a
+// deliberate edit HERE, and the failure until then is loud and at the preflight.
+// Echoing `Access-Control-Request-Headers` instead of naming a constant makes
+// the answer always yes and leaves no readable statement of what the Admin app
+// may send.
+const ADMIN_CORS_ALLOW_METHODS = 'GET, POST, PUT, PATCH, OPTIONS';
+const ADMIN_CORS_ALLOW_HEADERS = 'Authorization, Content-Type';
+// 600 s is the highest value Safari honours (Chrome caps at 7200 s), so a
+// browser sends one preflight per path per ten minutes rather than one per
+// request.
+const ADMIN_CORS_MAX_AGE = '600';
+
+/** The Admin API surface, matched exactly as `isProtectedRoute` matches it. */
+function isAdminApiRoute(routePath: string): boolean {
+  return routePath === '/api/admin' || routePath.startsWith('/api/admin/');
+}
+
+/**
+ * Add `Origin` to `Vary` without destroying what is already there.
+ *
+ * Exported for its test: the merge cases cannot be reached through `proxy()`,
+ * because no response it returns today carries a `Vary` header to merge into.
+ *
+ * `Vary: Origin` goes on EVERY `/api/admin/**` response, refusals and
+ * no-`Origin` requests included (ADR 0026 D3) — without it a shared cache may
+ * serve one origin's `Access-Control-Allow-Origin` to another, and the
+ * no-`Origin` response is exactly the one that would be served to an origin.
+ * A plain `set()` would silently drop a value such as `Accept-Encoding`.
+ */
+export function addVaryOrigin(headers: Headers): void {
+  const existing = headers.get('Vary')?.trim();
+  if (!existing) {
+    headers.set('Vary', 'Origin');
+    return;
+  }
+  // `*` already varies on everything; narrowing it would be a lie.
+  if (existing === '*') return;
+
+  const tokens = existing
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+  if (tokens.some((token) => token.toLowerCase() === 'origin')) return;
+
+  headers.set('Vary', [...tokens, 'Origin'].join(', '));
+}
+
+/** ADR 0026 D3: a refused origin gets a greppable status, not a silent 204. */
+function adminOriginRefusal(): NextResponse {
+  const response = NextResponse.json({ error: 'origin' }, { status: 403 });
+  addVaryOrigin(response.headers);
+  return response;
+}
+
+/** ADR 0026 D3's allowlisted column. No credentials, no expose-headers. */
+function adminCorsPreflight(origin: string): NextResponse {
+  const response = new NextResponse(null, { status: 204 });
+  response.headers.set('Access-Control-Allow-Origin', origin);
+  response.headers.set('Access-Control-Allow-Methods', ADMIN_CORS_ALLOW_METHODS);
+  response.headers.set('Access-Control-Allow-Headers', ADMIN_CORS_ALLOW_HEADERS);
+  response.headers.set('Access-Control-Max-Age', ADMIN_CORS_MAX_AGE);
+  addVaryOrigin(response.headers);
+  return response;
+}
+
+/**
+ * The CORS block, and the ONLY thing that runs before `isProtectedRoute`.
+ *
+ * A preflight must never reach `handleProxy`'s branch 4: it carries no cookie,
+ * so branch 4 would return 401 with no `Access-Control-Allow-Origin`, and the
+ * browser would report a CORS failure whose status is never readable.
+ *
+ * Three rules, in this order:
+ *
+ *  1. Not the Admin API → untouched. `ADMIN_APP_ORIGINS` is not even read, so a
+ *     bad value can never break `/admin/login` or a public page.
+ *  2. Admin API → read and VALIDATE the allowlist unconditionally, before the
+ *     self-origin / loopback / no-`Origin` shortcuts. `ADMIN_APP_ORIGINS=*` is a
+ *     configuration error and must fail loudly on every admin request, not only
+ *     on the ones that happen to consult the list.
+ *  3. No `Origin` header → no check at all (a same-origin GET sends none). The
+ *     request proceeds exactly as before and still gets `Vary: Origin`.
+ */
+export async function proxy(request: NextRequest): Promise<NextResponse> {
+  const routePath = normalizePath(request.nextUrl.pathname);
+  if (!isAdminApiRoute(routePath)) {
+    return handleProxy(request);
+  }
+
+  const allowlist = readAdminAppOrigins();
+  const rawOrigin = request.headers.get('origin');
+  // Null for an absent header AND for a value that is not an http(s) origin —
+  // '', the literal 'null' (an opaque origin), malformed, multi-valued. The
+  // difference is `rawOrigin`: absent means no check, unparseable means refused.
+  const origin = rawOrigin === null ? null : normalizeOrigin(rawOrigin);
+
+  if (rawOrigin !== null && (origin === null || !isAllowedAdminOrigin(origin, allowlist))) {
+    return adminOriginRefusal();
+  }
+
+  if (origin !== null && request.method === 'OPTIONS') {
+    return adminCorsPreflight(origin);
+  }
+
+  const response = await handleProxy(request);
+  addVaryOrigin(response.headers);
+  if (origin !== null) {
+    // The NORMALIZED origin, never the raw header: the value written is then
+    // always exactly the origin that was decided about. A browser's own
+    // serialization is already identical to it.
+    response.headers.set('Access-Control-Allow-Origin', origin);
+  }
+  return response;
+}
+
+async function handleProxy(request: NextRequest): Promise<NextResponse> {
   // ── Public paths: skip Supabase work ──────────────────────────────
   const { pathname } = request.nextUrl;
   // Case/slash-normalized copy used ONLY for protection + branch decisions.
