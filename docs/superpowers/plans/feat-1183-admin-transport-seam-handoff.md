@@ -79,6 +79,47 @@ Smoke `https://staging.repworth.net`. Then `gh pr create --draft` → red-team-s
 ticket resolution comment (the orchestrator does that after merge); a progress
 comment with the PR link and staging evidence is allowed.
 
+## TERMINAL STATE — BLOCKED on one owner decision
+
+The build is COMPLETE and the gate is GREEN at `2fba0fc1`. The branch is **local
+only**: nothing has been pushed, no staging ride, no PR. That is deliberate.
+
+`node .agents/skills/feature/scripts/red-team-status.mjs` fails on exactly one
+finding, and `/feature` step 8 forbids any external action until it passes:
+
+```
+red-team status is OPEN_P1 — every non-CLEAR status blocks the transition
+finding RT2: a high-risk run cannot ship an open P1 — fix it, or record user
+authorization and set disposition accepted-risk
+```
+
+**RT2**: the gate's terminal 500 (`internalError`) has no alert path. `internalError`
+only `console.error`s; `src/instrumentation.ts` has no console-capture integration in
+either runtime branch; `onRequestError` fires only for errors that ESCAPE a handler,
+and this one is caught; no row in `docs/runbooks/beta-launch-alerting.md` watches
+admin 5xx. The gap is PRE-EXISTING — admin 5xx were never alerted — but this branch
+adds a new source of them (bearer transport faults, plus the D6 ordering case), so
+the red team recorded it against this diff.
+
+It was not fixed here on purpose. Building an alert path means changing what an auth
+gate emits and adding an alerting dependency, outside the declared surface, on a
+RISK=high file — a scope decision, not a defect fix. Accepting the risk instead
+requires a recorded user authorization, which this session cannot mint.
+
+**To unblock, the owner picks one:**
+
+- *Accept the risk* → set RT2's disposition to `accepted-risk` in
+  `docs/reviews/red-team/feat-1183-admin-transport-seam-7ee6d4/findings.json` with
+  the authorization recorded, then `set-phase reviewed` and run step 8. This is the
+  cheap answer if "admin 5xx were already unalerted" is good enough for now.
+- *Fix it first* → cut a follow-up ticket for the alert path and either land it
+  before this, or authorize adding a Sentry capture to `internalError` inside this
+  branch (a surface amendment).
+
+Everything else is finished: 27 red-team mutations across two rounds, 22 killed,
+`p0_open` 0, `p2_open` 0; all four review axes triaged in
+`docs/reviews/feat-1183-admin-transport-seam/triage.md`.
+
 ## What the next runs need from this one
 
 #1185 and #1186 import from this branch. The exported names they depend on:
