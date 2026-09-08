@@ -35,3 +35,51 @@ because it is the highest-signal behavioural change on the branch.
 
 Verdict: ACCEPT — the ticket's table is the locked contract and it is uniform across
 transports.
+
+## D3 — the 22-suite migration shim consumed a one-shot mock twice
+
+The migration spec handed to the parallel subagents made `mockRequireRole` a DOUBLE
+consumer: once inside the `resolveDualModeIdentity` shim, once inside the
+`loadAppUser` shim. Suites that arm their 403 case with
+`mockRequireRole.mockRejectedValueOnce(new AuthError('Forbidden', 403))` — on top of
+a `beforeEach` `mockResolvedValue(admin)` — had the rejection consumed by the seam
+shim; `loadAppUser` then got the default live admin back and the route returned its
+SUCCESS status instead of 403.
+
+Found independently by three of the four migration agents (on `resend-invite`,
+`zernio-queue` and the batch-1 suites) and fixed two different ways before the
+orchestrator standardised on the stronger one: `loadAppUser` reads
+`mockRequireRole.mock.results.at(-1)` instead of calling again, so the mock is
+invoked exactly ONCE per gate pass — which also preserves the pre-ticket call count
+— and a `...Once` control keeps its meaning. All 22 suites now carry that single
+shim.
+
+Why it matters beyond this branch: the failure is SILENT in the dangerous direction.
+A suite whose "rejects a non-admin" test passes the gate does not error — it runs
+the route and asserts the wrong status, so a shim like this can make an
+authorization test vacuous while staying green.
+
+Verdict: ACCEPT — the shim is test-only, the defect was caught before the gate, and
+every affected suite is green with the unified version. Promote the general lesson
+(a mock shim that re-invokes a `...Once`-armed mock silently defeats it) to lab
+notes at step 8.
+
+## D4 — `docs/directory/lib-platform.md` had ZERO headroom under its 3,000-word cap
+
+The page measured 2,998 words before this branch, so the two new `src/lib/auth/`
+files could not be documented without breaking
+`src/__tests__/reference-shape.test.ts`. `docs/agents/context-layout.md` gives three
+remedies — split the page, archive the oldest sections, or move the WHY to the page
+the pointer already names. The first two need `docs/directory.md` plus a sibling
+page, which would have been surface amendment #2 and therefore a hard stop.
+
+Applied the third, confined to the `auth/` section this ticket already edits: each
+row was brought to the row shape `.claude/CLAUDE.md` itself prescribes (WHERE + up
+to three one-clause traps, WHY delegated to the module docblock, the rule file or
+ADR 0025). Nine rows were tightened; no row lost a fact that does not exist verbatim
+in the file it now points at. Final: 2,998 words, `ci:directory-map` passing.
+
+Verdict: ACCEPT — the documented remedy, applied to the section under change. Flag
+for the orchestrator: the page is again at exactly its cap, so the NEXT ticket
+adding a `src/lib/` file under one of its folders (#1185 does not, #1186 may) will
+have to split it, and that is a `docs/directory.md` change, not a lib-platform one.
