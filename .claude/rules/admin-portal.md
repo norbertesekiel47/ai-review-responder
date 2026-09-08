@@ -29,6 +29,10 @@ Auditing an admin page for a missing API route:
 
 - (a) `sql` in `src/app/admin/**/page.tsx` is USUALLY only the first argument to `requireAdminPage` (invariant #15), not a data read — 4 of the 6 pages #1163 listed as having an inline read had none; grep for a second `sql` use before calling a page a gap. (b) the **Beta comp coupon** id never leaves the server and never did: `businesses/new/page.tsx` passes only a boolean and the POST reads the id from the durable snapshot. (c) `businesses/[id]` may NOT gain a third parallel read path — `DB_POOL_MAX=3` on Vercel, and the fan-out re-appears at the HTTP layer where `ci:pool-fanout` cannot see it (ADR 0027 D1).
 
+Building the Admin app starter (ADR 0030):
+
+- (a) a relative `/api/admin/...` fetch inside the exported kit is BROKEN in the Admin app and is an auth problem, not a `basePath` problem — it goes through the **Admin app fetch seam**, which owns the base URL and the bearer. (b) AAL is session-bound: never point the Admin app's MFA challenge at this app's origin — it raises THIS session and leaves the Admin app at `aal1` forever. (c) `AdminEnrollmentWidget` + `enrollment-contract.ts` are MOBILE-CHANNEL enrollment, not MFA; `useMfaEnrollment` was deliberately not exported (#1167).
+
 ## Rules
 
 - `src/lib/admin/business-summary.ts` is the single owner of the query (`getBusinessSummaries`) and of churn derivation; `HealthBadge.tsx` owns health presentation.
