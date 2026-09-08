@@ -5,189 +5,176 @@
   "branch": "feat/1186-admin-api-cors",
   "fork_sha": "c2de39d879c92cc657941b36d0be330cd0c20abf",
   "merge_base_sha": "c2de39d879c92cc657941b36d0be330cd0c20abf",
-  "head_sha": "1ded393ae3bd1f2c9085f0eed4ad7de6da5633f7",
-  "intake_sha256": "13fa823169fb6ae87648961f964a6ca8e64e8e1df00071f8da1d88caf294cfe4",
+  "head_sha": "c0181b01217862726f9311e187397a2c70a5a2a3",
+  "intake_sha256": "0ffb752fc85749462925b90746e8f5986783c6197d80b2c681c9b45e80015a66",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-09-08T10:55:11.377853Z",
+  "generated_at": "2026-09-08T20:52:00Z",
   "inventory": [
     {
-      "id": "INV-201",
-      "test": "throws when an ADMIN_APP_ORIGINS entry is not an http or https origin",
-      "file": "src/lib/config/__tests__/admin-origins.test.ts",
+      "id": "INV-301",
+      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
+      "file": "src/lib/config/__tests__/flags.test.ts",
       "outcome": "killed",
-      "reason": "R1 (round-1 M3 re-run): the http:/https: throw deleted from parseAllowlistEntry. The new 'ftp://admin.example' and 'ws://admin.example/' fixtures fail the test. RT-1 is fixed."
+      "reason": "R1: the NODE_ENV fallback in isProductionEnvironment replaced by `return false` (the pre-A1 fail-open behaviour). FAILS."
     },
     {
-      "id": "INV-202",
+      "id": "INV-302",
+      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
+      "file": "src/lib/config/__tests__/flags.test.ts",
+      "outcome": "killed",
+      "reason": "R2: the NODE_ENV fallback replaced by `return true`. FAILS on the NODE_ENV=development/test legs."
+    },
+    {
+      "id": "INV-303",
+      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
+      "file": "src/lib/config/__tests__/flags.test.ts",
+      "outcome": "killed",
+      "reason": "R3: `?.trim()` dropped from the VERCEL_TARGET_ENV read. FAILS on the '   ' (whitespace-only) leg."
+    },
+    {
+      "id": "INV-304",
+      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
+      "file": "src/lib/config/__tests__/flags.test.ts",
+      "outcome": "killed",
+      "reason": "R4: `if (target)` widened to `if (target !== undefined)`. FAILS on the empty-string leg."
+    },
+    {
+      "id": "INV-305",
+      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
+      "file": "src/lib/config/__tests__/flags.test.ts",
+      "outcome": "killed",
+      "reason": "R5: the affirmative branch `target === 'production'` weakened to `target !== 'preview'`. FAILS on lane=staging."
+    },
+    {
+      "id": "INV-306",
+      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
+      "file": "src/lib/config/__tests__/flags.test.ts",
+      "outcome": "killed",
+      "reason": "R6: the fallback rewritten as `NODE_ENV !== 'test'` (an equally plausible spelling of 'not a test run'). FAILS on the NODE_ENV=development leg \u2014 the local-dev case is pinned, not just the test case."
+    },
+    {
+      "id": "INV-307",
       "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
       "file": "src/lib/config/__tests__/admin-origins.test.ts",
       "outcome": "killed",
-      "reason": "R2 (round-1 M27 re-run): import { createHash } from 'node:crypto' added to src/lib/config/admin-origins.ts. RT-2's first shape now dies."
+      "reason": "R7 re-runs round 2's R4 / INV-206 verbatim: a template-literal `import(`node:crypto`)` in src/lib/config/admin-origins.ts. AssertionError: \"src/lib/config/admin-origins.ts must not import node:: expected [ 'node:crypto' ] to deeply equal []\". The RT-14 backtick fix holds, and this independently reproduces the orchestrator's hand-run claim in triage.md \u00a7 Disclosure."
     },
     {
-      "id": "INV-203",
+      "id": "INV-308",
       "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
       "file": "src/lib/config/__tests__/admin-origins.test.ts",
       "outcome": "killed",
-      "reason": "R3 (round-1 M28 re-run): bare import 'node:crypto'; added to admin-origins.ts. RT-2's second shape now dies."
+      "reason": "R8: a concatenated specifier `import('node:' + 'crypto')`. Extracted as 'node:', which still satisfies the scheme-prefix match. FAILS."
     },
     {
-      "id": "INV-204",
+      "id": "INV-309",
       "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
       "file": "src/lib/config/__tests__/admin-origins.test.ts",
       "outcome": "killed",
-      "reason": "R5 (new shape): require('node:crypto') in admin-origins.ts. The new require() extractor catches it."
+      "reason": "R9: a nested-substitution template literal `import(`node:${'crypto'}`)`. Extracted as 'node:${' (the inner quote closes the class), which still starts with 'node:'. FAILS."
     },
     {
-      "id": "INV-205",
+      "id": "INV-310",
       "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
       "file": "src/lib/config/__tests__/admin-origins.test.ts",
       "outcome": "killed",
-      "reason": "R6 (new shape): aliased re-export, export { createHash as h } from 'node:crypto'. The from-extractor catches it."
+      "reason": "R10: an aliased re-export `export { createHash as __rtHash } from 'node:crypto';`. Caught by the `from` regex. FAILS."
     },
     {
-      "id": "INV-206",
+      "id": "INV-311",
       "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
       "file": "src/lib/config/__tests__/admin-origins.test.ts",
       "outcome": "killed",
-      "finding_id": "RT-14",
-      "reason": "R4 (round 2): a TEMPLATE-LITERAL dynamic specifier, () => import(`node:crypto`), added to admin-origins.ts SURVIVED — all four extractor regexes spelled their quote class as ['\"], so it was a shape the oracle never examined. Recorded as RT-14 (ORACLE claim, not MUTANT). RE-RUN BY THE ORCHESTRATOR after the RT-14 fix, at 1ded393a with the fix applied: the same mutation now DIES — `AssertionError: src/lib/config/admin-origins.ts must not import node:: expected [ 'node:crypto' ] to deeply equal []`. Mutation applied and reverted by hand outside the journal (the round had closed); `git status --porcelain -- src/lib/config/admin-origins.ts` is empty afterwards, so the file is byte-identical to HEAD."
+      "reason": "R11: `import type { BinaryLike } from 'node:crypto'`. Caught by the `from` regex \u2014 a type-only import is erased at build, so this is a false positive of the guard rather than a hole, and it is the safe direction."
     },
     {
-      "id": "INV-207",
+      "id": "INV-312",
+      "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
+      "file": "src/lib/config/__tests__/admin-origins.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT3-3",
+      "reason": "R12: `import('node' + ':crypto')` \u2014 a specifier split BELOW the 'node:' prefix. The extractor reads 'node', which matches no forbidden entry, so the assertion passes while the module really does import a node builtin. Not equivalent (the mutant changes what the module imports); not a confirmed survivor either, because the shape is one the four regexes never examine rather than one they evaluate wrongly. Same ORACLE class round 2 assigned INV-206, and the residual after the RT-14 fix closed every LITERAL-quote shape (R7-R11, R14). See RT3-3 for the remedy and why no one-character fix exists."
+    },
+    {
+      "id": "INV-313",
       "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
       "file": "src/lib/config/__tests__/admin-origins.test.ts",
       "outcome": "equivalent",
-      "reason": "R7 (scope probe): import { createHash } from 'node:crypto' added to src/lib/shared/protected-routes.ts, a DIRECT import of src/proxy.ts. The test PASSED, and the mutant provably preserves the tested behaviour: the assertion's only inputs are the four literal paths in the graph array (admin-origins.test.ts:201-206) and protected-routes.ts is not one of them, so every readFileSync input is byte-identical. The scope gap itself is RT-15."
+      "reason": "R13: `import { createHash } from 'node:crypto'` added to src/lib/auth/flags.ts \u2014 src/proxy.ts's third repo-code direct import, which is NOT in the five-file `graph` (admin-origins.test.ts:203-209). PROOF of equivalence w.r.t. this assertion: the test's only inputs are the paths listed in `graph`; it readFileSync's exactly those and scans nothing else, so a mutation to a file outside that array provably cannot change any specifier the test extracts, hence cannot change any expect() outcome. Same proof round 2 recorded for its R7. The gap itself is filed as RT3-4."
     },
     {
-      "id": "INV-208",
+      "id": "INV-314",
+      "test": "keeps the CORS import graph free of node builtins, database clients and forbidden SDKs",
+      "file": "src/lib/config/__tests__/admin-origins.test.ts",
+      "outcome": "killed",
+      "reason": "R14 re-runs round 2's R7 at the new HEAD: `import { createHash } from 'node:crypto'` in src/lib/shared/protected-routes.ts. Round 2 this SURVIVED (proven equivalent, RT-15); the fix added that path to `graph` and it now FAILS. RT-15's fix verified by measurement, not by reading the diff."
+    },
+    {
+      "id": "INV-315",
+      "test": "matches /api/admin and everything under it",
+      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
+      "outcome": "killed",
+      "reason": "R15: the `normalized === '/api/admin'` exact-match clause dropped from isAdminApiRoute. FAILS on the bare '/api/admin' fixture \u2014 from THIS module's own suite, which is what RT-16 asked for."
+    },
+    {
+      "id": "INV-316",
+      "test": "does not match a lookalike prefix or a non-admin API path",
+      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
+      "outcome": "killed",
+      "reason": "R16 re-runs round 2's R20 / INV-222: isAdminApiRoute widened to `startsWith('/api/admin')`. Round 2 this SURVIVED in protected-routes.test.ts and died only from the proxy suite; the new lookalike fixture ('/api/adminfoo') now FAILS here. RT-16's fix verified."
+    },
+    {
+      "id": "INV-317",
+      "test": "takes an ALREADY-normalized path \u2014 it is the one predicate here that does not normalize",
+      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
+      "outcome": "killed",
+      "reason": "R17: isAdminApiRoute made to normalize its own argument (`normalizePath(normalized)` before comparing). FAILS on `expect(isAdminApiRoute('/API/Admin/overview')).toBe(false)` \u2014 the stated contract is a mechanism, not a comment."
+    },
+    {
+      "id": "INV-318",
+      "test": "agrees with isProtectedRoute on the whole admin API surface",
+      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
+      "outcome": "killed",
+      "reason": "R18: isAdminApiRoute returns false unconditionally. FAILS \u2014 isProtectedRoute genuinely delegates to it, so the single-definition claim behind Fix 3 is measured from this module too, not only from the proxy."
+    },
+    {
+      "id": "INV-319",
       "test": "never sends Allow-Credentials or Expose-Headers, and sends no Access-Control header on a refusal",
       "file": "src/__tests__/proxy.test.ts",
       "outcome": "killed",
-      "reason": "R8: adminOriginRefusal() emits Access-Control-Allow-Credentials: true. The sweep that replaced the tautological toHaveLength(6) fails, so RT-6's replacement can actually fail."
+      "reason": "R19 re-runs round 2's R8: adminOriginRefusal() also sets `Access-Control-Allow-Credentials: true`. AssertionError: \"refusal must not send access-control-allow-credentials: expected 'true' to be null\" \u2014 the ALL_ACCESS_CONTROL_HEADERS sweep that replaced the tautology can genuinely fail."
     },
     {
-      "id": "INV-209",
-      "test": "validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts",
+      "id": "INV-320",
+      "test": "never sends Allow-Credentials or Expose-Headers, and sends no Access-Control header on a refusal",
       "file": "src/__tests__/proxy.test.ts",
       "outcome": "killed",
-      "reason": "R9 (round-1 M8 re-run): the allowlist read, with its try/catch, moved inside the rawOrigin !== null branch. The rewritten 403 assertion is exactly as strong as the rejects.toThrow it replaced - the no-Origin leg is what kills it, and expect(createServerClient).not.toHaveBeenCalled() pins the fail-closed ordering."
+      "reason": "R20: adminCorsPreflight() also sets `Access-Control-Expose-Headers: X-Total-Count`. AssertionError: \"expected 'X-Total-Count' to be null\" \u2014 the sweep's second half (the preflight/actual loop) is real too, not only the refusal leg."
     },
     {
-      "id": "INV-210",
-      "test": "validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts",
-      "file": "src/__tests__/proxy.test.ts",
+      "id": "INV-321",
+      "test": "applies the loopback rule across both hosts, any port, and every non-production lane",
+      "file": "src/lib/config/__tests__/admin-origins.test.ts",
       "outcome": "killed",
-      "reason": "R10: the console.error dropped from the catch. The 'not a silent catch' assertions fail, so the operator log line is pinned."
-    },
-    {
-      "id": "INV-211",
-      "test": "validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts",
-      "file": "src/__tests__/proxy.test.ts",
-      "outcome": "killed",
-      "reason": "R11: the catch falls through with allowlist = [] instead of returning adminOriginRefusal(). Fails - the catch must refuse, not degrade to an empty list."
-    },
-    {
-      "id": "INV-212",
-      "test": "validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts",
-      "file": "src/__tests__/proxy.test.ts",
-      "outcome": "equivalent",
-      "reason": "R12: the 'if (!(error instanceof AdminOriginConfigError)) throw error' rethrow deleted, so the catch swallows every error. The test PASSED, and the mutant is PROVABLY behaviour-preserving at HEAD: readAdminAppOrigins() reaches only process.env, String split/map/filter/trim, parseAllowlistEntry (which throws AdminOriginConfigError alone) and url.origin, and parseUrl catches new URL() - so every error that can arrive at the catch already IS an AdminOriginConfigError. Recorded as RT-18."
-    },
-    {
-      "id": "INV-213",
-      "test": "validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts",
-      "file": "src/__tests__/proxy.test.ts",
-      "outcome": "killed",
-      "reason": "R13: the wildcard throw deleted from parseAllowlistEntry. Fails - ADR 0026 D2's parser throw is still pinned from the proxy suite after the boundary catch was added, which is the property the rewritten test was asked to keep."
-    },
-    {
-      "id": "INV-214",
-      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
-      "file": "src/lib/config/__tests__/flags.test.ts",
-      "outcome": "killed",
-      "reason": "R14: the process.env.VERCEL !== undefined fallback replaced by false (the pre-fix behaviour). Fails."
-    },
-    {
-      "id": "INV-215",
-      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
-      "file": "src/lib/config/__tests__/flags.test.ts",
-      "outcome": "killed",
-      "reason": "R15: ?.trim() dropped from the VERCEL_TARGET_ENV read. Fails - the '   ' fixture pins the trim."
-    },
-    {
-      "id": "INV-216",
-      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
-      "file": "src/lib/config/__tests__/flags.test.ts",
-      "outcome": "killed",
-      "reason": "R16: if (target) widened to if (target !== undefined). Fails - the '' fixture pins the truthiness test."
-    },
-    {
-      "id": "INV-217",
-      "test": "isProductionEnvironment is true only for VERCEL_TARGET_ENV=production",
-      "file": "src/lib/config/__tests__/flags.test.ts",
-      "outcome": "killed",
-      "reason": "R17: the fallback replaced by true. Fails - the off-Vercel legs pin it, so local dev, pnpm test and the Railway worker keep the loopback rule."
-    },
-    {
-      "id": "INV-218",
-      "test": "/api/admin/businesses is protected",
-      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
-      "outcome": "equivalent",
-      "reason": "R18 (round-1 M17 re-run) against the module's OWN suite: isAdminApiRoute narrowed to startsWith('/api/admin/'), dropping the bare exact match. The test PASSED, and the mutant provably preserves ITS behaviour: '/api/admin/businesses' satisfies the surviving clause, so the verdict is unchanged. The same mutant is killed from the proxy suite (INV-220). Coverage-location note: RT-16."
-    },
-    {
-      "id": "INV-219",
-      "test": "/api/admin/businesses is protected",
-      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
-      "outcome": "killed",
-      "reason": "R19: isAdminApiRoute returns false. Fails - the extraction is genuinely wired into isProtectedRoute, so no route lost protection to Fix 3."
-    },
-    {
-      "id": "INV-220",
-      "test": "matches bare and normalized admin API paths and excludes admin lookalike paths",
-      "file": "src/__tests__/proxy.test.ts",
-      "outcome": "killed",
-      "reason": "R18 (round-1 M17 re-run) against the proxy suite: isAdminApiRoute narrowed to drop the bare /api/admin exact match. Fails."
-    },
-    {
-      "id": "INV-221",
-      "test": "matches bare and normalized admin API paths and excludes admin lookalike paths",
-      "file": "src/__tests__/proxy.test.ts",
-      "outcome": "killed",
-      "reason": "R20 (round-1 M16 re-run): isAdminApiRoute widened to startsWith('/api/admin'). Fails - both boundaries of the extracted predicate survive Fix 3."
-    },
-    {
-      "id": "INV-222",
-      "test": "/api/admin/businesses is protected",
-      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
-      "outcome": "equivalent",
-      "reason": "R20 against the module's OWN suite: the widened predicate leaves '/api/admin/businesses' true and the file carries no lookalike fixture, so the assertion's verdict is unchanged. Proven behaviour-preserving for this test. Coverage-location note: RT-16."
-    },
-    {
-      "id": "INV-223",
-      "test": "writes no Access-Control header on a non-admin route",
-      "file": "src/__tests__/proxy.test.ts",
-      "outcome": "killed",
-      "reason": "R21: proxy()'s non-admin early return widened to stamp Vary: Origin and Access-Control-Allow-Origin on a non-admin response. Fails - this discharges the ONE characterization title round 1 left unprobed (#12), which is what RT-13 turns on."
+      "reason": "R21: the NODE_ENV fallback replaced by `return true`, run against the admin-origins loopback suite rather than flags.test.ts. AssertionError: \"http://localhost @ lane=undefined: expected false to be true\". This measures the changed `withEnv` helper: its unset-lane cases really do resolve the lane through the new fallback, i.e. through an ambient NODE_ENV that no test in that file sets. Evidence for RT3-5."
     }
   ],
   "findings": [
     {
       "id": "RT-1",
       "severity": "P0",
-      "title": "The `http:`/`https:` scheme guard in parseAllowlistEntry is asserted by no test — all four fixtures are caught by the PATH guard instead",
+      "title": "The `http:`/`https:` scheme guard in parseAllowlistEntry is asserted by no test \u2014 all four fixtures are caught by the PATH guard instead",
       "at": "src/lib/config/__tests__/admin-origins.test.ts:75",
       "duty": 1,
       "disposition": "fixed",
-      "arbiter_reasoning": "Confirmed non-equivalent by inspection. All four fixtures have a non-empty, non-'/' pathname (file:///etc/passwd -> '/etc/passwd', data:text/html,<script> -> 'text/html,<script>', blob:https://admin.example/1234 -> 'https://admin.example/1234', javascript:alert(1) -> 'alert(1)'), so with the scheme throw deleted every one still throws AdminOriginConfigError from the path throw two guards later. The mutant is observably different: readAdminAppOrigins() returns ['ftp://admin.example'] / ['null'] instead of throwing for entries whose pathname is '/' (ftp://, ws://, wss://, file://host) — that is an exported-function behaviour change, so 'equivalent' cannot be claimed. Not an unexecuted branch: the test DOES run the scheme guard, its assertion simply cannot distinguish which guard fired. Security impact is nil today because normalizeOrigin independently enforces http(s) on the request side, so no extra origin becomes admissible; the defect is in the ORACLE. One-line fix: add an entry whose ONLY disqualifier is the scheme (e.g. 'ftp://admin.example' or 'ws://admin.example') to the fixture list."
+      "arbiter_reasoning": "Confirmed non-equivalent by inspection. All four fixtures have a non-empty, non-'/' pathname (file:///etc/passwd -> '/etc/passwd', data:text/html,<script> -> 'text/html,<script>', blob:https://admin.example/1234 -> 'https://admin.example/1234', javascript:alert(1) -> 'alert(1)'), so with the scheme throw deleted every one still throws AdminOriginConfigError from the path throw two guards later. The mutant is observably different: readAdminAppOrigins() returns ['ftp://admin.example'] / ['null'] instead of throwing for entries whose pathname is '/' (ftp://, ws://, wss://, file://host) \u2014 that is an exported-function behaviour change, so 'equivalent' cannot be claimed. Not an unexecuted branch: the test DOES run the scheme guard, its assertion simply cannot distinguish which guard fired. Security impact is nil today because normalizeOrigin independently enforces http(s) on the request side, so no extra origin becomes admissible; the defect is in the ORACLE. One-line fix: add an entry whose ONLY disqualifier is the scheme (e.g. 'ftp://admin.example' or 'ws://admin.example') to the fixture list."
     },
     {
       "id": "RT-2",
       "severity": "P0",
-      "title": "The Edge-safety guard's `node:` entry can never match, and side-effect imports are invisible — both node-builtin import shapes survive",
+      "title": "The Edge-safety guard's `node:` entry can never match, and side-effect imports are invisible \u2014 both node-builtin import shapes survive",
       "at": "src/lib/config/__tests__/admin-origins.test.ts:212",
       "duty": 1,
       "disposition": "fixed",
@@ -200,7 +187,7 @@
       "at": "src/lib/config/admin-origins.ts:144",
       "duty": 3,
       "disposition": "fixed",
-      "arbiter_reasoning": "Re-resolved against 4f132aae: `rg -o '\\bD[0-9]{1,2}\\b' docs/adr/0026-admin-api-cors.md` yields D1 D2 D3 D4 D5 D6 D7 D8 only, and `rg -i 'canonical|normaliz'` over the same ADR returns zero hits. The other citations in the diff DO resolve: ADR 0026 D1/D2/D3/D4/D7 exist, and both verbatim quotes check out (D2 'Loopback is a separate code rule, not a list entry' at 0026:114; D4 'One predicate owns the origin comparison' at 0026:179). Rated P1 rather than P0 because the falsity is provenance-only: the behaviour the comment describes IS implemented and IS pinned by a killed mutation (M10), so no reader acting on it produces a defect — but a future engineer changing the echo would look for D14 and find nothing."
+      "arbiter_reasoning": "Re-resolved against 4f132aae: `rg -o '\\bD[0-9]{1,2}\\b' docs/adr/0026-admin-api-cors.md` yields D1 D2 D3 D4 D5 D6 D7 D8 only, and `rg -i 'canonical|normaliz'` over the same ADR returns zero hits. The other citations in the diff DO resolve: ADR 0026 D1/D2/D3/D4/D7 exist, and both verbatim quotes check out (D2 'Loopback is a separate code rule, not a list entry' at 0026:114; D4 'One predicate owns the origin comparison' at 0026:179). Rated P1 rather than P0 because the falsity is provenance-only: the behaviour the comment describes IS implemented and IS pinned by a killed mutation (M10), so no reader acting on it produces a defect \u2014 but a future engineer changing the echo would look for D14 and find nothing."
     },
     {
       "id": "RT-4",
@@ -218,12 +205,12 @@
       "at": ".feature/logs/t1-baseline-record.md:33",
       "duty": 3,
       "disposition": "fixed",
-      "arbiter_reasoning": "The record states the 23 proxy and 11 allowlist titles were a COLLECTION ERROR at c2de39d8 and 'Re-derived after T2/T3 land and before T4 (see the second record below)', then ends with an empty '## Second record' heading. The raw log .feature/logs/t1-baseline-proxy.txt does exist and shows 18 failed / 22 passed of 40, i.e. 18 of the 23 new titles red — but the five that were GREEN before the code (#2 'sends no Access-Control-Allow-Origin for a disallowed origin', #7 'lets a same-origin POST...', #8 'leaves an admin API request with no Origin header...', #12 'writes no Access-Control header on a non-admin route', #14 'does not read ADMIN_APP_ORIGINS on a non-admin request') carry no CHARACTERIZATION marker in the test source, unlike the two csrf titles that do. Partially discharged by this pass: I proved four of the five non-vacuous by mutation (M22 kills #2, M19 kills #7, M20 kills #8, M21 kills #14). #12 is still unprobed. The finding is the missing record, not a fake test."
+      "arbiter_reasoning": "The record states the 23 proxy and 11 allowlist titles were a COLLECTION ERROR at c2de39d8 and 'Re-derived after T2/T3 land and before T4 (see the second record below)', then ends with an empty '## Second record' heading. The raw log .feature/logs/t1-baseline-proxy.txt does exist and shows 18 failed / 22 passed of 40, i.e. 18 of the 23 new titles red \u2014 but the five that were GREEN before the code (#2 'sends no Access-Control-Allow-Origin for a disallowed origin', #7 'lets a same-origin POST...', #8 'leaves an admin API request with no Origin header...', #12 'writes no Access-Control header on a non-admin route', #14 'does not read ADMIN_APP_ORIGINS on a non-admin request') carry no CHARACTERIZATION marker in the test source, unlike the two csrf titles that do. Partially discharged by this pass: I proved four of the five non-vacuous by mutation (M22 kills #2, M19 kills #7, M20 kills #8, M21 kills #14). #12 is still unprobed. The finding is the missing record, not a fake test."
     },
     {
       "id": "RT-6",
       "severity": "P2",
-      "title": "`expect(ALL_ACCESS_CONTROL_HEADERS).toHaveLength(6)` is tautological — it asserts the length of a literal declared 190 lines above in the same file",
+      "title": "`expect(ALL_ACCESS_CONTROL_HEADERS).toHaveLength(6)` is tautological \u2014 it asserts the length of a literal declared 190 lines above in the same file",
       "at": "src/__tests__/proxy.test.ts:582",
       "duty": 2,
       "disposition": "fixed",
@@ -246,7 +233,7 @@
       "at": "src/__tests__/proxy.test.ts:560",
       "duty": 2,
       "disposition": "fixed",
-      "arbiter_reasoning": "proxy.test.ts:560 `.not.toContain('DELETE')` and :564 `.not.toContain('x-admin-override')` are each preceded by an exact-equality assertion on the same header, so they add nothing and would survive a rewrite that changed the constant. proxy.test.ts:423 `expect(response.status).not.toBe(403)` is subsumed by the `.toBe(401)` on the next line. csrf.test.ts:202-203 `expect(source).not.toContain('NEXT_PUBLIC_APP_URL')` is a source-substring proxy for 'this module does not read the variable' — the same class of guard RT-2 shows can be walked around. None is load-bearing; all three are redundancy, not coverage."
+      "arbiter_reasoning": "proxy.test.ts:560 `.not.toContain('DELETE')` and :564 `.not.toContain('x-admin-override')` are each preceded by an exact-equality assertion on the same header, so they add nothing and would survive a rewrite that changed the constant. proxy.test.ts:423 `expect(response.status).not.toBe(403)` is subsumed by the `.toBe(401)` on the next line. csrf.test.ts:202-203 `expect(source).not.toContain('NEXT_PUBLIC_APP_URL')` is a source-substring proxy for 'this module does not read the variable' \u2014 the same class of guard RT-2 shows can be walked around. None is load-bearing; all three are redundancy, not coverage."
     },
     {
       "id": "RT-9",
@@ -265,7 +252,7 @@
       "disposition": "fixed",
       "at": "src/lib/config/flags.ts:71",
       "title": "Fix 1's fail-closed fallback keys on VERCEL, which Vercel documents as the marker that system environment variables ARE exposed - so in the exact configuration A1 describes the predicate still returns false",
-      "arbiter_reasoning": "Duty 3, re-resolved this pass against vercel.com/docs/environment-variables/system-environment-variables via the Vercel documentation MCP: 'VERCEL environment variable - Indicates that system environment variables are exposed to the deployment. VERCEL=1'. VERCEL is itself a system environment variable and its documented meaning is that the exposure toggle is ON. A1's scenario is a project whose system variables are NOT exposed; there VERCEL_TARGET_ENV is absent AND VERCEL is absent, so process.env.VERCEL !== undefined is false and isProductionEnvironment() returns false - http://localhost:<any port> stays admissible on a real production deployment, which is the hole the fix was written to close. Two consequences, both checked. (a) NO REGRESSION: the new predicate returns exactly what the old one returned in every configuration where the fallback runs, and R14/R15/R16/R17 all killed, so the shipped behaviour is unchanged and correctly pinned. (b) The CLAIM is what fails: the JSDoc at src/lib/config/flags.ts:57-62 ('on Vercel with the signal switched off - treat as production') and triage.md:37's A1 disposition both assert a property the marker cannot deliver. Rated P1 not P0 because the evidence is vendor documentation rather than a probe of this project's own deployment, and because nothing regressed. Blast radius checked and small: isAllowedAdminOrigin's loopback clause (src/lib/config/admin-origins.ts:188) is the ONLY caller in the repo. Local dev, pnpm test and the Railway worker are unaffected - VERCEL is unset in all three, and the repo runs next dev, never vercel dev (no occurrence of 'vercel dev' outside node_modules). Remedy: verify live the way src/lib/config/deployment-lane.ts:5-10 verified the Railway signals ('Verified live against Railway on 2026-07-28'), or key the fallback on something that survives the toggle. If this project's toggle is ON - the default - the fallback is dead code and A1 was hypothetical here; say that instead of claiming a fix.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED at 1ded393a+1. The fallback no longer keys on VERCEL — which is itself a system environment variable meaning 'system variables ARE exposed', so it is absent in exactly the configuration the fallback exists for. It now keys on NODE_ENV === 'production', which is true on every Vercel build, so the A1 hole is genuinely closed. The imprecision (staging builds also set NODE_ENV=production) is reached ONLY when VERCEL_TARGET_ENV is missing and errs toward DENYING loopback; an affirmative target still beats it, which the new test cases pin (staging + preview under NODE_ENV=production stay non-production)."
+      "arbiter_reasoning": "Duty 3, re-resolved this pass against vercel.com/docs/environment-variables/system-environment-variables via the Vercel documentation MCP: 'VERCEL environment variable - Indicates that system environment variables are exposed to the deployment. VERCEL=1'. VERCEL is itself a system environment variable and its documented meaning is that the exposure toggle is ON. A1's scenario is a project whose system variables are NOT exposed; there VERCEL_TARGET_ENV is absent AND VERCEL is absent, so process.env.VERCEL !== undefined is false and isProductionEnvironment() returns false - http://localhost:<any port> stays admissible on a real production deployment, which is the hole the fix was written to close. Two consequences, both checked. (a) NO REGRESSION: the new predicate returns exactly what the old one returned in every configuration where the fallback runs, and R14/R15/R16/R17 all killed, so the shipped behaviour is unchanged and correctly pinned. (b) The CLAIM is what fails: the JSDoc at src/lib/config/flags.ts:57-62 ('on Vercel with the signal switched off - treat as production') and triage.md:37's A1 disposition both assert a property the marker cannot deliver. Rated P1 not P0 because the evidence is vendor documentation rather than a probe of this project's own deployment, and because nothing regressed. Blast radius checked and small: isAllowedAdminOrigin's loopback clause (src/lib/config/admin-origins.ts:188) is the ONLY caller in the repo. Local dev, pnpm test and the Railway worker are unaffected - VERCEL is unset in all three, and the repo runs next dev, never vercel dev (no occurrence of 'vercel dev' outside node_modules). Remedy: verify live the way src/lib/config/deployment-lane.ts:5-10 verified the Railway signals ('Verified live against Railway on 2026-07-28'), or key the fallback on something that survives the toggle. If this project's toggle is ON - the default - the fallback is dead code and A1 was hypothetical here; say that instead of claiming a fix.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED at 1ded393a+1. The fallback no longer keys on VERCEL \u2014 which is itself a system environment variable meaning 'system variables ARE exposed', so it is absent in exactly the configuration the fallback exists for. It now keys on NODE_ENV === 'production', which is true on every Vercel build, so the A1 hole is genuinely closed. The imprecision (staging builds also set NODE_ENV=production) is reached ONLY when VERCEL_TARGET_ENV is missing and errs toward DENYING loopback; an affirmative target still beats it, which the new test cases pin (staging + preview under NODE_ENV=production stay non-production)."
     },
     {
       "id": "RT-11",
@@ -274,7 +261,7 @@
       "disposition": "fixed",
       "at": "docs/superpowers/plans/feat-1186-admin-api-cors-plan.md:222",
       "title": "Plan section 2 and section 5 delta D-1 still state the PRE-FIX predicate VERCEL_TARGET_ENV === 'production', and D-1's code citation now lands on isPreviewEnvironment",
-      "arbiter_reasoning": "Duty 3, re-resolved against 1ded393a. Two live claims the fix falsified and did not update: plan.md:98 (isProductionEnvironment(): boolean // process.env.VERCEL_TARGET_ENV === 'production') and plan.md:222 (The lane test is VERCEL_TARGET_ENV === 'production'). Neither is true at HEAD - src/lib/config/flags.ts:68-72 is a two-branch predicate with a trim and a fallback. The citation on :222, src/lib/config/flags.ts:32-37, now resolves to isPreviewEnvironment's comment block (verified: those lines are the VERCEL_ENV-vs-VERCEL_TARGET_ENV note; isProductionEnvironment's JSDoc starts at :57 and its body at :68). The same commit DID re-cite the adjacent D-2 by symbol, saying the fork-relative numbers now land on unrelated lines - D-1 was left behind in that same pass. Stronger than round-1 RT-3, which was provenance-only: this states BEHAVIOUR the code no longer has, in the doc the handoff's read-order table lists third. Rated P1 not P0 because the shipped code and its JSDoc describe the new predicate correctly and R14-R17 pin it, so no reader acting on the CODE produces a defect; the risk is a future engineer 'restoring' the plan's stated equality. An arbiter could reasonably read Duty 3's letter ('a misleading FALSE claim is P0') and rate it higher - it is a two-line fix either way.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. Plan §2 now states the two-branch predicate including the fail-closed fallback and names this finding; §5 D-1's stale flags.ts:32-37 line citation was replaced with a symbol reference to isProductionEnvironment(), whose JSDoc carries the reasoning."
+      "arbiter_reasoning": "Duty 3, re-resolved against 1ded393a. Two live claims the fix falsified and did not update: plan.md:98 (isProductionEnvironment(): boolean // process.env.VERCEL_TARGET_ENV === 'production') and plan.md:222 (The lane test is VERCEL_TARGET_ENV === 'production'). Neither is true at HEAD - src/lib/config/flags.ts:68-72 is a two-branch predicate with a trim and a fallback. The citation on :222, src/lib/config/flags.ts:32-37, now resolves to isPreviewEnvironment's comment block (verified: those lines are the VERCEL_ENV-vs-VERCEL_TARGET_ENV note; isProductionEnvironment's JSDoc starts at :57 and its body at :68). The same commit DID re-cite the adjacent D-2 by symbol, saying the fork-relative numbers now land on unrelated lines - D-1 was left behind in that same pass. Stronger than round-1 RT-3, which was provenance-only: this states BEHAVIOUR the code no longer has, in the doc the handoff's read-order table lists third. Rated P1 not P0 because the shipped code and its JSDoc describe the new predicate correctly and R14-R17 pin it, so no reader acting on the CODE produces a defect; the risk is a future engineer 'restoring' the plan's stated equality. An arbiter could reasonably read Duty 3's letter ('a misleading FALSE claim is P0') and rate it higher - it is a two-line fix either way.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. Plan \u00a72 now states the two-branch predicate including the fail-closed fallback and names this finding; \u00a75 D-1's stale flags.ts:32-37 line citation was replaced with a symbol reference to isProductionEnvironment(), whose JSDoc carries the reasoning."
     },
     {
       "id": "RT-12",
@@ -283,7 +270,7 @@
       "disposition": "fixed",
       "at": ".claude/reference/arch-review-log.md:36",
       "title": "The corrected test counts in the #1186 arch-review-log entry are still wrong on all three numbers (23 not 24, 19 not 18, 38 not 31)",
-      "arbiter_reasoning": "Duty 3, re-derived this pass at 1ded393a as the round-2 brief asked. The entry claims '24 new CORS cases in proxy.test.ts (40 file-wide) and 18 new cases across admin-origins.test.ts / flags.test.ts / csrf.test.ts (31 file-wide)'. Measured: proxy.test.ts executes 40 tests (correct), of which 17 precede describe('admin API CORS') and 23 - not 24 - are inside it; the same 23 is the diff delta against c2de39d8 (17 -> 40 source it( sites). For the other three files vitest executes 13 + 11 + 14 = 38, not 31, and the new-case delta is 13 (admin-origins, a new file) + 1 (flags) + 5 (csrf) = 19, not 18. The 31 is reproducible as an it(-source count that misses flags.test.ts's it.each block (4 source it( sites vs 11 executed cases), which also explains the missing +1 in the 18. Rated P1 because this is the SECOND pass at these numbers - the spec axis already flagged them once, and triage.md records them as 'Corrected to the measured...' - and arch-review-log.md is the durable architecture trace. Correct values: 23 new CORS cases (40 file-wide); 19 new cases across the three config/CSRF suites (38 file-wide).\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. The arch-review-log entry now records 23 new CORS cases and 19 new config/CSRF cases — this round's re-derived numbers — and drops the file-wide figures that were wrong twice (an it(-grep misses it.each)."
+      "arbiter_reasoning": "Duty 3, re-derived this pass at 1ded393a as the round-2 brief asked. The entry claims '24 new CORS cases in proxy.test.ts (40 file-wide) and 18 new cases across admin-origins.test.ts / flags.test.ts / csrf.test.ts (31 file-wide)'. Measured: proxy.test.ts executes 40 tests (correct), of which 17 precede describe('admin API CORS') and 23 - not 24 - are inside it; the same 23 is the diff delta against c2de39d8 (17 -> 40 source it( sites). For the other three files vitest executes 13 + 11 + 14 = 38, not 31, and the new-case delta is 13 (admin-origins, a new file) + 1 (flags) + 5 (csrf) = 19, not 18. The 31 is reproducible as an it(-source count that misses flags.test.ts's it.each block (4 source it( sites vs 11 executed cases), which also explains the missing +1 in the 18. Rated P1 because this is the SECOND pass at these numbers - the spec axis already flagged them once, and triage.md records them as 'Corrected to the measured...' - and arch-review-log.md is the durable architecture trace. Correct values: 23 new CORS cases (40 file-wide); 19 new cases across the three config/CSRF suites (38 file-wide).\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. The arch-review-log entry now records 23 new CORS cases and 19 new config/CSRF cases \u2014 this round's re-derived numbers \u2014 and drops the file-wide figures that were wrong twice (an it(-grep misses it.each)."
     },
     {
       "id": "RT-13",
@@ -292,7 +279,7 @@
       "disposition": "fixed",
       "at": ".feature/logs/t1-baseline-record.md:44",
       "title": "The RT-5 fix's evidence sentence is wrong: it claims all five characterization titles were mutation-tested, cites a mutation/title pair that is not one of the five, and omits the two round 1 actually recorded",
-      "arbiter_reasoning": "Duty 3, checked against round 1's own mutation table in this directory's findings.md. The record's closing sentence reads 'Every one of these five was independently mutation-tested in the review wave (M19 ... #7; M22 ... #2; M8 moved the allowlist read and #13 killed it)'. Three defects: (1) #13 ('validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts', intake tests_to_add[13]) is NOT one of the five characterization titles - the five are #2, #7, #8, #12, #14 - and #13 was RED at baseline, so citing it as evidence about the five is a non-sequitur; (2) it omits M20 -> #8 and M21 -> #14, which round 1 DID record; (3) 'every one of these five' was FALSE when written - round-1 RT-5 states verbatim that '#12 is still unprobed'. Downgraded from a false-evidence P0 to P1 because I settled the substance rather than argue it: round-2 mutation R21 widened proxy()'s non-admin early return to stamp Vary and Access-Control-Allow-Origin, and #12 killed it (INV-223), so all five titles are now measured and only the cross-references are wrong. Correction to write: M22 -> #2, M19 -> #7, M20 -> #8, M21 -> #14, round-2 R21 -> #12.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. The baseline record now cites M19→#7, M22→#2, M20→#8 and M21→#14, states that #12 was UNPROBED in round 1 and discharged by R21 in round 2, and keeps the earlier wrong citation visible with the reason it mattered."
+      "arbiter_reasoning": "Duty 3, checked against round 1's own mutation table in this directory's findings.md. The record's closing sentence reads 'Every one of these five was independently mutation-tested in the review wave (M19 ... #7; M22 ... #2; M8 moved the allowlist read and #13 killed it)'. Three defects: (1) #13 ('validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts', intake tests_to_add[13]) is NOT one of the five characterization titles - the five are #2, #7, #8, #12, #14 - and #13 was RED at baseline, so citing it as evidence about the five is a non-sequitur; (2) it omits M20 -> #8 and M21 -> #14, which round 1 DID record; (3) 'every one of these five' was FALSE when written - round-1 RT-5 states verbatim that '#12 is still unprobed'. Downgraded from a false-evidence P0 to P1 because I settled the substance rather than argue it: round-2 mutation R21 widened proxy()'s non-admin early return to stamp Vary and Access-Control-Allow-Origin, and #12 killed it (INV-223), so all five titles are now measured and only the cross-references are wrong. Correction to write: M22 -> #2, M19 -> #7, M20 -> #8, M21 -> #14, round-2 R21 -> #12.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. The baseline record now cites M19\u2192#7, M22\u2192#2, M20\u2192#8 and M21\u2192#14, states that #12 was UNPROBED in round 1 and discharged by R21 in round 2, and keeps the earlier wrong citation visible with the reason it mattered."
     },
     {
       "id": "RT-14",
@@ -310,7 +297,7 @@
       "disposition": "fixed",
       "at": "src/lib/config/__tests__/admin-origins.test.ts:201",
       "title": "The Edge-safety scan's four-file graph omits src/lib/shared/protected-routes.ts, which Fix 3 made the owner of the CORS block's own gate predicate",
-      "arbiter_reasoning": "Duty 4, recorded sibling search. graph is ['src/proxy.ts', 'src/lib/config/admin-origins.ts', 'src/lib/config/flags.ts', 'src/lib/shared/csrf.ts']. src/proxy.ts has four repo-code direct imports - protected-routes, request-path-header, auth/flags and config/admin-origins - and only the last is scanned. R7 demonstrates the consequence: a node:crypto import added to protected-routes.ts reaches the Edge proxy and the guard does not see it (INV-207, proven equivalent w.r.t. the assertion because that file is not one of the four inputs). NOT a regression introduced by this branch, which is why it is P2 and not P1: git show c2de39d8:src/proxy.ts already imported @/lib/shared/protected-routes at the merge base, so the gap predates the diff. What Fix 3 changed is its relevance - isAdminApiRoute, the predicate that gates the entire CORS block, now lives in an unscanned file, and the sibling test added at :245 states the depth-1 limit but not this one. One-line remedy: add 'src/lib/shared/protected-routes.ts' to graph.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. src/lib/shared/protected-routes.ts joined the scanned graph — Fix 3 made it the owner of the CORS block's gate predicate, so it belongs in the proxy's Edge-critical set."
+      "arbiter_reasoning": "Duty 4, recorded sibling search. graph is ['src/proxy.ts', 'src/lib/config/admin-origins.ts', 'src/lib/config/flags.ts', 'src/lib/shared/csrf.ts']. src/proxy.ts has four repo-code direct imports - protected-routes, request-path-header, auth/flags and config/admin-origins - and only the last is scanned. R7 demonstrates the consequence: a node:crypto import added to protected-routes.ts reaches the Edge proxy and the guard does not see it (INV-207, proven equivalent w.r.t. the assertion because that file is not one of the four inputs). NOT a regression introduced by this branch, which is why it is P2 and not P1: git show c2de39d8:src/proxy.ts already imported @/lib/shared/protected-routes at the merge base, so the gap predates the diff. What Fix 3 changed is its relevance - isAdminApiRoute, the predicate that gates the entire CORS block, now lives in an unscanned file, and the sibling test added at :245 states the depth-1 limit but not this one. One-line remedy: add 'src/lib/shared/protected-routes.ts' to graph.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nFIXED. src/lib/shared/protected-routes.ts joined the scanned graph \u2014 Fix 3 made it the owner of the CORS block's gate predicate, so it belongs in the proxy's Edge-critical set."
     },
     {
       "id": "RT-16",
@@ -337,26 +324,94 @@
       "disposition": "rejected",
       "at": "src/proxy.ts:126",
       "title": "The catch's non-AdminOriginConfigError rethrow is unreachable at HEAD and exercised by no test",
-      "arbiter_reasoning": "Duty 1, uncovered defensive branch. R12 deletes the rethrow so the catch swallows every error, and the covering test still passes (INV-212). Recorded as equivalent rather than a survivor because the mutant is PROVABLY behaviour-preserving at HEAD: readAdminAppOrigins() reaches only process.env, String split/map/filter/trim, parseAllowlistEntry (which throws AdminOriginConfigError alone) and url.origin, and parseUrl catches new URL() - so every error that can arrive at the catch already IS an AdminOriginConfigError. The rethrow is correct defensive depth for a future in which that stops being true. Filed so the arbiter knows nothing measures it; no action recommended, since a test would mean stubbing a module that cannot fail.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nREJECTED — kept deliberately. The rethrow of a non-AdminOriginConfigError is unreachable at HEAD, and that is the point: it is the 'assert impossible states' rule, not defensive handling. Swallowing an unexpected error into a 403 origin would hide a real fault behind a CORS refusal. Being unmeasured is the correct condition for an assertion that must never fire.",
-      "reason": "Kept deliberately: the unreachable rethrow is the 'assert impossible states' rule, not defensive handling — swallowing an unexpected error into a 403 origin would hide a real fault behind a CORS refusal."
+      "arbiter_reasoning": "Duty 1, uncovered defensive branch. R12 deletes the rethrow so the catch swallows every error, and the covering test still passes (INV-212). Recorded as equivalent rather than a survivor because the mutant is PROVABLY behaviour-preserving at HEAD: readAdminAppOrigins() reaches only process.env, String split/map/filter/trim, parseAllowlistEntry (which throws AdminOriginConfigError alone) and url.origin, and parseUrl catches new URL() - so every error that can arrive at the catch already IS an AdminOriginConfigError. The rethrow is correct defensive depth for a future in which that stops being true. Filed so the arbiter knows nothing measures it; no action recommended, since a test would mean stubbing a module that cannot fail.\n\n--- ORCHESTRATOR TRIAGE (post round 2) ---\nREJECTED \u2014 kept deliberately. The rethrow of a non-AdminOriginConfigError is unreachable at HEAD, and that is the point: it is the 'assert impossible states' rule, not defensive handling. Swallowing an unexpected error into a 403 origin would hide a real fault behind a CORS refusal. Being unmeasured is the correct condition for an assertion that must never fire.",
+      "reason": "Kept deliberately: the unreachable rethrow is the 'assert impossible states' rule, not defensive handling \u2014 swallowing an unexpected error into a 403 origin would hide a real fault behind a CORS refusal."
+    },
+    {
+      "id": "RT3-1",
+      "severity": "P1",
+      "title": "ADR 0026 D5 still asserts the SameSite premise the same commit's dated correction declares false, and the correction cites D5 as one of the two controls that do not rest on it",
+      "at": "docs/adr/0026-admin-api-cors.md:208",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 3, the docs-only commit c0181b01 the brief asked me to verify rather than mutate. THE CORRECTION ITSELF IS TRUE, and I verified both halves against the code and the deployment map. (a) The premise fix is right: production is https://repworth.net (deployment-guide.md:57,177,444,525,1261) and the Admin app is https://admin.repworth.net / https://admin.staging.repworth.net (env-vars.md:48), so the two share the registrable domain repworth.net and are schemefully SAME-SITE while being cross-ORIGIN; a lax (and a strict) cookie IS sent on a credentialed fetch between them. (b) Control one resolves: assertSameOrigin (src/lib/shared/csrf.ts:53-81) throws unless isSelfOrigin(origin) matches NEXT_PUBLIC_APP_URL, and it IS wired to the Admin API \u2014 not by a direct call, but through withSameOrigin() (src/lib/auth/route-helpers.ts:30), which wraps 55 admin route exports (POST /api/admin/businesses:114, PATCH .../[id]:110, PUT .../keywords:66, POST /api/admin/impersonation/start:119, POST /api/admin/suppressions:59, POST /api/admin/autonomy/unsuspend:45, and the rest). (c) Control two is true as literally written but is not a CSRF control: absent Access-Control-Allow-Credentials the browser blocks the RESPONSE, and CSRF does not need to read the response \u2014 the state change has already happened. The control that actually does that work is D4 (src/proxy.ts:150-157 refuses a non-allowlisted Origin with 403 before any Supabase call), which the correction does not name. THE DEFECT: ADR 0026 D5 (:206-211) restates the corrected premise verbatim \u2014 'SameSite is the second control: rw_impersonation is strict and every other cookie is lax, so no cookie reaches a cross-origin fetch in the first place' \u2014 and that sentence is FALSE for the exact topology this ADR is written for. The correction was applied to the Context bullet only, and then cited D5 as a control 'that do[es] not rest on the false premise' while D5's own text names SameSite as its second control. Net effect of c0181b01: the ADR is now internally contradictory, and the uncorrected instance sits in a LOCKED decision rather than in Context. Rated P1, not P0, deliberately: the sentence is supporting rationale, not a normative rule; D5's normative rule ('Access-Control-Allow-Credentials is never sent') is correct, implemented and pinned by R19/R20; the false sentence is unchanged since the merge base and no code depends on it; and the ADR's overall CSRF conclusion does hold, via D4 plus withSameOrigin. An arbiter reading Duty 3's letter ('a misleading FALSE claim is P0') could rate it higher. Remedy: extend the same dated correction to D5 (or delete D5's SameSite sentence and name D4 in its place), and add D4 to the correction's list of surviving controls. Sibling search recorded: the only other SameSite claim in an ADR is 0024:42-47, which says 'a cross-SITE response cannot set it' \u2014 correctly scoped, and about setting rather than sending. Zero other siblings."
+    },
+    {
+      "id": "RT3-2",
+      "severity": "P1",
+      "title": "Three durable docs still state the PRE-FIX predicate `isProductionEnvironment() === (VERCEL_TARGET_ENV === 'production')`; round 2's RT-11 fix corrected the plan only, and the directory-map row's stated reason for rejecting requiresProductionConfig() is now the exact imprecision the new fallback accepts",
+      "at": ".claude/reference/env-vars.md:48",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 3, re-resolved at c0181b01. The plan IS fixed \u2014 plan.md:96-99 now spells the two-branch predicate with the NODE_ENV fallback and D-1 (:226-235) cites by symbol, so round-2 RT-11 is closed. Three other durable docs were not updated in the same pass and each states something false at HEAD, where src/lib/config/flags.ts:83-87 is `const target = VERCEL_TARGET_ENV?.trim(); if (target) return target === 'production'; return NODE_ENV === 'production'`. (1) .claude/reference/env-vars.md:48 \u2014 a row this branch ADDED \u2014 says loopback is 'refused in the production lane (`VERCEL_TARGET_ENV === \"production\"`, via `isProductionEnvironment()`)'. That equality is not the predicate. (2) docs/directory/lib-dashboard-locations-accounts.md:13 \u2014 a row this branch CHANGED \u2014 says the two readers are '(`VERCEL_TARGET_ENV === \"preview\"` / `\"production\"`, never `VERCEL_ENV`, and never `requiresProductionConfig()` \u2014 Vercel sets `NODE_ENV=production` on staging too)'. This is the worst of the three: it is not merely stale, it is self-contradictory, because the justification it gives for rejecting requiresProductionConfig() (that NODE_ENV=production is true on staging) is precisely the imprecision isProductionEnvironment now accepts on its fallback branch, and flags.ts:65-71 says so in its own JSDoc. It is also the CI-enforced directory map (ci:directory-map). (3) .claude/reference/arch-review-log.md:31-32 says 'The lane predicate is `VERCEL_TARGET_ENV`, never `requiresProductionConfig()`, which would have made the rule inert on staging' and :42-44 says 'isProductionEnvironment now fails CLOSED on a missing VERCEL_TARGET_ENV'. Neither is what the code does: the predicate consults NODE_ENV once the precise signal fails, and on a missing signal it fails closed only when NODE_ENV is production. Rated P1 and not P0 on the same basis round 2 rated RT-11: the shipped code and its JSDoc are correct and R1-R6 pin all of it, so no reader acting on the CODE produces a defect; the risk is a future engineer 'restoring' the stated equality, which is exactly the shape that produced the wrong A1 fix in the first place. Blast radius re-checked: isProductionEnvironment still has exactly ONE caller in the whole repo (src/lib/config/admin-origins.ts:188), and process.env.VERCEL now has ZERO production readers (grep over src/, worker/, scripts/ \u2014 only two dead `delete process.env.VERCEL` lines survive in flags.test.ts:71,101). Remedy: three sentences, with the correct text available verbatim from flags.ts:83-87."
+    },
+    {
+      "id": "RT3-3",
+      "severity": "P2",
+      "title": "The rewritten Edge-safety extractor closes every literal-quote shape but still cannot see a specifier split below the `node:` prefix \u2014 `import('node' + ':crypto')` walks through",
+      "at": "src/lib/config/__tests__/admin-origins.test.ts:231",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 1/2, and the residual after RT-14. The backtick fix is real and I proved it five ways: R7 (the verbatim round-2 R4 template literal), R9 (a nested `${}` substitution \u2014 extracted as 'node:${', which still trips the prefix match), R8 (a concatenation ABOVE the prefix, `'node:' + 'crypto'` \u2014 extracted as 'node:'), R10 (`export \u2026 from`), R11 (`import type \u2026 from`) all now FAIL the assertion, and R14 confirms protected-routes.ts joined the scanned graph. The one shape left is R12: `import('node' + ':crypto')`, split BELOW the scheme prefix, which yields the harmless specifier 'node'. ARBITER REASONING for not calling this a confirmed survivor: the mutant is genuinely not behaviour-preserving (the module really does import a node builtin), so it is not `equivalent`; but the four regexes are a lexical extractor over QUOTED LITERAL specifiers, and a computed specifier is not one \u2014 no regex over source text can see it, so there is no one-character remedy of RT-14's kind. That makes it a claim about the ORACLE's domain rather than about the mutant, which is the class round 2 assigned INV-206, and it forces INCOMPLETE_ORACLE. Rated P2 rather than P1 (round 2 rated RT-14 P1): a backtick specifier is a shape a reviewer would plausibly write and the fix left it unstated, whereas a concatenated dynamic import is not a shape that occurs anywhere in this repo and is visibly outside what the extractor's own code claims. Cheapest honest remedy, and the one that also resolves the inventory row: extend the sibling test at :251 ('scans direct specifiers only \u2014 the depth-1 limit is stated, not implied') to state the LEXICAL limit as well \u2014 the scan reads quoted literal specifiers, so a computed one is out of scope by construction. That converts INV-312 from an unstated gap into an `excluded` row against a stated scope. A stricter alternative \u2014 banning `import(` with a non-literal argument in the graph files \u2014 is a real option but is scope this ticket did not buy."
+    },
+    {
+      "id": "RT3-4",
+      "severity": "P2",
+      "title": "The Edge-safety graph gained src/lib/shared/protected-routes.ts but src/lib/auth/flags.ts, the proxy's third repo-code direct import, is still unscanned",
+      "at": "src/lib/config/__tests__/admin-origins.test.ts:203",
+      "duty": 4,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 4, recorded sibling search. Scope: src/proxy.ts's direct repo-code imports (:3-17), compared against the `graph` array at admin-origins.test.ts:203-209. src/proxy.ts imports four repo modules \u2014 @/lib/shared/protected-routes, @/lib/shared/request-path-header, @/lib/auth/flags, @/lib/config/admin-origins. `graph` now lists five paths and covers two of those four plus src/lib/config/flags.ts and src/lib/shared/csrf.ts (both reached one hop deeper, through admin-origins.ts). Still unscanned: src/lib/auth/flags.ts and src/lib/shared/request-path-header.ts. R13 demonstrates the consequence \u2014 a node:crypto import added to src/lib/auth/flags.ts reaches the Edge proxy and the guard does not see it \u2014 and the row is `equivalent` with a proof, exactly as round 2 recorded the identical demonstration against protected-routes.ts. Risk today is genuinely small and I am not overstating it: request-path-header.ts is two exported string constants with zero imports, and auth/flags.ts imports only @/lib/config/flags, which IS scanned. So this is P2 and NOT a regression: the fix pass closed the instance round 2 filed (RT-15) and left the class open. Exclusions recorded: external specifiers (next/server, @supabase/ssr) are deliberately out of scope per the depth-1 sibling test at :251, and I did not extend the search past depth 1. One-line remedy if the arbiter wants the class closed: add the two paths, or derive `graph` from proxy.ts's own import list rather than hand-maintaining it."
+    },
+    {
+      "id": "RT3-5",
+      "severity": "P2",
+      "title": "The RT-17/RT-10 fix DELETED `delete process.env.VERCEL` from admin-origins.test.ts's withEnv instead of retargeting it, so three suites' unset-lane assertions now hang on an ambient NODE_ENV that vitest only defaults with `??=`",
+      "at": "src/lib/config/__tests__/admin-origins.test.ts:34",
+      "duty": 2,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 2, environment dependence \u2014 the same hazard round 2 filed as RT-17, transferred from VERCEL to NODE_ENV by the fix that closed it. The removed line was explicit hygiene; what replaced it is a comment (:34-37) whose premise is 'Vitest sets NODE_ENV=test'. Vitest does not set it \u2014 it DEFAULTS it: node_modules/vitest/dist/chunks/cli-api.C6CiCDM3.js:14567 is `process.env.NODE_ENV ??= \"test\"`, so a developer shell exporting NODE_ENV=production keeps production. Unlike RT-17, assertions depend on this TODAY and I measured it rather than argued it: R21 flips the fallback to `true` and admin-origins.test.ts's loopback case fails with 'http://localhost @ lane=undefined: expected false to be true' \u2014 the lane=undefined iteration (admin-origins.test.ts:168-190) resolves through the fallback, as does flags.test.ts:71-73's opening assertion. proxy.test.ts is immune only by accident: both its loopback cases set VERCEL_TARGET_ENV explicitly (:439 'staging', :450 'production'), an affirmative signal that short-circuits the fallback. Rated P2, not P1, on the failure DIRECTION: a stray NODE_ENV=production makes these suites fail loudly, never pass while broken, so it is a false-alarm hazard and not a coverage lie; and CI does not set NODE_ENV=production. Remedy, matching the shape of the line that was deleted: `Object.assign(process.env, { NODE_ENV: 'test' })` in withEnv and in proxy.test.ts's beforeEach \u2014 @types/node types NODE_ENV read-only, which is why the assign form, and flags.test.ts already uses exactly that spelling at :103. While there: flags.test.ts:71 and :101 still `delete process.env.VERCEL` for a variable nothing reads any more."
+    },
+    {
+      "id": "RT3-6",
+      "severity": "P2",
+      "title": "The arch-review-log #1186 entry's red-team and test-surface sentences are stale at c0181b01 \u2014 28 mutations understates the branch total in the same paragraph that cites round 2, and the test surface omits the fifth changed suite",
+      "at": ".claude/reference/arch-review-log.md:36",
+      "duty": 3,
+      "disposition": "open",
+      "arbiter_reasoning": "Duty 3. THE COUNTS ARE NOW RIGHT, re-derived a third time as the brief asked, independently and from execution rather than from grep. proxy.test.ts executes 40 tests; describe('admin API CORS') opens at :320 with 17 `it(` sites above it and 23 inside; `git show c2de39d8:src/__tests__/proxy.test.ts` has 17 sites. So 23 new CORS cases \u2014 CORRECT. admin-origins.test.ts is a new file executing 13; flags.test.ts executes 11 at HEAD against 10 at the merge base (5 `it` sites now vs 4, the it.each block contributing 7 both times) = +1; csrf.test.ts executes 14 against 9, no it.each = +5. 13+1+5 = 19 \u2014 CORRECT. Both numbers stand. What is stale is the rest of the sentence. (1) ':36-38 Test surface' names three suites, but d8faf8e5 made protected-routes.test.ts a FOURTH changed non-proxy suite, adding 4 cases (15 -> 19 `it` sites, 69 -> 73 executed) \u2014 the RT-16 fix. The three-file total is right; the sentence is now an incomplete inventory of the branch's test surface. (2) ':39 Red team: 28 mutations' is round 1's number, in the same sentence that already cites 'red-team round 2'. The branch total at c0181b01 is 49 (28 + round 2's 21), and 70 including this round's 21. Rated P2 because neither is false about what it literally measures \u2014 28 mutations did happen in round 1, and 19 new cases are in those three files \u2014 so this is incompleteness in a durable trace rather than a false claim, which is the line round 2 drew when it rated the same file's wrong numbers P1. Suggested text: '23 new CORS cases in proxy.test.ts, 19 across admin-origins.test.ts / flags.test.ts / csrf.test.ts, and 4 in protected-routes.test.ts. Red team: three rounds, 70 mutations.'"
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "AUTH-RT3-ROUND",
+      "date": "2026-09-08",
+      "finding_ids": [
+        "RT3-1",
+        "RT3-2",
+        "RT3-3",
+        "RT3-4",
+        "RT3-5",
+        "RT3-6"
+      ],
+      "text": "owner 2026-09-08: third round authorized at d26a8f3b+ | PROVENANCE, NOT AN ACCEPTANCE OF RISK: this entry records the authority under which THIS PASS RAN, not a waiver of any finding above (every one of them is `open`; none carries an `authorization` reference). The pass reported here is the THIRD red-team round on this branch. mutation-runner.mjs:397-400 caps rounds at 2 with no override flag, so the OWNER personally deleted .feature/red-team-journal.json in this worktree on 2026-09-08 to let `round-start` open; the orchestrator was blocked by the harness and did not do it. The journal therefore reports \"round\": 1 \u2014 that is a reset artifact. The sidecar's `round` field reads 2 because red-team-status.mjs:272 hard-rejects any other value; the true round number is 3. Rounds 1 and 2 ran 28 and 21 mutations; this round ran 21, for 70 on the branch. Owner decisions and the disclosure are recorded at docs/superpowers/plans/feat-1186-admin-api-cors-deviations.md \u00a7 DEV-9, which I verified against the runner source this pass."
+    }
+  ],
   "counts": {
-    "inventory_total": 23,
+    "inventory_total": 21,
     "killed": 19,
     "survived_confirmed_p0": 0,
-    "equivalent": 4,
-    "inconclusive": 0,
+    "equivalent": 1,
+    "inconclusive": 1,
     "skipped_budget": 0,
     "excluded": 0,
-    "findings_total": 18,
+    "findings_total": 24,
     "p0_open": 0,
-    "p1_open": 0,
-    "p2_open": 0,
+    "p1_open": 2,
+    "p2_open": 4,
     "accepted_risk": 0,
     "fixed": 15,
     "rejected": 3
   },
-  "status": "CLEAR"
+  "status": "INCOMPLETE_ORACLE"
 }

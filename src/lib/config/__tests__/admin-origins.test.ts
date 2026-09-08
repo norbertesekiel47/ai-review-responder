@@ -31,10 +31,13 @@ afterEach(() => {
 function withEnv(env: Record<string, string | undefined>): void {
   process.env.NEXT_PUBLIC_APP_URL = APP_ORIGIN;
   delete process.env.VERCEL_TARGET_ENV;
-  // With no target-env signal, isProductionEnvironment falls back to NODE_ENV.
-  // Vitest sets NODE_ENV=test, so the default here is "not production" and the
-  // loopback rule is live — which is what the unset-lane cases below assume.
-  // A case that wants production says so with an explicit VERCEL_TARGET_ENV.
+  // With no target-env signal, isProductionEnvironment falls back to NODE_ENV,
+  // so the unset-lane cases below depend on it. Vitest only `??=`-defaults
+  // NODE_ENV, which means an ambient value from the shell would silently decide
+  // those assertions — so it is SET here, not assumed. (Round 2's fix for the
+  // stale `delete process.env.VERCEL` removed that line instead of retargeting
+  // it; round 3 caught the gap it left.)
+  Object.assign(process.env, { NODE_ENV: 'test' });
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -206,6 +209,11 @@ describe('Edge safety', () => {
       // Fix 3 (#1186) made this the owner of the CORS block's gate predicate,
       // so it joined the proxy's Edge-critical set — red-team round 2 (RT-12).
       'src/lib/shared/protected-routes.ts',
+      // The proxy's remaining two repo imports. Round 3 found them unscanned:
+      // "the CORS import graph" has to mean every module the proxy pulls in, or
+      // the guard only covers the ones this ticket happened to touch.
+      'src/lib/auth/flags.ts',
+      'src/lib/shared/request-path-header.ts',
     ];
     const forbidden = [
       'node:',
@@ -248,13 +256,29 @@ describe('Edge safety', () => {
     }
   });
 
-  it('scans direct specifiers only — the depth-1 limit is stated, not implied', () => {
-    // The title above says "import graph"; this is the honest scope of the scan.
-    // `src/proxy.ts` imports `@supabase/ssr`, which itself depends on
-    // `@supabase/supabase-js` — so the forbidden list is a ban on DIRECT
-    // imports by these four files, not a claim about the transitive closure.
-    // That is deliberate: `@supabase/ssr` is the Edge-safe client the proxy has
-    // always used, and banning its transitive dependency would ban the proxy.
+  it('scans direct specifiers only — the depth-1 and lexical limits are stated, not implied', () => {
+    // TWO limits, both deliberate, stated here so the guard above is never read
+    // as promising more than it delivers.
+    //
+    // 1. DEPTH. `src/proxy.ts` imports `@supabase/ssr`, which itself depends on
+    //    `@supabase/supabase-js` — so the forbidden list bans DIRECT imports by
+    //    the listed files; it is not a claim about the transitive closure.
+    //    `@supabase/ssr` is the Edge-safe client the proxy has always used, and
+    //    banning its transitive dependency would ban the proxy.
+    //
+    // 2. LEXICAL. It is a source-text scan, so it sees a specifier only when the
+    //    specifier is a literal. A COMPUTED one — `import('node' + ':crypto')`,
+    //    or any expression — is invisible, and no regex closes that: the general
+    //    case needs the module graph, not a pattern. Red-team round 3 proved the
+    //    gap with exactly that concatenation and recorded that no one-character
+    //    remedy exists.
+    //
+    // Why the guard still earns its place with a hole that size: it is aimed at
+    // the ACCIDENT — someone reaching for `node:crypto` in an Edge module and
+    // shipping it green — not at an author deliberately obfuscating an import to
+    // defeat their own repo's safety net. The adversarial case wants a bundler
+    // check, which is a different tool and a different ticket. Saying so here is
+    // what turns an unexamined gap into a declared boundary.
     const proxySource = readFileSync(
       join(__dirname, '..', '..', '..', 'proxy.ts'),
       'utf8',

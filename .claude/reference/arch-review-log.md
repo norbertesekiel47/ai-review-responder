@@ -28,18 +28,22 @@ mutation 403s, since a same-origin `POST` carries an `Origin` header. (4) **Two
 rules are code, not configuration**: an entry containing `*` throws at read (which
 is what keeps ADR 0026 D7's CSRF argument true), and loopback is decided
 TERMINALLY by `!isProductionEnvironment()` so a listed `http://localhost` cannot
-re-admit it in production. The lane predicate is `VERCEL_TARGET_ENV`, never
-`requiresProductionConfig()`, which would have made the rule inert on staging —
+re-admit it in production. The lane predicate is `isProductionEnvironment()` —
+a non-empty `VERCEL_TARGET_ENV` trusted verbatim, falling back to
+`NODE_ENV === 'production'` only when that signal is missing — never
+`requiresProductionConfig()`, which would have made the rule inert on staging,
 the one environment ADR 0024 D7 built it for. Governance surface: one new file
 under `src/lib/config/` with its `docs/directory` row. Three Codex plan-skeptic
 rounds to APPROVED, 21 of 22 round-1 findings accepted (the owed test list grew
-19 → 40 as a result). Test surface: 23 new CORS cases in `proxy.test.ts` and 19
-new cases across `admin-origins.test.ts`, `flags.test.ts` and `csrf.test.ts`
-(counts re-derived by red-team round 2 after two earlier attempts got them
-wrong — an `it(`-grep misses `it.each`). Red team: 28 mutations, all 13 named security
-properties killed; two P0s in the TEST surface (an unreachable scheme-guard
-fixture, an Edge-safety pattern that could never match) fixed in round 1's
-triage. Adversarial review added two: `isProductionEnvironment` now fails CLOSED
+19 → 40 as a result). Test surface: 23 new CORS cases in `proxy.test.ts`, 19 new
+cases across `admin-origins.test.ts` / `flags.test.ts` / `csrf.test.ts`, and 4
+new `isAdminApiRoute` cases in `protected-routes.test.ts` (counts re-derived from
+execution three times — an `it(`-grep misses `it.each`, which is what made the
+first two attempts wrong). Red team: **70 mutations over THREE rounds**, all 13
+named security properties killed; two P0s in the TEST surface (an unreachable
+scheme-guard fixture, an Edge-safety pattern that could never match) fixed in
+round 1's triage, and round 2 then caught the round-1 fix for the adversarial
+lane finding being itself wrong. Adversarial review added two: `isProductionEnvironment` now fails CLOSED
 on a missing `VERCEL_TARGET_ENV`, because a Vercel project with system variables
 switched off would otherwise admit loopback in production; and the parser's throw
 is CAUGHT at the proxy boundary and mapped to the ordinary 403 refusal, so a
