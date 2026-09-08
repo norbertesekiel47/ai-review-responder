@@ -33,6 +33,10 @@ Building the Admin app starter (ADR 0030):
 
 - (a) a relative `/api/admin/...` fetch inside the exported kit is BROKEN in the Admin app and is an auth problem, not a `basePath` problem — it goes through the **Admin app fetch seam**, which owns the base URL and the bearer. (b) AAL is session-bound: never point the Admin app's MFA challenge at this app's origin — it raises THIS session and leaves the Admin app at `aal1` forever. (c) `AdminEnrollmentWidget` + `enrollment-contract.ts` are MOBILE-CHANNEL enrollment, not MFA; `useMfaEnrollment` was deliberately not exported (#1167).
 
+Retiring a Legacy admin portal page (ADR 0031):
+
+- (a) a test that names an `/admin/<page>` path is not automatically a pin — only the ones that `readFileSync` the file break on deletion (`console-admin-palette`, `page-chrome`, `runbook-empty-polish`, `runbook-import-consent`, `no-yellow-star-colors`); `admin-aal2-audit.test.ts` and `db-imports-audit.test.ts:103` pass a path STRING plus synthetic text and stay green, so do NOT touch them per page. (b) `ci:directory-map` scans `worker/` + `src/lib/` only, so a stale `docs/directory/app-admin.md` row fails nothing — drop it by hand. (c) prune `src/components/admin/nav-config.ts` or the sidebar links to a 404; `AdminSidebar.test.tsx` asserts several of those hrefs.
+
 ## Rules
 
 - `src/lib/admin/business-summary.ts` is the single owner of the query (`getBusinessSummaries`) and of churn derivation; `HealthBadge.tsx` owns health presentation.
