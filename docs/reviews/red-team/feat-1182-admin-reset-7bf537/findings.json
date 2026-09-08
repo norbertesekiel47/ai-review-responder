@@ -5,7 +5,7 @@
   "branch": "feat/1182-admin-reset",
   "fork_sha": "c2de39d879c92cc657941b36d0be330cd0c20abf",
   "merge_base_sha": "c2de39d879c92cc657941b36d0be330cd0c20abf",
-  "head_sha": "b1c3e85f38e1a0c9dfed8e92cf29b0d6f412a92f",
+  "head_sha": "4b6f60ad721a1a5205d8346bb747705542eba632",
   "intake_sha256": "c019d0b629f5a5ebf922da772df4f7bac4a936b024ee51d4e7d83b402e5aac47",
   "risk": "high",
   "round": 2,
