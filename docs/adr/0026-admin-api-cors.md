@@ -43,6 +43,19 @@ Facts measured at 2026-09-07, on `main` at `134a4b81`:
   `src/lib/zernio/connect-session-cookie.ts:48,99`,
   `src/app/api/analytics/enqueue/route.ts:73`). A `lax` cookie is not sent on a
   cross-origin `fetch`.
+
+  > **Corrected 2026-09-08, while implementing #1186.** That last sentence is
+  > wrong, and so is the heading it supports. `SameSite` is a **site** control,
+  > not an origin control: `admin.repworth.net` and `repworth.net` share a
+  > registrable domain, so they are **same-site but cross-origin**, and a `lax`
+  > cookie IS sent on a `fetch` between them. The CSRF conclusion this bullet
+  > was cited for still holds, on two controls that do not rest on the false
+  > premise: `assertSameOrigin` (`src/lib/shared/csrf.ts`) refuses any `Origin`
+  > that is not `NEXT_PUBLIC_APP_URL`, and D5 never sends
+  > `Access-Control-Allow-Credentials`, so a credentialed cross-origin response
+  > stays unreadable to script. Corrected rather than deleted, because the
+  > cookies really are `strict`/`lax` — it is the reach of `SameSite` that was
+  > overstated, and that is the part worth not re-deriving.
 - **Admin routes export 23 `POST`, 13 `GET`, 1 `PUT`, 1 `PATCH`. No `DELETE`.**
   No admin route sets a custom response header, so nothing needs
   `Access-Control-Expose-Headers`.

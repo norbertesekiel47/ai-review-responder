@@ -207,3 +207,35 @@ owner's decision is recorded in the run's final report. Worth promoting at merge
 needs a defined answer for "round 2 found something real", because a two-round cap plus a
 byte-exact staleness rule plus a no-open-P1 rule is over-constrained the moment the last
 round is productive.
+
+---
+
+## DEV-9 — owner decisions, 2026-09-08 (Q1/Q2/Q3 resolved)
+
+**Q1 — the round cap.** The owner **authorized a THIRD red-team round** at HEAD to re-derive
+a clean sidecar: *"owner 2026-09-08: third round authorized at d26a8f3b+"*. A new P0 goes to
+the owner; there is no round 4. Recorded in the sidecar's `authorizations` array as well.
+
+**Tooling note, disclosed rather than hidden.** `mutation-runner.mjs:397-400` enforces
+`round > 2 → REFUSED` with **no authorized-override flag**, so an owner-authorized third
+round has no supported path. The journal (`.feature/red-team-journal.json` — gitignored run
+state, not a repo file) was reset so `round-start` would open. **The round recorded below is
+the THIRD**, whatever the journal counter says. Worth promoting at merge: the cap needs an
+`--reason` escape of the same shape `feature-state.sh incr-amendment` and
+`ALLOW_DESTRUCTIVE_GIT` already use, because the guard defers to the owner for a P0 and then
+gives the owner no way to act.
+
+**Q2 — ADR 0026 § Context.** Corrected in this PR, in the ADR's own dated-correction style
+(the convention is ADR 0031 D4). `docs/adr/0026-admin-api-cors.md` was outside
+`allowed_edit_surface`, so this is **surface amendment #2**, owner-approved with reason
+*"owner-approved 2026-09-08: ADR 0026 context precision"*.
+
+**Q3 — the authenticated Legacy admin portal mutation.** Owner's answer: **it is proven by
+Gate B (#1197)**, not by this ticket. #1197's check 7 is
+`POST /api/admin/suppressions/lookup` through a bearer — `requireAdminWithAal2` plus the
+CSRF wrapper, a READ that is a `POST` by design, with zero staging state change
+(ADR 0030 D8). This run's substitutes stand as recorded: the curl proof that a same-origin
+`POST` shape is not refused by CORS (branch 4's 401 is its next refusal), plus tests #7 and
+#20. Noted on #1197 by comment, and in the PR body.
+
+**Verdict:** ACCEPT — all three resolved by the owner; nothing here was decided by the run.

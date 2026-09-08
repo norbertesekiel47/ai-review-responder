@@ -114,7 +114,8 @@
     "docs/reviews/feat-1186-admin-api-cors/adversarial.md",
     "docs/reviews/feat-1186-admin-api-cors/triage.md",
     "src/lib/shared/protected-routes.ts",
-    "src/lib/shared/__tests__/protected-routes.test.ts"
+    "src/lib/shared/__tests__/protected-routes.test.ts",
+    "docs/adr/0026-admin-api-cors.md"
   ],
   "tests_to_add": [
     "echoes Access-Control-Allow-Origin for an allowlisted admin origin",
