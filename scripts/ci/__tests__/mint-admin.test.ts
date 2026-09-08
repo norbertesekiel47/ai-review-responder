@@ -26,10 +26,14 @@ import {
 import {
   assertMintTarget,
   buildAdminRecoveryUrl,
+  confirmsRollback,
   formatMintReport,
+  formatMintTarget,
   mintAdmin,
   MintAdminUsageError,
+  MintRefusal,
   parseMintAdminArgs,
+  readMintConfig,
   resolveMintEnv,
   type MintAdminResult,
 } from '../../mint-admin';
@@ -114,6 +118,7 @@ describe('assertMintTarget', () => {
       assertMintTarget({
         supabaseUrl: `https://${OTHER_REF}.supabase.co`,
         dbTarget: stagingDbTarget,
+        dbProjectRef: STAGING_REF,
         confirmRef: STAGING_REF,
       }),
     ).toThrow(/supabase/i);
@@ -126,6 +131,7 @@ describe('assertMintTarget', () => {
       assertMintTarget({
         supabaseUrl: stagingSupabaseUrl,
         dbTarget: `postgres.${OTHER_REF}@aws-0-eu-west-2.pooler.supabase.com:6543`,
+        dbProjectRef: OTHER_REF,
         confirmRef: STAGING_REF,
       }),
     ).toThrow(/database/i);
@@ -139,9 +145,14 @@ describe('assertMintTarget', () => {
         assertMintTarget({
           supabaseUrl: stagingSupabaseUrl,
           dbTarget: stagingDbTarget,
+          dbProjectRef: STAGING_REF,
           confirmRef: partial,
         }),
-      ).toThrow();
+        // Attributed, not a bare .toThrow(): the message must name the
+        // COMPLETE-REF rule. Without this, widening the pattern from {20} to
+        // {16,} survives, because the exact-equality guard throws anyway and
+        // the test cannot tell the two refusals apart (red team RT-05).
+      ).toThrow(/complete Supabase project ref/i);
     }
   });
 
@@ -150,6 +161,7 @@ describe('assertMintTarget', () => {
       assertMintTarget({
         supabaseUrl: `https://${PROD_REF}.supabase.co`,
         dbTarget: `postgres.${PROD_REF}@aws-0-eu-west-2.pooler.supabase.com:6543`,
+        dbProjectRef: PROD_REF,
         confirmRef: PROD_REF,
       }),
     ).toThrow(/produc/i);
@@ -160,6 +172,7 @@ describe('assertMintTarget', () => {
       assertMintTarget({
         supabaseUrl: `https://${PROD_REF}.supabase.co`,
         dbTarget: stagingDbTarget,
+        dbProjectRef: STAGING_REF,
         confirmRef: STAGING_REF,
       }),
     ).toThrow(/produc/i);
@@ -170,6 +183,7 @@ describe('assertMintTarget', () => {
       assertMintTarget({
         supabaseUrl: stagingSupabaseUrl,
         dbTarget: stagingDbTarget,
+        dbProjectRef: STAGING_REF,
         confirmRef: STAGING_REF,
       }),
     ).not.toThrow();
@@ -267,11 +281,18 @@ function pgError(code: string): Error & { code: string } {
   return Object.assign(new Error(`postgres error ${code}`), { code });
 }
 
+const TEST_OPERATOR = {
+  os_user: 'test-operator',
+  host: 'test-host',
+  provenance: 'unauthenticated_shell',
+} as const;
+
 const MINT_INPUT = {
   email: 'admin@repworth.net',
   name: 'Admin Person',
   appUrl: 'https://staging.repworth.net',
   dryRun: false,
+  operator: TEST_OPERATOR,
 };
 
 describe('mintAdmin', () => {
@@ -542,7 +563,266 @@ describe('mintAdmin', () => {
     // In the SAME transaction as the users INSERT — which is also what makes
     // the NOT NULL actor_user_id FK resolvable without a migration.
     expect(auditCall?.inTransaction).toBe(true);
-    expect(auditCall?.values).toContain(result.userId);
-    expect(auditCall?.values).toContain('admin_minted');
+
+    // POSITIONAL, not `toContain` (review finding S5): writeAdminAuditLog binds
+    // (uuidv7 id, actorUserId, eventType, payload, entityType, entityId, …), so
+    // `entity_id` alone satisfies a membership check and a mutant binding a
+    // different actor survives it.
+    expect(auditCall?.values[1]).toBe(result.userId);
+    expect(auditCall?.values[2]).toBe('admin_minted');
+
+    // `inTransaction` is a TIME-WINDOW flag, not a connection identity (red
+    // team RT-06): it is stamped on any query awaited while begin() is open.
+    // Ordering is the part that carries the FK: the users INSERT must precede
+    // the audit INSERT, or actor_user_id references a row that does not exist
+    // yet. The live-DB sibling proves the FK itself.
+    const texts = harness.sqlCalls.map((call) => call.text);
+    const usersInsertAt = texts.findIndex((t) => t.includes('INSERT INTO users'));
+    const auditInsertAt = texts.findIndex((t) => t.includes('INSERT INTO admin_audit_log'));
+    expect(usersInsertAt).toBeGreaterThanOrEqual(0);
+    expect(auditInsertAt).toBeGreaterThan(usersInsertAt);
+
+    // A3 — the row records that actor and subject are the same identity, and
+    // who ran the script, so a later reader is not misled into thinking this
+    // admin acted.
+    const payload = auditCall?.values[3] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      source: 'scripts/mint-admin.ts',
+      actor_is_subject: true,
+      attribution: 'bootstrap_self_actor',
+      operator: TEST_OPERATOR,
+    });
+  });
+
+  // ── oracles the red-team pass found missing ──────────────────────────────
+
+  it('refuses when the Auth API itself reports a duplicate email', async () => {
+    // The plan's SECOND independent closer, and on any database without an
+    // `auth.users` relation it is the ONLY one (red team RT-01).
+    supabase.createUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { code: 'email_exists', status: 422, message: 'User already registered' },
+    });
+    queuePreflight({ authSchema: false });
+
+    const result = await mintAdmin(sql, supabase.client, MINT_INPUT);
+
+    expect(result).toMatchObject({ status: 'refused', reason: 'auth_user_exists' });
+    expect(harness.mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  it('does not report a duplicate for a non-duplicate 422', async () => {
+    // 422 alone is GoTrue's generic validation status. Reporting
+    // `email_address_invalid` as auth_user_exists sends the operator to a
+    // runbook section about an identity that does not exist (review finding S2).
+    supabase.createUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { code: 'email_address_invalid', status: 422, message: 'Unable to validate email' },
+    });
+    queuePreflight({ authSchema: false });
+
+    const result = await mintAdmin(sql, supabase.client, MINT_INPUT);
+
+    expect(result.status).toBe('failed');
+  });
+
+  it('reports an unknown Auth outcome when createUser fails, never absence', async () => {
+    // A transport failure can abort the response AFTER the identity was
+    // written, so "nothing was written" is a claim the script cannot make
+    // (review finding A2).
+    supabase.createUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { code: 'unexpected_failure', status: 500, message: 'socket hang up' },
+    });
+    queuePreflight({ authSchema: false });
+
+    const result = await mintAdmin(sql, supabase.client, MINT_INPUT);
+
+    expect(result.status).toBe('failed');
+    expect((result as { detail: string }).detail).toMatch(/UNKNOWN/);
+    expect((result as { detail: string }).detail).not.toMatch(/nothing was written/i);
+  });
+
+  it('treats createUser returning no user and no error as an unknown outcome', async () => {
+    // A locked intake edge case with no oracle until now (red team RT-02);
+    // hosted Auth really does return this shape, which is why
+    // src/lib/auth/provision-auth-user.ts carries a recovery path for it.
+    supabase.createUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+    queuePreflight();
+
+    const result = await mintAdmin(sql, supabase.client, MINT_INPUT);
+
+    expect(result).toMatchObject({ status: 'failed', orphanAuthId: null });
+    expect((result as { detail: string }).detail).toMatch(/UNKNOWN/);
+    expect(harness.mockSql.begin).not.toHaveBeenCalled();
+  });
+
+  it('reports a committed mint with no link when generateLink fails', async () => {
+    // A locked intake edge case with no oracle until now (red team RT-03). A
+    // regression here tells an operator to re-run a mint that already
+    // committed, which is how a second identity for one human gets created.
+    supabase.generateLink.mockResolvedValueOnce({
+      data: { properties: null },
+      error: { message: 'rate limited' },
+    });
+    queuePreflight();
+    queueTransaction();
+
+    const result = await mintAdmin(sql, supabase.client, MINT_INPUT);
+
+    expect(result).toMatchObject({
+      status: 'minted',
+      recoveryUrl: null,
+      recoveryLinkError: 'rate limited',
+    });
+    expect(supabase.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('propagates a rejection from the real audit writer without reporting a mint', async () => {
+    // The direction the live-DB sibling cannot reach: the audit INSERT ITSELF
+    // rejecting (review finding S6). Its FK is satisfied by construction on a
+    // real database, so only a mock can make the writer's own statement fail.
+    queuePreflight();
+    harness.sqlReturnQueue.push(mkTaggedResult([]));  // tx email re-check
+    harness.sqlReturnQueue.push(mkTaggedResult([]));  // tx auth_id check
+    harness.sqlReturnQueue.push(mkTaggedResult([]));  // users INSERT
+    harness.sqlReturnQueue.push(queuedRejection(pgError('23503')));  // audit INSERT
+    harness.sqlReturnQueue.push(mkTaggedResult([]));  // reconciliation: no row
+
+    const result = await mintAdmin(sql, supabase.client, MINT_INPUT);
+
+    expect(result.status).toBe('failed');
+    expect(supabase.deleteUser).toHaveBeenCalledWith(NEW_AUTH_ID);
+  });
+});
+
+// ── confirmsRollback, the asymmetric safety property (red team RT-04) ───────
+
+describe('confirmsRollback', () => {
+  // The mutant that adds class 08 to the confirmed set survived the whole
+  // suite, because the only ambiguity case injected a code-less error. These
+  // pin the boundary directly, class by class.
+  it.each([
+    ['23505', 'unique_violation'],
+    ['23503', 'foreign_key_violation'],
+    ['23514', 'check_violation'],
+    ['22001', 'string_data_right_truncation'],
+    ['42703', 'undefined_column'],
+  ])('confirms a rollback for %s (%s)', (code) => {
+    expect(confirmsRollback(pgError(code))).toBe(true);
+  });
+
+  it.each([
+    ['08006', 'connection_failure'],
+    ['08007', 'transaction_resolution_unknown — the ambiguous COMMIT outcome'],
+    ['08003', 'connection_does_not_exist'],
+    ['57014', 'query_canceled — statement timeout'],
+    ['57P01', 'admin_shutdown'],
+    ['XX000', 'internal_error'],
+    ['40001', 'serialization_failure'],
+  ])('never confirms a rollback for %s (%s)', (code) => {
+    expect(confirmsRollback(pgError(code))).toBe(false);
+  });
+
+  it('never confirms a rollback for a client-side error with no SQLSTATE', () => {
+    // postgres.js gives connection failures a NON-numeric code
+    // (CONNECTION_CLOSED, ECONNRESET) — node_modules/postgres/src/errors.js.
+    expect(confirmsRollback(Object.assign(new Error('x'), { code: 'CONNECTION_CLOSED' }))).toBe(false);
+    expect(confirmsRollback(new Error('write ECONNRESET'))).toBe(false);
+    expect(confirmsRollback(null)).toBe(false);
+    expect(confirmsRollback(undefined)).toBe(false);
+    expect(confirmsRollback('23505')).toBe(false);
+  });
+
+  it('confirms a rollback for a refusal this script raised', () => {
+    // Raised inside the transaction body before any COMMIT is issued, so the
+    // rollback is certain by construction.
+    expect(confirmsRollback(new MintRefusal('users_row_exists', 'x'))).toBe(true);
+  });
+});
+
+// ── the operator-facing report (red team RT-09) ────────────────────────────
+
+describe('formatMintReport', () => {
+  const target = {
+    projectRef: STAGING_REF,
+    supabaseHost: `${STAGING_REF}.supabase.co`,
+    databaseTarget: stagingDbTarget,
+  };
+
+  it('leads every report with the TARGET line', () => {
+    const line = formatMintTarget(target);
+    expect(line).toContain(STAGING_REF);
+    expect(formatMintReport({ status: 'would_mint', authProbe: 'checked' }, target)[0]).toBe(line);
+  });
+
+  it('warns loudly when a dry run could not verify the Auth half', () => {
+    const report = formatMintReport(
+      { status: 'would_mint', authProbe: 'unavailable' },
+      target,
+    ).join('\n');
+    expect(report).toMatch(/WARNING/);
+    expect(report).toMatch(/could NOT/);
+  });
+
+  it('tells the operator to re-issue a link, not re-run, when the mint committed without one', () => {
+    const report = formatMintReport(
+      {
+        status: 'minted',
+        userId: 'u1',
+        authId: 'a1',
+        recoveryUrl: null,
+        recoveryLinkError: 'rate limited',
+      },
+      target,
+    ).join('\n');
+    expect(report).toMatch(/COMMITTED/);
+    expect(report).toMatch(/do NOT re-run/);
+  });
+
+  it('surfaces an orphaned Auth identity on both the refused and failed arms', () => {
+    const refused = formatMintReport(
+      { status: 'refused', reason: 'auth_id_taken', detail: 'd', orphanAuthId: 'a1' },
+      target,
+    ).join('\n');
+    const failed = formatMintReport(
+      { status: 'failed', detail: 'd', orphanAuthId: 'a2' },
+      target,
+    ).join('\n');
+    expect(refused).toContain('Orphaned Supabase Auth identity: a1');
+    expect(failed).toContain('Orphaned Supabase Auth identity: a2');
+  });
+});
+
+// ── environment selection (red team RT-08) ─────────────────────────────────
+
+describe('readMintConfig', () => {
+  it('reads the ambient environment when no --env is given', () => {
+    const saved = { ...process.env };
+    try {
+      process.env.SUPABASE_URL = stagingSupabaseUrl;
+      process.env.SUPABASE_SERVICE_KEY = 'k';
+      process.env.DATABASE_POOL_URL = 'postgres://u:p@h:6543/postgres';
+      process.env.NEXT_PUBLIC_APP_URL = 'https://staging.repworth.net';
+      expect(readMintConfig('ambient')).toEqual({
+        supabaseUrl: stagingSupabaseUrl,
+        supabaseServiceKey: 'k',
+        databasePoolUrl: 'postgres://u:p@h:6543/postgres',
+        appUrl: 'https://staging.repworth.net',
+      });
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it('names the missing variable rather than failing obscurely', () => {
+    const saved = { ...process.env };
+    try {
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_SERVICE_KEY;
+      expect(() => readMintConfig('ambient')).toThrow(/SUPABASE_URL/);
+    } finally {
+      process.env = saved;
+    }
   });
 });

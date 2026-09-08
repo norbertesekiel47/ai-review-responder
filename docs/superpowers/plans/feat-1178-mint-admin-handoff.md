@@ -40,8 +40,17 @@ nothing is pending an owner call. Verdict trail and dispositions: plan §6.
 
 ## Where the run is
 
-Phase `plan_approved`. Tracers T1–T5 registered, all serial (one production
-file, so no subagent fan-out — see plan §4).
+**All five tracers landed; the review wave has run and its findings are fixed.**
+A resuming session must NOT re-execute T1 — the eval, the implementation, the
+runbook and the wave's triage fixes are all committed. Read
+`.feature/state.json` for the authoritative phase, and `docs/reviews/feat-1178-mint-admin/`
+plus `docs/reviews/red-team/feat-1178-mint-admin-4d0734/` for what the wave
+found. What remains is step 8: the staging ride, the smoke, and the PR.
+
+Review wave (round 1, at `8c4108b4`): four axes — spec-correctness,
+standards-maintainability, adversarial approach (Codex), red team. Red team
+returned 0 P0 / 8 P1 / 3 P2, all missing oracles rather than behavioural
+defects. Triage verdicts are in the review reports.
 
 ## Step 8 authority already granted (orchestrator brief §3)
 

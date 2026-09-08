@@ -36,14 +36,14 @@ and `NEXT_PUBLIC_APP_URL` for the target.
 
 | Target | How |
 |---|---|
-| **Staging** | `--env staging`. Parses `.env.staging.local` and maps `STAGING_X` → `X`. `STAGING_SUPABASE_URL` is empty in this repo's copy, so it falls back to `STAGING_NEXT_PUBLIC_SUPABASE_URL`, which the file's own comment and `.env.example` document as the same value. |
+| **Staging** | `--env staging`. Parses `.env.staging.local` and maps `STAGING_X` → `X`, including the empty-`STAGING_SUPABASE_URL` fallback. Both facts are owned, with dates and evidence, by `docs/runbooks/mfa-factor-reset.md` § step 2 "Environment matters" — read it there; this runbook does not keep a second copy. |
 | **Local** | `--env local`. Parses `.env.local` with no prefix. |
 | **Production** | No `--env`. Export the four variables in a production-scoped shell (e.g. `railway run`). **The script refuses a production project ref today** — that is ticket #1179, and lifting the refusal is a deliberate change, not an operator flag. |
 
-Never `source .env.staging.local`: it holds at least one unquoted value
-containing `<`/`>`, which a shell reads as redirections. The script parses it
-with `dotenv.parse` instead. Never pass a key or a database URL as a command
-argument — it lands in shell history.
+The script parses the file with `dotenv.parse` and never shells out, so the
+`source` hazard `mfa-factor-reset.md` documents does not arise here — there is
+no step in this runbook that sources an env file. Never pass a key or a
+database URL as a command argument: it lands in shell history.
 
 ## 1. Dry run, always
 
@@ -111,6 +111,29 @@ admin and then re-mints), and the operator is recorded in the row's `payload`.
 | `REFUSED (auth_user_exists)` | See the next section. | |
 | `REFUSED (auth_id_taken)` | Another `users` row is already linked to the freshly created Auth identity. Effectively impossible; if you see it, something is very wrong. | The Auth identity was NOT deleted — deleting it would revoke that other admin's login. Escalate. |
 
+### Exit codes
+
+A wrapper should branch on these, not on the text.
+
+| Code | Meaning |
+|---|---|
+| `0` | Minted, or a dry run that passed every check. |
+| `2` | Usage error — a missing or malformed flag. Prints the usage block. |
+| `3` | Refused. Nothing was written, unless the output names an orphaned Auth identity. |
+| `4` | Failed, including every target-guard refusal and any uncaught error. Read the output before retrying. |
+
+### Two `FAILED` outputs that are NOT refusals
+
+Both mean the Supabase Auth side is in an **unknown** state — the script says
+so rather than claiming nothing was written, because a transport failure can
+abort the response after the identity was created:
+
+- `Supabase createUser failed: … Whether an Auth identity was created … is UNKNOWN`
+- `Supabase createUser returned no user and no error … is UNKNOWN`
+
+In both cases check the Auth side (below) **before** retrying. A blind retry is
+how a second identity for one human gets created.
+
 ### An Auth identity with no `users` row
 
 The half-succeeded hand process. Find it:
@@ -145,14 +168,53 @@ That is the safe direction. An orphan Auth identity is a nuisance; deleting the
 identity behind a `users` row that actually committed leaves an admin who can
 never sign in.
 
-To resolve one:
+To resolve one, apply **the same rule the script applies** — do not substitute
+a shorter one. Absence plus elapsed time is *not* evidence of a rollback: the
+original transaction can still be in flight and commit after you look.
 
-1. Wait a few seconds — an in-flight transaction may still commit.
-2. `SELECT id, email, role FROM users WHERE auth_id = '<auth-uuid>';`
-3. **A row exists** → the mint succeeded. Re-issue a recovery link (below).
-   Do **not** re-run the script.
-4. **No row** → the Auth identity is genuinely orphaned. Delete it via
-   `auth.admin.deleteUser`, then re-run the mint.
+1. Confirm the mint's own row, by BOTH its id and its audit row — "some row
+   exists for this `auth_id`" is the wrong test, because another admin's row
+   could carry it:
+
+   ```sql
+   SELECT u.id, u.email, u.role, a.event_type
+   FROM users u
+   LEFT JOIN admin_audit_log a
+     ON a.actor_user_id = u.id AND a.event_type = 'admin_minted'
+   WHERE u.auth_id = '<auth-uuid from the FAILED line>';
+   ```
+
+2. **A row whose `id` matches the `users.id` the run printed, with an
+   `admin_minted` row** → the mint COMMITTED. Re-issue a recovery link (below).
+   Do **not** re-run the script, and do **not** delete the Auth identity.
+
+3. **A row with a DIFFERENT id** → another `users` row is linked to this Auth
+   identity. Do **not** delete it — that revokes a different admin's login.
+   Escalate.
+
+4. **No row** → you may delete the Auth identity **only once you can show the
+   transaction terminated**, not merely that no row is visible. Establish that
+   before acting:
+
+   ```sql
+   -- Any backend still running this mint's work? An empty result is the
+   -- precondition for step 5; a row here means WAIT, not delete.
+   SELECT pid, state, wait_event_type, query_start, left(query, 120) AS query
+   FROM pg_stat_activity
+   WHERE datname = current_database()
+     AND pid <> pg_backend_pid()
+     AND (query ILIKE '%INSERT INTO users%' OR query ILIKE '%admin_audit_log%'
+          OR state = 'idle in transaction');
+   ```
+
+5. Empty result **and** step 1 still returns no row → the Auth identity is
+   genuinely orphaned. Delete it via `auth.admin.deleteUser` and re-run the
+   mint. Re-run step 1 immediately before deleting.
+
+If you cannot satisfy step 4, leave the Auth identity in place and escalate. An
+orphan Auth identity costs one cleanup; deleting the identity behind a `users`
+row that did commit leaves an admin who can never sign in, and that is the
+state this whole script exists to prevent.
 
 ## Re-issuing a recovery link
 

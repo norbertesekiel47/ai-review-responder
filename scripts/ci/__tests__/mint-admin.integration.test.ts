@@ -43,6 +43,7 @@ import {
   assertSchemaReady,
   type SchemaRequirement,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 import { mintAdmin, type MintAdminResult } from '../../mint-admin';
 
 /**
@@ -63,6 +64,12 @@ const MIGRATION_117_ADMIN_AUDIT_LOG: SchemaRequirement = {
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const EMAIL_DOMAIN = '@mint-admin.test';
+
+const TEST_OPERATOR = {
+  os_user: 'test-operator',
+  host: 'test-host',
+  provenance: 'unauthenticated_shell',
+} as const;
 
 let db: postgresType.Sql | undefined;
 const mintedEmails: string[] = [];
@@ -134,6 +141,7 @@ describeWithDb(
         name: 'Live Mint Admin',
         appUrl: 'https://staging.repworth.net',
         dryRun: false,
+        operator: TEST_OPERATOR,
       })) as Extract<MintAdminResult, { status: 'minted' }>;
 
       expect(result.status).toBe('minted');
@@ -162,34 +170,39 @@ describeWithDb(
       const authId = randomUUID();
       const { client, deleteUser } = supabaseDouble(authId);
 
-      // Force the audit INSERT to fail with a real, server-raised, deterministic
-      // rejection — 23503, because actor_user_id has no matching users row —
-      // by handing mintAdmin a client whose transaction body is intercepted.
-      // No DDL, no temporary constraint: the failure is injected by making the
-      // audit sink unsatisfiable for THIS transaction only.
-      const failing = Object.assign(
-        (...args: Parameters<postgresType.Sql>) => db!(...args),
-        db!,
-        {
-          begin: (callback: (tx: postgresType.TransactionSql) => Promise<unknown>) =>
-            db!.begin(async (tx) => {
-              const result = await callback(tx);
-              // A constraint the transaction cannot satisfy: an audit row whose
-              // actor is an id no users row carries.
-              await tx`
-                INSERT INTO admin_audit_log (id, actor_user_id, event_type, payload)
-                VALUES (${randomUUID()}::uuid, ${randomUUID()}::uuid, 'forced_failure', '{}'::jsonb)
-              `;
-              return result;
-            }),
-        },
-      ) as unknown as postgresType.Sql;
+      // The canonical injection helper (`helpers/abort-injection.ts`), NOT a
+      // `{ begin } as unknown as Sql` cast — that cast typechecks the caller
+      // against a local restatement of the interface, and a one-argument
+      // `begin` silently DROPS the `begin(options, cb)` form, which that
+      // helper's docblock calls the worst failure mode a test helper can have
+      // (#679 D22; review finding M1).
+      //
+      // The poison is this suite's fixture, per that helper's contract: an
+      // `admin_audit_log` INSERT whose actor is an id no `users` row carries,
+      // so Postgres raises a real 23503 and the transaction enters aborted
+      // state. No DDL, no temporary constraint, nothing stranded on a timeout.
+      //
+      // WHAT THIS PROVES, EXACTLY (review finding S6): that a FAILING WRITE TO
+      // `admin_audit_log` inside the mint transaction takes the `users` row
+      // with it. It does not make the real `writeAdminAuditLog` call itself
+      // reject — no constraint on that row is reachable without DDL, since the
+      // users row it references is inserted first and satisfies the FK by
+      // construction. The real writer's rejection path is covered in the unit
+      // suite, where the audit INSERT can be made to reject directly.
+      const failing = abortingExecutor(
+        db,
+        (tx) => tx`
+          INSERT INTO admin_audit_log (id, actor_user_id, event_type, payload)
+          VALUES (${randomUUID()}::uuid, ${randomUUID()}::uuid, 'forced_failure', '{}'::jsonb)
+        `,
+      );
 
       const result = await mintAdmin(failing, client, {
         email,
         name: 'Live Mint Admin',
         appUrl: 'https://staging.repworth.net',
         dryRun: false,
+        operator: TEST_OPERATOR,
       });
 
       expect(result.status).toBe('failed');
@@ -210,6 +223,7 @@ describeWithDb(
         name: 'Live Mint Admin',
         appUrl: 'https://staging.repworth.net',
         dryRun: false,
+        operator: TEST_OPERATOR,
       };
 
       const minted = await mintAdmin(db, first.client, input);

@@ -35,6 +35,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { hostname, userInfo } from 'node:os';
 import { parse as parseDotenv } from 'dotenv';
 import postgres, { type Sql, type TransactionSql } from 'postgres';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -80,10 +81,19 @@ export const MINT_ADMIN_USAGE = [
   '  --dry-run      run every refusal check and write nothing.',
 ].join('\n');
 
+/**
+ * The token after `flag`, or undefined.
+ *
+ * A value that itself starts with `--` is treated as ABSENT, not as the value.
+ * Without that, `--email --dry-run` parses the email as `"--dry-run"` and sails
+ * through the required-flag checks — minting an admin named `--dry-run`, or
+ * sending an invalid address to Supabase (review finding S3).
+ */
 function flagValue(argv: readonly string[], flag: string): string | undefined {
   const index = argv.indexOf(flag);
   if (index < 0) return undefined;
-  return argv[index + 1];
+  const value = argv[index + 1];
+  return value === undefined || value.startsWith('--') ? undefined : value;
 }
 
 /** `argv` is the arguments AFTER node and the script path. Throws on misuse. */
@@ -197,19 +207,6 @@ function refFromSupabaseUrl(supabaseUrl: string): string | null {
   return label && PROJECT_REF_PATTERN.test(label) ? label : null;
 }
 
-/**
- * Parse the project ref out of a password-free connection descriptor
- * (`user@hostname:port`, from `describeConnectionTarget`): `db.<ref>.…` for a
- * direct connection, `postgres.<ref>@…` behind the pooler.
- */
-function refFromDatabaseTarget(dbTarget: string): string | null {
-  const lowered = dbTarget.toLowerCase();
-  const hostMatch = /(?:^|@)db\.([a-z0-9]{20})\./.exec(lowered);
-  if (hostMatch?.[1]) return hostMatch[1];
-  const userMatch = /(?:^|[^a-z0-9.])[a-z0-9_]+\.([a-z0-9]{20})@/.exec(lowered);
-  return userMatch?.[1] ?? null;
-}
-
 function containsProdRef(value: string): string | null {
   const lowered = value.toLowerCase();
   return PROD_PROJECT_REFS.find((ref) => lowered.includes(ref)) ?? null;
@@ -217,7 +214,18 @@ function containsProdRef(value: string): string | null {
 
 export interface MintTargetInput {
   supabaseUrl: string;
+  /** Password-FREE descriptor from `describeConnectionTarget`: `user@host:port`. */
   dbTarget: string;
+  /**
+   * The database's project ref, parsed by `extractProjectRefForLog`
+   * (`scripts/staging-guard.ts`) — the module that OWNS connection-target
+   * parsing. Passed in rather than re-parsed here so the ref this guard
+   * validates and the ref `main()` prints come from the same parser; two
+   * parsers with different accepted shapes is how a printed ref and a
+   * validated ref drift apart (review finding M2). Its miss sentinels
+   * (`(ref-not-found)`, `(unparseable)`) simply fail the equality below.
+   */
+  dbProjectRef: string;
   confirmRef: string;
 }
 
@@ -233,11 +241,12 @@ export interface MintTargetInput {
  * database) impossible to confirm, and an unparseable target is a refusal.
  */
 export function assertMintTarget(input: MintTargetInput): void {
-  const { supabaseUrl, dbTarget, confirmRef } = input;
+  const { supabaseUrl, dbTarget, dbProjectRef, confirmRef } = input;
 
   for (const [label, value] of [
     ['Supabase URL', supabaseUrl],
     ['database target', dbTarget],
+    ['database project ref', dbProjectRef],
     ['--confirm-ref', confirmRef],
   ] as const) {
     const prodRef = containsProdRef(value);
@@ -265,11 +274,10 @@ export function assertMintTarget(input: MintTargetInput): void {
     );
   }
 
-  const databaseRef = refFromDatabaseTarget(dbTarget);
-  if (databaseRef !== confirmRef) {
+  if (dbProjectRef !== confirmRef) {
     throw new Error(
-      `REFUSING TO RUN: the database target resolves to project ref ` +
-        `${databaseRef ?? '(unparseable)'}, not the confirmed ${confirmRef}. ` +
+      `REFUSING TO RUN: the database target (${dbTarget}) resolves to project ref ` +
+        `${dbProjectRef}, not the confirmed ${confirmRef}. ` +
         'The Supabase URL and the database URL must belong to the SAME project.',
     );
   }
@@ -326,14 +334,37 @@ export type MintAdminResult =
       recoveryLinkError: string | null;
     }
   | { status: 'would_mint'; authProbe: AuthProbeState }
-  | { status: 'refused'; reason: MintRefusalReason; detail: string; orphanAuthId?: string }
+  // `orphanAuthId` is spelled the same way on BOTH arms — `string | null`, always
+  // present. One contract, one read (review finding M5).
+  | { status: 'refused'; reason: MintRefusalReason; detail: string; orphanAuthId: string | null }
   | { status: 'failed'; detail: string; orphanAuthId: string | null };
+
+/**
+ * Who ran the script, recorded WITH its provenance. A CLI has no
+ * authenticated operator, so `provenance` says exactly that: this is a shell
+ * environment's claim about itself, useful for correlation and worthless as
+ * authentication. Recorded in the audit payload beside the self-actor marker.
+ */
+export interface MintOperator {
+  os_user: string;
+  host: string;
+  provenance: 'unauthenticated_shell';
+}
+
+export function describeOperator(): MintOperator {
+  return {
+    os_user: userInfo().username,
+    host: hostname(),
+    provenance: 'unauthenticated_shell',
+  };
+}
 
 export interface MintAdminInput {
   email: string;
   name: string;
   appUrl: string;
   dryRun: boolean;
+  operator: MintOperator;
 }
 
 const ADMIN_MINTED_EVENT = 'admin_minted';
@@ -447,7 +478,7 @@ async function deleteOrphanAuthUser(
 async function reconcileAfterTransaction(
   sql: Sql,
   supabase: SupabaseClient,
-  context: { authId: string; userId: string; email: string; error: unknown },
+  context: { authId: string; userId: string; error: unknown },
 ): Promise<Extract<MintAdminResult, { status: 'refused' | 'failed' }> | { status: 'committed' }> {
   const { authId, userId, error } = context;
   const refusal = error instanceof MintRefusal ? error : null;
@@ -497,7 +528,12 @@ async function reconcileAfterTransaction(
 
   const orphanAuthId = await deleteOrphanAuthUser(supabase, authId);
   if (refusal) {
-    return { status: 'refused', reason: refusal.reason, detail: refusal.detail, ...(orphanAuthId ? { orphanAuthId } : {}) };
+    return {
+      status: 'refused',
+      reason: refusal.reason,
+      detail: refusal.detail,
+      orphanAuthId,
+    };
   }
   return {
     status: 'failed',
@@ -515,16 +551,19 @@ function describeError(error: unknown): string {
 }
 
 /**
- * Classify `auth.admin.createUser`'s refusal. Supabase answers a duplicate
- * email with 422 / `email_exists`; the shape mirrors `classifyAuthError` in
+ * Classify `auth.admin.createUser`'s refusal as "this email already has an
+ * identity". The shape mirrors `classifyAuthError` in
  * `src/lib/auth/provision-auth-user.ts`.
+ *
+ * Deliberately NOT `status === 422` on its own. GoTrue answers many
+ * validation failures with 422 — `email_address_invalid`, `weak_password`,
+ * `validation_failed` — and reporting those as `auth_user_exists` sends the
+ * operator to a runbook section about an identity that does not exist (review
+ * finding S2). A 422 counts only when its message actually says "already".
  */
 function isDuplicateEmailError(error: { code?: string; status?: number; message?: string }): boolean {
-  return (
-    error.code === 'email_exists' ||
-    error.status === 422 ||
-    /already (been )?registered|already exists/i.test(error.message ?? '')
-  );
+  if (error.code === 'email_exists') return true;
+  return /already (been )?registered|already exists/i.test(error.message ?? '');
 }
 
 /**
@@ -547,6 +586,7 @@ export async function mintAdmin(
       status: 'refused',
       reason: 'users_row_exists',
       detail: `A users row already exists for ${email}: id=${existing.id} role=${existing.role}.`,
+      orphanAuthId: null,
     };
   }
 
@@ -559,6 +599,7 @@ export async function mintAdmin(
         `A Supabase Auth identity already exists for ${email} (auth_id=${probe.authUserId}) ` +
         'with no users row — the half-succeeded hand process. Resolve it by hand ' +
         '(docs/runbooks/mint-admin.md § An Auth identity with no users row).',
+      orphanAuthId: null,
     };
   }
 
@@ -586,11 +627,21 @@ export async function mintAdmin(
         detail:
           `Supabase Auth already has an identity for ${email}. Resolve it by hand ` +
           '(docs/runbooks/mint-admin.md § An Auth identity with no users row).',
+        orphanAuthId: null,
       };
     }
+    // NOT "nothing was written": an aborted-but-committed createUser is exactly
+    // the ambiguity src/lib/db/server.ts warns about for identity-creating
+    // mutations, and the SDK surfaces a transport failure the same way it
+    // surfaces a server refusal. Report the Auth outcome as UNKNOWN and send
+    // the operator to a read-only reconciliation (review finding A2).
     return {
       status: 'failed',
-      detail: `Supabase createUser failed: ${created.error.message}`,
+      detail:
+        `Supabase createUser failed: ${created.error.message}. Whether an Auth identity was ` +
+        `created for ${email} is UNKNOWN — a transport failure can abort the response after ` +
+        'the identity was written. Check before retrying, and never assume absence ' +
+        '(docs/runbooks/mint-admin.md § An Auth identity with no users row).',
       orphanAuthId: null,
     };
   }
@@ -598,7 +649,11 @@ export async function mintAdmin(
   if (!authId) {
     return {
       status: 'failed',
-      detail: 'Supabase createUser returned no user and no error — nothing was written.',
+      detail:
+        `Supabase createUser returned no user and no error for ${email}. Whether an Auth ` +
+        'identity was created is UNKNOWN — hosted Auth can return this shape having written ' +
+        'the row (src/lib/auth/provision-auth-user.ts recovers from exactly this). Check ' +
+        'before retrying (docs/runbooks/mint-admin.md § An Auth identity with no users row).',
       orphanAuthId: null,
     };
   }
@@ -645,16 +700,25 @@ export async function mintAdmin(
         eventType: ADMIN_MINTED_EVENT,
         entityType: 'users',
         entityId: userId,
-        payload: { source: 'scripts/mint-admin.ts', email, name: input.name, auth_id: authId },
+        payload: {
+          source: 'scripts/mint-admin.ts',
+          email,
+          name: input.name,
+          auth_id: authId,
+          // The actor IS the subject here, which is not the usual meaning of an
+          // admin_audit_log row — mark it, so a later reader is not misled into
+          // thinking this admin acted (review finding A3).
+          actor_is_subject: true,
+          attribution: 'bootstrap_self_actor',
+          // Who ran the script, and how much that is worth. A CLI has no
+          // authenticated operator identity, so this is recorded WITH its
+          // provenance rather than dressed up as one.
+          operator: input.operator,
+        },
       });
     });
   } catch (error) {
-    const reconciled = await reconcileAfterTransaction(sql, supabase, {
-      authId,
-      userId,
-      email,
-      error,
-    });
+    const reconciled = await reconcileAfterTransaction(sql, supabase, { authId, userId, error });
     if (reconciled.status !== 'committed') return reconciled;
     // Fall through: the COMMIT landed, only its acknowledgement was lost.
   }
@@ -694,13 +758,15 @@ export interface MintTargetDescription {
  * The operator-facing report. A pure function so "never prints a password" is
  * an assertion over a value rather than over captured stdout.
  */
+export function formatMintTarget(target: MintTargetDescription): string {
+  return `TARGET: project=${target.projectRef} supabase=${target.supabaseHost} db=${target.databaseTarget}`;
+}
+
 export function formatMintReport(
   result: MintAdminResult,
   target: MintTargetDescription,
 ): string[] {
-  const lines = [
-    `TARGET: project=${target.projectRef} supabase=${target.supabaseHost} db=${target.databaseTarget}`,
-  ];
+  const lines = [formatMintTarget(target)];
 
   switch (result.status) {
     case 'would_mint':
@@ -755,14 +821,17 @@ async function main(): Promise<number> {
   const config = readMintConfig(args.envMode);
   const databaseTarget = describeConnectionTarget(config.databasePoolUrl);
 
+  const dbProjectRef = extractProjectRefForLog(config.databasePoolUrl);
+
   assertMintTarget({
     supabaseUrl: config.supabaseUrl,
     dbTarget: databaseTarget,
+    dbProjectRef,
     confirmRef: args.confirmRef,
   });
 
   const target: MintTargetDescription = {
-    projectRef: extractProjectRefForLog(config.databasePoolUrl),
+    projectRef: dbProjectRef,
     supabaseHost: new URL(config.supabaseUrl).host,
     databaseTarget,
   };
@@ -780,12 +849,19 @@ async function main(): Promise<number> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  // Printed BEFORE the first write, and before anything that can throw inside
+  // mintAdmin — the operator must be able to see which project they are
+  // pointed at even on a run that dies (review finding S1). formatMintReport
+  // repeats it so a captured report is self-contained.
+  console.log(formatMintTarget(target));
+
   try {
     const result = await mintAdmin(sql, supabase, {
       email: args.email,
       name: args.name,
       appUrl: config.appUrl,
       dryRun: args.dryRun,
+      operator: describeOperator(),
     });
     for (const line of formatMintReport(result, target)) console.log(line);
     if (result.status === 'refused') return EXIT_REFUSED;
