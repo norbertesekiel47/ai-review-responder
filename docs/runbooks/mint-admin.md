@@ -1,0 +1,239 @@
+# Runbook — minting a RepWorth admin
+
+**Run every command from the repo root.** `.env.local` and `.env.staging.local`
+are resolved relative to the current working directory — running from anywhere
+else fails or, worse, silently resolves a different file.
+
+**When to use:** you need a new RepWorth admin account (`users.role='admin'`,
+`account_id IS NULL`) on staging or, at go-live, on production. This replaces
+the hand process recorded at
+`docs/runbooks/completed_runbooks/signup-test-runbook.md:25` — create the auth
+user in the Supabase dashboard, then insert the `users` row and link `auth_id`
+by hand. Never do that again: it half-succeeds, and the database has no
+guardrail against two admin identities for one human (`users_email_key` and
+`users_auth_id_key` are unique per VALUE, not per person).
+
+**Sibling runbook:** `docs/runbooks/mfa-factor-reset.md` for an admin who has
+lost their authenticator. This one creates identities; that one repairs them.
+
+## Before you mint
+
+- [ ] The person is authorised to hold RepWorth admin — full access to every
+      tenant's data, the impersonation surface, and the admin control plane.
+      This is not a reversible convenience.
+- [ ] You know which project you mean. `--confirm-ref` must be the FULL
+      twenty-character Supabase project ref, and it must match the ref parsed
+      out of both the Supabase URL and the database connection.
+- [ ] **Production needs TWO independent things, and neither is sufficient
+      alone**: the explicit `--env production` selector, AND a matching
+      `--confirm-ref`. No other mode can reach a production project, nothing
+      defaults to production, and a mistyped ref can never get there — the
+      selector is not a value. `--dry-run` works against production too, and
+      you should always use it first.
+- [ ] `MFA_ENFORCEMENT_ENABLED` — a new admin enrols in MFA at first sign-in
+      once that flag is on. Check its state for the target environment; see
+      `.claude/rules/env-flags.md`.
+
+## Environment selection
+
+The script needs `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `DATABASE_POOL_URL`
+and `NEXT_PUBLIC_APP_URL` for the target.
+
+| Target | How |
+|---|---|
+| **Staging** | `--env staging`. Parses `.env.staging.local` and maps `STAGING_X` → `X`, including the empty-`STAGING_SUPABASE_URL` fallback. Both facts are owned, with dates and evidence, by `docs/runbooks/mfa-factor-reset.md` § step 2 "Environment matters" — read it there; this runbook does not keep a second copy. |
+| **Local** | `--env local`. Parses `.env.local` with no prefix. |
+| **Production** | `--env production`. Reads the AMBIENT environment (the selector grants target permission; it does not name a config file), so export the four variables in a production-scoped shell — e.g. `railway run`. Production secrets never live in a repo file. |
+
+The script parses the file with `dotenv.parse` and never shells out, so the
+`source` hazard `mfa-factor-reset.md` documents does not arise here — there is
+no step in this runbook that sources an env file. Never pass a key or a
+database URL as a command argument: it lands in shell history.
+
+## 1. Dry run, always
+
+```bash
+pnpm tsx scripts/mint-admin.ts \
+  --email new.admin@repworth.net --name "New Admin" \
+  --env staging --confirm-ref <staging-project-ref> --dry-run
+```
+
+It prints `TARGET:` (project ref, Supabase host, `user@host:port` — never a
+password or key) and runs every refusal check without writing anything.
+
+**Read the TARGET line before continuing.** It is the only thing standing
+between you and the wrong project.
+
+If it prints `WARNING: auth.users is not readable on this target`, the dry run
+could not check the Supabase Auth half. That is expected against a local test
+database and never expected against a real Supabase project — if you see it
+against staging or production, stop and find out why the service identity
+cannot read `auth.users`.
+
+## 2. Mint
+
+Drop `--dry-run`. On success:
+
+```
+MINTED: users.id=<uuid> auth_id=<uuid>
+Send the new admin this single-use link. …
+https://staging.repworth.net/api/auth/callback?token_hash=…&type=recovery&flow=admin&next=%2Fadmin%2Freset-password
+```
+
+**No password is ever generated or printed.** The new admin sets their own
+through that link. The link is single-use, it expires, and it grants a session
+— treat it as a credential: send it over a channel you already trust, and do
+not paste it into a ticket.
+
+## 3. Verify both halves
+
+```sql
+SELECT u.id, u.email, u.role, u.account_id, u.auth_id,
+       a.event_type, a.created_at
+FROM users u
+LEFT JOIN admin_audit_log a ON a.actor_user_id = u.id AND a.event_type = 'admin_minted'
+WHERE lower(u.email) = lower('new.admin@repworth.net');
+```
+
+Expect exactly one row: `role='admin'`, `account_id` NULL, `auth_id` non-NULL,
+and one `admin_minted` audit row. **A `users` row with `role='admin'` and no
+`admin_minted` row is the silent-failure shape** — investigate rather than
+re-run.
+
+The audit row's `actor_user_id` is the minted admin itself. That is deliberate:
+`admin_audit_log.actor_user_id` is `NOT NULL REFERENCES users(id)` (migration
+117), there may be no other admin at all when this runs (#1182 revokes every
+admin and then re-mints), and the operator is recorded in the row's `payload`.
+
+## Refusals, and what each one means
+
+| Output | Meaning | Do |
+|---|---|---|
+| `REFUSING TO RUN: … PRODUCTION project ref … production was not explicitly selected` | You are pointed at production without `--env production`. | If production is what you meant, re-run with `--env production` AND the production `--confirm-ref`, dry-run first. If it is not, fix your environment — do not add the selector to silence the message. |
+| `REFUSING TO RUN: --confirm-ref must be a complete Supabase project ref` | A partial ref was passed. | Pass the full twenty-character ref. |
+| `REFUSING TO RUN: the Supabase URL / database target resolves to project ref X, not the confirmed Y` | Either you named the wrong project, or your Supabase URL and database URL belong to DIFFERENT projects. | Fix the environment. Do not "correct" `--confirm-ref` to match — that defeats the check. |
+| `REFUSED (users_row_exists)` | A `users` row already holds that email, in any role. | Nothing was written. Decide deliberately whether that person should be an admin; never convert an owner row by hand. |
+| `REFUSED (auth_user_exists)` | See the next section. | |
+| `REFUSED (auth_id_taken)` | Another `users` row is already linked to the freshly created Auth identity. Effectively impossible; if you see it, something is very wrong. | The Auth identity was NOT deleted — deleting it would revoke that other admin's login. Escalate. |
+
+### Exit codes
+
+A wrapper should branch on these, not on the text.
+
+| Code | Meaning |
+|---|---|
+| `0` | Minted, or a dry run that passed every check. |
+| `2` | Usage error. A missing or malformed flag, **or a required environment variable that is not set for the chosen target** — both raise the same error type and print the usage block. |
+| `3` | Refused. Nothing was written, unless the output names an orphaned Auth identity. |
+| `4` | Failed, including every target-guard refusal and any uncaught error. Read the output before retrying. |
+
+### Two `FAILED` outputs that are NOT refusals
+
+Both mean the Supabase Auth side is in an **unknown** state — the script says
+so rather than claiming nothing was written, because a transport failure can
+abort the response after the identity was created:
+
+- `Supabase createUser failed: … Whether an Auth identity was created … is UNKNOWN`
+- `Supabase createUser returned no user and no error … is UNKNOWN`
+
+In both cases check the Auth side (below) **before** retrying. A blind retry is
+how a second identity for one human gets created.
+
+### An Auth identity with no `users` row
+
+The half-succeeded hand process. Find it:
+
+```sql
+SELECT id, email, created_at, last_sign_in_at
+FROM auth.users WHERE lower(email) = lower('<email>');
+```
+
+If nobody is using that identity, delete it through the Supabase Auth admin API
+(`auth.admin.deleteUser`, the same call
+`docs/runbooks/mfa-factor-reset.md` step 2 shows how to reach) and re-run the
+mint. If somebody IS using it, they already have a login and need a `users` row
+instead — that is a different, deliberate repair; escalate rather than
+improvise.
+
+## Reconciling an uncertain run
+
+The script creates the Supabase Auth identity first, then writes the `users`
+row and its audit row in ONE Postgres transaction. It compensates by deleting
+the Auth identity **only when the rollback is confirmed** — a refusal it raised
+itself, or a server-raised SQLSTATE in class 22/23/42. When the outcome is
+ambiguous (a lost connection, a cancelled statement, a lost COMMIT
+acknowledgement) it **preserves the Auth identity on purpose** and tells you:
+
+```
+FAILED: The mint transaction failed with an ambiguous outcome (…) …
+Orphaned Supabase Auth identity: <auth-uuid>
+```
+
+That is the safe direction. An orphan Auth identity is a nuisance; deleting the
+identity behind a `users` row that actually committed leaves an admin who can
+never sign in.
+
+To resolve one, apply **the same rule the script applies** — do not substitute
+a shorter one. Absence plus elapsed time is *not* evidence of a rollback: the
+original transaction can still be in flight and commit after you look.
+
+1. Confirm the mint's own row, by BOTH its id and its audit row — "some row
+   exists for this `auth_id`" is the wrong test, because another admin's row
+   could carry it:
+
+   ```sql
+   SELECT u.id, u.email, u.role, a.event_type
+   FROM users u
+   LEFT JOIN admin_audit_log a
+     ON a.actor_user_id = u.id AND a.event_type = 'admin_minted'
+   WHERE u.auth_id = '<auth-uuid from the FAILED line>';
+   ```
+
+2. **A row whose `id` matches the `users.id` the run printed, with an
+   `admin_minted` row** → the mint COMMITTED. Re-issue a recovery link (below).
+   Do **not** re-run the script, and do **not** delete the Auth identity.
+
+3. **A row with a DIFFERENT id** → another `users` row is linked to this Auth
+   identity. Do **not** delete it — that revokes a different admin's login.
+   Escalate.
+
+4. **No row** → you may delete the Auth identity **only once you can show the
+   transaction terminated**, not merely that no row is visible. Establish that
+   before acting:
+
+   ```sql
+   -- Any backend still running this mint's work? An empty result is the
+   -- precondition for step 5; a row here means WAIT, not delete.
+   SELECT pid, state, wait_event_type, query_start, left(query, 120) AS query
+   FROM pg_stat_activity
+   WHERE datname = current_database()
+     AND pid <> pg_backend_pid()
+     AND (query ILIKE '%INSERT INTO users%' OR query ILIKE '%admin_audit_log%'
+          OR state = 'idle in transaction');
+   ```
+
+5. Empty result **and** step 1 still returns no row → the Auth identity is
+   genuinely orphaned. Delete it via `auth.admin.deleteUser` and re-run the
+   mint. Re-run step 1 immediately before deleting.
+
+If you cannot satisfy step 4, leave the Auth identity in place and escalate. An
+orphan Auth identity costs one cleanup; deleting the identity behind a `users`
+row that did commit leaves an admin who can never sign in, and that is the
+state this whole script exists to prevent.
+
+## Re-issuing a recovery link
+
+When the mint committed but the link could not be generated
+(`WARNING: the mint COMMITTED but the recovery link could not be generated`),
+or when a link expired: generate a fresh `recovery` link for that email and
+rebuild the callback URL exactly as `buildAdminRecoveryUrl` does
+(`type=recovery`, `flow=admin`, `next=/admin/reset-password`). **Never re-run
+the mint to get a new link** — it will refuse, correctly, and if it did not it
+would create a second identity.
+
+## Related
+
+- `docs/runbooks/mfa-factor-reset.md` — lost authenticator, break-glass.
+- `.claude/rules/admin-portal.md`, `.claude/rules/supabase-auth.md`.
+- Ticket #1178 (this script), #1182 (admin reset — revoke, never delete),
+  #1179 (the production admin account at go-live).

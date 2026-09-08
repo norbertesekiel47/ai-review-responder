@@ -1,5 +1,34 @@
 # Architecture review log
 
+2026-09-08 — **feat/1178-mint-admin (pre-merge):** The first admin-minting path
+(`scripts/mint-admin.ts`, #1178). Every admin account to date was made by hand
+in two halves that a hand process can half-succeed at, and the database has no
+guardrail: `users_email_key` and `users_auth_id_key` are unique per VALUE, so
+two admin identities for one human are legal. The script creates the Supabase
+Auth login, then the `users` row (`role='admin'`, `account_id` NULL) and its
+`admin_audit_log` row in ONE transaction, or leaves neither. No migration, no
+flag, no new env var, no route — the service-role key makes it a script by
+construction. Three design points are the reviewable ones. (1)
+`admin_audit_log.actor_user_id` is NOT NULL and #1182 revokes every admin before
+re-minting with this script, so there may be no other admin to name: the minted
+admin is its OWN actor, resolved inside the same transaction so the FK holds
+without touching migration 117 — the shape `mfa_factor_enrolled` already uses,
+with the operator in the payload. (2) Compensation is conditional. A rejected
+`sql.begin` does not prove a rollback, and neither does an absent row on a
+second connection, so one reconciliation read precedes every compensating
+`deleteUser` and the Auth identity is deleted only on a CONFIRMED rollback (a
+refusal the script raised, or a class 22/23/42 SQLSTATE); an ambiguous outcome
+preserves it, because deleting the identity behind a committed `users` row
+leaves an admin who can never sign in. (3) The target guard requires
+`--confirm-ref` to EQUAL the ref parsed out of BOTH the Supabase host and the
+database connection, so a mismatched credential pair cannot be confirmed, and
+`staging-guard.ts`'s production denylist is reused unweakened and runs first.
+Governance surface touched: two new suites under `scripts/ci/__tests__/`, which
+is where every `scripts/` module is tested and the only `scripts/` path
+`vitest.config.ts` includes. Three Codex plan-skeptic rounds, seven findings
+accepted; 31 tests (28 unit + 3 live-DB). Counter: not incremented — this is a
+pre-merge trace, and the number is the architecture pass's judgement.
+
 2026-09-07 — **copy/remove-ai-slop-marketing-dashboard (pre-merge):** Editorial
 pass, no behaviour change. 66 production files under `src/app/(public)`,
 `src/app/(authenticated)`, `src/components/sections` and
