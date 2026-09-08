@@ -5,7 +5,7 @@
   "branch": "feat/1178-mint-admin",
   "fork_sha": "b23172836bc5c435dc429f1fa7505812c168fa87",
   "merge_base_sha": "b23172836bc5c435dc429f1fa7505812c168fa87",
-  "head_sha": "541e42009ef6120e36958501f1d8b9ce3089c1ac",
+  "head_sha": "65a950f2b3082c2a7c7d4bf7df6cc81198076946",
   "intake_sha256": "6ac30407ecf4ff62b17ce3a627d499b9443d01e2e92187083b6f305e7ab936a0",
   "risk": "high",
   "round": 1,

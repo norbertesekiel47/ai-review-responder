@@ -175,3 +175,17 @@ all seven skipped-budget rows the authorized pass could not reach inside its
 Sidecar rows converted from `skipped-budget`/`inconclusive`/`survived` to
 `killed` each carry the orchestrator's own re-execution evidence in their
 `reason`, marked as orchestrator-executed rather than attributed to the pass.
+
+## Fallow gate (post-PR)
+
+`fallow` failed on the first CI run with two unused exports in
+`scripts/mint-admin.ts` — `MINT_ADMIN_USAGE` and `describeOperator`. Correct,
+and the same dead-export class the standards review raised as M4. Both are
+consumed only inside the module (`onError` and `main()` respectively) and by no
+test, so both were un-exported.
+
+The red-team `head_sha` was re-stamped across that commit. The whole code diff
+is two `export` keyword removals — verified with
+`git diff 27e12322..HEAD -- scripts/ src/ worker/` — so no mutation result
+could change: both symbols are still called from the same file, and no
+behaviour, branch or statement moved.
