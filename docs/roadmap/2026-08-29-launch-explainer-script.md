@@ -1,35 +1,70 @@
 # RepWorth launch explainer — script and shot list
 
+Refreshed 2026-09-07 after the roadmap review; original filename retained.
+Create a short real-product demo first. The longer film below preserves the
+creative direction for later; it is not a prerequisite for beta learning,
+investor conversations or public launch. This refresh verifies neither the
+running product nor the availability of its depicted UI states.
+
 Source of truth for narrative: `docs/roadmap/2026-08-26-brand-story.md`.
 This file adds nothing to that story. It sequences it for film.
 
-**Locked spec**
+## First deliverable: 60–90 seconds of the real product
+
+Choose one task that the beta owner already performs. Confirm the actual
+customer type first; the beta roster and operational systems remain
+unknown. Use the current product in a permitted local/staging account and
+label the environment and demo data. A fixture demonstrates a screen;
+separate evidence is needed for a completed external action.
+
+| Sequence | Show and explain |
+|---|---|
+| 1 | A review and the work the owner needs to do. No invented revenue loss. |
+| 2 | The actual draft, edit and approval steps. Show owner effort rather than cutting it out. |
+| 3 | Confirmed publication and the available record. If the recording is local/mocked, label it and do not claim publication to Google. |
+| 4 | One real exception or unresolved item and the next owner action. |
+| 5 | The measurement question: how much recurring owner effort did this remove? Use observed evidence if available; otherwise say measurement is underway. |
+
+Record existing routes. Do not build a capture route, redesign screens or
+invent indicators for this asset. Verify actual product behavior separately
+through the normal workflow. Filming does not justify expanding the forward
+roadmap's provisional engineering limit. No
+generated b-roll, music purchase or paid narration is required for this
+first demo. Any later paid production needs the owner's approval.
+
+## Deferred film direction
+
+The earlier creative specification below is retained as an option, subject
+to actual footage and truthful claims. Timing is a target to check with a
+read-through, not a locked production commitment.
 
 | Decision | Value |
 |---|---|
-| Runtime | 1:55 – 2:10. Unhurried. Not compressed to 90s. |
+| Runtime | 1:55–2:10 for the later film. Unhurried; adjust after a read-through. |
 | Format | 16:9 master, 1920×1080. No vertical cut. |
-| Voice | AI narrator. Warm, measured, mid-range. |
+| Voice | Warm, measured, mid-range. AI narration is optional and requires approval of any paid usage. |
 | Music | Sparse ambient bed. Low pads. One lift at Act 4. |
 | Captions | Burned in. |
 | Visuals | Documentary b-roll, no faces. Real UI screenshots, animated. |
-| Screenshots | Throwaway dev capture route. Real components, fixture data. |
-| Demo account | Northbank Kitchen. Fictional. Marked "Demo data". |
+| Screenshots | Existing routes and real components in an approved test environment; fixture scenes marked "Demo data". No invented controls. |
+| Demo account | Northbank Kitchen may remain a fictional restaurant treatment, marked "Demo data". It does not select the beta vertical. Adapt once the actual initial customer type is known. |
 | Audience | Owner variant (brand story §7 default). |
-| Honesty | Governance present-tense (§8 "true today"). Autopilot framed as the ladder. Act 4 future-framed. |
+| Honesty | Label built/demo, staging-verified, production-verified and vision accurately. Confirm every available state before capture; Act 4 stays future-framed. |
 | End card | Tagline + logo. No URL. |
 
 ---
 
 ## ACT 1 — The problem · 0:00 – 0:20
 
-**Narration** (46 words)
+**Narration**
 
-> For a local business, your reputation is the storefront.
-> Customers read the reviews before they call.
-> Now AI assistants read them too — and recommend accordingly.
-> Every unanswered review quietly costs you covers.
-> But nobody opened a restaurant to spend their evenings on Google.
+> Your customers leave reviews while you are busy running the business.
+> Replying, checking what was sent and dealing with problems all take time.
+> Nobody opened a restaurant to spend their evenings on Google.
+
+The restaurant line belongs only to this optional visual treatment. Adapt
+it to the selected audience; do not claim every unanswered review loses a
+booking or that AI assistants will recommend a business because it replied.
 
 **Shots**
 
@@ -46,84 +81,94 @@ This file adds nothing to that story. It sequences it for film.
 
 ## ACT 2 — The turn · 0:20 – 0:38
 
-**Narration** (47 words)
+**Narration**
 
-> AI can write review replies now.
-> Everyone's AI can. That's the problem.
-> Your reputation is your name, in public, forever.
-> Hand it to an unsupervised text generator, and a bad week becomes a screenshot.
-> Almost nobody answers the real question.
-> **Who is watching the agent?**
+> A draft helps. You still have to check it, fix it and make sure the work gets done.
+> RepWorth brings those steps together, with clear choices about what it can handle
+> and what still needs you.
 
 **Shots**
 
 | # | Shot | Motion |
 |---|---|---|
-| B1 | A wall of identical, generic AI review replies scrolling. Cold blue light. | Fast vertical scroll, motion blur |
-| B2 | A phone screen. A screenshot flash freezes one bad reply. | Hard cut, freeze |
+| B1 | A fictional owner's draft, checklist and pending tasks. Demo-labeled; no competitor interface. | Controlled vertical scroll |
+| B2 | The owner checks a draft and corrects a line. Keep the human effort visible. | Close crop, held |
 | B3 | Cut to black. | — |
 
-**Typography** — "WHO IS WATCHING THE AGENT?" full frame on black. Held 2s. This is the hinge of the film.
+**Typography** — "WHAT STILL NEEDS YOU?" full frame on black, held 2s.
 
 ---
 
-## ACT 3 — The answer · 0:38 – 1:33
+## ACT 3 — The answer · 0:38 – 1:38
 
-**Opening line** (7 words)
+**Opening line**
 
-> RepWorth was built governance first. Autonomy second.
+> RepWorth helps you handle the work within rules you control.
 
-**Beat 1 — Reply drafts in your voice** (16 words) · 0:41 – 0:49
+**Beat 1 — Reply drafts in your voice** · 0:42 – 0:52
 
-> A review arrives. RepWorth drafts the reply in your voice — learned from your own edits.
+> A review arrives. RepWorth drafts a reply using your voice settings.
+> After five edited, posted replies, your previous edits can help shape new drafts.
 
 *UI-01* Reviews list, new review lands.
 *UI-02* Draft reply panel opens. Text types on. Approve / Edit visible.
-*UI-03* Owner edits one line. "Learned from your edits" indicator lights.
+*UI-03* Show the actual voice settings/history for a fixture with at least
+five posted, owner-edited replies. Do not light an invented indicator after
+one edit, or imply that the voice model was trained on that edit instantly.
 
-**Beat 2 — Guardian escalates** (18 words) · 0:49 – 0:57
+**Beat 2 — Guardian escalates** · 0:52 – 0:59
 
-> A one-star complaint comes in. Guardian holds it and sends it to you. It never speaks in public.
+> A complaint needs attention. Guardian brings it to you.
+> Guardian itself does not publish replies.
 
-*UI-04* A 1-star review enters the list. A red "Held — escalated to you" badge sets.
-Callout ring on the badge. Public reply field greys out.
+*UI-04* Capture the actual triage/owner-review state for the chosen complaint.
+Use its real badge and available owner actions. Do not invent a disabled
+reply field or imply every one-star review is held for administrator review.
 
-**Beat 3 — The rules you set** (21 words) · 0:57 – 1:06
+**Beat 3 — The rules you set** · 0:59 – 1:07
 
-> You set the rules once. Which reviews it may answer alone. How many a day. What it may never say.
+> Choose which eligible reviews may receive automatic replies,
+> the daily limit and the time you have to stop a reply.
 
-*UI-05* Settings → auto-approval. Trust dial, rating band, daily cap, never-say list.
-Three sequential highlight rings, one per rule.
+*UI-05* Settings → auto-approval. Rating threshold, daily cap and veto window.
+Highlight existing controls. Do not add a never-say list to this screen;
+broader business-policy controls are a separate roadmap topic.
 
-**Beat 4 — Requests that refuse** (18 words) · 1:06 – 1:14
+**Beat 4 — Review requests** · 1:07 – 1:15
 
-> It asks every eligible customer for a review — and shows you the ones it refused to send.
+> Prepare review requests, check the batch and see why some asks were withheld.
+> Consent and opt-outs remain part of the send checks.
 
-*UI-06* Requests page. A batch of sent asks. Then the withheld column with reasons.
-Callout on one withheld row: the reason text.
+*UI-06* Requests page with its actual batch state and withheld reasons.
+Distinguish watch-mode decisions from sent requests. Show "sent" only with
+matching send evidence; eligibility alone does not mean delivery occurred.
 
-**Beat 5 — The Judge and the veto window** (27 words) · 1:14 – 1:25
+**Beat 5 — The Judge and the veto window** · 1:15 – 1:30
 
-> An independent Judge reviews one hundred percent of automatic posts.
-> If the Judge is down, posting stops.
-> And you hold a veto window before anything goes live.
+> A separate AI Judge audits automatic replies after posting.
+> Its availability is checked before posting; if unavailable, the reply goes to you.
+> You can stop automatic replies during their veto window.
 
-*UI-07* Judge verdict panel on an auto-post.
-*UI-08* Veto window countdown before publish.
-Split-screen for the last three seconds: Judge left, veto right.
+*UI-08*, then *UI-07*: for a separately verified automatic-reply example,
+show the veto window **before** publication and the Judge audit **after**
+publication. Use labeled explanatory graphics if the verdict is not exposed
+in owner UI; never fabricate a product panel. Judge unavailability routes
+automatic replies to owner review, not a total posting shutdown. The
+15/30-minute reply veto window is not a universal timer for all outreach.
 
-**Beat 6 — The audit trail** (9 words) · 1:25 – 1:29
+**Beat 6 — The record** · 1:30 – 1:34
 
-> Every action lands on a record you can check.
+> See the available record of what happened.
 
-*UI-09* Activity log. Rows stack in, one per action, with timestamps.
+*UI-09* The real review timeline/history with timestamps. Do not portray
+every internal event as an owner-visible permanent audit row.
 
-**Ladder** (20 words) · 1:29 – 1:38
+**Choices** · 1:34 – 1:38
 
-> Start on Copilot — you approve everything, and RepWorth learns your standards.
-> Graduate to Autopilot, where it runs inside them.
+> Copilot for approval. Autopilot for eligible automatic replies.
 
-Typography: COPILOT → AUTOPILOT as a two-stage ladder graphic. No UI.
+Typography: COPILOT / AUTOPILOT as supervision choices. Availability must
+match the demonstrated environment; neither tier guarantees zero owner work.
 
 ---
 
@@ -131,21 +176,19 @@ Typography: COPILOT → AUTOPILOT as a two-stage ladder graphic. No UI.
 
 Label this act on screen: **"Where this is going."** Non-negotiable — brand story §8.
 
-**Narration** (44 words)
+**Narration**
 
-> Here is where this is going.
-> One morning, you wake to a single message.
-> Fourteen reviews handled overnight. Thirty-eight requests sent. Two complaints escalated. One unhappy customer recovered.
-> And a note: arrival-time complaints are your fastest-growing issue.
-> Nothing else needs your attention.
+> We want one useful morning report:
+> work completed, issues still waiting and what happened after a complaint was followed up.
+> Over time, it could help you spot recurring service problems and see what improved.
 
 **Shots**
 
 | # | Shot | Motion |
 |---|---|---|
 | D1 | Morning sun through the window of the same empty dining room from A1. | Slow push in — mirrors A1 |
-| D2 | Phone on the counter. One message. Lines of the morning report type on. | Static, text builds |
-| D3 | Service starting. The room fills. Plates go out. Warm. | Slow drift right |
+| D2 | Phone on the counter. Concept report with proposed completed-work, unresolved-issue and follow-up sections. "Future concept · Demo data" stays visible. | Static, text builds |
+| D3 | Staff prepare for the day. Do not imply a full room or recovered sale resulted from RepWorth. | Slow drift right |
 
 Music lifts here. This is the only lift in the film.
 
@@ -153,7 +196,7 @@ Music lifts here. This is the only lift in the film.
 
 ## OUTRO · 1:58 – 2:08
 
-**Narration** (15 words)
+**Narration**
 
 > RepWorth. AI that does the work. Rules that you set. A record you can check.
 
@@ -171,35 +214,53 @@ No URL. No CTA button. No pricing.
 
 ## Asset manifest
 
-### UI captures needed — 9 states, 1440px wide
+### Candidate UI captures for the later film, 1440px wide
+
+Routes below exist in the inspected source. Specific states, controls and
+availability need a fresh capture check. Omit an unavailable scene rather
+than creating product UI to make the story appear true.
 
 | ID | Route | State |
 |---|---|---|
 | UI-01 | `/dashboard/reviews` | Populated list. New 5-star review at top. |
 | UI-02 | `/dashboard/reviews` | Draft reply panel open. Approve / Edit. |
-| UI-03 | `/dashboard/reviews` | Edit mode. Voice-learning indicator. |
-| UI-04 | `/dashboard/reviews` | 1-star held and escalated. Reply field disabled. |
-| UI-05 | `/settings/auto-approval` | Trust dial, rating band, daily cap, never-say list. |
-| UI-06 | `/dashboard/requests` | Sent asks plus withheld asks with reasons. |
-| UI-07 | `/dashboard/reviews` | Judge verdict on an auto-post. |
+| UI-03 | `/settings/voice` | Actual voice status with five posted+edited fixture replies; no one-edit activation. |
+| UI-04 | `/dashboard/reviews` | Real complaint triage and owner actions; no invented disabled field. |
+| UI-05 | `/settings/auto-approval` | Rating threshold, daily cap and 15/30-minute reply veto window. |
+| UI-06 | `/dashboard/requests` | Actual watch/send state and withheld reasons. Label fixture sends. |
+| UI-07 | Capture discovery required | Judge audit after an automatic post. If owner UI is absent, use a labeled explanation graphic. |
 | UI-08 | `/dashboard/reviews` | Veto window countdown. |
-| UI-09 | `/dashboard` | Activity log / audit rows. |
-| UI-10 | `/dashboard` | Populated overview. 4.6 · 94% · 11.4 hrs. Agents working. |
+| UI-09 | `/dashboard/reviews/[reviewId]/timeline` | Existing review timeline; verify which events are shown. |
+| UI-10 | `/dashboard` | Overview with demo data labeled; omit invented measured-savings results. The seven-minute-per-reply estimate is not observed owner time. |
 | UI-11 | `/dashboard/analytics` | Rep Pulse and reputation trend. |
+| UI-12 | `/dashboard/requests/qr` | Optional implemented QR download/print. A scan is not a proven review or booking. |
 
 UI-10 and UI-11 are cutaways used across Act 3.
 
-### Generated b-roll — 9 clips
+### Optional b-roll for the later film
 
 A1, A2, A3, A4 · B1, B2 · D1, D2, D3.
-Documentary. No faces. Warm tungsten for the restaurant. Cold blue for B1–B2.
+Documentary. No faces. Warm tungsten for the optional restaurant treatment.
+Generated footage must not be presented as real customers or product results.
 
 ### Audio
 
-1. Narration — one voice, warm, measured, mid-range. ~288 words.
+1. Narration — one voice, warm, measured, mid-range. Re-time the revised text before production.
 2. Music — sparse ambient bed. One lift at 1:38.
 3. UI sound design — soft ticks on state changes. Optional.
 
 ### Assembly
 
-Higgsfield `video-editing` (higgsedit) timeline. Renders the 1920×1080 MP4.
+The earlier Higgsfield/higgsedit 1920×1080 assembly remains a production
+option. Tool availability and any cost need checking and owner approval
+before use. No media generation or purchase is authorized by this document.
+
+### Capture evidence
+
+Record source revision, environment, feature state, route, anonymized
+fixture/account reference and capture date for every used scene. Link a
+completed external-action check separately from local UI footage. The
+brand-story honesty ledger governs final copy; the positioning doc links
+the Judge, voice-learning and QR implementation evidence. Do not publish
+claims of savings, recovery, booked revenue or production readiness merely
+because this shot list is complete.

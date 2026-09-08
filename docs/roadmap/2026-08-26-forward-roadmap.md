@@ -1,38 +1,174 @@
-# Forward roadmap (locked order, 2026-08-26)
+# Forward roadmap (created 2026-08-26; revised 2026-09-07)
 
-Owner decision 2026-08-26: the next four product efforts run in this order —
-**(1) event-triggered review requests → (2) reputation recovery workflows →
-(3) review-topic ontology → (4) Business Truth + policy layer.** Phases 5–8
-are sequenced after them and may be re-ordered later. Launch enablement
-(Phase 0) is not owned here — it is the existing §8.4 gate list in the design
-of record and runs on its own track.
+The owner approved this revision after reviewing the roadmap on September 7.
+The next month focuses on proving one useful workflow for one customer type.
+The Phase 1–8 labels below stay stable for existing references. They identify
+areas of work, not a mandatory order or a pre-launch feature checklist.
 
-Each phase below states: goal, why this position in the order, what it builds
-on (existing seams — reuse, don't rebuild), a scope sketch, explicit
-non-goals, open design questions to settle in the grill, and success metrics.
-Every phase starts with its own spec under `docs/superpowers/specs/` before
-code.
+## Immediate priorities: September 7–October 7
+
+**Start here this week:** establish the cash deadline, prepare a concrete
+paid offer for owner-approved conversations, and observe one actual beta
+workflow. Further building depends on what those steps reveal. The feature
+sketches below are a reference appendix, not this week's task list.
+
+The founder owns product/design/engineering; the cofounder handles marketing,
+operations, and finance. Available hours, actual beta composition, and the
+amount/date of cash needed are still unknown. The owner reported a one to
+two month runway and wants owner time saved as the primary customer outcome,
+with bookings/revenue evidence where it can be supported.
+
+| Work | First action | Evidence and decision |
+|---|---|---|
+| Cash and funding, led by cofounder | Record cash, obligations, minimum founder support, cash-needed date, and available hours. Prepare a short product demonstration and investor questions. | Track actual paid decisions and investor feedback, including who can decide and when money could arrive. Interest alone is not cash. The owner approves outreach and spending. |
+| Beta value, coordinated by founder with cofounder helping collect evidence | List active beta accounts, their business type/software, review volume, and the work they currently do. Select one customer type for this month's improvement. | Compare owner effort before and with RepWorth, including review/correction/support time. Record continued use, reasons for leaving, and willingness to pay while honoring beta promises. |
+| Product delivery, led by founder | Observe an actual workflow and select the single problem that most blocks its usefulness or paid adoption. | Deliver one bounded improvement with evidence from the affected journey and backend where applicable. Continue only if it addresses the observed problem. |
+
+**Cash decision sheet, due September 8 or sooner if obligations require it.**
+The cofounder records unrestricted cash, dated obligations, minimum founder
+support, and the smallest amount needed for an explicitly chosen continuation
+period (start by calculating three months). List candidate sources separately:
+paid continuation/pilots that honor existing beta promises, known angels or
+investors, reduced outflows, and optional founder income. Each row needs a
+named prospect or decision-maker, amount, conditions, earliest credible
+clearing date, owner, and next action. Unknowns stay unknown. Rank paths by
+cash arriving before the deadline and amount covered; one subscription does
+not necessarily fund continuation, and cold fundraising has no assumed close
+date. Add a required line: **sources that can credibly clear before the
+cash-needed date**, with the amount each covers. If it is empty, bring the
+smaller-scope/pause decision to both founders that day. If the cash date is
+unknown, label the funding test unresolved and seek the missing input that
+day. Investor conversations can build a later pipeline; include them in the
+near-term cash case only when evidence supports their timing and amount.
+Prepare one batch of specific outreach drafts for the owner's approval.
+
+The active beta/prospect roster is also due September 8. Separate interested
+prospects, participating beta accounts, and paying customers. Cap the first
+pass of investor brief/demo preparation at **two combined founder/cofounder
+hours**, provisionally, using existing material; lower it if capacity
+requires. Record any need to exceed it as a decision, not an automatic deck
+or film project. Conversations and follow-up use separately confirmed
+capacity; this preparation cap is not a forecast of fundraising effort.
+
+**Early gates:** by September 14, seek at least one actual paid decision
+from a suitable prospect or beta user, within the promised beta terms, and
+record whether an appropriate investor conversation is booked, declined, or
+still unavailable. These are targets, not reported results or permission to
+send. Review cash again September 21. Bring either gate forward if the cash
+sheet requires it; October 7 is the product review, not the first cash review.
+Choose a decision buffer based on the lead time needed to reduce commitments
+or arrange income/support, and make the continuation decision before cash
+runs out. A week is only a starting assumption, not a sufficient buffer in
+every case. On September 8 the cofounder proposes, and both founders record,
+one continuation decision date: cash-needed date minus the chosen buffer.
+If those inputs remain unavailable, use September 21 as the provisional
+decision meeting date and surface the unresolved cash risk immediately;
+that date is not evidence the company can afford to wait until then.
+
+Prepare three costed options on the same sheet: funded continuation, a
+smaller operating scope, or a development pause with an explicit beta-support
+and data-handling plan. Specify which obligations change, the amounts/dates,
+who would carry the work, and the trigger for requesting the decision. The
+founders choose and approve the action; no service cancellation, outreach,
+spending, or shutdown is authorized by a missed target. At the decision date,
+record the chosen option or an explicit deferral, its reason, owner and next
+date. If no decision is made, keep new discretionary feature work and new
+spending commitments on hold; continue only existing authorized obligations
+and surface the unresolved decision. Do not automatically cancel services
+or change beta promises. Missing cash inputs mean continuation is unresolved,
+not implicitly affordable.
+
+Use the first week for the baseline, customer and investor feedback, and
+scope selection. Work on cash and beta learning can run in parallel. Keep
+engineering to one active improvement; UI fixes enter that scope when they
+block setup, trust, or completion of the chosen workflow.
+
+**No engineering improvement is selected yet.** Hold the hours in reserve
+until a paid decision or a named account's stated barrier to paying identifies
+the work, or an observed blocking quality failure prevents delivery of an
+existing beta promise. A generic request for more modern features does not
+qualify. If nothing meets that test, choose no new feature and use available
+time for the demonstration, customer learning, and funding work. Baseline
+observation need not delay a
+paid-offer discussion. Owner-recalled effort can guide the choice, clearly
+labeled as recollection; it cannot establish measured savings.
+
+Use **20 founder engineering hours total** as a provisional planning cap for
+the first improvement, including discovery, implementation, tests, and
+browser/backend verification. Confirm capacity first and lower the cap if
+needed. Integration discovery starts only after the same selection test and
+uses at most four of those hours; it must
+establish real API access, usable customer/contact data, and an eligible
+trigger before connector implementation is selected. This is a ceiling, not
+a commitment to use the hours or an estimate that a connector fits. A failed
+discovery ends that candidate rather than expanding the month's workload.
+
+At selection, write down the affected accounts, baseline problem, expected
+change, acceptance criteria, owner, and review date. Review weekly and at
+October 7. If review volume is too low, report insufficient evidence; a
+simulated demo or the dashboard's fixed seven-minute estimate does not prove
+customer savings. Use a few comparable real observations and a simple
+worksheet; do not build a measurement system. Record a paid yes/no and the
+reason alongside the effort evidence. Work previously ignored counts as
+additional coverage, not time saved. Measure onboarding effort separately
+and show it alongside ongoing effort and RepWorth's support time. Do not
+infer saved bookings from a QR scan or a resolved case.
+
+Each workstream's weekly report has five lines: **done / blocked / next /
+evidence / risk**. Link the evidence; document preparation is distinct from
+customer value or funding achieved. Re-run two Claude challenge rounds at
+each workstream's completion or major strategy checkpoint, recording the
+three strongest objections per round and what changed.
+
+## Dependencies and later decisions
+
+- Start collecting customer-value evidence now. A full Phase 7 dashboard
+  can wait; a simple scorecard or existing report may be enough.
+- Pull the minimum approved business facts and rules from Phase 4 forward
+  before any recovery message depends on them. Unknown refund, warranty, or
+  compensation terms must not be invented. Keep first recovery outreach
+  owner-approved and customer identity confirmed.
+- Select a Phase 1 connector only when beta evidence supports it. A
+  connector can help identify jobs and contacts, but manual owner-confirmed
+  links may be sufficient for an early recovery test.
+- Add Phase 3 topic analysis when there are enough reviews and a recurring
+  owner decision it can improve. More categories do not by themselves prove
+  a defensible data advantage.
+- After the first month, select further work at the 60- and 90-day
+  checkpoints using customer evidence, cash availability, and capacity.
+  Additional integrations, industries, and platforms are options, not
+  advance commitments. If funding or affordable continuation is uncertain,
+  the founders decide what to reduce or pause; this plan does not authorize
+  an automatic shutdown.
+
+Every selected feature gets its own specification under
+`docs/superpowers/specs/` before code. The sketches below preserve useful
+future scope; selecting a small slice does not commit the whole phase.
+
+## Reference appendix: future feature areas
+
+Use these sketches after a problem is selected. They do not add work to the
+immediate plan or delay a customer/investor conversation.
 
 ---
 
 ## Phase 0 (parallel track): launch enablement — owned by design §8.4
 
-Not roadmap work, listed for completeness: production bring-up (worker, Redis,
-env matrix, webhooks, Vercel prod), prod WS8 cutover (`ws8-tier-cutover.md`,
-resume at §6), owner UAT, ordered autonomy flag flips, solicitation prod flip
-(needs counsel sign-off on the #620 Part II brief), GBP API application
-follow-up. Copilot is launchable now with zero autonomy flags.
+Use the current launch runbooks and dated evidence to determine remaining
+production setup, cutover, owner UAT, legal review, and feature-flag work.
+The August snapshot is not a current launch-readiness check. Copilot can
+operate without automatic posting, but its own launch requirements still
+need verification. Product learning and legal/launch preparation can run
+alongside each other; adding roadmap features is not a reason to postpone
+the legal review again.
 
-**Plus one product item pulled forward (owner decision 2026-08-26): QR review
-requests ship BEFORE the production launch.** Scope: a per-location QR code
-the owner can download/print, resolving through a RepWorth-owned redirect
-route (same pattern as the existing `/r/google/<id>` redirect) to that
-location's Google write-review link
-(`https://search.google.com/local/writereview?placeid=…`). The RepWorth-owned
-hop matters: it lets us count scans as an analytics event and re-point the
-destination later (platform policy engine, Phase 6) without reprinting.
-No contact capture in v1; every customer gets the same code (inherently free
-of sentiment gating). Serves walk-in traffic — the F&B wedge — from day one.
+**QR remains part of launch verification, not a new connector task.** Code
+now exists for the owner QR surface and `/q/[businessId]` redirect; see
+[Review QR](../context/review-qr.md) and the
+[current-state inventory](2026-08-26-current-state.md). Verify the intended
+environment before calling it live. Scan counts are activity signals; they
+do not identify a customer or prove a resulting review or booking. V1 gives
+customers the same destination without sentiment screening.
 
 ---
 
@@ -40,15 +176,14 @@ of sentiment gating). Serves walk-in traffic — the F&B wedge — from day one.
 
 **Goal.** A completed job/appointment/order in the customer's operational
 system automatically becomes an eligible solicitation candidate, with no CSV
-step. This is the wedge feature for all three verticals: "connect your booking
-system once; RepWorth handles the rest."
+step. Requests still depend on consent, suppression, account settings, and
+the applicable approval lane.
 
-**Why first.** (a) It removes the biggest friction in the highest-retention
-loop (request → review → response → attribution — all of which already work
-end-to-end on staging). (b) It is the embedding that creates switching costs.
-(c) The design of record already names it as the CSV successor (§9.4). (d) It
-is a prerequisite for good recovery (Phase 2) and graph (Phase 7) data:
-customer/job linkage starts here.
+**When to select it.** Beta users show that repeated CSV preparation blocks
+use or payment, they use the same supported system, and access to suitable
+events/contact data is confirmed. Reduced manual work and better customer/job
+linkage are hypotheses to measure. An integration alone does not establish
+retention, switching costs, or exclusive distribution.
 
 **Builds on (do not rebuild).**
 - Contacts/visits ledger + CSV contract (migrations 086/087, spec
@@ -71,22 +206,21 @@ customer/job linkage starts here.
    `order.fulfilled`; carry-through fields: customer name, contact handle,
    completion timestamp, optional staff/service note (exactly the CSV
    contract's columns — the ledger schema should not fork by source).
-3. First adapters, one per vertical, chosen for OAuth + webhook quality and
-   SMB share (verticals doc §4 has the full candidate tables): **Square
-   Appointments** (beauty; already named in design §9.4), **Housecall Pro or
-   Jobber** (home services), F&B deferred to a later adapter wave (see
-   verticals doc — walk-in traffic makes POS events weaker candidates; the
-   F&B wedge is reservation platforms + QR).
+3. One first adapter for the selected beta customer type, chosen from the
+   software those users use. Square Appointments, Housecall Pro, and Jobber
+   are candidates, not approved builds or verified API-access commitments.
+   The verticals document keeps the later options.
 4. Owner connect flow (OAuth) + per-location mapping (provider location →
    `business_id`), following the Zernio connect precedent (ADR 0001 for the
    short synchronous OAuth-handshake carve-out).
 5. Configurable delay between completion event and ask (waits ride the
    existing batch/drip machinery).
-6. ~~QR-code review request page~~ — **pulled forward to the pre-launch
-   track** (owner decision 2026-08-26); see Phase 0 above for the scope.
+6. Reuse the existing QR feature where useful; its launch verification is
+   in Phase 0.
 
-**Explicit non-goals.** Two-way sync into the CRM; generic Zapier surface
-(candidate for later, not the wedge); F&B POS adapters in wave 1; SMS asks.
+**Explicit non-goals.** Two-way sync into the CRM; generic Zapier surface;
+multiple adapters in the first improvement; SMS asks. An industry label does
+not choose or exclude the first adapter; observed need and feasibility do.
 
 **Open design questions (settle in the grill).**
 - **Consent basis for integration-sourced contacts.** CSV has an explicit
@@ -98,12 +232,14 @@ customer/job linkage starts here.
 - Does a connector-sourced candidate auto-enter a batch, or accumulate for the
   owner's existing approval lane? (Interacts with
   `SOLICITATION_AUTO_APPROVAL_ENABLED` and, later, Phase 5 per-action grants.)
-- Provider app-store listing requirements (Square/Jobber app marketplaces are
-  also distribution channels — treat listing approval as part of the phase).
+- Provider access and app-store requirements: establish whether private
+  beta use requires approval before committing. A public marketplace listing
+  is a separate distribution experiment unless required for the selected use.
 
-**Success metrics.** % of solicitation candidates that are integration-sourced
-(target: overtakes CSV); median time from completion event to ask; request →
-review conversion by source; # of connected locations per vertical.
+**Success metrics.** Owner preparation time before/after, eligible events
+successfully processed, duplicates/incorrect sends, support burden, continued
+use, and paid decisions. Record request-to-review attribution limits and
+event-to-ask time. Integration volume alone is not customer value.
 
 ---
 
@@ -114,10 +250,13 @@ review conversion by source; # of connected locations per vertical.
 private follow-up drafted, resolution recorded, outcome measured. Public
 replies stay what they are; recovery is the private, operational half.
 
-**Why second.** It is the clearest differentiation against NiceJob/GatherUp
-(they request and respond; they do not recover), it compounds with Phase 1
-(customer/job linkage makes recovery personal), and it moves RepWorth from
-marketing tool to operating workflow — the retention thesis.
+**When to select it.** Owners have recurring unresolved complaints and want
+help following through. First confirm customer identity, approved business
+facts/rules, contact eligibility, and owner willingness to approve follow-up.
+GatherUp already documents [feedback tickets and customer follow-up](https://gatherup.com/blog/inbox/)
+(checked 2026-09-07). RepWorth's opportunity is to complete a useful workflow
+with less owner effort; a claim that competitors do not recover customers
+is not established.
 
 **Builds on.**
 - Guardian triage (severity classification already exists on the negative
@@ -180,11 +319,11 @@ rating is 4.6, but arrival-time sentiment fell for the third straight month —
 seven of the last 28 negative reviews mention lateness; the North location
 accounts for five."
 
-**Why third.** Recovery (Phase 2) creates the demand for classification;
-doing ontology after recovery means one classification design serves both
-(complaint category on cases = topic from the same taxonomy). It is also the
-substance behind the Insights persona — today's digest is counts and
-competitor gap; topics make it operational.
+**When to select it.** There are enough real reviews to support a useful
+pattern and owners can name a decision they would make from it. Recovery
+categories and topic analysis can share a vocabulary when both are needed;
+neither requires building all three industries' taxonomies first. The goal
+example above is illustrative, not a result achieved by RepWorth.
 
 **Builds on.**
 - The LLM task seam: one new `LLM_TASKS` entry (pinned model, cost-guarded,
@@ -211,9 +350,10 @@ competitor gap; topics make it operational.
    enum).
 
 **Explicit non-goals.** Free-text theme discovery/clustering (closed ontology
-first — it is comparable across customers within a vertical, which is also
-the aggregate-data moat); cross-account benchmarks (later, and only
-aggregate + anonymized).
+first so results can be compared within the selected industry);
+cross-account benchmarks. Any later cross-account use needs a defined
+purpose, appropriate data permissions, privacy review, and enough data to
+support the comparison. A shared taxonomy alone is not a data moat.
 
 **Open design questions.** Ontology governance (who can add a topic — treat
 like the withhold-reason enum: closed, versioned); minimum review volume
@@ -233,10 +373,11 @@ LLM cost per classified review.
 per-draft "**why RepWorth wrote this**" explanation. This is what makes
 autonomy explainable and drafts factually safe.
 
-**Why fourth.** Phases 1–3 generate the operational context this layer
-consumes (jobs, cases, topics). It is also the direct enabler of Phase 5:
-per-action autonomy is only trustworthy when the policy the agent followed is
-inspectable.
+**Dependency, not fourth in time.** The minimum facts and policies needed
+for a selected workflow come before messages that depend on them, especially
+recovery outreach. Use existing brand fields where they safely suffice;
+specify any missing structured fields in the bounded feature. Broader
+settings, explanations, and topic-specific defaults can follow later.
 
 **Builds on.**
 - Existing brand columns (`tone`, `products_services`, `staff_names`,
@@ -258,8 +399,9 @@ inspectable.
 3. Explanation: generated with each draft, stored on the `responses` row
    (NOT in run-spine detail — the spine carries no raw text), rendered in the
    approval UI and the auto-post FYI.
-4. Settings surface for owners; sensible defaults so an empty Truth layer
-   degrades to today's behavior.
+4. Settings surface for owners; missing facts produce a neutral draft or a
+   request for clarification, never invented policy terms. Do not let an
+   empty configuration grant compensation or additional autonomy.
 5. Feed points: prompt builder, Judge context, `evaluateAsk` context,
    recovery outreach drafts.
 
@@ -287,16 +429,19 @@ and the existing flag-level lane split (`SOLICITATION_AUTO_APPROVAL_ENABLED`
 becomes a per-account grant behind the same runtime flag). Includes the two
 items design §9.4 already sequences: **Judge auditing of withhold decisions**
 and **Governor per-gate suspension** (the Governor suspends one action class,
-not the whole account). This is also the marketing artifact: the autonomy
-matrix screenshot IS the governed-autonomy pitch.
+not the whole account). Select this when owners need different permissions
+for working features. Judge coverage, existing mandatory escalation rules,
+and approval requirements still apply; the matrix cannot grant arbitrary
+authority or substitute for measured reliability.
 
 ## Phase 6 — Platform expansion + platform policy engine
 
-Second `ReviewSource` + second `ReviewPublisher` adapter (the seam was built
-for this). Direct **GBP adapter** when API access lands (application pending;
-`google_review_name` capture since migration 070 keeps the path open) —
-reduces Zernio dependency and its pay-per-use posting cost. Then per-vertical
-platform priorities (verticals doc §5): Yelp as **monitor + deep-link only**
+Second `ReviewSource` + second `ReviewPublisher` adapter, subject to the
+provider's actual read/write permissions. Direct **GBP adapter** when API
+access is confirmed (the August inventory records a pending application;
+`google_review_name` capture since migration 070 keeps the path open).
+It may reduce provider dependency; compare real costs and support effort.
+Then consider per-vertical priorities (verticals doc §5): Yelp as **monitor + deep-link only**
 (Yelp prohibits solicitation — encode that), Facebook selectively, Tripadvisor
 monitoring for F&B. Ship the **platform policy engine** with the first new
 platform: every adapter declares capabilities AND solicitation policy, and
@@ -304,23 +449,27 @@ platform: every adapter declares capabilities AND solicitation policy, and
 
 ## Phase 7 — Reputation graph queries + Impact page
 
-No new collection infra — read models over what Phases 1–4 accumulated:
+Basic owner-value measurement starts in the immediate plan above. Select a
+full owner-facing page when it would help a customer decide to keep using
+RepWorth, and verify that the required data exists before promising it.
+Later read models can use what the selected workflows accumulated:
 staff-level feedback (staff_names × topics), service-level sentiment,
 location comparisons, request→review→recovery funnels. Plus the owner-facing
 **Impact page** with conservative attribution only (reviews received,
 velocity, response coverage, median response time, requests sent/converted,
-cases opened/resolved, customers recovered, time saved). No revenue claims
-without defensible causality.
+cases opened/resolved, owner-reported customer recovery, measured or clearly
+labeled estimated time saved). Reports must separate observed events,
+owner reports, estimates, and outcomes attributable to RepWorth. No revenue
+claims without defensible causality.
 
 ## Phase 8 / later
 
 Competitor-intelligence expansion (snapshots + digest line exist — add
-trends/alerts), website social-proof widgets, AI-search visibility (full
-feature; the probe runs earlier — see Cross-cutting), public API + the
-**MCP write surface** (the read-only pilot was pulled forward to after
-Phase 2 — see Cross-cutting; write-capable tools land here, action-classed,
-after the internal tool layer is clean — MCP is an interface, not the
-agent), agency/white-label. From design §8.5: calibrated-confidence router,
+trends/alerts), website social-proof widgets, AI-search visibility, public
+API and MCP tools, agency/white-label. A narrowly scoped read-only MCP pilot
+may be selected earlier when a named user needs it and it fits capacity;
+there is no automatic pilot after Phase 2. Write tools need separate access,
+cost, and approval design. From design §8.5: calibrated-confidence router,
 conversational surface, cross-agent coordination keys, outcome billing.
 The agentic subset of this list (API/MCP, confidence router, conversational
 surface, A2A) is sequenced with rationale in
@@ -333,58 +482,53 @@ surface, A2A) is sequenced with rationale in
 - **`businesses.vertical` column** (closed enum: `home_services`,
   `food_beverage`, `beauty_personal_care`, `other`) — prerequisite for
   Phase 3 ontologies, vertical defaults in Phase 4, and vertical analytics.
-  Small migration; do it with Phase 1 (connectors also want it for adapter
-  suggestions). Follow the `new-migration` skill.
-- **Pricing decision** (open, see README): live $29/$69 per account vs the
-  memo's $79/$149 per location. Inputs to the decision: Phase 1–2 shipped
-  value, founding-customer runway (deadline 2027-01-01), competitor anchors
-  (GatherUp $60/loc, NiceJob $75, Reputation $80/loc). Grandfathering
-  infrastructure makes repricing safe for existing accounts. **Recommended
-  shape (2026-08-29 research, overlay doc §1):** keep a subscription base —
-  hybrid base-plus-usage is the 41% industry standard and "seats became the
-  floor" across 107 audited pricing pages; never pure outcome (attribution
-  disputes kill deals); add outcome credits later via Stripe Billing
-  Meters, anchored against Intercom $0.99 / HubSpot $0.50 per resolution.
-  Price POINTS remain the open decision.
-- **Outcome SLO packaging + autonomy telemetry** (owner-approved
-  2026-08-29, overlay doc §1): the controllable promises (every review
-  answered within SLA, every completed job triggers the ask, every critical
-  negative escalated, every action auditable) go into tier copy. Autonomy
-  rate and human-correction rate — computed from the run spine +
-  `agent_outcomes`, no new schema — go on the founder dashboard now and the
-  Phase 7 Impact page later.
-- **Read-only MCP pilot — pulled forward from Phase 8 to after Phase 2**
-  (owner-approved 2026-08-29, overlay doc §2): five read tools, OAuth 2.1,
-  scoped tokens per action-risk class, MCP actor attribution on the run
-  spine, MCP-registry listing as a distribution probe. Design center: the
-  agent-identity gap. Write-capable tools stay Phase 8. Details:
-  `2026-08-26-agentic-architecture.md` §4.
-- **AEO probe** (AI-answer visibility, overlay doc §2): periodic
-  cost-bounded checks of how a business appears in AI-assistant answers for
-  its category + location, stored competitor-snapshot-style. Probe now; the
-  full AI-search-visibility feature stays Phase 8.
-- **Free reputation-audit funnel** (acquisition, sequence anytime): rating vs
+  Add only when the selected feature needs it; do not create schema merely
+  to record an interview choice. Follow the `new-migration` skill.
+- **Pricing decision:** keep the current Copilot/Autopilot packages while
+  testing paid decisions and cost to serve. The
+  [current-state inventory](2026-08-26-current-state.md) points to configured
+  prices; the [investor overlay](2026-08-29-investor-theses-overlay.md) owns
+  the pricing hypothesis. Outcome billing is an optional later experiment,
+  dependent on a measurable billable event and customer agreement.
+- **Service promises and measurement:** define eligible work, the clock's
+  start/end, owner approval delays, outages, and escalation behavior before
+  promising a response time. Use the existing event records where sufficient,
+  verify denominators, and collect missing evidence manually before building
+  another dashboard. Automatic-action rate is useful only alongside owner
+  effort, correction rates, missed work, and quality failures.
+- **MCP pilot:** require a named user or integration, a repeatable job that
+  needs agent access, and an agreed success test. Authentication, account
+  scope, revocation, quotas, and verification are implementation work.
+  Draft creation is excluded from a read-only pilot. Details:
+  [agentic architecture](2026-08-26-agentic-architecture.md) §4.
+- **AI-search visibility:** keep as a later option. Select a probe only if
+  it would answer a customer decision and its cost and interpretation are
+  understood. Agent-related market attention alone does not justify it.
+- **Free reputation-audit funnel** (acquisition option): rating vs
   nearby competitors, review volume/velocity, unanswered reviews, response
   time. Most ingredients exist (SerpAPI local pack via competitor snapshots,
-  KPI fragments). Marketing-owned; respect the existing-routes rule before
-  building pages.
+  KPI fragments). Use existing reports or a manual draft first. A new funnel
+  competes with direct beta learning and fundraising preparation; respect
+  the existing-routes rule before building pages.
 - **Per-vertical counsel review** rides each phase that touches outreach
   (Phase 1 consent basis; Phase 2 recovery language; F&B/beauty specifics in
   the verticals doc).
 - **Cadence jitter** (design §8.2 open item) — pre-scale, before any account
   posts at volume.
-- **Positioning rollout** (owner-approved 2026-08-26) — see
+- **Positioning rollout** (revised 2026-09-07) — see
   `2026-08-26-positioning-governed-autonomy.md`; copy changes are gated on
   the prod autonomy flips for any "live autonomy" claim.
 
 ## Sequencing picture
 
 ```text
-Track A (launch):   QR review requests → §8.4 bring-up → flag flips → solicitation prod flip
-Track B (product):  P1 connectors ─→ P2 recovery ─→ P3 ontology ─→ P4 truth/policy ─→ P5 autonomy matrix
-                                                                             │
-                                                                             └── P6 platforms → P7 graph/impact → P8 later
-Track C (market):   governed-autonomy positioning → free audit funnel → vertical landing pages
+Cash/market:  actual cash dates + approved customer/investor conversations → paid decisions
+Beta:         one customer type → baseline effort → observed problem → measure change
+Engineering:  one selected improvement, including required facts/rules and verification
+Launch:       current runbook gaps + legal review + environment verification
+Later:        select from P1–P8 using evidence, dependencies, cash, and capacity
 ```
 
-Tracks run in parallel; Track B order is the locked owner decision.
+Cash/market, beta learning, and launch preparation can run in parallel.
+Engineering stays sequential within the selected scope. The August fixed
+order is superseded by the September 7 revision.
