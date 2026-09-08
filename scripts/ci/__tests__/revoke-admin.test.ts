@@ -26,6 +26,8 @@ import { MintAdminUsageError } from '../../mint-admin';
 import { assertMintTarget } from '../../staging-guard';
 import {
   auditEventFor,
+  authClientOptions,
+  AUTH_REQUEST_TIMEOUT_MS,
   banDurationFor,
   buildRevokeGuardInput,
   classifyBanState,
@@ -240,6 +242,63 @@ describe('classifyBanState', () => {
     expect(classifyBanState({ present: true, bannedUntil: 'not-a-date', deletedAt: null }, NOW))
       .toMatchObject({ bannedNow: false, bannedForFullTerm: false });
   });
+
+  it('parses a real Postgres timestamptz rendering, not just an ISO string', () => {
+    // The wire value is `2126-08-15 08:54:39.589579+00` — SPACE separator, six
+    // microsecond digits — not the `T`-separated ISO form every other fixture
+    // uses. A classifier that only handled ISO would report every revoked admin
+    // as un-banned and re-ban them forever.
+    expect(classifyBanState(
+      { present: true, bannedUntil: '2126-08-15 08:54:39.589579+00', deletedAt: null }, NOW,
+    )).toMatchObject({ bannedNow: true, bannedForFullTerm: true });
+  });
+
+  it('reads the timestamptz infinities by value, since Date.parse gives NaN for both', () => {
+    // NaN read as "not banned", so `--restore` would report ALREADY ACTIVE over
+    // a permanent ban (red team RT2-04).
+    expect(classifyBanState({ present: true, bannedUntil: 'infinity', deletedAt: null }, NOW))
+      .toMatchObject({ bannedNow: true, bannedForFullTerm: true });
+    expect(classifyBanState({ present: true, bannedUntil: '-infinity', deletedAt: null }, NOW))
+      .toMatchObject({ bannedNow: false, bannedForFullTerm: false });
+  });
+});
+
+// ── the Auth client bound (RT2-02) ─────────────────────────────────────────
+
+describe('authClientOptions', () => {
+  it('bounds every Auth request with an abort signal', async () => {
+    // Deleting the whole global.fetch block passed the entire suite: an unpinned
+    // timeout is the same class of gap as an unpinned ban duration (RT2-02).
+    const seen: Array<AbortSignal | null | undefined> = [];
+    const fake = (async (_i: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init?.signal);
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+
+    const options = authClientOptions(fake);
+    expect(options.auth).toEqual({ persistSession: false, autoRefreshToken: false });
+    await options.global.fetch('https://example.test/auth/v1/admin/users/x');
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+    expect(AUTH_REQUEST_TIMEOUT_MS).toBe(15_000);
+  });
+
+  it('applies the bound per request, not once per client', async () => {
+    const seen: Array<AbortSignal | null | undefined> = [];
+    const fake = (async (_i: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init?.signal);
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+
+    const options = authClientOptions(fake);
+    await options.global.fetch('https://example.test/a');
+    await options.global.fetch('https://example.test/b');
+
+    // A signal shared across requests would abort the second call 15s after the
+    // FIRST one started.
+    expect(seen[0]).not.toBe(seen[1]);
+  });
 });
 
 // ── the guarded target seam (RT-04) ────────────────────────────────────────
@@ -418,6 +477,17 @@ describe('revokeAdmin', () => {
     // Three reads and not one write: the lookup, the relation guard, the ban state.
     expect(harness.sqlCalls).toHaveLength(3);
     expect(harness.sqlCalls.every((call) => /^\s*SELECT/i.test(call.text))).toBe(true);
+
+    // The probe must fetch BOTH columns the classifier consumes. Replacing
+    // `deleted_at::text` with `NULL::text` passed all 47 tests and silently
+    // deleted the auth_identity_deleted refusal (red team RT2-01); the relation
+    // guard means no live-DB suite can reach this statement, so its TEXT is the
+    // only available oracle.
+    const probeSql = harness.sqlCalls[2]?.text ?? '';
+    expect(probeSql).toMatch(/banned_until::text/);
+    expect(probeSql).toMatch(/deleted_at::text/);
+    expect(probeSql).toMatch(/FROM auth\.users/);
+    expect(harness.sqlCalls[1]?.text).toMatch(/to_regclass\('auth\.users'\)/);
   });
 
   it('revoke bans the Auth identity with a ban_duration and never deletes a user', async () => {
@@ -482,6 +552,23 @@ describe('revokeAdmin', () => {
 
     expect(result).toMatchObject({ status: 'unchanged', action: 'restore' });
     expect(supabase.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('reports the probe state it actually observed on a dry run', async () => {
+    // `banProbe: probe.state` was a pass-through no test could distinguish from
+    // a literal (red team RT2-06), and it selects whether a dry run WARNS that
+    // it could not read the ban state. Both arms are pinned: 'checked' by the
+    // dry-run test above, 'unavailable' here.
+    queuePreflight({ authSchema: false });
+
+    const result = await revokeAdmin(sql, supabase.client, { ...REVOKE_INPUT, dryRun: true });
+
+    expect(result).toMatchObject({ status: 'would_change', banProbe: 'unavailable' });
+    expect(formatRevokeReport(result, {
+      projectRef: STAGING_REF,
+      supabaseHost: `${STAGING_REF}.supabase.co`,
+      databaseTarget: stagingDbTarget,
+    }).join('\n')).toMatch(/auth\.users is not readable/);
   });
 
   it('attempts the transition when the ban-state probe is unavailable', async () => {
@@ -582,6 +669,27 @@ describe('revokeAdmin', () => {
     expect(supabase.updateUserById).toHaveBeenCalledWith(ADMIN_AUTH_ID, {
       ban_duration: '876000h',
     });
+  });
+
+  it('restores over a live short ban instead of reporting already_active', async () => {
+    // The horizon fix added a short-ban case for revoke and none for restore.
+    // Swapping the restore arm to `!state.bannedForFullTerm` passed all 47 tests
+    // (red team RT2-03), and would print "ALREADY ACTIVE … is not banned" with
+    // exit 0 over a ban that is very much in force.
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: ADMIN_USER_ID, role: 'admin', auth_id: ADMIN_AUTH_ID }]),
+    );
+    harness.sqlReturnQueue.push(mkTaggedResult([{ present: true }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{
+      banned_until: new Date(Date.now() + 60_000).toISOString(),
+      deleted_at: null,
+    }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    const result = await revokeAdmin(sql, supabase.client, { ...REVOKE_INPUT, action: 'restore' });
+
+    expect(result).toMatchObject({ status: 'changed', action: 'restore' });
+    expect(supabase.updateUserById).toHaveBeenCalledWith(ADMIN_AUTH_ID, { ban_duration: 'none' });
   });
 
   it('records the operator provenance on the audit row', async () => {
@@ -692,7 +800,10 @@ describe('formatRevokeReport', () => {
       { status: 'changed', action: 'restore', identity }, target,
     ).join('\n');
     expect(report).toMatch(/must\s+enrol manually at \/admin\/security/);
-    expect(report).not.toMatch(/enrols one if it has none/);
+    // Positive assertions only: `not.toMatch` on a string that no longer exists
+    // anywhere can never fail again (red team RT2-05). This one CAN: it pins the
+    // lenient-form claim ADR 0025 § Consequences actually makes.
+    expect(report).toMatch(/signs in at aal1/);
   });
 
   it('warns when a dry run could not read the ban state', () => {

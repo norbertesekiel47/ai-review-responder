@@ -295,7 +295,21 @@ export function classifyBanState(state: AuthIdentityState, now: number): BanClas
   if (!state.present) {
     return { present: false, deleted: false, bannedNow: false, bannedForFullTerm: false };
   }
-  const bannedUntil = state.bannedUntil === null ? null : Date.parse(state.bannedUntil);
+  // `timestamptz` has two non-finite literals, and `Date.parse` returns NaN for
+  // both — which would read as "not banned" and make `--restore` report
+  // ALREADY ACTIVE over a permanent ban (red team RT2-04). Handled by value.
+  const raw = state.bannedUntil?.trim().toLowerCase() ?? null;
+  if (raw === 'infinity') {
+    return { present: true, deleted: state.deletedAt !== null, bannedNow: true, bannedForFullTerm: true };
+  }
+  if (raw === '-infinity') {
+    return { present: true, deleted: state.deletedAt !== null, bannedNow: false, bannedForFullTerm: false };
+  }
+  // A real Postgres rendering is `2126-08-15 08:54:39.589579+00` — a SPACE
+  // separator and 6-digit microseconds. V8 accepts it (verified on the pinned
+  // Node 24 against a live value); anything it cannot parse is NOT treated as a
+  // ban, so the transition is attempted rather than silently skipped.
+  const bannedUntil = raw === null ? null : Date.parse(raw);
   const valid = bannedUntil !== null && Number.isFinite(bannedUntil);
   return {
     present: true,
@@ -638,6 +652,27 @@ export function resolveRevokeTarget(
  */
 export const AUTH_REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * The Supabase client options, as a VALUE so the bound is assertable.
+ *
+ * Inlined at the call site, deleting the whole `global.fetch` block passed the
+ * entire suite (red team RT2-02) — an unpinned timeout is the same class of gap
+ * as an unpinned ban duration. Verified against supabase-js 2.106.2: `global.fetch`
+ * is forwarded to `auth.admin`, the timer is per-request and unref'd, and auth-js
+ * never sets a competing `signal`.
+ */
+export function authClientOptions(
+  fetchImpl: typeof fetch = fetch,
+): { auth: { persistSession: boolean; autoRefreshToken: boolean }; global: { fetch: typeof fetch } } {
+  return {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) =>
+        fetchImpl(input, { ...init, signal: AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS) }),
+    },
+  };
+}
+
 async function main(): Promise<number> {
   const args = parseRevokeAdminArgs(process.argv.slice(2));
   const config = readMintConfig(args.envMode);
@@ -652,13 +687,7 @@ async function main(): Promise<number> {
     prepare: false,
     connection: { statement_timeout: 30_000 },
   });
-  const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      fetch: (input, init) =>
-        fetch(input, { ...init, signal: AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS) }),
-    },
-  });
+  const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey, authClientOptions());
 
   // Printed BEFORE the first write and before anything that can throw, so the
   // operator sees which project they are pointed at even on a run that dies.

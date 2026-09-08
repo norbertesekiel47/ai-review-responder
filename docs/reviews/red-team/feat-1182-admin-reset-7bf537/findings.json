@@ -5,253 +5,318 @@
   "branch": "feat/1182-admin-reset",
   "fork_sha": "c2de39d879c92cc657941b36d0be330cd0c20abf",
   "merge_base_sha": "c2de39d879c92cc657941b36d0be330cd0c20abf",
-  "head_sha": "ea534ae7bf206768bc113c2137565f94f19bd47a",
+  "head_sha": "7170c02cde39239e64a08949ac81574b49986b17",
   "intake_sha256": "c019d0b629f5a5ebf922da772df4f7bac4a936b024ee51d4e7d83b402e5aac47",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-08T00:00:00Z",
+  "round": 2,
+  "generated_at": "2026-09-08T09:45:00Z",
   "inventory": [
     {
       "id": "M1",
       "test": "banDurationFor / auditEventFor maps the action onto Supabase's documented ban vocabulary and one event name each",
       "file": "scripts/revoke-admin.ts:166",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT-01",
-      "reason": "REVOKE_BAN_DURATION '876000h' -> '1h': 30 passed, 0 failed"
+      "outcome": "killed",
+      "reason": "REVOKE_BAN_DURATION '876000h' -> 'none' (a revoke that UNBANS): 3 failed / 44 passed. Killers: the vocabulary test, 're-applies the revoke over a short pre-existing ban', 'records the operator provenance on the audit row'. RT-01 closed."
     },
     {
       "id": "M1b",
       "test": "banDurationFor / auditEventFor maps the action onto Supabase's documented ban vocabulary and one event name each",
       "file": "scripts/revoke-admin.ts:166",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT-01",
-      "reason": "REVOKE_BAN_DURATION '876000h' -> 'none' (a revoke that unbans): 30 passed, 0 failed"
+      "outcome": "killed",
+      "reason": "REVOKE_BAN_DURATION '876000h' -> '1h' (a revoke the admin outlives): 3 failed / 44 passed, same three killers. RT-01's weaker mutant closed too."
     },
     {
       "id": "M2",
-      "test": "revokeAdmin revoke bans the Auth identity with a ban_duration and never deletes a user",
-      "file": "scripts/revoke-admin.ts:169-171",
+      "test": "classifyBanState reads a live ban as banned now",
+      "file": "scripts/revoke-admin.ts:290",
       "outcome": "killed",
-      "reason": "banDurationFor arms swapped: 5 failures"
+      "reason": "bannedNow predicate inverted (`bannedUntil > now` -> `<= now`): 4 failed / 43 passed, including 'restore lifts the ban by sending ban_duration none'. RT-02's inversion is now killable because the predicate is TypeScript, not SQL."
     },
     {
       "id": "M3",
-      "test": "revokeAdmin revoke is idempotent: an already-banned identity reports already_revoked and writes no audit row",
-      "file": "scripts/revoke-admin.ts:331-333",
+      "test": "revokeAdmin refuses when auth.users carries no row for the linked auth_id",
+      "file": "scripts/revoke-admin.ts:313",
       "outcome": "killed",
-      "reason": "alreadyInTargetState predicate inverted: 7 failures"
+      "reason": "`present: row !== undefined` -> `present: true`: 2 failed / 45 passed \u2014 both refusal tests, including the restore direction. RT-03 closed."
     },
     {
       "id": "M4",
-      "test": "revokeAdmin attempts the transition when the ban-state probe is unavailable",
-      "file": "scripts/revoke-admin.ts:269",
+      "test": "revokeAdmin lowercases and trims the email before the lookup",
+      "file": "scripts/revoke-admin.ts:238",
       "outcome": "killed",
-      "reason": "probeBanState unavailable arm -> { state: 'checked', banned: true }: 4 failures"
-    },
-    {
-      "id": "M4b",
-      "test": "revokeAdmin attempts the transition when the ban-state probe is unavailable",
-      "file": "scripts/revoke-admin.ts:269",
-      "outcome": "equivalent",
-      "reason": "The literal RT prompt mutant { state: 'unavailable', banned: true } provably changes nothing: alreadyInTargetState (line 331) requires probe.state === 'checked' before reading probe.banned, and formatRevokeReport reads only result.banProbe, which carries the state and never the banned flag. No other consumer of the returned object exists. Not run; superseded by M4, which mutates the state as well."
+      "reason": "`WHERE lower(email) = ${email}` -> `WHERE email = ${email}`: 1 failed. The test now asserts the SQL text, not only the bound value. RT-07 closed."
     },
     {
       "id": "M5",
-      "test": "revokeAdmin lowercases and trims the email before the lookup",
-      "file": "scripts/revoke-admin.ts:238",
-      "outcome": "inconclusive",
-      "finding_id": "RT-07",
-      "reason": "WHERE lower(email) -> WHERE email: 30 passed, 0 failed. Reclassified inconclusive/oracle rather than a confirmed P0: the survival is real but the consequence is below P0 (both write paths lowercase before insert), and I cannot prove behaviour is preserved either - a mixed-case users.email row would go unfound. The missing oracle is the claim. Filed as RT-07 (P2).",
-      "inconclusive_class": "oracle"
+      "test": "revokeAdmin records the operator provenance on the audit row",
+      "file": "scripts/revoke-admin.ts:497",
+      "outcome": "killed",
+      "reason": "`operator: input.operator,` deleted from the admin_audit_log payload: 1 failed. RT-06 closed."
     },
     {
       "id": "M6",
-      "test": "buildRevokeGuardInput + assertMintTarget carries allowProduction straight off the parsed selector",
-      "file": "scripts/revoke-admin.ts:151",
+      "test": "formatRevokeReport names the right unchanged state for each direction",
+      "file": "scripts/revoke-admin.ts:576-578",
       "outcome": "killed",
-      "reason": "allowProduction hard-coded true: 2 failures"
+      "reason": "ALREADY REVOKED / ALREADY ACTIVE swapped: 1 failed. Each direction is asserted positively AND negatively, so the swap cannot pass. RT-08 closed."
     },
     {
       "id": "M7",
-      "test": "revokeAdmin refuses when the users row exists but its role is not admin",
-      "file": "scripts/revoke-admin.ts:311",
+      "test": "resolveRevokeTarget THROWS rather than describing an unconfirmed target",
+      "file": "scripts/revoke-admin.ts:624",
       "outcome": "killed",
-      "reason": "role !== 'admin' refusal dropped: 1 failure"
+      "reason": "the `assertMintTarget(buildRevokeGuardInput(...))` line deleted outright: 2 failed (both resolveRevokeTarget guard tests). The seam is now inside a tested function. RT-04 closed."
     },
     {
       "id": "M8",
-      "test": "revokeAdmin against live local Postgres revoke writes exactly one admin_revoked row whose actor FK resolves to the revoked admin",
-      "file": "scripts/revoke-admin.ts:405",
-      "outcome": "inconclusive",
-      "finding_id": "RT-06",
-      "reason": "operator provenance dropped from the audit payload: 30 passed, 0 failed. Reclassified inconclusive/oracle: the survival is real and not provably equivalent (the row loses its attribution), but the blast radius is a ledger field, below P0. Filed as RT-06 (P2).",
-      "inconclusive_class": "oracle"
+      "test": "buildRevokeGuardInput + assertMintTarget carries allowProduction straight off the parsed selector",
+      "file": "scripts/revoke-admin.ts:155",
+      "outcome": "killed",
+      "reason": "`allowProduction: args.envMode === 'production'` -> `true`: 3 failed, one of them the new resolveRevokeTarget production test. Still killed after the extraction."
     },
     {
       "id": "M9",
-      "test": "revokeAdmin revoke is idempotent: an already-banned identity reports already_revoked and writes no audit row",
-      "file": "scripts/revoke-admin.ts:272",
-      "outcome": "inconclusive",
-      "finding_id": "RT-02",
-      "reason": "ban predicate inverted to (banned_until IS NULL): 30 passed, 0 failed. Reclassified inconclusive/oracle rather than a confirmed P0: no test in either suite executes this statement at all (the unit suite mocks sql and never inspects its text; the live database has no auth.users relation, so the to_regclass guard short-circuits first), so what the run proves is an absent oracle, not a fake assertion. The shipped predicate is correct. Filed as RT-02 (P1).",
-      "inconclusive_class": "oracle"
+      "test": "classifyBanState separates a short ban from this script's full-term revoke",
+      "file": "scripts/revoke-admin.ts:182",
+      "outcome": "killed",
+      "reason": "REVOKE_HORIZON_MS 365d -> 0: 2 failed, including 'revokeAdmin re-applies the revoke over a short pre-existing ban'. The spec reviewer's horizon P2 is pinned."
+    },
+    {
+      "id": "M11",
+      "test": "revokeAdmin refuses a soft-deleted Auth identity",
+      "file": "scripts/revoke-admin.ts:315",
+      "outcome": "killed",
+      "reason": "`deletedAt: row?.deleted_at ?? null` -> `deletedAt: null`: 1 failed. The pass-through from probe row to classification IS pinned (the SQL that produces the column is not \u2014 see M10)."
+    },
+    {
+      "id": "M14",
+      "test": "revokeAdmin attempts the transition when the ban-state probe is unavailable",
+      "file": "scripts/revoke-admin.ts:304",
+      "outcome": "killed",
+      "reason": "`if (!guard?.present) return unavailable` -> `if (guard?.present)`: 12 failed / 35 passed. The to_regclass short-circuit is well covered in both directions."
     },
     {
       "id": "M10",
       "test": "revokeAdmin a --dry-run runs every refusal check and writes nothing to Postgres or Supabase Auth",
-      "file": "scripts/revoke-admin.ts:337",
+      "file": "scripts/revoke-admin.ts:309-310",
       "outcome": "killed",
-      "reason": "dry-run guard removed: 1 failure"
-    },
-    {
-      "id": "M11",
-      "test": "revokeAdmin against live local Postgres revoke writes exactly one admin_revoked row whose actor FK resolves to the revoked admin",
-      "file": "scripts/revoke-admin.ts:394-395",
-      "outcome": "killed",
-      "reason": "entityType/entityId retargeted: 1 failure"
+      "inconclusive_class": "oracle",
+      "finding_id": "RT2-01",
+      "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-01 was closed. The probe statement's TEXT is now the oracle: `deleted_at::text -> NULL::text` KILLED, and the sibling `banned_until::text -> NULL::text` KILLED."
     },
     {
       "id": "M12",
-      "test": "revokeAdmin a failed Auth ban writes no audit row and reports failure",
-      "file": "scripts/revoke-admin.ts:348",
+      "test": "authClientOptions bounds every Auth request with an abort signal",
+      "file": "scripts/revoke-admin.ts:656-660",
       "outcome": "killed",
-      "reason": "Auth error branch removed (report 'changed' on a failed call): 2 failures"
-    },
-    {
-      "id": "M18",
-      "test": "revokeAdmin restore is idempotent: an identity that is not banned reports already_active and writes no audit row",
-      "file": "scripts/revoke-admin.ts:280",
-      "outcome": "inconclusive",
-      "finding_id": "RT-03",
-      "reason": "row?.banned ?? false -> ?? true: 30 passed, 0 failed. Reclassified inconclusive/oracle for the same reason as M9 - the branch is unreachable from either suite. Reading it exposed the real defect: the comment at lines 277-279 is false for --restore. Filed as RT-03 (P1).",
-      "inconclusive_class": "oracle"
-    },
-    {
-      "id": "M19",
-      "test": "formatRevokeReport leads with the TARGET line on every outcome",
-      "file": "scripts/revoke-admin.ts:474-477",
-      "outcome": "inconclusive",
-      "finding_id": "RT-08",
-      "reason": "ALREADY REVOKED / ALREADY ACTIVE messages swapped: 30 passed, 0 failed. Reclassified inconclusive/oracle: not provably equivalent (the operator is told the opposite of the truth on a documented recovery path) but report text only, below P0. Filed as RT-08 (P2).",
-      "inconclusive_class": "oracle"
-    },
-    {
-      "id": "H-main",
-      "test": "(no covering candidate: main() is not exported and no test imports it)",
-      "file": "scripts/revoke-admin.ts:503-535",
-      "outcome": "inconclusive",
       "inconclusive_class": "oracle",
-      "reason": "The composition root - the assertMintTarget call at line 511, the four exit codes, the print ordering, the postgres client options and the sql.end() finally - is executed by no test in the changed surface. Reverse import search over scripts/ci/__tests__ finds no importer. Filed as RT-04."
+      "finding_id": "RT2-02",
+      "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-02 was closed. The options are extracted as the fetch-injectable `authClientOptions()`: dropping the AbortSignal.timeout KILLED, and hoisting it to one shared signal per client KILLED."
     },
     {
-      "id": "H-e2e",
-      "test": "(Playwright / e2e specs)",
-      "file": "e2e/",
+      "id": "M13",
+      "test": "revokeAdmin restores over a live short ban instead of reporting already_active",
+      "file": "scripts/revoke-admin.ts:461-462",
+      "outcome": "killed",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT2-03",
+      "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-03 was closed. The missed sibling now has its own test: the restore arm swapped to `!state.bannedForFullTerm` KILLED."
+    },
+    {
+      "id": "M15",
+      "test": "revokeAdmin reports the probe state it actually observed on a dry run",
+      "file": "scripts/revoke-admin.ts:466",
+      "outcome": "killed",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT2-06",
+      "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-06 was closed. Both arms are pinned now, so `banProbe: probe.state -> 'checked'` KILLED by the new unavailable-arm test."
+    },
+    {
+      "id": "M16",
+      "test": "classifyBanState treats an unparseable banned_until as not banned rather than as banned",
+      "file": "scripts/revoke-admin.ts:288",
+      "outcome": "equivalent",
+      "reason": "Dropping `Number.isFinite(bannedUntil)` from `valid` provably preserves behaviour: the only value it excludes is NaN, and IEEE-754 makes `NaN > x` false for every x, so both `bannedNow` and `bannedForFullTerm` are already false without the guard. A claim about the mutant, not the oracle \u2014 no test could kill it and none should."
+    },
+    {
+      "id": "X1",
+      "test": "scripts/ci/__tests__/revoke-admin.integration.test.ts (5 live-DB cases)",
+      "file": "scripts/ci/__tests__/revoke-admin.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Out of scope per the protocol: e2e specs get fragile-assertion review only, and none reference the revoke path."
+      "reason": "Unchanged by the fix commit (`git diff ea534ae7 7170c02c` touches neither the file nor its fixtures). Ran green in every one of the 18 supervised runs as part of the 47-test surface; round 2's remit is the fix hunks."
     },
     {
-      "id": "H-mig",
-      "test": "(supabase/migrations)",
+      "id": "X2",
+      "test": "docs/runbooks/mint-admin.md \u00a7 audit_failed recovery SQL",
+      "file": "docs/runbooks/mint-admin.md:302-329",
+      "outcome": "excluded",
+      "reason": "A doc claim, resolved under Duty 3 rather than by mutation: the INSERT was executed VERBATIM against the local test database at migrations head inside a rolled-back transaction and inserted exactly one row. Evidence in findings.md \u00a7 RT-05."
+    },
+    {
+      "id": "X3",
+      "test": "supabase/migrations/**",
       "file": "supabase/migrations/",
       "outcome": "excluded",
-      "reason": "Out of scope per the protocol: the database is provisioned before the run, so mutating a migration changes nothing under test. No migration is in this diff."
+      "reason": "Out of scope by the skill's rule \u2014 the database is provisioned before the run, so mutating a migration changes nothing under test. Unchanged by this branch in any case."
     }
   ],
   "findings": [
     {
       "id": "RT-01",
       "severity": "P0",
-      "title": "The revoke ban duration's VALUE is pinned by nothing - setting it to 'none' (a revoke that unbans) passes all 30 tests",
+      "title": "The revoke ban duration's VALUE is pinned by nothing",
       "at": "scripts/revoke-admin.ts:166",
       "duty": 1,
-      "disposition": "open",
-      "arbiter_reasoning": "Not equivalent: the constant is the entire content of the Auth-side state change, and the operator-facing report ('REVOKED: ... the Supabase Auth identity is banned') is byte-identical under the mutant, so the failure is silent by construction. Not an unexecuted branch: four tests drive the action === 'revoke' arm through banDurationFor and assert on updateUserById's argument - they assert the mutated value because every assertion spells the expectation as the same imported symbol. The restore side IS literally pinned at revoke-admin.test.ts:175; the revoke side is the omission."
+      "disposition": "fixed",
+      "reason": "CLOSED. revoke-admin.test.ts:175-177 now pins the literal (`expect(REVOKE_BAN_DURATION).toBe('876000h')`) beside the pre-existing restore pin. Re-run in this round: M1 ('none') 3 failed, M1b ('1h') 3 failed. Verified by mutation, not by reading the fix."
     },
     {
       "id": "RT-02",
       "severity": "P1",
-      "title": "probeBanState's ban predicate is executed by no test in either suite; inverting it makes every reset a silent no-op",
+      "title": "The ban-state predicate was executed by nothing",
       "at": "scripts/revoke-admin.ts:272",
       "duty": 1,
-      "disposition": "open",
-      "reason": "Uncovered hunk rather than a fake assertion: the shipped predicate is correct and no test claims to cover it. The unit suite mocks sql and asserts only call.values and /^\\s*SELECT/; the live suite runs against a database with no auth.users relation, so the to_regclass guard short-circuits before this statement is ever issued."
+      "disposition": "fixed",
+      "reason": "CLOSED for the DECISION. The predicate is now the pure `classifyBanState(state, now)` with an injected clock, driven by seven direct unit cases. M2 (invert `bannedNow`) 4 failed. The residual is the SQL that FEEDS it, which is still executed by no test \u2014 see RT2-01, and note that the fix added a second column read into that same unpinned statement."
     },
     {
       "id": "RT-03",
       "severity": "P1",
-      "title": "The `?? false` probe default is unpinned, and the comment above it is false for --restore: a missing auth.users row is reported as ALREADY ACTIVE",
+      "title": "The `?? false` default was unpinned and its comment was false for --restore",
       "at": "scripts/revoke-admin.ts:277-280",
       "duty": 1,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "CLOSED. Absence is now a REFUSAL (`auth_identity_missing`), never a state, with one test per direction \u2014 including the one that matters, 'refuses a restore when auth.users carries no row, instead of reporting already_active'. M3 (`present: row !== undefined` -> `present: true`) 2 failed. The false comment is gone."
     },
     {
       "id": "RT-04",
       "severity": "P1",
-      "title": "main() is uncovered - deleting the assertMintTarget call is invisible to the test surface",
+      "title": "main() was uncovered, including the production guard call",
       "at": "scripts/revoke-admin.ts:511",
       "duty": 1,
-      "disposition": "open",
-      "reason": "buildRevokeGuardInput was extracted so an allowProduction:true mutant could not ship green, and that half works; the extraction moved the untested seam one line outward rather than closing it."
+      "disposition": "fixed",
+      "reason": "CLOSED for the GUARD. `resolveRevokeTarget` asserts then describes and is the only production producer of a RevokeTargetDescription; M7 (delete the assertMintTarget call) 2 failed. main() itself remains uncovered and the fix added new behaviour into it \u2014 see RT2-02."
     },
     {
       "id": "RT-05",
       "severity": "P1",
-      "title": "The runbook's manual audit repair for a committed-ban/failed-audit run cannot be executed as written: admin_audit_log.id has no DEFAULT",
+      "title": "The runbook's manual audit repair could not be executed as written",
       "at": "docs/runbooks/mint-admin.md:299",
-      "duty": 5,
-      "disposition": "open"
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "CLOSED. The runbook now carries a runnable INSERT that supplies `id` via `gen_random_uuid()`. Executed VERBATIM against the local test DB at migrations head inside a rolled-back transaction: INSERT 0 1, payload byte-shaped like the script's (minus `operator`, plus `manual_recovery: true`, which the doc calls out). The cited `117_admin_audit_log.sql:50` resolves exactly to `id UUID PRIMARY KEY,`."
     },
     {
       "id": "RT-06",
       "severity": "P2",
-      "title": "Operator provenance can be dropped from the admin_audit_log payload undetected",
+      "title": "Operator provenance could be dropped from the audit payload undetected",
       "at": "scripts/revoke-admin.ts:405",
       "duty": 1,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "CLOSED. M5 (delete `operator: input.operator,`) 1 failed."
     },
     {
       "id": "RT-07",
       "severity": "P2",
-      "title": "lower(email) can be dropped from the users lookup undetected",
+      "title": "lower(email) could be dropped from the lookup undetected",
       "at": "scripts/revoke-admin.ts:238",
       "duty": 1,
-      "disposition": "open",
-      "reason": "Filed P2, not P0: users.email is a plain case-sensitive VARCHAR UNIQUE and the convention is real (three other lookup sites), but both write paths lowercase before insert, so the mutant is only reachable for a row this system did not create."
+      "disposition": "fixed",
+      "reason": "CLOSED. M4 1 failed. The test asserts the statement text, which is the only oracle a mocked `sql` can offer for a column-side predicate, and its comment says so."
     },
     {
       "id": "RT-08",
       "severity": "P2",
-      "title": "The ALREADY REVOKED / ALREADY ACTIVE operator messages can be swapped undetected",
-      "at": "scripts/revoke-admin.ts:474-477",
+      "title": "ALREADY REVOKED / ALREADY ACTIVE could be swapped undetected",
+      "at": "scripts/revoke-admin.ts:475",
       "duty": 1,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "CLOSED. M6 1 failed; both directions asserted positively and negatively."
     },
     {
       "id": "RT-09",
       "severity": "P2",
-      "title": "The unit suite commits the owner's real staging auth_id in full, which the roster in the same PR deliberately masks",
+      "title": "The unit suite committed an identifier the roster deliberately masks",
       "at": "scripts/ci/__tests__/revoke-admin.test.ts:190",
       "duty": 2,
-      "disposition": "open"
+      "disposition": "fixed",
+      "reason": "CLOSED for this branch. The fixtures are synthetic (revoke-admin.test.ts:294-295). `rg '728769a7|40361d1c38ca'` over the tree finds the value only in four PRE-EXISTING docs from earlier tickets (2026-08-04 MFA spec/plan/evidence) plus the masked roster row \u2014 outside this branch's diff, and worth its own ticket if the masking is meant to be repo-wide."
+    },
+    {
+      "id": "RT2-01",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "The fix put a NEW column read into probeBanState's statement, and that statement is still executed by no test - nulling deleted_at neutralises the new auth_identity_deleted refusal and passes all 47",
+      "at": "scripts/revoke-admin.ts:309-310",
+      "arbiter_reasoning": "Not equivalent: `deleted_at` is the sole input to `state.deleted`, which is the sole gate on the brand-new `auth_identity_deleted` refusal, so the mutant silently removes a refusal arm the runbook now documents to operators. Not a proven-fake test: no test claims the statement - the unit suite mocks `sql` entirely and every live-DB suite short-circuits on the to_regclass guard, because scripts/ci/test-db-bootstrap.sql:53-57 provisions schema auth with auth.uid() and NO auth.users relation. So this is an ORACLE gap (inconclusive), not a P0. Second, sharper half, measured not reasoned: I built a real auth.users in the local test DB inside a rolled-back transaction and dropped the column - probeBanState THROWS `column \"deleted_at\" does not exist`, and nothing in revokeAdmin or main() catches it, so the script would die with EXIT_FAILED. auth.users.deleted_at is a GoTrue column since 2022 and both projects are modern, so this is a loud failure on an unlikely target rather than a silent one - but it is a new hard dependency on a second auth-schema column that no repo fixture provisions and no test pins.",
+      "reason": "FIXED by the orchestrator at the round-2 cap. The probe statement's TEXT is now the oracle (the to_regclass guard means no live-DB suite can reach the statement): the dry-run test asserts banned_until::text, deleted_at::text and FROM auth.users. Mutants re-executed by the orchestrator at this HEAD: `deleted_at::text -> NULL::text` KILLED, `banned_until::text -> NULL::text` KILLED, and `if (!guard?.present)` -> `if (false)` KILLED."
+    },
+    {
+      "id": "RT2-02",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "The 15s Auth timeout the fix added is pinned by nothing - deleting the whole global.fetch AbortSignal.timeout block passes all 47",
+      "at": "scripts/revoke-admin.ts:656-660",
+      "arbiter_reasoning": "Unexecuted branch, so inconclusive/oracle rather than P0: main() is not exported and no test imports it. `rg AUTH_REQUEST_TIMEOUT_MS scripts/` returns three hits, all inside the production file - the constant is exported and nothing consumes it. The bound is real when it runs: I confirmed against the installed tree that supabase-js 2.106.2 forwards settings.global.fetch into _initSupabaseAuthClient (dist/index.mjs:656, :803, :822), so it does reach auth.admin.updateUserById; that AbortSignal.timeout is constructed per invocation inside the arrow function, so 15s is per-request and not per-client-lifetime; that Node's timeout signal is unref'd, so it cannot hold the CLI open; and that auth-js 2.106.2 never sets its own `signal` (dist/main/lib/fetch.js:117 spreads requestParams only), so the override clobbers nothing. What is missing is any oracle: the spec reviewer's fix can be deleted in a later edit and ship green, and the failure mode it prevents is a CLI that hangs forever mid-revoke.",
+      "reason": "FIXED by the orchestrator at the round-2 cap. The client options are extracted as the exported, fetch-injectable `authClientOptions()`, with two tests: one asserting an AbortSignal reaches every request and AUTH_REQUEST_TIMEOUT_MS is 15000, one asserting the signal is per-request rather than shared. Mutants re-executed: dropping the AbortSignal.timeout KILLED, hoisting it to one shared signal per client KILLED."
+    },
+    {
+      "id": "RT2-03",
+      "severity": "P1",
+      "duty": 4,
+      "disposition": "fixed",
+      "title": "Missed sibling case: the horizon fix added a short-ban test for --revoke and none for --restore, so the restore arm of alreadyInTargetState is unpinned against a live ban",
+      "at": "scripts/revoke-admin.ts:461-462",
+      "arbiter_reasoning": "Swapping the restore arm from `!state.bannedNow` to `!state.bannedForFullTerm` passes all 47. Arbiter: the branch IS executed - both restore tests reach it - but neither fixture discriminates, because queuePreflight offers exactly two ban shapes, null and a 100-year ban, and the two predicates agree on both. That makes it plausibly-equivalent-under-the-tested-inputs, i.e. an oracle gap, not a proven-fake test. The behaviour the mutant buys is the exact RT-03 shape in the other direction: a `--restore` over a live ban shorter than 365 days would print `ALREADY ACTIVE: users.id=... is not banned; nothing written.` and exit 0 while the admin is still banned. The shipped predicate is correct; what is missing is the mirror of the case the fix DID add for revoke ('re-applies the revoke over a short pre-existing ban'). One fixture closes it: queue a ban inside REVOKE_HORIZON_MS and assert a restore still calls updateUserById.",
+      "reason": "FIXED by the orchestrator at the round-2 cap. The missed sibling now has its own test \u2014 a restore over a live sub-horizon ban must transition, not report already_active. Mutant re-executed: the restore arm swapped to `!state.bannedForFullTerm` KILLED."
+    },
+    {
+      "id": "RT2-04",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "classifyBanState collapses an unparseable banned_until into 'not banned', and for --restore that is a false ALREADY ACTIVE - the RT-03 shape through a different door",
+      "at": "scripts/revoke-admin.ts:288-292",
+      "reason": "FIXED by the orchestrator at the round-2 cap. classifyBanState now reads the two timestamptz infinities BY VALUE before Date.parse, with a test for each direction, plus a test driving a real Postgres rendering (space separator, 6-digit microseconds). Mutant re-executed: dropping the 'infinity' arm KILLED."
+    },
+    {
+      "id": "RT2-05",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "fixed",
+      "title": "A dead assertion in the new restore-wording test: not.toMatch(/enrols one if it has none/) pins the exact deleted string, so it can never fail again",
+      "at": "scripts/ci/__tests__/revoke-admin.test.ts:695",
+      "reason": "FIXED by the orchestrator at the round-2 cap. The dead `not.toMatch` on a deleted string is replaced by a positive assertion on the lenient-form claim ADR 0025 Consequences actually makes (`signs in at aal1`), which can fail."
+    },
+    {
+      "id": "RT2-06",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "banProbe is passed through unpinned, so the dry-run 'auth.users is not readable' warning can be disabled silently (PRE-EXISTING, outside the round-2 remit)",
+      "at": "scripts/revoke-admin.ts:466",
+      "reason": "FIXED by the orchestrator at the round-2 cap rather than accepted: no owner was reachable in this session to authorize an accepted-risk disposition, and the gap closes with one assertion. Both arms of `banProbe` are now pinned \u2014 'checked' by the dry-run test, 'unavailable' by a new dry-run-with-no-auth-schema test that also asserts the warning line that arm selects."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 19,
-    "killed": 8,
-    "survived_confirmed_p0": 2,
+    "inventory_total": 20,
+    "killed": 16,
+    "survived_confirmed_p0": 0,
     "equivalent": 1,
-    "inconclusive": 6,
+    "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 2,
-    "findings_total": 9,
-    "p0_open": 1,
-    "p1_open": 4,
-    "p2_open": 4,
+    "excluded": 3,
+    "findings_total": 15,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 0,
-    "rejected": 0
+    "fixed": 15,
+    "rejected": 0,
+    "orchestrator_executed_mutants": 17
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }
