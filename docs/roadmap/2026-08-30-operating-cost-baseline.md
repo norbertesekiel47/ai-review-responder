@@ -1,14 +1,15 @@
-# Operating cost baseline (2026-08-30)
+# Operating cost baseline — August 30 snapshot
 
-Every external service RepWorth pays for, what it costs, and what that implies
-for break-even. Costs were priced by the owner on 2026-08-30 and seeded into
-the expense tracker the same day.
+**Interpretation refreshed 2026-09-07; vendor amounts remain the owner's
+2026-08-30 snapshot.** The owner priced this service inventory and reported
+seeding it into the expense tracker that day. No September invoices, bank
+balances or tracker records were inspected for this refresh.
 
-**This document is a snapshot for decision-making. The tracker is the live
-register.** When the two disagree, the tracker wins — update this file from it,
-not the other way round.
+This is a service-budget snapshot, not complete company burn, cash on hand or
+a runway calculation. The tracker is the intended live register; reconcile
+it with invoices and payment evidence before updating actual amounts here.
 
-- **Live register:** <https://repworth-expense-tracker.vercel.app/>
+- **Live register:** [Expense tracker](https://repworth-expense-tracker.vercel.app/)
 - **Tracker repo:** `norbertesekiel47/repworth-expense-tracker`
 - **Seed source of truth:** `scripts/seed-data.mjs` in that repo (PR #1)
 - **Vendor bill template:** `docs/finance/cogs-template.md`
@@ -17,32 +18,39 @@ not the other way round.
 
 ---
 
-## 1. Headline
+## 1. What the snapshot shows
 
 | Measure | Amount |
 |---|---|
-| Total monthly equivalent | **$729.17** |
-| True fixed floor (zero customers) | **$399.17** |
-| Usage-dependent | **$330.00** |
+| Mixed monthly equivalent: plans, estimates and caps | **$729.17** |
+| Subscription/annual-service allowance, including estimates | **$399.17** |
+| Usage-dependent allowance | **$330.00** |
 | Of which is an operator-set **cap**, not a bill | **$220.00** |
-| Current-month recorded spend (August 2026) | $830.00 |
+| August seeded spend reported on August 30; not invoice-verified here | $830.00 |
 
-The $830 figure is higher than $729.17 because two annual charges (Zoho $60,
-GoDaddy $50) were seeded with a 2026-08-30 purchase date and land wholly in
-August. Correcting those dates from the invoices drops August to about $720.
+The original record attributed the $830 figure to two annual charges (Zoho
+$60, GoDaddy $50) seeded with an August 30 purchase date. Their actual payment
+dates and any tracker correction remain unverified. Do not substitute a
+recalculated monthly equivalent for cash paid in August.
 
-**$729.17 is a ceiling, not a bill.** $220 of it — OpenAI at $100 and Upstash
-at $120 — are spend limits the owner set, not invoices received. Replace both
-with actuals once real bills land.
+**$729.17 is neither a bill nor a global spending ceiling.** $220 of it —
+OpenAI at $100 and Upstash at $120 — represents owner-reported limits, not
+invoices. Their current enforcement was not checked. Other usage, overages,
+missing expenses and timing can change cash needs. Actual cash, required
+funding amount and cash-needed date are still unknown.
 
 ---
 
 ## 2. Full service inventory
 
-32 services. Amounts are monthly equivalents; annual charges are divided by 12.
+32 services in the August 30 inventory. Amounts are monthly equivalents;
+annual charges are divided by 12. Every plan, deployment state and operational
+note in this section is historical unless separately verified below.
 
-**Confidence** — `actual` = known invoice or plan price; `estimate` = upper
-bound of a band the owner gave; `cap` = an operator-set spend ceiling.
+**Original confidence labels retained:** `actual` = owner-reported invoice or
+plan price, not proof of payment reviewed here; `estimate` = owner-supplied
+allowance; `cap` = reported operator limit, not a measured bill or proof of a
+hard provider cutoff.
 
 ### AI (6220) — $120.00
 
@@ -113,7 +121,7 @@ bound of a band the owner gave; `cap` = an operator-set spend ceiling.
 | Service | Monthly | Model | Confidence | Note |
 |---|---|---|---|---|
 | Claude Code | $200.00 | subscription | actual | Max 20x. **Largest single line in the register.** Separate from `ANTHROPIC_API_KEY`. |
-| ChatGPT / Codex | $20.00 | subscription | actual | Plus. Powers the `codex-rescue` agent. |
+| ChatGPT / Codex | $20.00 | subscription | actual | August 30 record: Plus, associated with the then-used `codex-rescue` agent. Current plan not rechecked. |
 | 21st.dev | $20.00 | subscription | estimate | UI component MCP. |
 | Infisical | $0.00 | — | actual | Free tier. Secrets, set up in WS8 preflight. |
 | Firecrawl | $0.00 | — | actual | Lapsed or free. Research output in `.firecrawl/`. |
@@ -125,15 +133,18 @@ bound of a band the owner gave; `cap` = an operator-set spend ceiling.
 | Runway | $35.00 | subscription | actual | Pro. Adopted 2026-08-30 to replace Higgsfield. |
 | Higgsfield | $0.00 | — | cancelled | Superseded by Runway. Archive once the last invoice clears. |
 
-### Payments (6300) and Legal (6400) — $0.00
+### Payments (6300) and Legal (6400) — $0.00 recorded allowance
 
 | Service | Monthly | Model | Confidence | Note |
 |---|---|---|---|---|
-| Stripe | $0.00 | usage | actual | Percentage of processed revenue. Costs nothing until revenue starts. |
+| Stripe | $0.00 | usage | actual | August allowance with no processing volume. Add applicable transaction, refund/dispute and other charges from actual activity. |
+
+No legal-cost amount was recorded; zero in this inventory does not mean legal
+review is free or that the company has no legal obligations.
 
 ---
 
-## 3. Rollups
+## 3. Historical budget rollups
 
 ### By category
 
@@ -163,105 +174,125 @@ bound of a band the owner gave; `cap` = an operator-set spend ceiling.
 data/storage, messaging, payments. "Overhead" = developer tools, marketing
 media, domain, mail, CI.
 
-### Fixed floor vs usage-dependent
+### Subscription/annual allowances vs usage-dependent allowances
 
 | | Monthly | Contents |
 |---|---|---|
-| Fixed platform | $124.17 | Vercel, Railway, Supabase, Resend, Sentry, Zoho, GoDaddy, GitHub |
-| Fixed overhead | $275.00 | Claude Code, ChatGPT, 21st.dev, Runway |
-| **True floor** | **$399.17** | Paid whether or not anyone signs up |
+| Platform service allowance | $124.17 | Vercel, Railway, Supabase, Resend, Sentry, Zoho, GoDaddy, GitHub |
+| Tooling/media allowance | $275.00 | Claude Code, ChatGPT, 21st.dev, Runway |
+| **Subscription/annual allowance** | **$399.17** | Includes GoDaddy and 21st.dev estimates; not full company cash needs |
 | Usage-dependent | $330.00 | OpenAI, Upstash, Zernio, Maps, Anthropic, PostHog |
-| **Ceiling total** | **$729.17** | |
+| **Mixed budget total** | **$729.17** | No global ceiling implied |
 
-**Two observations that matter.**
+**What can and cannot be inferred.**
 
-1. **Developer tooling is 69% of the fixed floor.** $275 of $399.17 is Claude
-   Code, ChatGPT, 21st.dev and Runway. The entire production platform —
-   hosting, database, worker, email, error tracking — costs $124.17. That
-   ratio is normal for a pre-revenue solo founder and it is the largest lever
-   the owner controls. It is **not** COGS and never enters gross margin.
-2. **Only ~$190/month scales with customers** — Zernio, the two LLMs, and
-   Maps. Marginal cost per location is cents, not dollars: a draft on
-   `gpt-4o-mini` costs a fraction of a cent, and Zernio is the only material
-   per-review unit cost. **The constraint is the fixed floor, not COGS.**
+1. Tooling/media account for $275 of the $399.17 allowance, about 69%.
+   Reviewing those costs is useful, but a cut can also reduce delivery
+   capacity. The founder approves changes; no cancellation is authorized here.
+2. Per-location cost is unknown. LLM inference alone excludes ingestion,
+   posting, messaging, retries, hosting, support and founder delivery time.
+   Measure activity and reconcile vendor bills before claiming unit margin.
+3. Monthly equivalents conceal payment dates. Annual renewals, legal fees,
+   founder support, taxes and other obligations must enter the dated cash
+   forecast. Do not use this snapshot alone to infer affordable operation.
 
 ---
 
-## 4. Break-even
+## 4. Pricing inputs and cash coverage
 
-Customers needed to cover the **$399.17 fixed floor**, ignoring the small
-marginal COGS per location. Prices are per account with one location included
-(`TIER_CONFIG`, `src/lib/accounts/tier-config.ts`).
+The current [tier configuration](../../src/lib/accounts/tier-config.ts), read
+September 7, contains these monthly base amounts with one location included.
+These are source values, not a check of active Stripe prices, sales availability
+or existing-account billing snapshots. No billing change is made here.
 
-| Tier and price | Status | Customers to break even |
+| Tier | List / founding monthly base | Additional location monthly |
 |---|---|---|
-| Copilot $19 | founding, shipped | **22** |
-| Copilot $29 | list, shipped | **14** |
-| Autopilot $49 | founding, shipped | **9** |
-| Autopilot $69 | list, shipped | **6** |
+| Copilot | $29 / $19 | $15 |
+| Autopilot | $69 / $49 | $20 |
 
-Against the **platform floor only** ($124.17, excluding developer tooling),
-Copilot at $29 list breaks even at **5 customers**.
+The earlier “six Autopilot customers break even” calculation only divided
+selected service allowances by gross subscription revenue. It was not business
+break-even and is withdrawn. Unknown contribution margin prevents a defensible
+customer-count break-even estimate.
+
+For planning, net customer contribution = revenue collected − refunds/taxes
+owed − payment and delivery costs attributable to that work. Track support
+and labor separately, then include their cash obligations once in the company
+forecast. Fixed obligations divided by a positive, evidenced average
+contribution can inform an operating break-even estimate; tier mix and
+collection timing still matter.
+
+The CFO must reconcile opening unrestricted cash, dated receipts, all
+outflows, founder support and a chosen reserve. Compare current commitments,
+approved lower outflows and conditional financing/paid-pilot cases. Forecast
+balance by date = opening cash + cumulative receipts − cumulative outflows.
+Uncertain funding stays outside the survival case. The operative decision date
+is the earlier company/founder support deadline minus an explicitly chosen
+lead-time buffer. Neither its date nor amount can be calculated from this
+inventory. Generic growth/churn assumptions in [model.md](../finance/model.md)
+are not actual receipts or evidence that continuation is affordable.
 
 ---
 
-## 5. Competitive price context
+## 5. Competitive prices: first-party check on September 7
 
-From the owner's own research, `.firecrawl/reviewflowz-comparison.md`
-(retrieved 2026-08). Per location per month:
+These advertised prices replace the older comparison-blog estimates. Plans
+differ in scope, usage, locations, billing period and service obligations;
+they are not equivalent bundles or evidence that RepWorth is the cheapest.
 
-| Competitor | Price |
+| Competitor | What the current public page establishes |
 |---|---|
-| Podium | ~$450 |
-| Birdeye | $299–349 |
-| Reputation.com | $299+ |
-| Reviewflowz | $80 (1 profile), $120 (3), $350 (10) |
-| RightResponse.AI | $8 headline, **~$70 real** at 150 reviews/month (credit-based) |
-| Grade.us "Grow" | $59 |
+| [TrueReview](https://www.truereview.co/pricing) | Monthly billing: Starter $49, Small Business $99, Premium $299. Annual commitments show lower monthly equivalents. Check included locations/requests before comparing. |
+| [NiceJob](https://get.nicejob.com/pricing) | Reviews $75/month and Pro $125/month, USD. The page also carries other website/bundle offers; do not blend their scope or prices. |
+| [Birdeye](https://birdeye.com/pricing/) | Pricing form based on business and location information; no numeric package quote verified. |
+| [Podium](https://www.podium.com/getpricing) | Custom quote by business/industry; no numeric package quote verified. |
 
-RepWorth ships at **Copilot $29 list / $19 founding**, **Autopilot $69 list /
-$49 founding**. The cheapest credible competitor is roughly twice the Copilot
-list price; Birdeye is about twelve times it.
-
-RightResponse.AI is the cautionary case: an $8 headline that reaches ~$70
-through opaque credits. The adopted pricing thesis (hybrid base + usage,
-outcome credits only once attribution is defensible) explicitly rejects that
-opacity.
+RepWorth's pricing decision should use owner value, willingness to pay and
+cost to serve alongside these alternatives. Keep the two supervision choices
+and transparent included usage. Outcome fees remain optional hypotheses in
+the [investor overlay](2026-08-29-investor-theses-overlay.md), not an adopted
+metering commitment. Exact future prices remain open; honor beta and existing
+customer agreements.
 
 ---
 
-## 6. Outstanding corrections
+## 6. August tracker reconciliation items — current status unknown
 
-Fix these in the tracker, then update this file.
+These items were recorded on August 30. The tracker has not been rechecked;
+do not label them still open or mark them resolved without evidence.
 
 1. **Zoho and GoDaddy purchase dates.** Both annual, both seeded with
    2026-08-30, which puts $110 of annual charges into August. Correct from the
-   invoices. Forecast burn is unaffected.
+   invoices. Monthly amortization and actual cash dates serve different purposes.
 2. **GoDaddy amount.** Seeded at $50/year as the upper bound of a band.
    Correct from the renewal invoice.
-3. **18 missing receipts.** Every seeded row lacks a receipt URL and invoice
-   number, so Accounting flags all 18. Expected, not a fault.
+3. **18 missing receipts were reported.** Reconcile actual receipt URLs and
+   invoice numbers; the historical count is not today's verified count.
 4. **Replace the two caps with actuals.** OpenAI ($100) and Upstash ($120) are
-   ceilings. Once real invoices land, the $729.17 ceiling should fall
-   materially.
+   reported limits. Actual usage could differ; do not predict the total bill
+   or assume the mixed budget is an enforceable ceiling.
 5. **Sentry** was purchased on 2026-08-30 and is recorded at $26 on that
    assumption. Confirm against the first invoice.
 
 ---
 
-## 7. Known documentation gaps (still open)
+## 7. Documentation checks repeated on September 7
 
-Found during the 2026-08-30 service audit, not yet fixed:
+The files below were read in this refresh. They are outside this document's
+edit scope; a document finding is not proof of current production state.
 
-1. **`docs/legal/sub-processors.md` does not list PostHog.** It is read by
-   production code and named in the launch checklist. This is a compliance
-   gap, not a documentation gap.
-2. **`docs/eservices-variables.md` §1 says Upstash runs the BullMQ queue.**
-   It runs the cache. Railway Redis runs the queue — `CLAUDE.md` and
-   `REDIS_QUEUE_URL` are correct; that table row is stale.
-3. **`docs/finance/cogs-template.md` has no row for Zernio, Stripe, or Google
-   Maps.** Zernio is a core variable cost, so its absence understates COGS.
-   The template also predates the 11-category scheme the tracker now uses.
+1. [Sub-processors](../legal/sub-processors.md) still omits PostHog. The
+   [launch checklist](../launch-checklist.md) calls for reconfirmation when
+   PostHog is live. Production enablement was not checked, so no legal
+   compliance conclusion follows from the omission alone. Counsel review of
+   the broader package remains recorded as pending.
+2. [Service map](../eservices-variables.md) §1 still attributes cache and
+   BullMQ to Upstash, while its Redis section correctly separates Upstash
+   cache from Railway queue. The sub-processor table also says Upstash
+   handles queues; that description needs reconciliation with the architecture.
+3. [COGS template](../finance/cogs-template.md) still lacks Zernio, Stripe and
+   Google Maps rows. Reconcile these actual costs before using its totals;
+   the snapshot's category map alone does not make the template complete.
 
 ---
 
@@ -287,11 +318,17 @@ block. Use these codes in `cogs-template.md` and any bookkeeping export.
 
 ---
 
-## 9. How to refresh this document
+## 9. How to refresh amounts and make cash decisions
 
-1. Open the tracker and read Dashboard → forecast burn, plus Budgets.
-2. Export CSV from Accounting for the per-row detail.
-3. Update §2, §3 and §4 here. Note the date in the title.
-4. If a service is added or dropped, update `scripts/seed-data.mjs` in the
-   tracker repo **and** `docs/eservices-variables.md` §1 in this repo, so the
-   service map and the cost register do not drift.
+1. Read the tracker and obtain owner-approved invoice/payment evidence. Keep
+   raw financial records private; record sanitized amounts, dates and sources.
+2. Reconcile service usage, caps, receipts and credits; distinguish annual
+   amortization from each actual payment date. Add missing company obligations.
+3. Update this snapshot with a new verification date and explain changed
+   assumptions. Do not overwrite historical estimates as though they were bills.
+4. Prepare current, lean and conditional-cash cases; rank real funding paths
+   by evidenced clearing dates. Signed pilots and term sheets are not cash.
+5. CFO presents cash decisions in week 1 and at day 7/day 14, or sooner
+   if required. Ask before spending, contacting anyone, changing services or
+   seeking revised terms. Approved changes to the tracker/service map are
+   separate actions; no such changes occurred in this refresh.

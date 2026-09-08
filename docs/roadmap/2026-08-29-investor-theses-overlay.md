@@ -1,141 +1,175 @@
-# Investor-theses overlay (owner-approved 2026-08-29)
+# Investor theses and validation plan
 
-Three theses came back from investor/expert conversations: (1) sell the
-outcome, not the tool; (2) build for AI agents as customers; (3) target
-previously-impossible industries. This doc records the verdict on each,
-the market evidence behind it, and the exact roadmap changes adopted. It is
-the citable answer when someone asks "why not pure outcome pricing" or "why
-not agent-first now."
+Originally recorded 2026-08-29. **Revised 2026-09-07** after the founder interview.
+The filename is retained so existing references continue to work.
 
-**Evidence base:** three `/last30days` research runs on 2026-08-29
-("outcome-based pricing AI SaaS", "MCP agent-first SaaS", "AI-native
-vertical software") — ~310 items across Reddit, Hacker News, TikTok,
-Instagram, GitHub, YouTube, and web supplements. Supplement records:
-`~/Documents/Last30Days/*-raw-v3.md` (local, not in repo). Key sources are
-linked inline. Coverage caveats: X/Twitter was not searched; Reddit was
-rate-limited partway in each run.
+The founder heard three themes at investor events: sell outcomes, build for
+agents, and explore work that recent AI advances make possible. **No investor
+has assessed RepWorth yet.** These themes are hypotheses to test with actual
+buyers and relevant investors; event advice and broad adoption statistics do
+not establish a funding commitment or a roadmap priority.
 
-**Headline verdict: the phase order stands.** The theses change packaging,
-MCP timing, positioning language, and headline metrics — not the build
-sequence (connectors → recovery → ontology → truth/policy).
+The immediate constraint is cash within the founder-reported one-to-two-month
+runway. Actual available cash, required amount and binding date are unknown.
+The next month combines beta learning, one useful product improvement and
+funding discovery. Work beyond that month depends on affordable continuation.
 
-## 1. Thesis: "Sell the outcome" → verdict: sell outcome, charge hybrid
+## 1. Sell owner work handled; validate the price
 
-**What the market actually does.** Hybrid (base fee + usage/outcome layer)
-is the industry standard at 41% adoption, and buyers prefer consumption
-(43%) over outcome structures (27%), per
-[Futurum Group](https://futurumgroup.com/press-release/are-outcome-based-and-hybrid-ai-pricing-models-rewriting-the-vendor-playbook/).
-A review of 107 live pricing pages across 30+ verticals concluded "seats
-didn't die, they became the floor"
-([Maxio / Ben Murray](https://www.youtube.com/watch?v=oheMDXqmlqs)).
-The celebrated outcome pricers are actually output pricers — Intercom
-$0.99/resolved conversation, HubSpot $0.50/resolution since April 2026, per
-[Userpilot](https://userpilot.com/blog/saas-pricing-models/) — and the
-named killer of true outcome deals is attribution:
-"attribution disputes kill deals," per
-[demg.ai](https://demg.ai/blog/outcome-based-saas-pricing-ai-agents-2026/).
+Lead with the job: reputation work handled with less effort from the owner.
+The first outcome to prove is **recurring owner time returned**. Count upload
+preparation, approvals, edits, supervision and failures; report onboarding
+separately. Work the owner previously ignored is additional coverage, not time
+saved. Keep founder/co-founder support separate so manual service does not
+masquerade as product automation.
 
-**RepWorth changes (adopted):**
+Bookings and revenue can support the story when there is traceable evidence.
+Distinguish a source-linked booking from proof that RepWorth caused an
+incremental sale. QR scans, review counts and replies are not revenue.
 
-1. **Outcome SLO packaging.** The controllable promises go into tier copy:
-   every review answered within the configured SLA; every completed job
-   triggers the configured ask; every critical negative escalated; every
-   autonomous action policy-scoped and auditable.
-2. **Autonomy telemetry.** Autonomy rate (% of reputation work completed
-   with zero human intervention) and human-correction rate, computed from
-   the run spine + `agent_outcomes` — no new schema. Founder dashboard now;
-   customer Impact page in Phase 7.
-3. **Outcome credits later, on Stripe Billing Meters**, anchored against
-   the $0.50–$0.99 per-resolution market anchors — only once attribution is
-   defensible (recovery outcomes, attributed reviews).
-4. **Rejected: pure outcome pricing.** Attribution hazard + the standing
-   FTC sentiment-incentive constraint (roadmap README). `agent_outcomes`
-   stays instrumented-not-billed until then (design Decision 2).
+Keep the understandable **Copilot / Autopilot subscription shape**: different
+amounts of owner supervision, with clearly defined work, included usage and
+locations. Exact price and willingness to pay remain validation questions.
+Current code prices are recorded in the [cost baseline](2026-08-30-operating-cost-baseline.md);
+this document does not change billing or existing-account snapshots. Honor
+beta promises and founding terms when seeking a paid continuation decision.
 
-## 2. Thesis: "Build for AI agents" → verdict: agent-READY now, agent-REVENUE later
+Outcome positioning does not require outcome-contingent billing. Credits or
+fees tied to outcomes are optional later experiments, conditional on buyer
+demand, clear definitions, reliable attribution, viable delivery costs and
+appropriate review. Support-ticket resolution fees are not evidence of what
+a reputation customer will pay. No Billing Meters project is committed here.
 
-**What the market actually does.** The infrastructure is sprinting ahead of
-demand: 17,000+ public MCP servers, protocol under the Linux Foundation,
-Gartner projecting 40% of enterprise apps with task-specific agents by
-end-2026, per [Modall](https://modall.ca/blog/saas-trends). But a
-registry-listed MCP server's own access log showed
-"60 named crawlers, zero real client sessions" in 24 hours, per
-[r/mcp](https://www.reddit.com/r/mcp/comments/1w06n4d/every_bot_that_crawled_my_mcp_server_in_24_hours/).
-Security lags adoption: ~half of orgs experimenting, only 11% in
-production, 88% reporting agent security incidents, per
-[Obot](https://obot.ai/resources/learning-center/mcp-security/). And the
-protocol's maintainers named **agent identity** a first-class roadmap
-priority on 2026-08-22, per
-[@identityjedi](https://www.tiktok.com/@identityjedi/video/7679407320169860365).
-Frontier demos exist (agents buying via
-[WebMCP](https://www.youtube.com/watch?v=EoNH3Tn8wYE), autonomous Lightning
-payments per
-[r/mcp](https://www.reddit.com/r/mcp/comments/1w1ih4v/lightning_enable_mcp_mcp_server_that_enables_ai/))
-but there are no agent buyers in the SMB reputation segment yet.
+Promise only work within an agreed scope and verified operating conditions.
+Consent, suppression, policy holds, owner decisions and platform availability
+can prevent an action. Do not promise every review answered, every job sent an
+ask, a universal response SLA, guaranteed reviews or guaranteed revenue.
 
-**RepWorth changes (adopted):**
+Start impact evidence now with a worksheet and existing records; do not wait
+for the P7 dashboard. Observe baseline effort before selecting thresholds and
+before evaluating the change. Track eligible work, completed work, owner
+interventions, corrections, unresolved cases and support effort with their
+denominators. Any calculated time-saving estimate stays labeled until checked
+against observed work. A short beta does not establish long-term retention.
 
-1. **Typed-tool (API-first) standing constraint, effective now.** Every new
-   domain module (Phase 1 connectors, Phase 2 recovery verbs, Phase 3
-   ontology queries) ships with a schema-validated callable interface, so
-   the public surface later is a wrapper, not a project. Recorded in
-   `2026-08-26-agentic-architecture.md` §1.
-2. **Read-only MCP pilot pulled forward: after Phase 2** (was Phase 8).
-   Five read tools, OAuth 2.1, scoped tokens per action-risk class, MCP
-   actor attribution on the run spine (extends the Channel-actor pattern),
-   listed in MCP registries as a free distribution probe. **Design center:
-   the agent-identity gap** — the ecosystem's declared unsolved problem is
-   precisely what the Judge, action-risk classes, and per-account policy
-   grants already answer.
-3. **AEO probe.** Periodic cost-bounded checks of how a business appears in
-   AI-assistant answers for its category + location, stored
-   competitor-snapshot-style. Consumer agents already mediate discovery.
-4. **Rejected for now:** write-capable MCP tools (88%-incident security
-   climate; read-first is both safer and a selling point), agentic-payment
-   work, and any agent-framework adoption (standing refusal, architecture
-   doc §5).
+## 2. Build reusable operations; require demand for agent access
 
-## 3. Thesis: "Rebuild impossible industries" → verdict: rebuild the JOB, keep the wedge
+The [architecture](2026-08-26-agentic-architecture.md) supports keeping domain
+operations reusable behind typed, validated interfaces. Apply that pattern to
+the operation actually being built; avoid speculative public-tool inventories.
+Internal reuse is useful whether the next caller is a worker, an owner-facing
+interface or an external agent.
 
-**What the market actually does.** Vertical AI is a real capital wave —
-$3.07B across 73 disclosed deals in the trailing year — but 72.6% of the
-capital concentrates in Legal, Insurance, Construction, and Healthcare, per
-[Euclid Ventures](https://insights.euclid.vc/p/the-vertical-report-2026-full-version);
-local-business reputation is comparatively open ground. The founder
-community is actively stress-testing the category
-("[AI-native service companies, real or gimmick?](https://www.reddit.com/r/ycombinator/comments/1vygizd/ainative_service_companies_real_or_gimmick/)",
-r/ycombinator, 44 comments). "AI employee" is already SMB shelf language —
-Vendasta markets MARiO as "a fully autonomous AI employee," RingCentral
-sells an AI Receptionist, per
-[Vendasta](https://www.vendasta.com/blog/ai-native-saas/). SMB adoption is
-real: over half of SMBs use AI, most daily; 58% report saving 20+
-hours/month, per
-[Thryv](https://www.businesswire.com/news/home/20251216113386/en/Thryv-Experts-Share-Top-AI-Trends-That-Will-Drive-Small-Business-Succes).
-The "SaaS is dead" panic already peaked and corrected, per
-[Long Angle](https://www.longangle.com/alts-education/software-ai).
+An MCP or authenticated API pilot requires a **named prospective user and a
+recurring task**, access to the needed data, and a bounded capacity decision.
+It is not automatically scheduled after P2. Start with the smallest useful
+read surface if that meets the demand. Draft generation changes state and can
+incur cost; it is not a read-only operation.
 
-**RepWorth changes (adopted):**
+Existing approval policies and action records are foundations, not a complete
+external-agent identity system. Machine authentication, tenant scope,
+revocation, permissions, quotas and actor attribution need their own design
+and verification. Any write inherits the same approval and policy rules as
+other callers.
 
-1. **The impossible product, not an impossible industry.** The endgame
-   narrative is the front-office employee no 5-person business could ever
-   afford: reputation manager + recovery desk + solicitation, governed. The
-   wedge (reputation) and phases are unchanged — they ARE the rebuild when
-   sold as headcount replacement.
-2. **Category-language rule.** Use "AI employee" to name the category (it
-   primes buyers) but never lead with it alone — competitors print it.
-   Lead with the governed part; it is the only claim they cannot copy.
-   Recorded in the positioning doc §3 and brand story §5.
-3. **Proof metrics in the market's own language:** hours saved per month
-   (the 20+ hours Thryv benchmark) next to autonomy rate. The
-   r/ycombinator "real or gimmick" debate defines the proof burden:
-   retention plus a measured number, not a demo.
+An integration does not guarantee marketplace acceptance or distribution. An
+MCP listing does not prove that agents will choose or pay for RepWorth.
+Permissioned business context may become valuable, but neither a connector
+nor stored action history establishes a data moat by itself.
 
-## 4. Change log (what this overlay edited)
+No AI-answer visibility/AEO monitoring program is committed. A proposed
+probe needs named customer demand, a useful and reproducible measurement,
+an action the result would inform, and an approved cost/capacity allowance.
 
-| File | Change |
-|---|---|
-| `README.md` | Locked decision 5 (this overlay); pricing open-decision gains the recommended hybrid shape |
-| `2026-08-26-forward-roadmap.md` | Cross-cutting: outcome SLO packaging + autonomy telemetry; MCP pilot pull-forward; AEO probe; pricing recommendation. Phase 8 keeps only the write surface |
-| `2026-08-26-agentic-architecture.md` | §1 typed-tool standing constraint; §3/§4 MCP pilot timing + agent-identity design center |
-| `2026-08-26-positioning-governed-autonomy.md` | §3 category-language check ("AI employee" is shelf language) + proof metrics |
-| `2026-08-26-brand-story.md` | §5 voice rule: category words name, governance proves |
+## 3. Use new capabilities to remove an observed burden
+
+“Go where AI could not go six months ago” is a prompt to investigate a
+specific capability change. It is not a reason to switch industries or build
+a broad front-office suite. The test is whether a newly feasible operation
+removes a meaningful burden for the current buyer, with acceptable quality,
+cost and supervision.
+
+Select **one customer type from actual beta users** for the coming month; the
+roster, workload and shared software are still unknown. Keep reputation as
+the starting job. Observe the existing journey and discuss a concrete paid
+offer in parallel. The [forward roadmap](2026-08-26-forward-roadmap.md) owns
+the provisional engineering/discovery limits. A limit is not an allocation:
+hold the hours in reserve until the forward roadmap's paid-decision or
+existing-beta quality test justifies a selected improvement.
+
+P1–P8 remain stable roadmap topic identifiers, not a fixed delivery order.
+Observe impact immediately. If recovery becomes the justified slice, establish
+the minimum verified business facts and permissions from P4 before enabling
+recovery actions; do not wait for a complete business-knowledge platform.
+Parallel research can inform the decision, but only one product slice is
+active.
+
+Governed automation is useful positioning, not an exclusive claim competitors
+cannot copy. Competitors already market automation and outcomes; for example,
+[Birdeye's pricing page](https://birdeye.com/pricing/) itself uses outcome
+positioning. Differentiation must be demonstrated through a buyer's specific
+workflow, effort, quality, paid preference and repeated use. “AI-native” and
+“AI employee” alone do not establish it.
+
+## 4. Cash and investor evidence run alongside the beta
+
+The CFO leads cash reconciliation and the financial ask. The COO prepares
+the pitch and owns the investor process, pitching alongside the CEO/CTO;
+the CMO supplies buyer, market and distribution evidence, with CFO support.
+The four founders report 40–60 hours each per week; the [role assignment draft](2026-09-08-founder-90-day-plan/README.md)
+plans around 40 and confirms weekly commitments. A new feature,
+public launch or polished deck is not a prerequisite for private investor
+discovery.
+
+Follow the forward roadmap's September 8 cash sheet and September 14/21
+gates, bringing them forward if actual obligations require it. The cash sheet
+names possible sources, amounts, decision-makers, conditions and clearing
+dates; it also costs funded, smaller-scope and pause options for the founders
+to decide. If no source can credibly clear in time, bring the continuation
+choice forward. Missing inputs or a missing decision do not authorize
+discretionary building or spending. Use the forward roadmap's dated decision
+and escalation rules. These dates are planning targets, not completed work.
+
+In week 1, prepare an honest brief with zero paying customers, founder-reported
+beta participation, current product scope, evidence gaps and a costed funding
+ask once cash inputs arrive. Obtain permission before messaging anyone,
+submitting an application or spending money. The COO records actual
+responses, decisions, conditions and next dates; CFO verifies financial
+figures and received cash. Researched names are not
+investor interest, and signed commitments are not cleared funds.
+
+Run only three active learning questions this month:
+
+1. Does the chosen customer have enough recurring work and value to pay?
+2. What credible funding route and requested proof could fit the cash date?
+3. Would the proposed product slice materially change either answer?
+
+Record each investor objection with the investor's fit, evidence requested,
+owner and next decision date. In week 1, use concrete feedback to decide what
+proof to collect or which funding route to pursue. Three independent repeated
+objections trigger investigation; one factual blocker can trigger it sooner.
+Neither automatically changes the roadmap. A change needs a causal reason,
+customer evidence or an explicit strategic hypothesis, financing relevance,
+effort impact and founder decision. Preserve paying-customer evidence when
+weighing investor preferences.
+
+Calculate the cash decision date from dated obligations and founder support
+needs, with an explicitly agreed buffer. Compare actual receipts and
+obligations at day 7 and day 14, or earlier if required. Financing, paid
+continuation and lower outflows are distinct options; none is assumed
+available. Preserve beta commitments. Do not call continuation affordable
+while its cash amount, horizon or deadline remains unknown.
+
+At each major checkpoint/workstream end, run the requested two-round Claude
+challenge and revision before the next major commitment. Evidence and
+decisions, rather than feature count, determine the next step.
+
+## 5. What changed on September 7
+
+This refresh replaces the August overlay's mandatory hybrid-credit direction,
+automatic post-P2 MCP timing, immediate AEO probe, fixed phase sequence,
+universal service promises and exclusive-governance claim. The original social
+research is historical context, not current proof of demand or investor fit.
+Use the [roadmap index](README.md) and [forward roadmap](2026-08-26-forward-roadmap.md)
+for the coordinated plan, with the cost snapshot's stated limits when making
+cash decisions.

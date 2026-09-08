@@ -1,84 +1,100 @@
-# RepWorth Product Roadmap (folder of record)
+# RepWorth product roadmap
 
-This folder owns **product/market sequencing**: what is built, what comes next,
-in what order, and why. It sits one layer above the engineering design docs.
+Last revised: **2026-09-07**, following the owner's approval to update this
+folder after the roadmap review. Filenames keep their original dates so
+existing references remain usable.
 
-It does NOT replace:
+RepWorth should handle reputation work for business owners and show what it
+achieved. The immediate product goal is to prove one useful workflow for one
+customer type during the beta, with measured owner effort and evidence of
+willingness to pay. Funding work runs alongside the beta because the owner
+reported only one to two months of runway; the actual cash requirement and
+deadline still need to be recorded.
 
-- `docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` — the
-  **design of record** for the agentic platform. Its §8 (as-built) and §9
-  (solicitation roadmap) remain authoritative for that subsystem's status.
-- `docs/superpowers/specs/` + `docs/superpowers/plans/` — per-feature locked specs.
-- `docs/runbooks/` — operational procedures (deploys, cutovers, flag flips).
+The [forward roadmap](2026-08-26-forward-roadmap.md) owns the current order of
+work. Its Phase 1–8 labels identify areas of future work; they are no longer
+a mandatory sequence or a checklist that must be finished before launch.
 
-When a phase in this folder starts, it gets its own spec/plan under
-`docs/superpowers/` (via the normal grill → spec → `/feature` path). This folder
-records the sequence and the decisions; the specs record the mechanics.
+**Four-founder assignment draft (September 7):** the owner clarified a
+CEO/CTO, COO, CFO and CMO, each available 40–60 hours weekly, with the CFO
+also helping marketing. The [90-day founder plan](2026-09-08-founder-90-day-plan/README.md)
+contains separate role briefs for September 8–December 6, a marketing
+strategy, milestones and conditions for faster growth. It adds operating
+assignments; its numeric targets are proposed, not achieved results.
 
 ## Files
 
-| File | Contents |
+| File | Purpose |
 |---|---|
-| `2026-08-26-current-state.md` | Verified inventory of what is built today, plus the explicit gap list |
-| `2026-08-26-forward-roadmap.md` | Phased forward plan (Phases 1–8) in the locked order, with scope sketches and open design questions per phase |
-| `2026-08-26-verticals.md` | The three committed verticals: ICPs, trigger events, integration targets, per-vertical review-topic ontologies, compliance notes |
-| `2026-08-26-positioning-governed-autonomy.md` | The governed-autonomy positioning: message architecture, proof points, claims to avoid |
-| `2026-08-26-brand-story.md` | The brand story of record for campaigns, social media, videos, landing pages, and the website — narrative, pillars, channel playbook, honesty ledger |
-| `2026-08-26-agentic-architecture.md` | Agent-architecture principles (as-built invariants), memo→as-built map, sequencing of future agentic work, and the public API/MCP strategy |
-| `2026-08-29-investor-theses-overlay.md` | The three investor theses (outcome, agents, industry rebuild): verdicts, 30-day market evidence, and the roadmap changes adopted from them |
+| [Current state](2026-08-26-current-state.md) | Implementation inventory, dated evidence, and remaining uncertainty about deployment |
+| [Forward roadmap](2026-08-26-forward-roadmap.md) | Immediate priorities, dependencies, and longer-term feature options |
+| [Verticals](2026-08-26-verticals.md) | Candidate industries, how to choose the first customer type, and later integration/topic options |
+| [Positioning](2026-08-26-positioning-governed-autonomy.md) | Customer promise, supporting controls, and limits on public claims |
+| [Brand story](2026-08-26-brand-story.md) | Plain-language story and evidence requirements for marketing |
+| [Agentic architecture](2026-08-26-agentic-architecture.md) | Existing foundation, future dependencies, and conditions for external agent access |
+| [Investor theses](2026-08-29-investor-theses-overlay.md) | Ideas to test with buyers and investors; pricing and funding decisions |
+| [Launch explainer](2026-08-29-launch-explainer-script.md) | A short demonstration first, with a longer film concept for later |
+| [Operating costs](2026-08-30-operating-cost-baseline.md) | Dated service-cost inventory and the missing inputs for a cash plan |
+| [Roadmap review](2026-09-07-roadmap-review.md) | Two Claude review rounds, changes made, and documentation checks |
 
-## Locked decisions (owner, 2026-08-26)
+## Current decisions
 
-1. **Vertical commitment.** RepWorth targets three verticals: **Home services**,
-   **Food & beverage** (restaurants, cafes, bars), and **Beauty & personal
-   care** (salons, facial/skin clinics, massage centers). Details and rollout
-   order recommendation: `2026-08-26-verticals.md`.
-2. **Build order.** The next four product efforts, in order:
-   **event-triggered review requests (CRM/FSM/booking integrations) →
-   reputation recovery workflows → review-topic ontology intelligence →
-   Business Truth + policy layer.** Rationale: `2026-08-26-forward-roadmap.md`.
-3. **Positioning.** Market RepWorth around **governed autonomy** now — the
-   Judge/Governor/veto-window/audit-spine trust infrastructure is the shipped
-   differentiator, not a future layer. Details:
-   `2026-08-26-positioning-governed-autonomy.md`.
-4. **QR before launch.** The QR-code review request (customer scans →
-   location's Google write-review page) ships **before the production
-   launch**, pulled forward out of Phase 1 onto the launch track. Scope:
-   `2026-08-26-forward-roadmap.md` Phase 0.
-5. **Investor-theses overlay (2026-08-29).** Outcome SLO packaging +
-   autonomy-rate telemetry; typed-tool (API-first) constraint on all new
-   domain modules; read-only MCP pilot after Phase 2 (write tools stay
-   Phase 8); AEO probe. Pure outcome pricing, agentic-payment work, and
-   agent frameworks stay rejected. Verdicts + evidence:
-   `2026-08-29-investor-theses-overlay.md`.
+1. **Focus the next month.** Choose one customer type from the actual beta
+   cohort. Home services, beauty/personal care, and food/beverage remain
+   candidate markets. The first type and connector are still undecided.
+2. **Measure value from the start.** Record the owner's time spent doing the
+   work, reviewing drafts, correcting mistakes, and getting help. Label
+   estimates as estimates. Track commercial decisions alongside usage.
+3. **Choose one engineering improvement.** Use observed beta problems to
+   select it only when it blocks a paid decision or an existing beta promise.
+   Until then, keep engineering hours in reserve. The forward roadmap defines
+   its provisional limits, early cash gates and continuation decision.
+4. **Put necessary facts before dependent automation.** Recovery messages
+   must use approved business facts and rules. The minimum needed from
+   Phase 4 comes before that recovery work; it need not wait for topic analysis.
+5. **Lead with the owner's result.** Approval controls, Judge, Governor,
+   and audit records support that promise. They do not establish an exclusive
+   or uncopyable advantage by themselves.
+6. **Keep Copilot and Autopilot as the working packages.** Test willingness
+   to pay and cost to serve. This documentation update changes no billing
+   configuration, prices, or existing account agreements.
+7. **Build external agent access when there is a user for it.** An MCP pilot,
+   AI-search experiment, additional platform, or new industry competes for
+   capacity with the beta's demonstrated needs.
 
-## Open decisions (flagged, not yet made)
+## What remains open
 
-- **Pricing.** Current live pricing is Copilot $29 / Autopilot $69 per account
-  (founding $19/$49, deadline 2027-01-01; location overage $10/$20). The
-  2026-08-26 external research memo recommends $79/$149/$249 **per location**.
-  These differ by ~3–5×. Decide before scaled acquisition spend; the
-  grandfathering infrastructure (stored prices on `accounts`, invariant #9a)
-  makes later repricing safe for existing customers. The recommended SHAPE
-  was recorded 2026-08-29 (hybrid: subscription base now, outcome credits
-  later; never pure outcome) — see the overlay doc §1; the price POINTS
-  remain open. See `2026-08-26-forward-roadmap.md` § Cross-cutting.
-- **Vertical rollout order** within the three committed verticals (a
-  recommendation is given in `2026-08-26-verticals.md`, not locked).
+- Beta account count, customer types, software used, review volume, and
+  baseline effort; the five interested prospects are not automatically five
+  active beta users or paying customers.
+- Cash on hand, payment obligations, minimum founder support, cash-needed
+  date, and each founder's week-specific allocation within the reported
+  40–60 available hours.
+- The first engineering improvement, its acceptance criteria, and the
+  customer evidence needed to continue, change direction, or stop it.
+- Actual investor feedback on RepWorth and any financing timeline.
+- Current launch gates, legal review, and deployed feature availability.
 
-## Provenance
+## Relationship to engineering documents
 
-Synthesized 2026-08-26 from: (a) an external deep-research memo ("RepWorth
-Roadmap", owner-supplied, 2026-08-26) covering strategy, competitors, pricing,
-and agent/MCP architecture; (b) a code-grounded assessment of that memo against
-this repository; (c) the design of record §8/§9. Where the memo assumed
-something needed building that already exists, this folder records the
-corrected state.
+This folder owns product priorities. The
+[agentic design of record](../future-plans/2026-07-01-agentic-reputation-platform-design.md),
+[feature specs](../superpowers/specs/), [plans](../superpowers/plans/), and
+[runbooks](../runbooks/) own implementation requirements and operating
+procedures. A roadmap entry does not override a safety invariant, authorize
+a deployment, or prove that a feature is live. Features still follow the
+repository's normal specification and implementation workflow.
 
-## Maintenance
+## Decision history and maintenance
 
-- Update `current-state.md` when a roadmap phase ships (same PR discipline as
-  other docs: fix cross-references in the same change).
-- Record new owner decisions in the "Locked decisions" list above with a date.
-- Do not fork a second status inventory — link to the design of record for
-  agentic-platform detail.
+The August 26 plan selected three industries and the sequence connectors →
+recovery → topics → business facts. The August 29 overlay pulled MCP and
+AI-search experiments forward. The September 7 owner-approved revision
+supersedes that fixed sequence with the priorities above. The longer-term
+feature sketches remain available for later decisions.
+
+Update the relevant document when evidence or a decision changes, record the
+date, and fix references in the same change. Keep deployment claims tied to
+dated environment evidence. At major checkpoints, repeat the two-round
+Claude challenge and record objections and resulting changes. Ask the owner
+before spending money or messaging anyone.

@@ -1,24 +1,34 @@
-# Current state — what RepWorth has actually built (2026-08-26)
+# Current state — implementation inventory (updated 2026-09-07)
 
-Verified against: design of record §8 (as-built, 2026-07-22) and §9
-(solicitation, updated 2026-08-26), `.claude/CLAUDE.md`, staging evidence files
-under `docs/runbooks/evidence/`, and targeted code reads. Every claim below has
-a code or doc pointer so a future session can re-verify instead of trusting
-this snapshot.
+The filename is stable. The original 2026-08-26 inventory drew on design of
+record §8 (2026-07-22), §9 (updated 2026-08-26), project instructions and dated
+staging evidence under `docs/runbooks/evidence/`. Those historical checks are
+not fresh verification of every row.
+
+The 2026-09-07 refresh made targeted source checks at `4aa132b`: QR,
+Refusal ledger/read surface, run-spine and solicitation lifecycle, reporting,
+tier configuration, Judge gate and source/publisher seams. **Built** below
+means implementation described by the linked code or original inventory;
+rows marked **source checked Sep 7** identify this refresh's checks. This is
+not a complete code audit. No application, browser, deployment, flag, Stripe
+or database state was inspected; no current production-readiness claim follows.
 
 ## 1. One-paragraph summary
 
-The agentic platform Phase 1 (WS1–WS8) is **fully built and staging-proven**:
-run spine, triage, Guardian escalation, trust dial + veto window, persona
-surfaces, Judge + Governor, eval-in-CI, and Copilot/Autopilot tier wiring.
-Solicitation shipped in two waves — watch-mode (2026-07-26) and **send-mode,
-live on staging as of 2026-08-26** (map #617 closed, evidence
-`docs/runbooks/evidence/2026-08-24-solicitation-send-mode-staging-flip.md`).
-The production stack is deliberately **not stood up yet** — the strategy is one
-production bring-up at launch; all autonomy flags are OFF in prod. Copilot is
-launchable now with zero autonomy flags.
+RepWorth has bounded event-driven workflows for review handling, owner
+approval, automatic-policy handling, supervision and solicitation. The
+original inventory records staging evidence for WS1–WS8 and solicitation
+send-mode, including
+`docs/runbooks/evidence/2026-08-24-solicitation-send-mode-staging-flip.md`.
+QR and the Refusal ledger/read surface are now present in source. These are
+useful foundations for reducing owner work; they do not by themselves prove
+net time saved, a moat, current live availability or launch readiness.
 
 ## 2. Capability inventory
+
+P1–P8 below are stable roadmap topic identifiers, not a fixed chronological
+build sequence. Current selection/dependencies live in
+`2026-08-26-forward-roadmap.md`.
 
 ### 2.1 Review ingestion & sources
 
@@ -29,8 +39,8 @@ launchable now with zero autonomy flags.
 | CSV review ingest | ✅ Built | `worker/jobs/csv-ingest/` |
 | `NormalizedReview` DTO contract (source-agnostic prompt builder) | ✅ Built (invariant #7) | `src/lib/` review source seam |
 | Review sentiment (deterministic star-based `deterministic_star_v1`) | ✅ Built | `src/lib/reviews/sentiment.ts` |
-| Direct Google Business Profile API access | ⏳ Application filed 2026-07-01, pending; `google_review_name` capture ships since migration 070 to keep the adapter path open | design §8.4 |
-| Non-Google platforms (Yelp, Facebook, Tripadvisor, Trustpilot) | ❌ Not built | roadmap Phase 6 |
+| Direct Google Business Profile API access | Historical inventory records application filed 2026-07-01; current approval/access unknown. `google_review_name` storage keeps a future adapter path open | design §8.4, `src/lib/reviews/types.ts` |
+| Non-Google platforms (Yelp, Facebook, Tripadvisor, Trustpilot) | ❌ No implementation established here; current identity/source/publisher still carry Google/Zernio assumptions. Each platform requires verified access and capability/policy work | roadmap P6, `src/lib/reviews/types.ts`, `src/lib/publishing/review-publisher.ts` |
 
 ### 2.2 Response generation & brand voice
 
@@ -43,7 +53,7 @@ launchable now with zero autonomy flags.
 | Voice Report Card (owner-facing screen of learned register traits + activation meter) | ✅ Built (watch-mode probe) | design §9.2 |
 | Prompt policy + version hash recorded on every `api_costs` row | ✅ Built | `src/lib/responses/prompt-policy.ts` |
 | Review TL;DR / insight summaries | ✅ Built | `src/lib/responses/review-summary.ts` |
-| Structured "Business Truth" layer (hours, refund/cancellation policy, compensation limits) + per-draft "why RepWorth wrote this" explanation | ❌ Not built | roadmap Phase 4 |
+| Structured "Business Truth" layer (hours, refund/cancellation policy, compensation limits) + per-draft "why RepWorth wrote this" explanation | ❌ Not established by this inventory; minimum facts/policies must precede any recovery action depending on them | roadmap P4 |
 
 ### 2.3 Approval, autonomy & publishing
 
@@ -56,19 +66,20 @@ launchable now with zero autonomy flags.
 | Moderation absolute veto — high-severity drafts held in `flagged_responses` (admin-only RLS), never notified, re-notify only via `/admin/flagged` | ✅ Built (invariant #4) | `approval-security` skill |
 | Publishing seam (`ReviewPublisher`: resolveTarget/publishReply/deleteReply/findReply), Zernio as first adapter | ✅ Built | `src/lib/publishing/review-publisher.ts` |
 | Edit-existing-replies | ✅ Built | publisher edit suite |
-| Per-action autonomy levels (separate grants for positive replies / requests / recovery outreach) | ❌ Not built — trust dial is rating-band + cap only; `SOLICITATION_AUTO_APPROVAL_ENABLED` exists as a flag-level lane split | roadmap Phase 5 |
+| Per-action autonomy levels (separate grants for positive replies / requests / recovery outreach) | ❌ Not built — trust dial is rating-band + cap only; `SOLICITATION_AUTO_APPROVAL_ENABLED` exists as a flag-level lane split | roadmap P5 |
 
 ### 2.4 Watchdogs & governance (the trust infrastructure)
 
 | Capability | Status | Pointer |
 |---|---|---|
-| Judge — LLM review of **100%** of auto-posts (`JudgeSweepPoller`, `judge_verdicts`); judge availability is a **posting precondition** (unavailable ⇒ publisher downgrades auto_policy rows to owner review) | ✅ Built, stronger than designed | WS6, design §8.2 |
+| Judge — designed to review every auto-post after publication; Judge availability is a posting precondition (unavailable ⇒ publisher downgrades auto-policy rows to owner review). Availability is not a pre-publication verdict on each draft | ✅ Gate source checked Sep 7; live coverage unverified | `worker/jobs/publisher/judge-gate.ts`, WS6, design §8.2 |
 | Governor — autonomous per-account autonomy suspension + owner/admin notification; admin `/admin/autonomy` (AAL2); repeat-offender path fixed #520 | ✅ Built | WS6 |
-| Run spine — `agent_runs`/`agent_run_steps`/`agent_outcomes`, single writer, transaction-ordered, persona attribution, no raw text in detail columns | ✅ Built | `src/lib/agents/run-spine.ts`, migration 071 |
+| Run spine — `agent_runs`/`agent_run_steps`/`agent_outcomes`, single writer, transaction-ordered, persona attribution, no raw text in detail columns | ✅ Source checked Sep 7: attribution/lifecycle records, not a generic execution engine; solicitation owns its batch lifecycle | `src/lib/agents/run-spine.ts`, `src/lib/solicitation/outreach.ts`, migration 071 |
 | LLM safety eval as a CI release gate (`llm-eval`, path-filtered) | ✅ Built | WS7, `pnpm eval:llm` |
 | Restraint policy — pure `evaluateAsk(candidate, context) → send \| withhold(reason, evidence)`, closed withhold-reason enum; the agent visibly refuses harmful asks | ✅ Built | design §9.2 |
 | Account audit log (single-transaction writes via `writeAccountAuditLog`) | ✅ Built | `src/lib/audit/log.ts` |
-| Judge auditing of withhold decisions; Governor per-gate suspension | ❌ Not built (sequenced in design §9.4) | roadmap Phase 5 |
+| Refusal ledger + owner Restraint tab | ✅ Source checked Sep 7: seven-lane vocabulary, transactional writer and owner-safe reader/surface exist. Recording depends on runtime flags; historical coverage gaps are disclosed, not backfilled | `src/lib/refusals/{vocabulary,write,read}.ts`, `src/app/(authenticated)/dashboard/analytics/restraint/page.tsx`, `docs/context/refusal-ledger.md` |
+| Judge auditing of withhold decisions; Governor per-gate suspension | ❌ Not built (sequenced in design §9.4) | roadmap P5 |
 
 ### 2.5 Guardian: triage & escalation
 
@@ -76,33 +87,34 @@ launchable now with zero autonomy flags.
 |---|---|---|
 | Triage — negative lane only (≤3★/unrated), cost-bounded (~200 tokens, pinned `gpt-4o-mini`), `triage_*` columns on `reviews`, `TRIAGE_ENABLED` | ✅ Built | WS2 |
 | Escalation — raise → notify → acknowledge/resolve, `review_escalations`, owner-unreachable escalation (migration 083) | ✅ Built | WS3 |
-| Recovery cases (complaint classification → private outreach → resolution tracking → outcome) | ❌ Not built — escalation stops at acknowledge/resolve; no recovery object, no private-outreach workflow, no saved/lost outcome | roadmap Phase 2 |
+| Recovery cases (complaint classification → private outreach → resolution tracking → outcome) | ❌ Not built — escalation stops at acknowledge/resolve; no recovery object, no private-outreach workflow, no saved/lost outcome | roadmap P2; depends on required P4 facts/policies |
 
 ### 2.6 Insights & intelligence
 
 | Capability | Status | Pointer |
 |---|---|---|
 | Insights persona — weekly digest (`WeeklySummaryWorker`) | ✅ Built | WS5 |
+| Monthly impact email (`MonthlyImpactWorker`) | ✅ Worker registration source checked Sep 7; name does not establish measured financial impact | `worker/jobs/MonthlyImpactWorker.ts`, `worker/index.ts` |
 | Competitor snapshots — normalized `competitor_snapshots` rows (full SerpAPI local pack, migrations 084/085), weekly digest gap line, owner-picked Named rival + deterministic Auto-default rival | ✅ Built (watch-mode probe) | design §9.2, `docs/context/competitor-delta.md` "Competitor Delta" |
 | Ranking tracking (SerpAPI, active-subscription-only) | ✅ Built | invariant #11 |
-| Dashboard KPI stack — per-location + per-account aggregate; Review-time anchor for reputation metrics; response rate; timeSaved | ✅ Built | `src/lib/dashboard/`, `src/lib/kpi/fragments.ts`, ADR 0019 |
-| Review-topic ontology (classify complaints/praise into per-vertical operational topics; trend lines like "arrival-time sentiment fell 3 months straight") | ❌ Not built — sentiment is star-derived only | roadmap Phase 3 |
-| Reputation graph query layer (staff-level, service-level, complaint→churn questions) | ❌ Not built as queries — the underlying spine/attribution data accumulates already | roadmap Phase 7 |
-| ROI / "RepWorth Impact" page with conservative attribution | ❌ Not built (timeSaved + response metrics exist as ingredients) | roadmap Phase 7 |
+| Dashboard KPI stack — per-location + per-account aggregate; Review-time anchor; response rate; timeSaved | ✅ Source checked Sep 7 for savings: handled replies × fixed **7-minute estimate**, also used in weekly email; does not deduct approvals, edits, CSV preparation or supervision | `src/lib/dashboard/constants.ts`, `src/lib/dashboard/reputation-summary.ts`, `src/lib/notifications/email/templates/weekly-value-report.ts`, ADR 0019 |
+| Review-topic ontology (classify complaints/praise into per-vertical operational topics; operational trend lines) | ❌ Not built — sentiment is star-derived only; later work requires enough usable data | roadmap P3 |
+| Reputation graph query layer (staff-level, service-level, complaint→churn questions) | ❌ Not built as queries — existing records are ingredients, not complete attribution or proof of incremental revenue | roadmap P7 |
+| ROI / "RepWorth Impact" page with conservative attribution | ❌ Dedicated page not established here; existing report names and timeSaved estimates are not measured ROI. Use a manual evidence sheet before a new UI | roadmap P7 |
 
 ### 2.7 Solicitation (review requests)
 
 | Capability | Status | Pointer |
 |---|---|---|
 | Watch-mode — real batches, per-candidate send/withhold decisions with reasons, sends nothing (`SOLICITATION_WATCH_ENABLED`) | ✅ Built 2026-07-26 | design §9.2 |
-| Send-mode — consent ledger, suppression ledger, unsubscribe (both paths → global suppression), email adapter + deliverability, batch approval → real sends, mid-flight halt, ramp caps | ✅ Built, **live on staging 2026-08-26** (`SOLICITATION_SEND_ENABLED` + `SOLICITATION_AUTO_APPROVAL_ENABLED`) | design §9.3, specs `2026-07-28-*`, ADRs 0014/0020/0021/0022 |
+| Send-mode — consent ledger, suppression ledger, unsubscribe (both paths → global suppression), email adapter + deliverability, batch approval → sends, mid-flight halt, ramp caps | ✅ Original inventory records staging operation on 2026-08-26; current flags/delivery unverified | design §9.3, specs `2026-07-28-*`, ADRs 0014/0020/0021/0022 |
 | Approval/halt lane — `approveBatch`/`haltBatch`/`adminHaltBatch`, ask exclusion/regeneration/withdrawal, halt latch | ✅ Built | spec 2026-07-28-send-mode-executor-approval |
 | Candidate source: owner CSV upload with consent attestation (contacts/visits ledger, migrations 086/087) | ✅ Built | spec 2026-07-23-contacts-csv-contract |
-| Review attribution — permanent `attributed_review_id`/`attributed_at` marker on outreach, idempotent, `review_attributed` outcome; one clean match proven on staging | ✅ Built | `src/lib/solicitation/attribution.ts` |
-| Event-triggered candidates from booking/CRM/FSM/POS systems (replace CSV as primary source) | ❌ Not built — named in design §9.4 as the successor | roadmap **Phase 1** |
-| QR-code review requests | ❌ Not built — **pulled forward to the pre-launch track** (owner decision 2026-08-26) | forward-roadmap Phase 0 |
+| Review attribution — persistent `attributed_review_id`/`attributed_at` marker and `review_attributed` outcome | ✅ Built; original inventory records one staging match. A match is not proof of incremental bookings or revenue | `src/lib/solicitation/attribution.ts` |
+| Event-triggered candidates from booking/CRM/FSM/POS systems | ❌ Not built — conditional on shared beta provider, demonstrated CSV burden, access, durable event identity and consent provenance | roadmap P1 |
+| QR-code review requests | ✅ Source checked Sep 7: per-location printable/downloadable QR, public Google redirect, best-effort scan event; no customer identity or resulting-sale proof | `src/app/q/[businessId]/route.ts`, `src/app/(authenticated)/dashboard/requests/qr/page.tsx`, `docs/context/review-qr.md` |
 | Voice-conditioned asks + memory-jog details; position read-model | ❌ Not built (sequenced §9.4) | later |
-| Prod flip | Blocked on production bring-up + counsel sign-off on the #620 Part II brief | design §9.3 |
+| Prod flip | Original inventory named bring-up/counsel gates; current completion and authorization were not checked | design §9.3; deployment/runbook evidence required |
 
 ### 2.8 Channels & notifications
 
@@ -119,7 +131,7 @@ launchable now with zero autonomy flags.
 | Capability | Status | Pointer |
 |---|---|---|
 | Copilot/Autopilot tiers; `tierGrantsAutopilot`; `AUTOPILOT_PURCHASABLE` composed purchase gate | ✅ Built | WS8 |
-| **Live pricing:** Copilot $29 list / $19 founding; Autopilot $69 / $49 (monthly, **per account**); location overage $10/$20; founding deadline 2027-01-01 | ✅ Set | design §8.2 |
+| **Source pricing:** Copilot $29 list / $19 founding; Autopilot $69 / $49 (monthly, per account, one included location); additional location $15/$20 | ✅ Source checked Sep 7; deployed Stripe and purchase availability unverified. Founding availability reads configured `FOUNDING_DEADLINE`, not this snapshot | `src/lib/accounts/tier-config.ts`, `src/lib/payments/founding-window.ts` |
 | Grandfathered per-account price snapshot (`locations_included`, overage, `base_price_cents` stored on `accounts`) | ✅ Built (invariant #9a) | migration 054 |
 | Card-up-front 30-day trial (`TRIAL_ENABLED`, `trialing` = full access except SerpAPI tracking) | ✅ Built | invariant #11, migration 069 |
 | Stripe as source of truth; single status applier | ✅ Built | `worker/ingress/stripe/apply-subscription-state.ts` |
@@ -127,7 +139,7 @@ launchable now with zero autonomy flags.
 | Self-serve signup (`SELF_SERVE_SIGNUP_ENABLED`) | ✅ Built | gotchas list |
 | Owner offboarding (cancel_only / delete_data / purge) | ✅ Built | spec 2026-06-05 |
 | Multi-location (lifecycle, per-location overage, account digests, channel overrides) | ✅ Built | spec 2026-06-09 multi-location-hardening |
-| Outcome billing (per-outcome pricing semantics on `agent_outcomes`) | ❌ Deliberately not built (design Decision 2: instrumented, not billed) | design §8.5 |
+| Outcome billing (per-outcome pricing semantics on `agent_outcomes`) | ❌ Deliberately not built (design Decision 2: instrumented, not billed); outcome positioning does not require contingent billing | design §8.5 |
 
 ### 2.10 Admin & operations
 
@@ -142,46 +154,58 @@ launchable now with zero autonomy flags.
 ### 2.11 Infrastructure & safety rails (summary)
 
 Transactional outbox (invariant #2) · BullMQ on Railway Redis + Upstash cache ·
-single-replica worker (detected, not enforced) · LLM task seam
+single-replica worker assumption · LLM task seam
 (`runLlmTask`, pinned `gpt-4o-mini` primary / `claude-haiku-4-5` fallback,
 per-provider circuit breaker) · two-phase cost guard (Redis reservation before
-every LLM call) · DB admission chokepoint (#773) · worker crash-net with
+production LLM calls, with documented demo/eval exceptions) · DB admission chokepoint (#773) · worker crash-net with
 transient-DB classification · health alerting (`HealthAlertPoller`, Sentry) ·
 PostHog analytics with server-side dispatch · structured logging with
-sanitizer · RLS + tenant-scope + ~15 CI audit scripts · BotID/WAF edge
-protection · eval-in-CI. Details: `.claude/CLAUDE.md` and `docs/directory.md` (index) + `docs/directory/` pages.
+sanitizer · RLS + tenant-scope and CI audits · BotID/WAF edge
+protection · eval-in-CI. The source concurrency guard is per process and needs
+separate coordination/load evidence before widening the replica envelope
+(`worker/config/startup-assert.ts`). Details: `.claude/CLAUDE.md`
+and `docs/directory.md` (index) + `docs/directory/` pages.
 
 ## 3. Environment reality (do not oversell)
 
-- **Production stack is not stood up** — deliberate (design §8.4): one
-  production bring-up at launch (prod Railway worker + Redis + env matrix +
-  webhook endpoints + Vercel prod env + smoke). Prod Supabase migrations stay
-  in lockstep meanwhile (078 is the single sanctioned gap; see CLAUDE.md).
-- **All autonomy flags OFF in prod.** Ordered flip: `TRIAGE` → `ESCALATION` →
-  `JUDGE`+`GOVERNOR` → `AUTO_APPROVAL` → `AUTOPILOT_PURCHASABLE`.
-- **Staging is the only place the full pipeline runs**, and everything through
-  solicitation send-mode has PASS evidence there.
-- Marketing consequence: public copy must not claim live autonomy until the
-  prod flips happen — see the positioning doc §5.
+- Current production/staging topology, flags and working journeys were not
+  queried. The original August 26 bring-up status cannot establish their state
+  on September 7. Use `docs/runbooks/deployment-guide.md` and fresh evidence.
+- **No standing migration 078 exception remains.** `.claude/CLAUDE.md` records
+  production application at **2026-08-31T07:09Z** and an introspection-based
+  lockstep check. This refresh performed no DB introspection; that dated result
+  is not a new certification that every migration is still in sync.
+- The canonical launch procedure retains ordered supervision/autonomy gates.
+  A source flag default, past staging PASS or marketing commitment to flip a
+  flag is not evidence that a specific deployment is currently enabled.
+- Public availability claims require target/commit, actual flag state and
+  completed browser/backend journey evidence. No tier is declared launchable
+  solely from this inventory; see positioning §5 and the relevant runbook.
 
 ## 4. The gap list (what the forward roadmap exists to close)
 
-In the locked build order, then the rest:
+Topic IDs remain stable; they are not a queue to execute in numeric order.
+The [forward roadmap](2026-08-26-forward-roadmap.md) owns immediate
+selection, provisional capacity limits and early cash gates. Select at most
+one improvement from actual beta or paid-decision evidence; choosing no new
+feature is valid. Funding and beta learning proceed in parallel.
 
 1. **Event-triggered review requests** — no booking/CRM/FSM/POS connectors;
-   CSV upload is the only candidate source. (Phase 1)
+   CSV upload remains the candidate source. (P1)
 2. **Reputation recovery workflows** — no recovery case object, no private
-   outreach, no resolution/outcome tracking. (Phase 2)
+   outreach, no resolution/outcome tracking. Requires minimum P4 business
+   facts/policies before any dependent outreach or promise. (P2)
 3. **Review-topic ontology** — no operational topic classification or trend
-   intelligence; sentiment is star-derived. (Phase 3)
+   intelligence; sentiment is star-derived. Defer until usable data supports it. (P3)
 4. **Business Truth + policy layer** — brand voice exists; structured business
    facts, response policies, compensation limits, and per-draft explanations do
-   not. (Phase 4)
-5. Per-action autonomy levels. (Phase 5)
-6. Non-Google platforms + platform policy engine + direct GBP adapter. (Phase 6)
-7. Reputation-graph query layer + ROI/impact page. (Phase 7)
+   not. Build only the minimum needed by a selected workflow first. (P4)
+5. Per-action autonomy levels. (P5)
+6. Non-Google platforms + platform policy engine + direct GBP adapter. (P6)
+7. Reputation-graph query layer + ROI/impact page, conditional on useful evidence. (P7)
 8. Competitor-intelligence expansion, social-proof widgets, AI-search
-   visibility, public API/MCP, agency/white-label. (Phase 8 / later)
+   visibility, public API/MCP, agency/white-label. Public agent access still
+   needs machine identity, scoped authorization and demand evidence. (P8 / later)
 
 Also open from the design of record (not roadmap-phase work): cadence jitter
 (pre-scale item, §8.2), calibrated-confidence router, conversational surface,

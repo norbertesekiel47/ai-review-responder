@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "RepWorth Four-Founder 90-Day Plan",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1360,
+      760
+    ],
+    "legend": {
+      "entries": {
+        "backend": {
+          "label": "Founder (40 h/week, 60 h optional peak)"
+        },
+        "database": {
+          "label": "Week-1 shared record (one owner each)"
+        },
+        "external": {
+          "label": "Outside party"
+        }
+      }
+    },
+    "views": [
+      {
+        "id": "ownership",
+        "label": "Who owns what",
+        "focus": [
+          "yoknyei",
+          "robert",
+          "daoni",
+          "norbert"
+        ],
+        "note": "One owner per decision. Norbert decides scope, cash and approvals; the other three run distribution, delivery and money."
+      },
+      {
+        "id": "customer-path",
+        "label": "Customer path",
+        "focus": [
+          "yoknyei",
+          "robert",
+          "prospects",
+          "offer",
+          "norbert"
+        ],
+        "note": "Existing roster first: approved paid offers by Sep 10, then the next approved same-segment batch."
+      },
+      {
+        "id": "cash-first",
+        "label": "Cash before the calendar",
+        "focus": [
+          "daoni",
+          "cash",
+          "norbert",
+          "log"
+        ],
+        "note": "Sep 8: no-new-money floor and cash-needed date. Sep 21 or earlier: continuation, floor, or reduce/pause."
+      },
+      {
+        "id": "funding-counsel",
+        "label": "Funding and counsel",
+        "focus": [
+          "robert",
+          "norbert",
+          "daoni",
+          "investors",
+          "counsel",
+          "packet"
+        ],
+        "note": "Robert owns pitch and pipeline; Norbert pitches and selects counsel; Daoni verifies every financial stage."
+      },
+      {
+        "id": "decisions",
+        "label": "Decisions and checkpoints",
+        "focus": [
+          "norbert",
+          "packet",
+          "log",
+          "daoni"
+        ],
+        "note": "Three dated approval lines. Day 30/60/90 checkpoints each get two Claude challenge rounds."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "prospects",
+      "type": "external",
+      "label": "Prospects and beta accounts",
+      "sublabel": "~5 interested · 0 paying",
+      "pos": [
+        560,
+        40
+      ],
+      "size": [
+        220,
+        64
+      ]
+    },
+    {
+      "id": "investors",
+      "type": "external",
+      "label": "Investors",
+      "sublabel": "researched → cleared funds",
+      "pos": [
+        1130,
+        230
+      ],
+      "size": [
+        200,
+        72
+      ]
+    },
+    {
+      "id": "offer",
+      "type": "database",
+      "label": "Offer card",
+      "sublabel": "monthly + prepaid option",
+      "pos": [
+        60,
+        230
+      ],
+      "size": [
+        200,
+        72
+      ]
+    },
+    {
+      "id": "yoknyei",
+      "type": "backend",
+      "label": "Yoknyei",
+      "sublabel": "CMO · offer · channel",
+      "tag": "CMO",
+      "pos": [
+        340,
+        230
+      ],
+      "size": [
+        220,
+        72
+      ]
+    },
+    {
+      "id": "robert",
+      "type": "backend",
+      "label": "Robert",
+      "sublabel": "COO · sales · onboarding",
+      "tag": "COO",
+      "pos": [
+        760,
+        230
+      ],
+      "size": [
+        220,
+        72
+      ]
+    },
+    {
+      "id": "counsel",
+      "type": "external",
+      "label": "Qualified counsel",
+      "sublabel": "legal + immigration advice",
+      "pos": [
+        1130,
+        430
+      ],
+      "size": [
+        200,
+        72
+      ]
+    },
+    {
+      "id": "daoni",
+      "type": "backend",
+      "label": "Daoni",
+      "sublabel": "CFO · cash · ask · economics",
+      "tag": "CFO",
+      "pos": [
+        340,
+        430
+      ],
+      "size": [
+        220,
+        72
+      ]
+    },
+    {
+      "id": "norbert",
+      "type": "backend",
+      "label": "Norbert",
+      "sublabel": "CTO · scope · approvals",
+      "tag": "CTO",
+      "pos": [
+        760,
+        430
+      ],
+      "size": [
+        220,
+        72
+      ]
+    },
+    {
+      "id": "cash",
+      "type": "database",
+      "label": "Cash sheet",
+      "sublabel": "Daoni · no-new-money floor",
+      "pos": [
+        340,
+        620
+      ],
+      "size": [
+        220,
+        72
+      ]
+    },
+    {
+      "id": "packet",
+      "type": "database",
+      "label": "Approval packet",
+      "sublabel": "3 dated approval lines",
+      "pos": [
+        620,
+        620
+      ],
+      "size": [
+        200,
+        72
+      ]
+    },
+    {
+      "id": "log",
+      "type": "database",
+      "label": "Decision log",
+      "sublabel": "Robert keeps · 5-line reports",
+      "pos": [
+        900,
+        620
+      ],
+      "size": [
+        200,
+        72
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Four founders · parallel workstreams · one owner per decision",
+      "wraps": [
+        "yoknyei",
+        "robert",
+        "daoni",
+        "norbert"
+      ],
+      "pad": 22
+    }
+  ],
+  "connections": [
+    {
+      "from": "daoni",
+      "to": "yoknyei",
+      "label": "research, funnel and cost register"
+    },
+    {
+      "from": "yoknyei",
+      "to": "robert",
+      "label": "qualified prospects + offer language",
+      "variant": "emphasis",
+      "labelAt": [
+        660,
+        242
+      ]
+    },
+    {
+      "from": "robert",
+      "to": "norbert",
+      "label": "decision queue, reproduced blockers",
+      "variant": "emphasis",
+      "labelAt": [
+        760,
+        340
+      ]
+    },
+    {
+      "from": "norbert",
+      "to": "robert",
+      "label": "approved scope, product decision",
+      "variant": "dashed",
+      "labelAt": [
+        760,
+        402
+      ]
+    },
+    {
+      "from": "yoknyei",
+      "to": "norbert",
+      "label": "buyer evidence, offer and batch proposal",
+      "labelAt": [
+        660,
+        372
+      ]
+    },
+    {
+      "from": "daoni",
+      "to": "norbert",
+      "label": "cash-needed date, floor, ask",
+      "variant": "emphasis",
+      "labelAt": [
+        660,
+        492
+      ]
+    },
+    {
+      "from": "yoknyei",
+      "to": "prospects",
+      "label": "approved outreach",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "robert",
+      "to": "prospects",
+      "label": "demo, offer, onboarding, renewal",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "robert",
+      "to": "investors",
+      "label": "pitch with Norbert",
+      "labelAt": [
+        1055,
+        242
+      ]
+    },
+    {
+      "from": "robert",
+      "to": "counsel",
+      "label": "screening packet",
+      "labelAt": [
+        1055,
+        370
+      ]
+    },
+    {
+      "from": "norbert",
+      "to": "counsel",
+      "label": "selects, approves spend",
+      "variant": "dashed",
+      "labelAt": [
+        1055,
+        488
+      ]
+    },
+    {
+      "from": "yoknyei",
+      "to": "offer",
+      "label": "owns"
+    },
+    {
+      "from": "daoni",
+      "to": "offer",
+      "label": "prepayment economics (Sep 9)",
+      "variant": "dashed"
+    },
+    {
+      "from": "daoni",
+      "to": "cash",
+      "label": "owns",
+      "labelAt": [
+        478,
+        560
+      ],
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "norbert",
+      "to": "packet",
+      "label": "approves 3 dated lines",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "norbert",
+      "to": "log",
+      "label": "decisions recorded",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Cash decides the calendar",
+      "items": [
+        "Sep 8: Daoni floor, cash-needed date, availability lines",
+        "Sep 10: paid offers to the reachable roster",
+        "Sep 21, Oct 7, Nov 6, Dec 6: dated decisions"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Acceleration gate",
+      "items": [
+        "Five evidence tests: buyer, acquisition, delivery, cash, speed",
+        "Pass: one channel, two weeks, at most 2× the prior batch",
+        "25 or 100 accounts are scenarios, not targets"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Rules and rhythm",
+      "items": [
+        "Drafting only; contact or spend needs Norbert-approved scope",
+        "Paid yes ≠ cash cleared ≠ current payer",
+        "Mon decide · Wed numbers · Fri results · two Claude rounds"
+      ]
+    }
+  ]
+}
