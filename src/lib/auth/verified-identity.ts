@@ -73,18 +73,26 @@ export class IdentityTransportError extends Error {
  * `resolveCookieIdentity` for why the cookie arm deliberately has no equivalent.
  *
  * Measured against @supabase/auth-js 2.106.2, `lib/fetch.js` `handleError`, which
- * raises exactly three shapes and each needs its own test:
+ * raises FIVE shapes. Three are faults and are matched here:
  *
  *   1. `AuthRetryableFetchError` — a transport failure, or a status in its list
  *      (502/503/504/520-524/530).
  *   2. `AuthUnknownError` — `await error.json()` THREW, so whatever answered was
  *      not GoTrue: an HTML 502 from a CDN, a WAF block page, a truncated body.
- *      Infrastructure by construction at any status, and it is neither of the
- *      other two names, so omitting it turns an outage into 401s. This arm was
- *      missing until the review wave; two independent reviewers found it.
- *   3. `AuthApiError(message, status || 500, code)` — everything else, INCLUDING a
+ *      Infrastructure by construction at any status, and it shares a name with
+ *      neither of the others, so omitting it turns an outage into 401s. This arm
+ *      was missing until the review wave; two independent reviewers found it.
+ *   3. `AuthApiError(message, status || 500, code)` — the fallback, INCLUDING a
  *      plain HTTP 500 with a JSON body. So a GoTrue 500 is an ordinary
  *      `AuthApiError` and is caught by the status test, not by a name test.
+ *
+ * The other two are genuine CREDENTIAL refusals and correctly fall through to 401:
+ * `AuthSessionMissingError` (the token's session is gone — sign-out or revoke, the
+ * case `getUser` exists to catch) and `AuthWeakPasswordError` (a password-grant
+ * response we never trigger on this path). An earlier draft of this comment said
+ * "exactly three shapes", which was a second false enumeration where the first had
+ * been; round 2 of the red team caught it. The ARM is complete either way — this
+ * paragraph is why.
  *
  * The predicates compare `error.name` (`lib/errors.js`), so they keep working
  * across a duplicated module instance where `instanceof` would not. There is no

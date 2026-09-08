@@ -36,7 +36,7 @@ const {
   mockBearerGetUser: vi.fn(),
   mockCookieGetUser: vi.fn(),
   mockCookieAal: vi.fn(),
-  sqlRows: { next: [] as unknown[], error: null as Error | null },
+  sqlRows: { next: [] as unknown[], error: null as Error | null, calls: 0 },
   cookieClientCalls: { count: 0 },
 }));
 
@@ -76,7 +76,10 @@ vi.mock('@supabase/ssr', () => ({
 }));
 
 vi.mock('@/lib/db/server', () => ({
-  sql: () => (sqlRows.error ? Promise.reject(sqlRows.error) : Promise.resolve(sqlRows.next)),
+  sql: () => {
+    sqlRows.calls += 1;
+    return sqlRows.error ? Promise.reject(sqlRows.error) : Promise.resolve(sqlRows.next);
+  },
 }));
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
@@ -167,6 +170,7 @@ beforeEach(() => {
   cookieClientCalls.count = 0;
   sqlRows.next = [ADMIN_ROW];
   sqlRows.error = null;
+  sqlRows.calls = 0;
   delete process.env.MFA_ENFORCEMENT_ENABLED;
 
   mockCookieGetUser.mockResolvedValue({ data: { user: { id: AUTH_ID } }, error: null });
@@ -362,10 +366,13 @@ describe('requireAdminWithAal2 — bearer verification', () => {
     // means something that is not GoTrue answered — an HTML 502 from a CDN, a WAF
     // block page — and it is neither of the other two names, so the first version
     // of this classifier turned exactly that outage into 401s.
+    // AuthUnknownError carries NO status — its constructor is
+    // `(message, originalError)` and never sets one — so it is spelled here the way
+    // the SDK can actually produce it. The `?? 500` in the classifier is for
+    // AuthApiError's optional status, not for this shape.
     const infra = [
       namedAuthError('AuthRetryableFetchError', 0),
       namedAuthError('AuthUnknownError'),
-      namedAuthError('AuthUnknownError', 500),
       namedAuthError('AuthApiError', 500),
       namedAuthError('AuthApiError', 503),
     ];
@@ -490,12 +497,21 @@ describe('refusal precedence', () => {
   it('answers Unauthorized when the credential is bad AND the user is a non-admin', async () => {
     // Same argument one level up: authentication outranks authorization, so a
     // caller who is both unauthenticated and unprivileged learns only the former.
+    //
+    // The load-bearing assertion is the LAST one, not the status. Round 2 of the
+    // red team pointed out that an `OWNER_ROW` alone makes this test inert — the
+    // gate refuses before it ever reaches `loadAppUser`, so it is indistinguishable
+    // from "bearer with a forged signature". Asserting the users table was NEVER
+    // QUERIED is what actually pins the order, and it also pins a property worth
+    // having on its own: a refused credential costs no database round-trip.
     mockGetClaims.mockResolvedValue({ data: null, error: namedAuthError('AuthInvalidJwtError') });
     sqlRows.next = [OWNER_ROW];
+    sqlRows.calls = 0;
 
     await expectRefusal(refusalOf(await requireAdminWithAal2(bearerReq())), 401, {
       error: 'Unauthorized',
     });
+    expect(sqlRows.calls).toBe(0);
   });
 });
 

@@ -111,12 +111,14 @@ describe('Edge safety', () => {
     // fails on the documentation of the rule it is checking.
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-    const importLines = code
-      .split('\n')
-      .filter((line) => /^\s*(import|export)\s.*\sfrom\s/.test(line) || /^\s*import\s*\(/.test(line))
-      .map((line) => line.trim());
-
-    expect(importLines).toEqual([]);
+    // Scan for the TOKEN, not for a line shape. The first version of this guard
+    // matched `^\s*import .* from ` per line and a red-team pass walked straight
+    // through it twice: `import 'node:crypto';` has no `from`, and a
+    // Prettier-wrapped `import {\n  x,\n} from 'node:crypto'` puts the `from` on a
+    // different line than the `import`. A guard that only catches the tidy form of
+    // a violation is not a guard. "Zero imports" is a claim about the whole file,
+    // so it is asserted against the whole file.
+    expect(code).not.toMatch(/\bimport\b/);
     expect(code).not.toMatch(/\brequire\s*\(/);
     expect(code).not.toMatch(/\bprocess\.env\b/);
   });

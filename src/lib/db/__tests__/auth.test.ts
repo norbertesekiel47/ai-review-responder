@@ -120,6 +120,15 @@ describe('loadAppUser', () => {
     // predicate. "contains u.auth_id" is NOT enough — see the counterexample below.
     expect(fragmentBinding(call, index).trimEnd()).toMatch(/\bu\.auth_id\s*=$/);
 
+    // KNOWN LIMITATION, recorded so the next author is not left guessing: this
+    // asserts SQL TEXT, so a behaviour-preserving reformat of the query (a line
+    // break before `=`, an alias rename) turns it red even though nothing broke.
+    // When that happens the ASSERTION needs updating, not the query. The stronger
+    // proof — a live-DB row where one user's `id` equals another's `auth_id` —
+    // was deliberately not taken: it flips this branch to `db_touching` and adds a
+    // gate row that SKIPs loudly without `TEST_DATABASE_POOL_URL`, trading a
+    // deterministic offline check for a usually-absent one.
+    //
     // The counterexample, carried here so the assertion's own strength is pinned:
     // a query that SELECTs auth_id but FILTERS on id satisfies a "contains" check
     // while binding the wrong column, and must NOT satisfy the assertion above.

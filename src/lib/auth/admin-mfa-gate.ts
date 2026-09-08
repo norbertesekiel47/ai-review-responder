@@ -63,6 +63,13 @@ export function internalError(label: string, error: unknown): NextResponse {
  * 403 (the old path could not tell "no session" from "no row"), and a cookie AAL
  * read yielding no level is now `mfa_check_failed` rather than `mfa_required`.
  *
+ * A THIRD, narrower difference comes from ORDER and is declared rather than fixed
+ * (deviations D6): the seam resolves identity and AAL together, so the AAL read now
+ * happens BEFORE the role check, where `requireRole` used to refuse a non-admin
+ * first. A non-admin whose AAL read THROWS therefore gets 500 rather than 403 —
+ * fail-closed, and it needs a Supabase fault and a non-admin at the same moment —
+ * and a refused cookie request pays one extra AAL round-trip.
+ *
  * CSRF is deliberately NOT handled here. Mutating routes get same-origin
  * protection by construction at the export — `export const POST =
  * withSameOrigin()(handler)` (src/lib/auth/route-helpers.ts) — the same

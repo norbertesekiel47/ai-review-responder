@@ -115,3 +115,29 @@ new contract files. SIZE and RISK are unchanged, so step 0 was not re-run; the
 estimate was corrected to the measured value instead.
 
 Verdict: ACCEPT — with the flag above carried into the final report verbatim.
+
+## D6 — a fifth cookie-path difference, declared rather than fixed
+
+Red-team round 2 (P2) found one cookie-path difference the revert in D2/triage #1 does
+NOT remove, because it comes from ORDER rather than from classification.
+
+Before: `requireRole` ran first, so a non-admin was refused 403 **before** the AAL
+call happened at all. Now the seam resolves `{ authUserId, aal }` atomically, so the
+AAL read happens **before** `loadAppUser` and the role check. Two consequences:
+
+1. For a live cookie session belonging to a non-admin (or to no `users` row) whose
+   AAL read THROWS, the answer is 500 instead of the old 401/403. Both refuse; the
+   direction is fail-closed. It needs a Supabase fault and a non-admin at the same
+   moment.
+2. A refused cookie request now costs one extra AAL round-trip, because the AAL is
+   read before we know the caller is not an admin.
+
+Not fixed, deliberately. Fixing it means making the seam's AAL read lazy — returning
+a thunk instead of a value — which trades the seam's single flat result shape
+(`{ authUserId, aal, transport }`, the thing ADR 0025 D1 says it returns) for a
+saving on a path that only executes when a non-admin hits the admin API. That is a
+worse module for a narrower benefit.
+
+Verdict: ACCEPT — declared here, in the gate's docblock and in the PR description, so
+it is a known difference rather than a discovered one. If the owner disagrees, the
+change is contained to `resolveCookieIdentity` and its two callers.

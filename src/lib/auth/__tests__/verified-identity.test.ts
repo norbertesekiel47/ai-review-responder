@@ -204,7 +204,7 @@ describe('resolveDualModeIdentity', () => {
 
 describe('@supabase/auth-js decode channel (the premise, unstubbed)', () => {
   it('throws non-AuthError for malformed tokens that pass its shape checks', async () => {
-    const { createClient: realCreateClient } =
+    const { createClient: realCreateClient, isAuthError } =
       await vi.importActual<typeof import('@supabase/supabase-js')>('@supabase/supabase-js');
     const real = realCreateClient('https://project.supabase.co', 'anon-key', {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -219,10 +219,18 @@ describe('@supabase/auth-js decode channel (the premise, unstubbed)', () => {
     ];
 
     for (const token of thrownShapes) {
-      await expect(
-        real.auth.getClaims(token, { allowExpired: true }),
-        `expected ${token} to THROW, not return`,
-      ).rejects.toThrow();
+      // `.rejects.toThrow()` alone is NOT enough, and the name of this test is the
+      // reason: an `AuthError` satisfies it too, so the exact channel move that
+      // matters — a thrown `AuthApiError(500)`, which the seam's catch would turn
+      // into a 401 and let an unauthenticated caller force admin 500s past — would
+      // keep it green. Assert the CHANNEL and the KIND.
+      const thrown = await real.auth
+        .getClaims(token, { allowExpired: true })
+        .then(() => null)
+        .catch((err: unknown) => err);
+
+      expect(thrown, `expected ${token} to THROW, not return`).not.toBeNull();
+      expect(isAuthError(thrown), `expected ${token} to throw a NON-AuthError`).toBe(false);
     }
   });
 
