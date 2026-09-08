@@ -1,50 +1,61 @@
 # Agentic architecture & MCP strategy (roadmap view)
 
-This file does three things: (1) states the agent-architecture **principles**
-RepWorth already follows, so future phases don't violate them; (2) maps the
-2026-08-26 research memo's proposed architecture onto what exists — the memo
-proposed, almost box-for-box, the system that is already built; (3) owns the
-sequencing of the **future** agentic work (the run-engine expansion, autonomy
-routing, and the public API/MCP layer) that the forward-roadmap compresses
-into Phases 5 and 8.
+Updated **2026-09-07**; filename remains stable. This page maps the August
+research memo onto existing architectural seams and states the dependencies
+for future agentic work. P1–P8 are stable topic identifiers, not a fixed
+chronological build sequence. The forward roadmap owns current priorities.
+
+Targeted source inspection at `4aa132b` supports extending the existing
+worker/outbox system; no framework rewrite is justified. It does not prove
+runtime behavior, scalability, customer value or a moat. No deployed flags,
+credentials, providers or browser journeys were checked in this refresh.
 
 Engineering source of truth remains the design of record
 (`docs/future-plans/2026-07-01-agentic-reputation-platform-design.md` §3, §8)
 and `.claude/CLAUDE.md` invariants. This file is the strategy view.
 
-## 1. Architecture principles (already true — treat as invariants)
+## 1. Architecture principles and boundaries
 
 1. **Agents reason; deterministic services act.** No LLM ever invents an API
    request or writes freely to the database. LLM output flows into narrow,
    validated seams (generator → moderation → approval → `ReviewPublisher`;
-   triage → columns; `evaluateAsk` consumes context, never sends). Each seam
-   independently enforces auth, tenancy, consent, policy, schema validation,
-   rate limits, idempotency, logging, and approval requirements — this is
-   invariants #2/#3/#7/#15 plus the cost guard, restated as strategy.
+   triage → columns; `evaluateAsk` consumes context, never sends). Auth,
+   tenancy, consent, policy, validation, cost bounds, idempotency and approval
+   checks belong at their applicable boundaries. A pure policy evaluator
+   does not itself implement every control. Preserve invariants #2/#3/#7/#15
+   and the cost-guard contract when adding entry points.
 2. **Event-driven, not chat-driven.** The agent reacts to events (webhook
    ingest, Postgres-state pollers, time schedulers) — never waits to be
    chatted with. A conversational surface is deliberately late (§4).
-3. **One orchestration spine; personas are attribution, not processes.**
+3. **One durable workflow system; personas are attribution, not processes.**
    Reply/Guardian/Insights are trigger-shaped graphs over one pipeline, with
    persona attribution on run-spine steps — not free-running agents passing
    messages. New specialists are added only when specialization measurably
    improves reliability (design Decision 5 agrees with the memo here).
-   **Standing constraint (added 2026-08-29, investor-theses overlay):**
-   every NEW domain module ships with a typed, schema-validated callable
-   interface, so the future public surface is a wrapper, not a project.
+   `src/lib/agents/run-spine.ts` explicitly owns attribution records, not a
+   generic execution engine. Jobs and domain modules own execution;
+   `src/lib/solicitation/outreach.ts` owns batch lifecycle. Keep new domain
+   entry points typed and validate untrusted inputs at the boundary, without
+   building abstractions for hypothetical callers. Reusable services reduce
+   future API work; they do not supply public authentication or transport.
 4. **Human-in-the-loop is a modeled state, not an interrupt hack.** Approval
    lanes, the veto window, the halt latch, and escalation acknowledge/resolve
    are all durable DB states a workflow can wait in for hours or days.
-5. **Watchdogs sit above personas.** The Judge (100% of auto-posts;
-   availability is a posting precondition) and the Governor (autonomous
-   suspension) are structurally separate from the agents they police.
+5. **Watchdogs sit above personas.** Judge review targets every auto-post
+   after publication; its availability is a posting precondition, not a
+   pre-publication verdict on every draft. The Governor can suspend autonomy.
+   Refusal records expose decisions not to act, with coverage qualifications.
+   These controls govern behavior; they do not establish an external agent's
+   identity or permission to read an account's data.
 6. **Model independence.** All completions route through `runLlmTask`
    (pinned per-task models, provider fallback, circuit breaker). No customer
    record, policy, prompt, or workflow definition couples to one vendor's
    agent framework. **We do not adopt a vendor Agents SDK** — the custom
-   orchestration (outbox + BullMQ + run spine) already provides durable
-   execution, handoffs, and human approval, without the lock-in. The moat
-   lives above the foundation models.
+   workflow system already provides durable jobs and human approval. The
+   current LLM seam is single-shot; `src/lib/llm/types.ts` deliberately excludes
+   tool calls and multi-turn loops. Add bounded planning only for a measured
+   unmet task. Defensibility would need permissioned context, reliable
+   delegated work and retention evidence, not an architecture label.
 
 ## 2. Memo architecture → as-built map
 
@@ -52,106 +63,123 @@ The memo's diagram, box by box:
 
 | Memo box | RepWorth as built | Future extension |
 |---|---|---|
-| Event / Workflow layer | `job_outbox` (transactional) + BullMQ + `worker/ingress/*` + pollers/schedulers | Phase 1 adds external business events (`job.completed`, `appointment.completed`) as first-class inputs |
-| Reputation Manager Agent | The persona pipeline + the **run-engine executor** (parent/child lifecycle on the run spine, Solicitation as first tenant) | New run-engine tenants per phase (recovery cases in Phase 2) |
-| Brand Brain + Memory | Brand columns + voice learning from owner edits + edit-distance log | Phase 4: Business Truth + policy layer, per-draft explanations |
-| Policy Engine + Permissions | `auto_policy` gate stack, trust dial, veto window, `evaluateAsk` restraint enum, `auto_approval_policies` (server-owned) | Phase 5: per-action autonomy matrix, Judge-on-withhold, Governor per-gate |
-| Reputation Graph | The data accumulates already: run spine, outcomes, contacts/visits ledger, permanent review attribution, competitor snapshots | Phase 7: query layer + Impact page (read models, no new collection) |
-| Deterministic tools (`reviews.list`, `responses.publish`, …) | Worker jobs + `ReviewPublisher`/`ReviewSource` seams + solicitation verbs (`approveBatch`, `haltBatch`, …) | Tool inventory hardens into the public API surface (§4) |
+| Event / Workflow layer | `job_outbox` (transactional) + BullMQ + `worker/ingress/*` + pollers/schedulers | P1 may add one justified external event source with durable event identity, replay and consent provenance |
+| Reputation Manager Agent | Persona-attributed workflows; run-spine parent/child records; solicitation-specific batch/send lifecycle | P2 recovery requires its own domain lifecycle; do not claim a generic executor already exists |
+| Brand Brain + Memory | Brand columns + voice learning from owner edits + edit-distance log | P4: minimum verified facts/policies before dependent recovery; fuller structured context later |
+| Policy Engine + Permissions | `auto_policy` gates, trust dial, veto window, `evaluateAsk`, server-owned policies; Refusal ledger writer/read model | P5: justified per-action matrix, Judge-on-withhold, Governor per-gate |
+| Reputation Graph | Run records, outcomes, contacts/visits, review attribution and competitor snapshots | P7: queries only when data answers useful questions; current records do not establish complete sales attribution |
+| Deterministic tools (`reviews.list`, `responses.publish`, …) | Worker jobs + `ReviewPublisher`/`ReviewSource` seams + solicitation verbs (`approveBatch`, `haltBatch`, …); these names are conceptual, not a public tool inventory | Public authentication, API contracts, quotas and audit actors still require implementation (§4) |
 | Internal product ↔ MCP/API split | Internal only today | §4 below |
 
-Conclusion the roadmap already acts on: the memo's architecture section
-required **no redesign** — its genuinely new agentic work is the autonomy
-routing (Phase 5) and the external interface (§4).
+Retain these seams. The system already supports bounded event-driven
+automation; the next useful feature is selected from beta evidence, not from
+completing every box in the memo.
 
 ## 3. Future agentic work — sequence and rationale
 
-In order, with the phase that owns each:
+The [forward roadmap](2026-08-26-forward-roadmap.md) owns the immediate
+selection process, provisional engineering/discovery limits, and cash gates.
+Choose at most one improvement from an observed beta burden or barrier to
+paying; choosing no new feature is valid. Measurement can use a worksheet
+and existing records. Cash/funding preparation proceeds alongside learning.
 
-1. **External business events into the spine** (Phase 1). Connectors make the
-   agent's world bigger: `job.completed` becomes as native a trigger as
-   `new_review`. This is agentic work, not just integration work — the event
-   vocabulary is the agent's future sensory input.
-2. **Recovery as a run-engine tenant** (Phase 2). Long-running,
-   approval-gated, multi-step workflows (open → outreach → await customer →
-   resolve) exercise the executor's parent/child lifecycle beyond
-   solicitation batches.
-3. **Per-action autonomy matrix + Judge-on-withhold + Governor per-gate**
-   (Phase 5). Autonomy stops being one dial and becomes a policy surface.
-   Prerequisite: Phase 4's policy layer, so every autonomous act can cite the
-   rule it followed.
-4. **Calibrated-confidence router** (design §8.5 leftover; after Phase 5).
-   Route each draft to the auto lane or the owner lane by calibrated
-   confidence rather than category alone. Needs accumulated Judge verdicts +
-   edit-distance history as ground truth — which is why it waits.
-5. **Public API, then MCP server** — read-only pilot after Phase 2, write
-   surface Phase 8 (owner decision 2026-08-29, investor-theses overlay;
-   see §4).
-6. **Conversational surface** ("ask RepWorth") — after the tool layer exists,
-   a chat surface is a thin client over it. Not before.
-7. **Agent-to-agent protocols** — explicitly deferred. MCP (agent↔tools)
-   unlocks the near-term value; A2A returns only when a concrete
-   RepWorth-agent ↔ customer-agent case exists.
-8. **Cross-agent coordination keys, outcome billing** (design §8.5) — remain
-   parked; outcome billing waits on `agent_outcomes` accumulating enough
-   history to price against (design Decision 2).
+Dependencies for later topic work:
 
-## 4. Public API + MCP strategy (Phase 8 detail)
+1. **P1, external events:** only when multiple participating businesses share
+   a provider and observed input burden justifies it. API access, event
+   identity, tenant mapping, replay and consent must be established; existing
+   CSV attestation cannot stand in for provider-event provenance.
+2. **P4 minimum facts/policies → P2 recovery:** collect the verified policy and
+   business facts needed before outreach, promises or compensation depending
+   on them. A bounded recovery workflow needs durable states and approval,
+   not a general run-engine rewrite. Full Business Truth and topic ontology
+   wait for evidence; P3 need not block a simple owner-approved recovery case.
+3. **P4 policy → P5 finer autonomy:** expand only the action class whose
+   delegation has value and reliable failure handling. Confidence calibration
+   requires representative, quality-checked verdict/edit evidence and testing;
+   accumulating logs alone does not establish calibrated confidence.
+4. **P7 reporting/query expansion:** wait for sufficient usable operational
+   data. The current fixed seven-minute-per-reply estimate is not measured
+   net owner savings. Inquiries, bookings and revenue need separate records;
+   reviews or QR scans are not substitutes.
+5. **P8 API/MCP:** conditional read-only pilot under §4, with no automatic
+   trigger after P2. Chat and A2A also need named demand and capacity. A chat
+   UI can reuse governed tools but still needs its own interaction and safety
+   work; it is not automatically a thin implementation.
+6. **Scale and billing:** outcome billing remains parked until definitions,
+   attribution, costs and commercial terms support it. Wider worker
+   replication/concurrency requires coordination and load evidence; the
+   existing guard in `worker/config/startup-assert.ts` is per process and
+   assumes one replica.
 
-**MCP is an interface, not the agent** — and not a differentiator (Yext
-shipped an MCP server 2026-06; agent access is becoming expected
-infrastructure). The order is fixed: **clean internal tool layer → public
-API → MCP server that wraps it.** Never expose MCP tools that don't exist as
-governed internal seams first.
+Non-Google support is a separate P6 implementation/access decision.
+`ReviewSource` still takes `placeId`, `ReviewIdentity` lists only SerpAPI/Zernio,
+and the publisher constructs Zernio while retaining provider-specific errors.
+Monitoring, requesting and replying must each be checked against the target
+platform's current access and policy requirements before promising support.
 
-**Timing (updated 2026-08-29, investor-theses overlay):** the read-only
-pilot is pulled forward to after Phase 2; write-capable tools stay Phase 8.
-The 30-day ecosystem read supports building agent-READY without betting on
-agent REVENUE: 17,000+ public MCP servers under Linux Foundation
-governance, but registry-listed servers report crawler traffic with
-near-zero real client sessions, ~11% of experimenting orgs in production,
-and 88% reporting agent security incidents. **Design center: agent identity
-and scoped authorization** — the MCP maintainers named agent identity a
-first-class roadmap priority on 2026-08-22, and that gap is precisely what
-the Judge, the action-risk classes, and per-account policy grants already
-answer. Evidence + citations: `2026-08-29-investor-theses-overlay.md` §2.
+## 4. Public API + MCP strategy (P8 detail)
 
-**Read-first exposure.** Launch tool list (draft):
+**MCP is an interface, not the agent.** Interface compatibility does not
+establish customer demand or defensibility. The dependency is **governed
+internal services → authenticated public API → MCP adapter**. Neither the
+API nor its authentication is a free wrapper around owner browser routes.
+
+**Timing (revised 2026-09-07):** a strictly read-only pilot needs a named user
+or integration with a repeated task, accessible test client, acceptance
+criteria and available capacity. P2 completion is not authorization or a
+scheduling trigger. No current need is established by this page. Validate the
+current MCP transport/authorization specification when implementation is chosen;
+generic ecosystem statistics do not decide this investment.
+
+**Identity is missing work.** Current `src/lib/auth/resolve-owner-scope.ts`
+resolves an owner session and selected-location cookie. External agents need
+distinct machine-actor credentials, owner-authorized account-scoped OAuth
+grants, explicit tenant/location/resource scope, token validation and
+lifecycle, revocation, quotas and audit attribution. Add negative tenant/access
+tests before any pilot. Do not pass owner cookies or service-role credentials
+to a third-party agent. Judge, veto windows and policy grants govern an
+authorized action; none authenticates the caller or authorizes a data read.
+
+**Candidate read-only pilot tools** (not implemented/public commitments):
 
 ```text
 repworth.locations.list
 repworth.reviews.list / get
 repworth.insights.summary
 repworth.reputation.report
-repworth.responses.draft        (reversible: creates a draft, posts nothing)
 ```
 
-Write operations arrive later, classed by consequence — and the classes map
-onto approval machinery that already exists:
+Summary/report reads return existing authorized data, without triggering new
+generation. **`responses.draft` is a write and can incur LLM cost** even if it
+publishes nothing, so it is excluded from the read-only pilot.
 
-| Action class | Example | Gate (existing mechanism) |
+Future action classes retain both new external-access controls and applicable
+internal controls; this table is a requirement, not an as-built claim:
+
+| Action class | Example | Required gate |
 |---|---|---|
-| Read | list reviews, get report | OAuth scope only |
-| Reversible / low risk | draft response, open internal task | Allowed; run-spine attributed |
-| External consequential | publish response, send request | Same `auto_policy`/owner-approval lane as internal actions — an MCP caller gets **no more autonomy than the account's own policy grants** |
-| High consequence | anything touching money, profile data | Explicit owner approval, always |
+| Read | list reviews, get existing report | Valid machine identity, account/resource grants, tenant checks, revocation, quotas and access audit |
+| State-changing, internal | draft response, open internal task | Separate write scope, schema validation, idempotency and actor attribution; drafting also respects subscription and cost reservation |
+| External consequential | publish response, send request | All external-access controls plus applicable owner/auto-policy approval, moderation, consent, veto, caps and watchdog checks; no extra autonomy for an MCP caller |
+| High consequence | money or profile changes | Explicit owner approval plus a separately designed and reviewed capability; absent from the pilot |
 
-That last column is the strategic point: the governed-autonomy stack is what
-makes a public agent surface *sellable* — an external agent inherits the
-Judge, the veto window, the caps, and the audit trail for free. Auth follows
-current MCP spec conventions (OAuth 2.1); every MCP-initiated action lands on
-the run spine with a distinct actor attribution (extends the Channel-actor
-pattern).
+Existing governance is reusable only after each external entry point is wired
+and tested against it. Define machine actor attribution deliberately; do not
+confuse persona attribution on the run spine with caller identity, or invent
+business outcomes for read requests. Evidence must include access revocation,
+wrong-account/location attempts, retries and applicable cost/publish gates.
 
 **Explicitly not planned:** exposing solicitation sends or publishing to
 third-party agents before the internal lanes have production history; any
-MCP tool that bypasses `evaluateAsk` or the approval lanes.
+MCP action that bypasses controls applicable to it. Reads require access
+checks and access records, not solicitation eligibility or reply moderation.
 
 ## 5. What we will NOT build (standing refusals)
 
 - A vendor agent-framework migration (principle 6).
 - LLMs with direct DB or external-API access (principle 1).
 - Multi-agent choreography for its own sake (principle 3).
-- A chat interface before the tool layer (principle 2, §3 item 6).
-- Any agent capability that skips the policy engine, moderation veto, or
-  audit spine — including our own future MCP tools (§4).
+- A chat interface before the tool layer (principle 2, §3 item 5).
+- Any agent capability that skips the access, policy, moderation, or audit
+  requirements applicable to that action, including future MCP tools (§4).
