@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "It removes sign-in from every admin identity on a shared Supabase project \u2014 the authorization surface of the whole admin control plane",
+    "It uses the service_role key outside any request-scoped gate, and a mis-targeted invocation would revoke the wrong environment's admins",
+    "It accompanies the MFA_ENFORCEMENT_ENABLED flip, which changes proxy behaviour for admin pages and for enrolled owners"
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "One command REVOKES a RepWorth admin identity \u2014 it bans the Supabase Auth login so the identity can no longer sign in, leaves the public.users row and its role='admin' completely intact (users rows are FK targets), writes one admin_revoked row through writeAdminAuditLog, is idempotent, and is fully reversed by --restore. It reuses scripts/mint-admin.ts's environment selection and scripts/staging-guard.ts's assertMintTarget, so production is reachable only behind an explicit --env production selector plus a matching --confirm-ref, exactly like minting.",
+  "non_goals": [
+    "Deleting any row \u2014 not public.users, not auth.users, not auth.mfa_factors, not auth.sessions. The owner decision on #1182 is REVOKE, never row deletion",
+    "Changing users.role away from 'admin' \u2014 the revoke is the Auth-side ban only, so restore is a single reversal",
+    "Removing or resetting an admin's MFA factors \u2014 that would make --restore non-reversing",
+    "Any migration or schema change; admin_audit_log and users are used exactly as migration 117 and 001 define them",
+    "Any touch of src/proxy.ts, src/lib/config/ or src/lib/shared/csrf.ts \u2014 #1186 owns those files in a parallel worktree",
+    "Folding the nine admin GETs onto requireAdminWithAal2 \u2014 that is #1184, and ADR 0025 D5 requires it to land AFTER this flag flip",
+    "Minting a new admin \u2014 scripts/mint-admin.ts owns that verb and is not modified",
+    "Any production write of any kind in this run: no revoke, no flag flip, no mint. The production plan is prepared and handed to the owner"
+  ],
+  "user_visible_behavior": [
+    "An operator runs pnpm tsx scripts/revoke-admin.ts --email <e> --confirm-ref <project-ref> [--env local|staging|production] [--restore] [--dry-run] and the script prints TARGET (project ref, Supabase host, user@host:port database descriptor) before it writes anything",
+    "A successful revoke prints REVOKED with the users.id and auth_id, and states that the users row was left in place",
+    "A successful restore prints RESTORED with the same identifiers",
+    "--dry-run runs every refusal check and the target guard and writes nothing to Postgres or Supabase Auth",
+    "Re-running a revoke against an already-banned identity prints ALREADY REVOKED, exits 0 and writes no second audit row; the same holds for --restore against an identity that is not banned",
+    "An email with no users row, or a users row whose role is not 'admin', is refused with nothing written",
+    "A --confirm-ref that is not exactly the project ref parsed out of BOTH the Supabase URL host and the database connection target is refused before any call; a production project ref is refused outright unless --env production was typed",
+    "When the ban succeeds but the audit write fails, the script says the ban COMMITTED, names the audit row that must be recorded by hand, and exits non-zero \u2014 it never reports a clean revoke it did not fully record"
+  ],
+  "invariants": [
+    "Invariant #8 \u2014 users.auth_id maps to the Supabase Auth identity, and SUPABASE_SERVICE_KEY is read only inside this Node script, never by browser code",
+    "Invariant #10 \u2014 node:crypto only; no crypto-js",
+    "Invariants #12 and #15 \u2014 the script is the composition root: it builds its own postgres and Supabase clients from env and passes them into the domain helpers, which never import @/lib/db/server",
+    "admin_audit_log is written ONLY through writeAdminAuditLog (src/lib/audit/log.ts, migration 117) \u2014 never a raw INSERT. account_audit_log is impossible for an admin: its account_id is NOT NULL and an admin's account_id is NULL",
+    "No row is ever deleted or UPDATEd in public.users; the only Postgres write is the INSERT into admin_audit_log",
+    "admin_audit_log.actor_user_id stays NOT NULL and is satisfied without a migration: the revoked admin is its own actor (the self-actor precedent scripts/mint-admin.ts set for admin_minted), because after a full reset there may be NO other admin at all",
+    "Production is reachable ONLY behind an explicit --env production selector AND a --confirm-ref equal to the ref parsed from both halves of the target; no mode defaults to production",
+    "No new environment variable and no feature flag is introduced by the script"
+  ],
+  "edge_cases": [
+    "No users row for the email \u2014 refuse before any Auth call, nothing written",
+    "A users row exists but role is not 'admin' \u2014 refuse; this script only revokes admins",
+    "The users row has a NULL or empty auth_id (half-2-only identity) \u2014 refuse, naming the row, because there is no Auth identity to ban",
+    "The identity is already banned and --restore was not passed \u2014 report ALREADY REVOKED, exit 0, write no audit row",
+    "The identity is not banned and --restore was passed \u2014 report ALREADY ACTIVE, exit 0, write no audit row",
+    "auth.users is unreadable on the target (the local and CI test databases provision schema auth with no auth.users relation) \u2014 the ban-state probe reports unavailable, the run says so, and the transition is attempted anyway; the Auth API is idempotent for a repeated ban",
+    "The Auth ban call fails \u2014 nothing is written to Postgres and the run exits non-zero; the Auth outcome is reported as UNKNOWN when the failure is a transport failure rather than an API refusal",
+    "The audit INSERT fails after the ban committed \u2014 the ban STANDS (it is the security-relevant act), the run exits non-zero and prints the exact row an operator must record; it is never reported as a clean revoke",
+    "--confirm-ref absent, partial, or matching only one half of a mismatched credential pair \u2014 refuse before any call",
+    "Email is trimmed and lowercased before every comparison, so casing cannot address the wrong identity"
+  ],
+  "existing_patterns_to_follow": [
+    "scripts/mint-admin.ts \u2014 the composition-root shape, readMintConfig/resolveMintEnv environment selection, describeConnectionTarget/extractProjectRefForLog target description, buildMintGuardInput, the pure formatX report functions, and the self-actor admin_audit_log write",
+    "scripts/staging-guard.ts assertMintTarget \u2014 the third mode, reused verbatim; no fourth mode is added",
+    "scripts/run-direct-cli.ts \u2014 the direct-invocation guard that makes importing one CLI module from another safe",
+    "scripts/mint-admin.ts probeAuthIdentity \u2014 the to_regclass('auth.users') guard for a relation the test databases do not provision"
+  ],
+  "test_seams": [
+    "revokeAdmin(sql, supabase, input) takes both clients as parameters, so the unit suite drives it with a fake sql template tag and a stubbed supabase.auth.admin",
+    "formatRevokeReport(result, target) is pure, so 'never prints a secret' and every operator-facing line are assertions over a value",
+    "buildRevokeGuardInput is the tested JOIN between the parsed --env selector and assertMintTarget's allowProduction"
+  ],
+  "allowed_edit_surface": [
+    "scripts/mint-admin.ts",
+    "scripts/revoke-admin.ts",
+    "scripts/ci/__tests__/revoke-admin.test.ts",
+    "scripts/ci/__tests__/revoke-admin.integration.test.ts",
+    "docs/runbooks/mint-admin.md",
+    ".claude/reference/env-vars.md",
+    "docs/eservices-variables.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**",
+    ".claude/reference/arch-review-log.md"
+  ],
+  "tests_to_add": [
+    "refuses a production-looking target when --env production was not passed",
+    "permits a production target only when --env production AND a matching --confirm-ref are both present",
+    "refuses when there is no users row for the email, and calls no Auth API",
+    "refuses when the users row exists but its role is not admin",
+    "refuses when the users row has no auth_id",
+    "a --dry-run runs every refusal check and writes nothing to Postgres or Supabase Auth",
+    "revoke bans the Auth identity with a ban_duration and never deletes a user",
+    "revoke is idempotent: an already-banned identity reports already_revoked and writes no audit row",
+    "restore lifts the ban by sending ban_duration none",
+    "restore is idempotent: an identity that is not banned reports already_active and writes no audit row",
+    "a failed Auth ban writes no audit row and reports failure",
+    "an audit write that fails after a committed ban reports the ban as standing and exits non-zero",
+    "the report never prints the service key, a password, or a recovery link",
+    "revoke writes exactly one admin_revoked row whose actor FK resolves to the revoked admin",
+    "restore writes exactly one admin_restored row",
+    "neither revoke nor restore deletes or updates the users row"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 700,
+  "estimated_test_lines": 620,
+  "dependencies_added": [],
+  "rollback_plan": "Every revoke is reversed by the same script with --restore, which lifts the ban and writes an admin_restored row; no row was deleted, so nothing needs re-creating. The MFA_ENFORCEMENT_ENABLED flip is reversed by setting the staging variable back to false and redeploying, per the flag-flip skill.",
+  "observability": "One admin_audit_log row per state transition (admin_revoked / admin_restored) carrying the email, auth_id, ban duration, the self-actor markers, and the unauthenticated-shell operator provenance. The operator-facing report names the TARGET before any write.",
+  "required_approvals": [
+    "Owner go for the MFA_ENFORCEMENT_ENABLED flip on staging (given 2026-09-08)",
+    "Owner merge approval on the PR to main (high-risk lane)",
+    "Owner go, command by command, for every production step \u2014 none is executed in this run"
+  ],
+  "open_questions": []
+}

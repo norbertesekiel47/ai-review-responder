@@ -95,23 +95,46 @@ const MINT_ADMIN_USAGE = [
  * through the required-flag checks — minting an admin named `--dry-run`, or
  * sending an invalid address to Supabase (review finding S3).
  */
-function flagValue(argv: readonly string[], flag: string): string | undefined {
+// Exported for `scripts/revoke-admin.ts` (#1182), which parses the same flag
+// shape. Shared rather than copied: the `--email --dry-run` trap below is a
+// fixed review finding (S3, red team RT2-01), and a second hand-written parser
+// is exactly how a fixed trap comes back.
+export function flagValue(argv: readonly string[], flag: string): string | undefined {
   const index = argv.indexOf(flag);
   if (index < 0) return undefined;
   const value = argv[index + 1];
   return value === undefined || value.startsWith('--') ? undefined : value;
 }
 
+/**
+ * A REQUIRED flag's value: trimmed, optionally lowercased, never absent.
+ *
+ * Shared with `scripts/revoke-admin.ts` (#1182), which parses the same
+ * `--email` / `--confirm-ref` pair — copied, it was a clone group the fallow
+ * gate flagged. `lowercase` is opt-in because `--name` is a human's display
+ * name and must keep its casing, while an email or a project ref is an
+ * identifier that must not be able to address two things.
+ *
+ * The message is `<flag> is required`, byte-identical to the three it replaces.
+ */
+export function requiredFlagValue(
+  argv: readonly string[],
+  flag: string,
+  options: { lowercase?: boolean } = {},
+): string {
+  const raw = flagValue(argv, flag)?.trim() ?? '';
+  const value = options.lowercase ? raw.toLowerCase() : raw;
+  if (!value) throw new MintAdminUsageError(`${flag} is required`);
+  return value;
+}
+
 /** `argv` is the arguments AFTER node and the script path. Throws on misuse. */
 export function parseMintAdminArgs(argv: readonly string[]): MintAdminArgs {
-  const email = flagValue(argv, '--email')?.trim().toLowerCase() ?? '';
-  const name = flagValue(argv, '--name')?.trim() ?? '';
-  const confirmRef = flagValue(argv, '--confirm-ref')?.trim().toLowerCase() ?? '';
+  const email = requiredFlagValue(argv, '--email', { lowercase: true });
+  const name = requiredFlagValue(argv, '--name');
+  const confirmRef = requiredFlagValue(argv, '--confirm-ref', { lowercase: true });
   const rawEnv = flagValue(argv, '--env')?.trim() ?? 'ambient';
 
-  if (!email) throw new MintAdminUsageError('--email is required');
-  if (!name) throw new MintAdminUsageError('--name is required');
-  if (!confirmRef) throw new MintAdminUsageError('--confirm-ref is required');
   if (
     rawEnv !== 'ambient' && rawEnv !== 'local' &&
     rawEnv !== 'staging' && rawEnv !== 'production'
@@ -268,7 +291,10 @@ export interface MintOperator {
   provenance: 'unauthenticated_shell';
 }
 
-function describeOperator(): MintOperator {
+// Exported for `scripts/revoke-admin.ts` (#1182): one owner of the
+// operator-provenance shape, so both scripts record `provenance` the same way
+// and a reader of `admin_audit_log` sees one payload vocabulary.
+export function describeOperator(): MintOperator {
   return {
     os_user: userInfo().username,
     host: hostname(),
@@ -459,7 +485,10 @@ async function reconcileAfterTransaction(
   };
 }
 
-function describeError(error: unknown): string {
+// Exported for `scripts/revoke-admin.ts` (#1182). Copied rather than shared, it
+// was a 13-line clone the fallow gate flagged — and two copies of "how is an
+// error described to an operator" drift.
+export function describeError(error: unknown): string {
   if (error instanceof Error) {
     const code = (error as { code?: unknown }).code;
     return typeof code === 'string' ? `${code} ${error.message}` : error.message;
