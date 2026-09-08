@@ -166,3 +166,44 @@ anyway at RISK = high, but the measurement is recorded rather than estimated, as
 requires.
 
 **Verdict:** ACCEPT.
+
+---
+
+## DEV-8 — the red-team round cap collided with a real round-2 finding (BLOCKING, owner's call)
+
+**What happened.** Red-team round 2 found **no P0** but five P1s, one of them substantive:
+round 1's own fix for adversarial finding A1 was wrong (RT-10 — it keyed the fail-closed
+fallback on `VERCEL`, which is itself a system environment variable and is therefore absent
+in exactly the configuration the fallback exists for). All five were fixed, verified, and
+the full gate is GREEN at `d8faf8e5`.
+
+**The collision.** `red-team-status.mjs` requires the tree to be byte-identical to the
+sidecar's `head_sha` except the two report artifacts
+(`red-team-status.mjs:749-773`). The sidecar's `head_sha` is `1ded393a` — correct, that is
+what round 2 reviewed. Fixing round 2's findings necessarily moved HEAD to `d8faf8e5`, so
+the evidence is stale by exactly one commit. The only sanctioned repair is another
+adversarial round, and `mutation-runner.mjs:399` enforces a **hard cap of 2**:
+`round-start: REFUSED — round 3 exceeds the hard cap of 2`.
+
+Both doors are therefore shut by design:
+
+- Leaving the P1s open fails the checker ("a high-risk run cannot ship an open P1 — fix it,
+  or record user authorization").
+- Fixing them moves HEAD and fails the checker on staleness.
+- Re-stamping needs a third round, which the cap refuses.
+
+**Why this is not a papering-over case.** `/feature` step 8 gates EVERY external action on
+this checker — the staging ride and the draft PR included. Hand-editing `head_sha` to the
+new HEAD would make the sidecar claim an adversarial pass covered code it never saw, which
+is the one thing the staleness rule exists to prevent. The run stops here instead.
+
+**What the pipeline assumes, and where it broke.** Step 7.5's order (round 2 → final gate →
+status check → `reviewed`) assumes round 2 finds nothing that needs a code fix, or that what
+it finds goes to the owner. On RISK = high a P1 IS the owner's call. Round 2 found a real
+defect in a round-1 fix, which is the cap working as intended — and then left no move.
+
+**Verdict:** ACCEPT as a genuine pipeline gap, escalated rather than worked around. The
+owner's decision is recorded in the run's final report. Worth promoting at merge: step 7.5
+needs a defined answer for "round 2 found something real", because a two-round cap plus a
+byte-exact staleness rule plus a no-open-P1 rule is over-constrained the moment the last
+round is productive.
