@@ -26,17 +26,18 @@ representation).
 >   baseline window starts 2026-06-09
 > - ✅ 3c (`qr-redirect-per-ip-enforce`) added + published 2026-08-27 → **5
 >   active rules live** (re-verified via CLI 2026-09-07 ahead of #1187)
-> - 🟡 `api-options-volumetric-log` proposed 2026-09-07 (#1187) — **PENDING
->   OWNER APPLY: not staged, not published, not live.** Spec + CLI command +
->   apply procedure: Component 1c below.
+> - ✅ `api-options-volumetric-log` (1c, #1187) applied by the owner via CLI
+>   2026-09-08, id `rule_api_options_volumetric_log_kJJB6d` → **6 active
+>   rules live** (CLI-verified 2026-09-08). Spec + how it was applied:
+>   Component 1c below.
 
 It covers Slice 2 of the rate-limiting hardening plan:
 
 - **Component 1** — broad per-IP volumetric net on `/api/*`, split by method,
   shipped in **LOG mode** (records matches, blocks nothing). NOT enforced in this
   slice; flip is owner-approved later (see "Flip-to-enforce checklist"). A
-  third split, `api-options-volumetric-log` (OPTIONS preflight), was proposed
-  2026-09-07 (#1187) and is **PENDING OWNER APPLY** — prepared, not staged.
+  third split, `api-options-volumetric-log` (OPTIONS preflight), was applied by
+  the owner 2026-09-08 (#1187) and is **LIVE** in LOG mode.
 - **Component 3** — per-path tighter rules on `signup` + `onboarding/start`,
   **ENFORCING now**.
 - **Component 4** — Attack Mode, documented as a break-glass toggle (owner-run).
@@ -60,15 +61,11 @@ Request → Vercel automatic DDoS mitigation (always on)
             2. onboarding-start-per-ip-enforce (10/min/IP → 429)  [ENFORCE]
             3. api-mutating-volumetric-log     (100/10s/IP)       [LOG only]
             4. api-get-volumetric-log          (600/10s/IP)       [LOG only]
+            5. api-options-volumetric-log      (100/10s/IP)       [LOG only]
         → BotID managed check (code: checkBotId in 4 routes)
         → Next.js function → app-layer per-owner/email/IP limits (Slice 1)
         → worker cost-guard reserve-before-LLM (spend ceiling)
 ```
-
-> **Pending, not yet in this diagram's live order:** `api-options-volumetric-log`
-> (`OPTIONS /api/*`, per-IP, LOG) — proposed 2026-09-07 (#1187), spec in
-> "Component 1c" below. Not staged, not published. Add it to the numbered list
-> above once the owner applies it.
 
 Rate-limit rules each keep their own counter, so a single `signup` POST is
 counted by rule 1 **and** rule 3. Tighter enforcing rules sit above the broad LOG
@@ -178,10 +175,11 @@ covers prod and the staging custom env alike. Burst-verified 2026-08-27 with a
 
 ---
 
-## Component 1 — broad volumetric net, split by method (LOG ONLY) — ✅ 1a/1b LIVE in LOG mode (published 2026-06-09) · 🟡 1c PENDING OWNER APPLY (proposed 2026-09-07, #1187)
+## Component 1 — broad volumetric net, split by method (LOG ONLY) — ✅ 1a/1b/1c LIVE in LOG mode (1a/1b published 2026-06-09; 1c applied by owner 2026-09-08, #1187)
 
 Live rule IDs: `rule_api_mutating_volumetric_log_fQ61fH` (1a),
-`rule_api_get_volumetric_log_oLxHcD` (1b).
+`rule_api_get_volumetric_log_oLxHcD` (1b),
+`rule_api_options_volumetric_log_kJJB6d` (1c).
 
 A default net so every `/api/*` route — including future ones — has baseline
 per-IP protection at the edge. **Shipped in LOG mode**: `--rate-limit-action log`
@@ -252,14 +250,14 @@ vercel firewall rules add "api-get-volumetric-log" \
 > equivalent exemption lives in the worker's own `onRequest` limiter hook, keyed on
 > resolved route config; see `worker/index.ts` and `worker/ingress/rate-limit.ts`.
 
-### 1c (PENDING — not staged, not published, not live) — `OPTIONS /api/*` volumetric LOG tripwire (#1187)
+### 1c — `OPTIONS /api/*` volumetric LOG tripwire — ✅ LIVE (applied by owner via CLI 2026-09-08, id `rule_api_options_volumetric_log_kJJB6d`) (#1187)
 
 Surfaced by ADR 0026 D8 while building the Admin API CORS preflight: **no live
-WAF rule matches the `OPTIONS` method** — the four/five method-scoped rules
-above match `POST`, `GET`, `PUT`, `DELETE`, but nothing matches `OPTIONS`, and
-that gap is app-wide, not admin-specific. D8 explicitly deferred the fix to
-this follow-up ticket rather than letting a whole-surface WAF change ride in
-on an admin CORS PR.
+WAF rule matched the `OPTIONS` method** — the four/five method-scoped rules
+above matched `POST`, `GET`, `PUT`, `DELETE`, but nothing matched `OPTIONS`,
+and that gap was app-wide, not admin-specific. D8 explicitly deferred the fix
+to this follow-up ticket rather than letting a whole-surface WAF change ride
+in on an admin CORS PR. This rule closes that gap.
 
 **Why this is its own rule, never an edit to `api-mutating-volumetric-log`.**
 ADR 0026 D8 rejected folding `OPTIONS` into 1a as a bare alternative; the
@@ -281,14 +279,15 @@ should sit far BELOW 1a's mutating volume — nowhere near 1b's polling-driven
 volume. Since expected legitimate OPTIONS volume is lower than 1a's own
 traffic, 1a's already-tight **100 requests / 10s / IP** carries even more
 headroom here than it does for 1a itself, so it is reused as-is rather than
-guessing a lower number with no baseline data to justify it. No live baseline
-data exists for this rule yet (it has never been applied); re-baseline in LOG
-mode before ever flipping to enforce, exactly as the "Flip-to-enforce
+guessing a lower number with no baseline data to justify it. Applied
+2026-09-08 in LOG mode; no baseline data exists yet on this new rule — collect
+3–7 days before ever flipping to enforce, exactly as the "Flip-to-enforce
 checklist" below requires for 1a/1b.
 
 ```bash
-# 1c. OPTIONS on /api/* — 100 requests / 10s per IP (LOG) — NOT YET RUN;
-#     owner-approved apply only (see "Apply procedure" below).
+# 1c. OPTIONS on /api/* — 100 requests / 10s per IP (LOG) — applied 2026-09-08
+#     by the owner, id rule_api_options_volumetric_log_kJJB6d. Reproduced here
+#     per this runbook's own "if a live rule is changed, change it here too."
 vercel firewall rules add "api-options-volumetric-log" \
   --condition '{"type":"path","op":"pre","value":"/api"}' \
   --condition '{"type":"method","op":"eq","value":"OPTIONS"}' \
@@ -302,10 +301,12 @@ vercel firewall rules add "api-options-volumetric-log" \
 
 **Follow-up (owner-approved, later — mirrors 1a/1b):** flip to enforce only
 after a 3–7 day LOG baseline confirms no legitimate shared-NAT source trips
-it. Once this rule is live, fold it into the "Flip-to-enforce checklist"
-below using the same evidence bar as 1a/1b.
+it (baseline window opened 2026-09-08, the day this rule went live) — see its
+own entry in the "Flip-to-enforce checklist" below.
 
-#### Apply procedure (owner) — dashboard and CLI, both ready to run
+#### How this was applied (owner) — dashboard and CLI reference
+
+Applied 2026-09-08 by the owner via the CLI method (step 2 below).
 
 CLI flags verified 2026-09-07 against the installed CLI (`vercel firewall
 rules --help`, `vercel firewall rules add --help`) on **Vercel CLI 54.14.5**:
@@ -321,33 +322,37 @@ Read-only inventory taken 2026-09-07 ahead of this change (`vercel firewall
 overview` + `vercel firewall rules list --expand`, project `rep-worth`): **5
 active rules, 0 inactive** — `signup-per-ip-enforce`,
 `onboarding-start-per-ip-enforce`, `api-mutating-volumetric-log`,
-`api-get-volumetric-log`, `qr-redirect-per-ip-enforce`. **None match
-`OPTIONS`**, confirming the gap this ticket exists to close.
+`api-get-volumetric-log`, `qr-redirect-per-ip-enforce`. **None matched
+`OPTIONS`**, confirming the gap this ticket existed to close.
 `vercel firewall diff` showed no pending draft changes.
 
-1. **Dashboard** — Vercel dashboard → project `rep-worth` → **Firewall →
-   Rules → Add rule** → name it `api-options-volumetric-log` → add condition
-   **Path** *starts with* `/api` AND condition **Method** *is* `OPTIONS` →
-   Action **Rate Limit** → algorithm **Fixed window**, **100** requests per
-   **10** seconds, key **IP address** → "If limit exceeded" = **Log only** →
-   Save (this stages a draft, nothing is live yet) → open **Firewall → Rules**
-   unpublished-changes diff and confirm only this one rule is new → **Publish**.
-2. **CLI** — run the `1c` command block above, then:
+1. **Dashboard** (reference — the owner used the CLI path this time) — Vercel
+   dashboard → project `rep-worth` → **Firewall → Rules → Add rule** → name it
+   `api-options-volumetric-log` → add condition **Path** *starts with* `/api`
+   AND condition **Method** *is* `OPTIONS` → Action **Rate Limit** → algorithm
+   **Fixed window**, **100** requests per **10** seconds, key **IP address** →
+   "If limit exceeded" = **Log only** → Save (stages a draft) → open
+   **Firewall → Rules** unpublished-changes diff and confirm only this one
+   rule is new → **Publish**.
+2. **CLI (used 2026-09-08)** — the `1c` command block above, then:
    ```bash
-   vercel firewall diff              # confirm ONLY api-options-volumetric-log is staged
-   vercel firewall publish --yes     # OWNER runs this — production-affecting
+   vercel firewall diff              # confirmed ONLY api-options-volumetric-log was staged
+   vercel firewall publish --yes     # OWNER ran this — production-affecting
    ```
-   No `reorder` step is needed: like 1a/1b, this is LOG-only with no enforcing
-   action, so its position relative to the enforcing rules (3a/3b/3c) doesn't
-   matter.
-3. **Verify live:**
+   No `reorder` step was needed: like 1a/1b, this is LOG-only with no
+   enforcing action, so its position relative to the enforcing rules
+   (3a/3b/3c) doesn't matter.
+3. **Verified live 2026-09-08:**
    ```bash
-   vercel firewall rules list --expand   # confirm 6 active rules; new rule's action = log
-   vercel firewall overview              # confirm "Custom Rules: 6 active, 0 inactive (6 total)"
+   vercel firewall rules list --expand   # 6 active rules; new rule's action = log
+   vercel firewall overview              # "Custom Rules: 6 active, 0 inactive (6 total)"
    ```
-   Then update the "State summary" table below (this file) to move this row
-   from PENDING to the live rule ID and publish date, per this runbook's own
-   "if a live rule is changed, change it here too" rule.
+   `rules list --expand` showed `api-options-volumetric-log [Enabled]` —
+   `path starts with /api`, `method equals OPTIONS`, Rate Limit 100/10s
+   (fixed_window), keys `ip`, if exceeded `log` — matching the spec above
+   exactly. The "State summary" table below has been updated from PENDING to
+   this live rule ID and apply date, per this runbook's own "if a live rule
+   is changed, change it here too" rule.
 
 ---
 
@@ -416,12 +421,19 @@ validation — they keep working, just without ML scoring. The Basic routes
 follow-up — NOT part of the Slice 2 delivery.** Evidence source = the Vercel
 Firewall dashboard (traffic filtered by rule ID) or `vc metrics`.
 
-> `api-options-volumetric-log` (Component 1c, #1187) is **not on this
-> checklist yet because it isn't live** — see "Apply procedure" above. Once
-> the owner applies it, add it here and gate its own flip on the same 3–7 day
-> LOG baseline; there is no known statutory-opt-out or NAT-polling exclusion
-> case for it today (preflight carries no cookies/body), but confirm none
-> exists before any flip, the same way 1a required the `/api/u/*` exclusion.
+**Before flipping `api-options-volumetric-log` to enforce** (Component 1c,
+#1187 — live 2026-09-08, baseline window opened that day):
+
+- [ ] 3–7 days of LOG data collected across a normal weekly cycle (incl. a
+      busy weekday).
+- [ ] No legitimate shared-NAT IP (several concurrent admin/owner sessions
+      behind one office IP) sustained >100 OPTIONS requests in any 10s window.
+- [ ] Re-confirm there is no exclusion case for this rule the way 1a needed
+      one for `POST /api/u/*` — a preflight carries no cookies or body, so
+      none is currently known, but check before any flip rather than assume.
+- [ ] Measured p99 per-IP OPTIONS rate over a 10s window sits comfortably
+      below 100 (target 3x headroom or more). If not, raise the threshold,
+      re-baseline, then revisit.
 
 Before flipping `api-mutating-volumetric-log` to enforce:
 
@@ -552,10 +564,11 @@ Per production.md (authorized · auditable · clear stop · bounded blast radius
   2026-09-07 ahead of #1187, see the next bullet.)
 - 🟡 Dashboard traffic filtered by each `rule_…` id shows hits accruing once
   published. (Pending — needs real traffic; URLs above.)
-- 🟡 `api-options-volumetric-log` (#1187) — PENDING. Not yet staged (confirmed
-  via `vercel firewall diff` 2026-09-07: no pending changes). Once applied,
-  confirm `vercel firewall rules list --expand` shows 6 active rules and
-  `overview` reports `Custom Rules: 6 active, 0 inactive (6 total)`.
+- ✅ `api-options-volumetric-log` (#1187) — LIVE. Applied by the owner via CLI
+  2026-09-08, id `rule_api_options_volumetric_log_kJJB6d`. Verified
+  `vercel firewall rules list --expand` shows 6 active rules including this
+  one (OPTIONS, `/api` prefix, per-IP, 100/10s, action `log`); `overview`
+  reports `Custom Rules: 6 active, 0 inactive (6 total)`.
 
 ## State summary
 
@@ -566,5 +579,5 @@ Per production.md (authorized · auditable · clear stop · bounded blast radius
 | `qr-redirect-per-ip-enforce` | `ANY /q/*` | 30 / 60s / IP → 429 | **ENFORCE** | prod + staging + preview | ✅ live (published + burst-verified 2026-08-27) |
 | `api-mutating-volumetric-log` | `POST/PUT/DELETE /api/*` | 100 / 10s / IP | **LOG** | prod + staging + preview | ✅ live (2026-06-09) · 🟡 flip-to-enforce pending baseline |
 | `api-get-volumetric-log` | `GET /api/*` | 600 / 10s / IP | **LOG** | prod + staging + preview | ✅ live (2026-06-09) · 🟡 flip-to-enforce pending baseline |
-| `api-options-volumetric-log` | `OPTIONS /api/*` | 100 / 10s / IP | **LOG** | *(not applied — spec only)* | 🟡 **PENDING OWNER APPLY** — proposed 2026-09-07 (#1187); not staged, not published, not live. Spec + CLI + dashboard steps: Component 1c above |
+| `api-options-volumetric-log` | `OPTIONS /api/*` | 100 / 10s / IP | **LOG** | prod + staging + preview | ✅ live — applied by owner via CLI 2026-09-08 (#1187), id `rule_api_options_volumetric_log_kJJB6d` · 🟡 flip-to-enforce pending baseline |
 | Attack Mode | all unverified visitors | challenge | **OFF** (break-glass) | — | ✅ verified Off (2026-06-09) |
