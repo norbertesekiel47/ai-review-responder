@@ -140,7 +140,20 @@ describe('assertMintTarget', () => {
   it('refuses a confirmed ref that is not a full Supabase project ref', () => {
     // `supabase` is a substring of BOTH ordinary targets, so a substring test
     // would confirm nothing at all (plan §6 F2).
-    for (const partial of ['supabase', STAGING_REF.slice(0, 8), '']) {
+    //
+    // The 16-, 19- and 21-character entries are LOAD-BEARING and must not be
+    // dropped: they are the only values that distinguish `{20}` from a
+    // loosened `{16,}`. Everything shorter is rejected by either pattern, so a
+    // list of short refs alone lets that widening survive — it did in red-team
+    // round 1 (RT-05), and it survived the first attempt at this very fix.
+    for (const partial of [
+      'supabase',
+      STAGING_REF.slice(0, 8),
+      '',
+      STAGING_REF.slice(0, 16),
+      STAGING_REF.slice(0, 19),
+      `${STAGING_REF}x`,
+    ]) {
       expect(() =>
         assertMintTarget({
           supabaseUrl: stagingSupabaseUrl,
