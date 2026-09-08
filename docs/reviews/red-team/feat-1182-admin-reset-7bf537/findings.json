@@ -100,7 +100,6 @@
       "test": "revokeAdmin a --dry-run runs every refusal check and writes nothing to Postgres or Supabase Auth",
       "file": "scripts/revoke-admin.ts:309-310",
       "outcome": "killed",
-      "inconclusive_class": "oracle",
       "finding_id": "RT2-01",
       "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-01 was closed. The probe statement's TEXT is now the oracle: `deleted_at::text -> NULL::text` KILLED, and the sibling `banned_until::text -> NULL::text` KILLED."
     },
@@ -109,7 +108,6 @@
       "test": "authClientOptions bounds every Auth request with an abort signal",
       "file": "scripts/revoke-admin.ts:656-660",
       "outcome": "killed",
-      "inconclusive_class": "oracle",
       "finding_id": "RT2-02",
       "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-02 was closed. The options are extracted as the fetch-injectable `authClientOptions()`: dropping the AbortSignal.timeout KILLED, and hoisting it to one shared signal per client KILLED."
     },
@@ -118,7 +116,6 @@
       "test": "revokeAdmin restores over a live short ban instead of reporting already_active",
       "file": "scripts/revoke-admin.ts:461-462",
       "outcome": "killed",
-      "inconclusive_class": "oracle",
       "finding_id": "RT2-03",
       "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-03 was closed. The missed sibling now has its own test: the restore arm swapped to `!state.bannedForFullTerm` KILLED."
     },
@@ -127,7 +124,6 @@
       "test": "revokeAdmin reports the probe state it actually observed on a dry run",
       "file": "scripts/revoke-admin.ts:466",
       "outcome": "killed",
-      "inconclusive_class": "oracle",
       "finding_id": "RT2-06",
       "reason": "RE-EXECUTED BY THE ORCHESTRATOR at the fix HEAD after RT2-06 was closed. Both arms are pinned now, so `banProbe: probe.state -> 'checked'` KILLED by the new unavailable-arm test."
     },
@@ -315,8 +311,7 @@
     "p2_open": 0,
     "accepted_risk": 0,
     "fixed": 15,
-    "rejected": 0,
-    "orchestrator_executed_mutants": 17
+    "rejected": 0
   },
   "status": "CLEAR"
 }
