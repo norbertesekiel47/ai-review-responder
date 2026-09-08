@@ -174,6 +174,7 @@ production runtime: `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_FOUNDING`,
 | `CSRF_SECRET` | ✅ | |
 | `IMPERSONATION_COOKIE_SECRET` | ✅ | HMAC-SHA256, ≥32 chars |
 | `WORKER_INTERNAL_SECRET` | ⬜ | shared secret for internal worker-to-app calls |
+| `ADMIN_APP_ORIGINS` | ⬜ | **Admin origin allowlist** (#1186, ADR 0026) — comma list of EXACT origins allowed to call `/api/admin/**` cross-origin, one value per environment. Server-only, **no `NEXT_PUBLIC_*` companion** (invariant #13). An entry containing `*` throws at read. Behavior row: `env-vars.md`. |
 | `ENCRYPTION_KEY` | 🔸 | **Retired.** No references in code (tokens are SHA-256 *hashed*, no symmetric crypto). Commented out in `.env.example` pending removal. |
 | `ENCRYPTION_KEY_VERSION` | 🔸 | **Retired.** Sibling of `ENCRYPTION_KEY`. |
 

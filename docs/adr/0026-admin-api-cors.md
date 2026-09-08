@@ -43,6 +43,23 @@ Facts measured at 2026-09-07, on `main` at `134a4b81`:
   `src/lib/zernio/connect-session-cookie.ts:48,99`,
   `src/app/api/analytics/enqueue/route.ts:73`). A `lax` cookie is not sent on a
   cross-origin `fetch`.
+
+  > **Corrected 2026-09-08, while implementing #1186.** That last sentence is
+  > wrong, and so is the heading it supports. `SameSite` is a **site** control,
+  > not an origin control: `admin.repworth.net` and `repworth.net` share a
+  > registrable domain, so they are **same-site but cross-origin**, and a `lax`
+  > cookie IS sent on a `fetch` between them. The CSRF conclusion this bullet
+  > was cited for still holds, on controls that do not rest on the false premise:
+  > **D4** refuses a non-allowlisted `Origin` `403` server-side on every method,
+  > before any Supabase work — that is the one that stops the REQUEST, and the
+  > only one that covers a same-site sibling origin; `assertSameOrigin`
+  > (`src/lib/shared/csrf.ts`) independently refuses any `Origin` that is not
+  > `NEXT_PUBLIC_APP_URL`; and D5's first control never sends
+  > `Access-Control-Allow-Credentials`, so a credentialed cross-origin response
+  > stays unreadable to script. (D5's own `SameSite` sentence repeats this same
+  > overstatement and carries its own correction note.) Corrected rather than deleted, because the
+  > cookies really are `strict`/`lax` — it is the reach of `SameSite` that was
+  > overstated, and that is the part worth not re-deriving.
 - **Admin routes export 23 `POST`, 13 `GET`, 1 `PUT`, 1 `PATCH`. No `DELETE`.**
   No admin route sets a custom response header, so nothing needs
   `Access-Control-Expose-Headers`.
@@ -196,6 +213,19 @@ Spec facts, looked up rather than recalled:
    `rw_impersonation` is `strict` and every other cookie is `lax`, so no cookie
    reaches a cross-origin `fetch` in the first place. Bearer-only, as ADR 0025
    **Admin transport** requires.
+
+   > **Corrected 2026-09-08, while implementing #1186.** The `SameSite` sentence
+   > repeats the Context overstatement corrected above: a `lax` cookie IS sent on
+   > a cross-origin `fetch` to a **same-site** host, and `admin.repworth.net` and
+   > `repworth.net` are same-site. The decision is unchanged and its FIRST
+   > control is untouched — `Access-Control-Allow-Credentials` is never sent, so
+   > a credentialed cross-origin response stays unreadable to script. `SameSite`
+   > is still a real second control against a genuinely cross-SITE caller; only
+   > the "no cookie reaches a cross-origin `fetch`" absolutism is wrong.
+   > **D4 is the control that stops the request itself** — a non-allowlisted
+   > `Origin` is refused `403` server-side, before any Supabase work, on every
+   > method. That is what covers a same-site sibling origin, which neither
+   > `SameSite` nor a response-header control can.
 
 6. **The global `Cross-Origin-Resource-Policy: same-origin` is untouched.** No
    `/api/admin/**` override. Per Fetch §3.7 and §4.4 the check runs only on

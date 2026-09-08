@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  isAdminApiRoute,
   isProtectedMixedRoleApiRoute,
   isProtectedOwnerApiRoute,
   isProtectedRoute,
@@ -165,5 +166,46 @@ describe('protected API route roles', () => {
     expect(isProtectedOwnerApiRoute('/api/account/offboarding/keep-my-data')).toBe(false);
     expect(isProtectedRoute('/api/account/offboarding/keep-my-data')).toBe(false);
     expect(isProtectedOwnerApiRoute('/api/account/offboarding/confirm')).toBe(true);
+  });
+});
+
+describe('isAdminApiRoute', () => {
+  // Extracted in #1186 so `src/proxy.ts`'s CORS block and `isProtectedRoute`
+  // decide "is this the Admin API?" from ONE definition. It is pinned here as
+  // well as from the proxy suite because this module is its home: a mutation
+  // that only the proxy tests catch leaves this module's own suite claiming a
+  // coverage it does not have (red-team round 2, RT-13).
+  it('matches /api/admin and everything under it', () => {
+    for (const path of [
+      '/api/admin',
+      '/api/admin/overview',
+      '/api/admin/businesses/abc',
+      '/api/admin/impersonation/start',
+    ]) {
+      expect(isAdminApiRoute(path), path).toBe(true);
+    }
+  });
+
+  it('does not match a lookalike prefix or a non-admin API path', () => {
+    for (const path of ['/api/adminfoo', '/api/adm', '/api', '/admin', '/admin/overview', '/']) {
+      expect(isAdminApiRoute(path), path).toBe(false);
+    }
+  });
+
+  it('takes an ALREADY-normalized path — it is the one predicate here that does not normalize', () => {
+    // Its callers (isProtectedRoute above, and src/proxy.ts) both normalize
+    // first. Stated as a test so the contract is not just a comment: passing a
+    // raw path is a caller bug, not something this function silently absorbs.
+    expect(isAdminApiRoute('/API/Admin/overview')).toBe(false);
+    expect(isAdminApiRoute(normalizePath('/API/Admin/overview'))).toBe(true);
+    expect(isAdminApiRoute('/api/admin/')).toBe(true);
+    expect(isAdminApiRoute(normalizePath('/api/admin/'))).toBe(true);
+  });
+
+  it('agrees with isProtectedRoute on the whole admin API surface', () => {
+    for (const path of ['/api/admin', '/api/admin/overview', '/API/Admin/businesses']) {
+      expect(isProtectedRoute(path), path).toBe(true);
+    }
+    expect(isAdminApiRoute(normalizePath('/api/adminfoo'))).toBe(false);
   });
 });

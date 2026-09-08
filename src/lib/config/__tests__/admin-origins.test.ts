@@ -1,0 +1,301 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  AdminOriginConfigError,
+  isAllowedAdminOrigin,
+  normalizeOrigin,
+  readAdminAppOrigins,
+} from '../admin-origins';
+
+const APP_ORIGIN = 'https://repworth.net';
+const ADMIN_ORIGIN = 'https://admin.staging.repworth.net';
+
+const ORIGINAL_ENV = { ...process.env };
+
+/**
+ * Comments out, LINE comments first. Order is load-bearing: these modules
+ * document their own rules, and a line comment naming `/api/admin/**` contains
+ * a literal `/*` that opens a phantom block comment which then swallows the
+ * import statements up to the next `*` + `/`. Stripping line comments first
+ * removes the phantom opener before the block pass ever sees it.
+ */
+function stripComments(source: string): string {
+  return source.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+afterEach(() => {
+  process.env = { ...ORIGINAL_ENV };
+});
+
+function withEnv(env: Record<string, string | undefined>): void {
+  process.env.NEXT_PUBLIC_APP_URL = APP_ORIGIN;
+  delete process.env.VERCEL_TARGET_ENV;
+  // With no target-env signal, isProductionEnvironment falls back to NODE_ENV,
+  // so the unset-lane cases below depend on it. Vitest only `??=`-defaults
+  // NODE_ENV, which means an ambient value from the shell would silently decide
+  // those assertions — so it is SET here, not assumed. (Round 2's fix for the
+  // stale `delete process.env.VERCEL` removed that line instead of retargeting
+  // it; round 3 caught the gap it left.)
+  Object.assign(process.env, { NODE_ENV: 'test' });
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
+describe('readAdminAppOrigins', () => {
+  it('throws when an ADMIN_APP_ORIGINS entry contains a wildcard', () => {
+    // ADR 0026 D2: the parser's refusal on '*' is what keeps ADR 0026 D7 true —
+    // a wildcard Access-Control-Allow-Origin can never be CONFIGURED.
+    for (const raw of ['*', 'https://*.repworth.net', `${ADMIN_ORIGIN},*`, 'https://a.example,https://*.b.example']) {
+      withEnv({ ADMIN_APP_ORIGINS: raw });
+      expect(() => readAdminAppOrigins(), `raw=${raw}`).toThrow(AdminOriginConfigError);
+    }
+  });
+
+  it('tolerates whitespace and trailing commas in ADMIN_APP_ORIGINS', () => {
+    withEnv({ ADMIN_APP_ORIGINS: `  ${ADMIN_ORIGIN} ,, https://admin.repworth.net/ ,  ` });
+
+    expect(readAdminAppOrigins()).toEqual([ADMIN_ORIGIN, 'https://admin.repworth.net']);
+  });
+
+  it("admits nothing but loopback and this app's own origin when ADMIN_APP_ORIGINS is empty", () => {
+    for (const raw of [undefined, '', '   ', ',,']) {
+      withEnv({ ADMIN_APP_ORIGINS: raw });
+      const allowlist = readAdminAppOrigins();
+
+      expect(allowlist, `raw=${JSON.stringify(raw)}`).toEqual([]);
+      expect(isAllowedAdminOrigin(APP_ORIGIN, allowlist)).toBe(true);
+      expect(isAllowedAdminOrigin('http://localhost:3000', allowlist)).toBe(true);
+      expect(isAllowedAdminOrigin(ADMIN_ORIGIN, allowlist)).toBe(false);
+    }
+  });
+
+  it('throws when an ADMIN_APP_ORIGINS entry is not a parseable absolute origin', () => {
+    for (const raw of ['admin.repworth.net', 'not a url', '//admin.repworth.net', '/api/admin']) {
+      withEnv({ ADMIN_APP_ORIGINS: raw });
+      expect(() => readAdminAppOrigins(), `raw=${raw}`).toThrow(AdminOriginConfigError);
+    }
+  });
+
+  it('throws when an ADMIN_APP_ORIGINS entry is not an http or https origin', () => {
+    // new URL() happily accepts these. file:/data: serialize to the origin "null",
+    // and blob:https://admin.example/id normalizes to https://admin.example — which
+    // would silently grant authority to an origin nobody wrote down.
+    //
+    // The first two fixtures are the ones that actually PIN the scheme guard:
+    // they have a root path, no userinfo, no query and no fragment, so the
+    // scheme check is the ONLY rule they break. Every other entry below also
+    // trips the path guard two clauses later — a red-team mutation deleted the
+    // scheme throw and this test still passed until these two were added.
+    for (const raw of [
+      'ftp://admin.example',
+      'ws://admin.example/',
+      'file:///etc/passwd',
+      'data:text/html,<script>',
+      'blob:https://admin.example/1234',
+      'javascript:alert(1)',
+    ]) {
+      withEnv({ ADMIN_APP_ORIGINS: raw });
+      expect(() => readAdminAppOrigins(), `raw=${raw}`).toThrow(AdminOriginConfigError);
+    }
+  });
+
+  it('throws when an ADMIN_APP_ORIGINS entry carries userinfo, a path, a query or a fragment', () => {
+    // Discarding these would widen an apparently URL-scoped entry into authority
+    // over the whole origin. Only a bare trailing slash is accepted.
+    for (const raw of [
+      'https://user:pass@admin.repworth.net',
+      'https://admin.repworth.net/admin',
+      'https://admin.repworth.net/?tenant=1',
+      'https://admin.repworth.net/#frag',
+    ]) {
+      withEnv({ ADMIN_APP_ORIGINS: raw });
+      expect(() => readAdminAppOrigins(), `raw=${raw}`).toThrow(AdminOriginConfigError);
+    }
+
+    withEnv({ ADMIN_APP_ORIGINS: 'https://admin.repworth.net/' });
+    expect(readAdminAppOrigins()).toEqual(['https://admin.repworth.net']);
+  });
+
+  it('re-reads ADMIN_APP_ORIGINS and NEXT_PUBLIC_APP_URL on every call', () => {
+    // Not memoized, per the src/lib/config/flags.ts precedent.
+    withEnv({ ADMIN_APP_ORIGINS: ADMIN_ORIGIN });
+    expect(readAdminAppOrigins()).toEqual([ADMIN_ORIGIN]);
+
+    process.env.ADMIN_APP_ORIGINS = 'https://other.example';
+    expect(readAdminAppOrigins()).toEqual(['https://other.example']);
+
+    delete process.env.ADMIN_APP_ORIGINS;
+    expect(readAdminAppOrigins()).toEqual([]);
+
+    expect(isAllowedAdminOrigin(APP_ORIGIN, [])).toBe(true);
+    process.env.NEXT_PUBLIC_APP_URL = 'https://elsewhere.example';
+    expect(isAllowedAdminOrigin(APP_ORIGIN, [])).toBe(false);
+  });
+});
+
+describe('isAllowedAdminOrigin', () => {
+  it('refuses lookalike hosts and mismatched schemes or ports', () => {
+    withEnv({ ADMIN_APP_ORIGINS: ADMIN_ORIGIN });
+    const allowlist = readAdminAppOrigins();
+
+    expect(isAllowedAdminOrigin(ADMIN_ORIGIN, allowlist)).toBe(true);
+
+    for (const origin of [
+      'https://admin.staging.repworth.net.evil.example', // suffix attack
+      'https://evil.example/admin.staging.repworth.net', // substring attack
+      'https://staging.repworth.net', // parent host
+      'https://x.admin.staging.repworth.net', // subdomain
+      'http://admin.staging.repworth.net', // scheme mismatch
+      'https://admin.staging.repworth.net:8443', // port mismatch
+      'https://admin-staging.repworth.net', // homoglyph-ish
+    ]) {
+      expect(isAllowedAdminOrigin(origin, allowlist), `origin=${origin}`).toBe(false);
+    }
+  });
+
+  it("treats a loopback origin as the code rule's alone, refusing it in the production lane even when listed", () => {
+    // ADR 0026 D2: "Loopback is a separate code rule, NOT a list entry." If a
+    // listed entry could win, the production lane's inertness would be
+    // bypassable from a dashboard.
+    withEnv({ ADMIN_APP_ORIGINS: 'http://localhost:3000', VERCEL_TARGET_ENV: 'production' });
+    const allowlist = readAdminAppOrigins();
+
+    expect(allowlist).toEqual(['http://localhost:3000']);
+    expect(isAllowedAdminOrigin('http://localhost:3000', allowlist)).toBe(false);
+    expect(isAllowedAdminOrigin('http://127.0.0.1:3000', allowlist)).toBe(false);
+  });
+
+  it('applies the loopback rule across both hosts, any port, and every non-production lane', () => {
+    for (const lane of [undefined, 'development', 'preview', 'staging']) {
+      withEnv({ ADMIN_APP_ORIGINS: '', VERCEL_TARGET_ENV: lane });
+
+      for (const origin of [
+        'http://localhost',
+        'http://localhost:3000',
+        'http://localhost:65535',
+        'http://127.0.0.1',
+        'http://127.0.0.1:54321',
+      ]) {
+        expect(isAllowedAdminOrigin(origin, []), `${origin} @ lane=${lane}`).toBe(true);
+      }
+
+      // NOT loopback by this rule (ADR 0024 D7 wrote `http://localhost:*`).
+      for (const origin of ['https://localhost:3000', 'http://[::1]:3000', 'http://127.0.0.2']) {
+        expect(isAllowedAdminOrigin(origin, []), `${origin} @ lane=${lane}`).toBe(false);
+      }
+    }
+
+    withEnv({ ADMIN_APP_ORIGINS: '', VERCEL_TARGET_ENV: 'production' });
+    expect(isAllowedAdminOrigin('http://localhost:3000', [])).toBe(false);
+  });
+});
+
+describe('Edge safety', () => {
+  it('keeps the CORS import graph free of node builtins, database clients and forbidden SDKs', () => {
+    // src/proxy.ts runs at the request edge but sits OUTSIDE every ESLint
+    // invariant #1 zone (eslint.config.mjs covers src/app/**, src/instrumentation.ts
+    // and src/components/**), so nothing else stops a forbidden import from
+    // reaching the proxy through this module. Precedent for the mechanical scan:
+    // src/lib/auth/__tests__/admin-transport.test.ts § Edge safety (#1183).
+    const repoRoot = join(__dirname, '..', '..', '..', '..');
+    const graph = [
+      'src/proxy.ts',
+      'src/lib/config/admin-origins.ts',
+      'src/lib/config/flags.ts',
+      'src/lib/shared/csrf.ts',
+      // Fix 3 (#1186) made this the owner of the CORS block's gate predicate,
+      // so it joined the proxy's Edge-critical set — red-team round 2 (RT-12).
+      'src/lib/shared/protected-routes.ts',
+      // The proxy's remaining two repo imports. Round 3 found them unscanned:
+      // "the CORS import graph" has to mean every module the proxy pulls in, or
+      // the guard only covers the ones this ticket happened to touch.
+      'src/lib/auth/flags.ts',
+      'src/lib/shared/request-path-header.ts',
+    ];
+    const forbidden = [
+      'node:',
+      '@/lib/db',
+      'postgres',
+      'bullmq',
+      'openai',
+      '@anthropic-ai/sdk',
+      '@supabase/supabase-js',
+      'ioredis',
+    ];
+
+    for (const file of graph) {
+      const code = stripComments(readFileSync(join(repoRoot, file), 'utf8'));
+      // FOUR import shapes, not one. A red-team pass added
+      // `import { createHash } from 'node:crypto'` AND a bare
+      // `import 'node:crypto';` and BOTH survived the first version of this
+      // guard: the bare form has no `from` clause at all, and the prefix match
+      // below was `s.startsWith('node:/')`, which no real specifier ever is.
+      // The same bypass is documented on this test's own cited precedent.
+      // The quote class includes a BACKTICK: round 2 (RT-14) showed that
+      // `import(\`node:crypto\`)` walked through a ['"]-only class.
+      const Q = String.raw`['"\``;
+      const specifiers = [
+        ...code.matchAll(new RegExp(String.raw`\bfrom\s*${Q}]([^${Q}]+)${Q}]`, 'g')),
+        ...code.matchAll(new RegExp(String.raw`\bimport\s+${Q}]([^${Q}]+)${Q}]`, 'g')),
+        ...code.matchAll(new RegExp(String.raw`\bimport\s*\(\s*${Q}]([^${Q}]+)${Q}]`, 'g')),
+        ...code.matchAll(new RegExp(String.raw`\brequire\s*\(\s*${Q}]([^${Q}]+)${Q}]`, 'g')),
+      ].map((m) => m[1] ?? '');
+
+      for (const bad of forbidden) {
+        // A scheme prefix (`node:`) matches on the prefix alone; a package name
+        // matches exactly or on a subpath, so `postgres` never matches
+        // `postgres-array`.
+        const matches = specifiers.filter((s) =>
+          bad.endsWith(':') ? s.startsWith(bad) : s === bad || s.startsWith(`${bad}/`),
+        );
+        expect(matches, `${file} must not import ${bad}`).toEqual([]);
+      }
+    }
+  });
+
+  it('scans direct specifiers only — the depth-1 and lexical limits are stated, not implied', () => {
+    // TWO limits, both deliberate, stated here so the guard above is never read
+    // as promising more than it delivers.
+    //
+    // 1. DEPTH. `src/proxy.ts` imports `@supabase/ssr`, which itself depends on
+    //    `@supabase/supabase-js` — so the forbidden list bans DIRECT imports by
+    //    the listed files; it is not a claim about the transitive closure.
+    //    `@supabase/ssr` is the Edge-safe client the proxy has always used, and
+    //    banning its transitive dependency would ban the proxy.
+    //
+    // 2. LEXICAL. It is a source-text scan, so it sees a specifier only when the
+    //    specifier is a literal. A COMPUTED one — `import('node' + ':crypto')`,
+    //    or any expression — is invisible, and no regex closes that: the general
+    //    case needs the module graph, not a pattern. Red-team round 3 proved the
+    //    gap with exactly that concatenation and recorded that no one-character
+    //    remedy exists.
+    //
+    // Why the guard still earns its place with a hole that size: it is aimed at
+    // the ACCIDENT — someone reaching for `node:crypto` in an Edge module and
+    // shipping it green — not at an author deliberately obfuscating an import to
+    // defeat their own repo's safety net. The adversarial case wants a bundler
+    // check, which is a different tool and a different ticket. Saying so here is
+    // what turns an unexamined gap into a declared boundary.
+    const proxySource = readFileSync(
+      join(__dirname, '..', '..', '..', 'proxy.ts'),
+      'utf8',
+    );
+    expect(proxySource).toContain("from '@supabase/ssr'");
+    expect(proxySource).not.toContain("from '@supabase/supabase-js'");
+  });
+});
+
+describe('normalizeOrigin', () => {
+  it('returns the canonical http(s) origin, and null for anything else', () => {
+    expect(normalizeOrigin('https://ADMIN.Staging.RepWorth.net')).toBe(ADMIN_ORIGIN);
+    expect(normalizeOrigin('https://admin.repworth.net/')).toBe('https://admin.repworth.net');
+    expect(normalizeOrigin('http://localhost:3000')).toBe('http://localhost:3000');
+
+    for (const bad of ['', '   ', 'null', 'not a url', 'file:///x', 'data:text/html,x', `${APP_ORIGIN} ${ADMIN_ORIGIN}`, null, undefined]) {
+      expect(normalizeOrigin(bad), `input=${JSON.stringify(bad)}`).toBeNull();
+    }
+  });
+});
