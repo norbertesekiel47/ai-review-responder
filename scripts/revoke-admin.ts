@@ -64,6 +64,7 @@ import {
   flagValue,
   MintAdminUsageError,
   readMintConfig,
+  type MintConfig,
   type MintEnvMode,
   type MintOperator,
 } from './mint-admin';
@@ -170,6 +171,18 @@ export function banDurationFor(action: RevokeAction): string {
   return action === 'revoke' ? REVOKE_BAN_DURATION : RESTORE_BAN_DURATION;
 }
 
+/**
+ * How far into the future a ban must reach before a revoke calls it DONE.
+ *
+ * "Currently banned" is the wrong idempotency test (red team RT P2): a short
+ * ban set by some other tool — one about to lapse — would report ALREADY
+ * REVOKED, write no audit row, and then expire on its own, leaving an admin
+ * who can sign in and a ledger that says they were revoked. A year is far
+ * beyond anything a transient ban would use and far short of the 100-year
+ * revoke, so it separates the two without pinning the exact duration twice.
+ */
+export const REVOKE_HORIZON_MS = 365 * 24 * 60 * 60 * 1000;
+
 const ADMIN_REVOKED_EVENT = 'admin_revoked';
 const ADMIN_RESTORED_EVENT = 'admin_restored';
 
@@ -182,7 +195,11 @@ export function auditEventFor(action: RevokeAction): string {
 export type RevokeRefusalReason =
   | 'users_row_missing'
   | 'not_an_admin'
-  | 'auth_id_missing';
+  | 'auth_id_missing'
+  /** The `users` row names an `auth_id` that `auth.users` does not carry. */
+  | 'auth_identity_missing'
+  /** The Auth identity exists but is soft-deleted (`auth.users.deleted_at`). */
+  | 'auth_identity_deleted';
 
 export type BanProbeState = 'checked' | 'unavailable';
 
@@ -242,13 +259,54 @@ async function findUserByEmail(sql: Sql, email: string): Promise<AdminUserRow | 
 }
 
 /**
- * Read-only ban-state probe, the authority for idempotency.
+ * The raw Auth-side facts, as `text` so nothing depends on postgres.js's
+ * `timestamptz` decoding (which silently truncates microseconds — irrelevant
+ * at these scales, but the boundary is sidestepped rather than reasoned about).
+ */
+export interface AuthIdentityState {
+  present: boolean;
+  bannedUntil: string | null;
+  deletedAt: string | null;
+}
+
+export interface BanClassification {
+  present: boolean;
+  deleted: boolean;
+  /** Cannot sign in right now. */
+  bannedNow: boolean;
+  /** Banned past `REVOKE_HORIZON_MS` — i.e. THIS script's revoke already ran. */
+  bannedForFullTerm: boolean;
+}
+
+/**
+ * PURE, and that is the point.
  *
- * Reads `auth.users.banned_until` rather than the Auth admin API's user
- * payload: GoTrue OMITS `banned_until` from that JSON when it is null (probed
- * against the staging project on 2026-09-08 — the key is simply absent), so
- * absence there is indistinguishable from "the field is not serialized on this
- * version". The column is unambiguous.
+ * The predicate used to live inside the SQL string, where NO test could reach
+ * it: the unit suite mocks `sql` and asserts only the bound values, and the
+ * live-DB suite never gets there because the test databases have no
+ * `auth.users`. Inverting it — so every un-banned admin read ALREADY REVOKED
+ * and a full reset silently no-opped with exit 0 — survived all 30 tests
+ * (red team RT-02). Moving the decision into TypeScript is what makes it
+ * killable; the SQL below now only fetches columns.
+ *
+ * `now` is injected for the same reason.
+ */
+export function classifyBanState(state: AuthIdentityState, now: number): BanClassification {
+  if (!state.present) {
+    return { present: false, deleted: false, bannedNow: false, bannedForFullTerm: false };
+  }
+  const bannedUntil = state.bannedUntil === null ? null : Date.parse(state.bannedUntil);
+  const valid = bannedUntil !== null && Number.isFinite(bannedUntil);
+  return {
+    present: true,
+    deleted: state.deletedAt !== null,
+    bannedNow: valid && bannedUntil > now,
+    bannedForFullTerm: valid && bannedUntil > now + REVOKE_HORIZON_MS,
+  };
+}
+
+/**
+ * Read-only Auth-side probe. Fetches columns; decides nothing.
  *
  * Guarded by `to_regclass` for the same reason `mint-admin.ts`'s
  * `probeAuthIdentity` is: the local and CI test databases provision schema
@@ -256,28 +314,38 @@ async function findUserByEmail(sql: Sql, email: string): Promise<AdminUserRow | 
  * (`scripts/ci/test-db-bootstrap.sql`), and referencing a missing relation
  * fails at PARSE time, so the guard cannot be folded into one statement.
  *
- * `unavailable` never reports "not banned": the caller attempts the transition
- * instead, which is safe because the Auth ban is itself idempotent.
+ * `unavailable` never stands in for a state: the caller attempts the
+ * transition instead, which is safe because the Auth ban is idempotent and
+ * because the Auth API reports a missing identity in its own vocabulary.
+ *
+ * Deliberately NOT the Auth admin API's user payload: GoTrue OMITS
+ * `banned_until` from that JSON when it is null (probed against the staging
+ * project on 2026-09-08 — the key is simply absent), so absence there cannot
+ * be told apart from a version that does not serialize the field.
  */
 export async function probeBanState(
   sql: Sql,
   authId: string,
-): Promise<{ state: BanProbeState; banned?: boolean }> {
+): Promise<{ state: 'unavailable' } | { state: 'checked'; identity: AuthIdentityState }> {
   const [guard] = await sql<{ present: boolean }[]>`
     SELECT to_regclass('auth.users') IS NOT NULL AS present
   `;
   if (!guard?.present) return { state: 'unavailable' };
 
-  const [row] = await sql<{ banned: boolean }[]>`
-    SELECT (banned_until IS NOT NULL AND banned_until > NOW()) AS banned
+  const [row] = await sql<{ banned_until: string | null; deleted_at: string | null }[]>`
+    SELECT banned_until::text AS banned_until, deleted_at::text AS deleted_at
     FROM auth.users
     WHERE id::text = ${authId}
     LIMIT 1
   `;
-  // No auth.users row for a linked auth_id is the half-2-only state. It is not
-  // "banned", so the transition is attempted and the Auth API reports the
-  // missing identity in its own vocabulary.
-  return { state: 'checked', banned: row?.banned ?? false };
+  return {
+    state: 'checked',
+    identity: {
+      present: row !== undefined,
+      bannedUntil: row?.banned_until ?? null,
+      deletedAt: row?.deleted_at ?? null,
+    },
+  };
 }
 
 // ── the operation ──────────────────────────────────────────────────────────
@@ -349,12 +417,44 @@ export async function revokeAdmin(
 
   const identity: AdminIdentity = { userId: row.id, authId };
   const probe = await probeBanState(sql, authId);
-  const alreadyInTargetState =
-    probe.state === 'checked' &&
-    (action === 'revoke' ? probe.banned === true : probe.banned === false);
 
-  if (alreadyInTargetState) {
-    return { status: 'unchanged', action, identity };
+  if (probe.state === 'checked') {
+    const state = classifyBanState(probe.identity, Date.now());
+
+    // ABSENCE IS NOT A STATE. Collapsing "no auth.users row" into "not banned"
+    // made `--restore` report ALREADY ACTIVE with exit 0 for an identity that
+    // cannot sign in at all — and step 4 of the production plan is a
+    // `--restore` of the ONLY production admin (spec review P1, red team
+    // RT-03). `mint-admin.ts`'s compensating `deleteOrphanAuthUser` is a live
+    // code path that produces exactly this shape.
+    if (!state.present) {
+      return {
+        status: 'refused',
+        reason: 'auth_identity_missing',
+        detail:
+          `The admin users row for ${email} (id=${row.id}) names auth_id ${authId}, but ` +
+          'auth.users carries no such identity. Nothing was changed. Resolve it by hand ' +
+          '(docs/runbooks/mint-admin.md § An Auth identity with no `users` row).',
+      };
+    }
+    if (state.deleted) {
+      return {
+        status: 'refused',
+        reason: 'auth_identity_deleted',
+        detail:
+          `The Supabase Auth identity for ${email} (auth_id=${authId}) is soft-deleted ` +
+          '(auth.users.deleted_at is set). Banning or unbanning it would report success ' +
+          'over an identity that cannot sign in either way. Nothing was changed.',
+      };
+    }
+
+    // Revoke is done only when the ban reaches past the horizon; a short ban
+    // set by something else is re-applied rather than mistaken for this one.
+    const alreadyInTargetState =
+      action === 'revoke' ? state.bannedForFullTerm : !state.bannedNow;
+    if (alreadyInTargetState) {
+      return { status: 'unchanged', action, identity };
+    }
   }
 
   if (input.dryRun) {
@@ -460,8 +560,10 @@ export function formatRevokeReport(
             'the Supabase Auth identity is banned. The users row was left in place, ' +
             "role='admin' unchanged."
           : `RESTORED: users.id=${result.identity.userId} auth_id=${result.identity.authId} — ` +
-            'the ban was lifted. Under MFA enforcement this identity is challenged for its ' +
-            'existing factor at the next sign-in, or enrols one if it has none.',
+            'the ban was lifted. Under MFA enforcement an identity WITH a verified factor is ' +
+            'challenged at the next sign-in; one with NO factor signs in at aal1 and must ' +
+            'enrol manually at /admin/security, because the proxy\'s owner/admin form is ' +
+            'lenient and does not prompt (ADR 0025 § Consequences).',
       );
       lines.push(
         'NOTE: an access token minted before a ban stays valid until it expires ' +
@@ -503,18 +605,43 @@ const EXIT_USAGE = 2;
 const EXIT_REFUSED = 3;
 const EXIT_FAILED = 4;
 
-async function main(): Promise<number> {
-  const args = parseRevokeAdminArgs(process.argv.slice(2));
-  const config = readMintConfig(args.envMode);
+/**
+ * Assert the target is the one the operator named, and describe it.
+ *
+ * Extracted from `main()` because `main()` is reachable by no test: deleting
+ * the `assertMintTarget` call outright was invisible to the whole suite, so
+ * `buildRevokeGuardInput`'s extraction had moved the seam one line outward
+ * rather than closing it (red team RT-04). Now the guard call sits inside a
+ * tested function, and a test asserts this THROWS for an unconfirmed target.
+ *
+ * Throws to reject; returns the description to accept. There is no arm that
+ * returns a description without having asserted.
+ */
+export function resolveRevokeTarget(
+  args: Pick<RevokeAdminArgs, 'confirmRef' | 'envMode'>,
+  config: Pick<MintConfig, 'supabaseUrl' | 'databasePoolUrl'>,
+): RevokeTargetDescription {
   const databaseTarget = describeConnectionTarget(config.databasePoolUrl);
-
   assertMintTarget(buildRevokeGuardInput(args, config, databaseTarget));
-
-  const target: RevokeTargetDescription = {
+  return {
     projectRef: extractProjectRefForLog(config.databasePoolUrl),
     supabaseHost: new URL(config.supabaseUrl).host,
     databaseTarget,
   };
+}
+
+/**
+ * The Auth call gets a bound like every other outbound provider call
+ * (CLAUDE.md § Working rules). NOT retried: a re-run is the retry, and it is
+ * idempotent by construction, whereas an automatic retry inside an UNKNOWN
+ * outcome is how one operator intent becomes two writes.
+ */
+export const AUTH_REQUEST_TIMEOUT_MS = 15_000;
+
+async function main(): Promise<number> {
+  const args = parseRevokeAdminArgs(process.argv.slice(2));
+  const config = readMintConfig(args.envMode);
+  const target = resolveRevokeTarget(args, config);
 
   const sql = postgres(config.databasePoolUrl, {
     max: 2,
@@ -527,10 +654,17 @@ async function main(): Promise<number> {
   });
   const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) =>
+        fetch(input, { ...init, signal: AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS) }),
+    },
   });
 
   // Printed BEFORE the first write and before anything that can throw, so the
   // operator sees which project they are pointed at even on a run that dies.
+  // `formatRevokeReport` repeats it, deliberately, so a captured report is
+  // self-contained — same reason `mint-admin.ts:800-802` does. The duplication
+  // is the feature; do not "fix" it.
   console.log(formatRevokeTarget(target));
 
   try {

@@ -287,6 +287,8 @@ exists. The actor is the revoked admin itself (`actor_is_subject: true`,
 | `users_row_missing` | No `users` row for that email. Nothing was called. |
 | `not_an_admin` | The row exists but its role is not `admin`. This script only reaches admins. |
 | `auth_id_missing` | The admin row carries no `auth_id`, so there is no Auth identity to ban. See § "An Auth identity with no `users` row". |
+| `auth_identity_missing` | The admin row names an `auth_id` that `auth.users` does not carry — the mirror of the row above, and what `mint-admin.ts`'s compensating delete leaves behind. Nothing was changed. **This refusal is why `--restore` cannot report a false `ALREADY ACTIVE`:** absence is a refusal, never a state. |
+| `auth_identity_deleted` | The Auth identity is soft-deleted (`auth.users.deleted_at`). Banning or unbanning it would report success over an identity that cannot sign in either way. |
 
 `ALREADY REVOKED` / `ALREADY ACTIVE` are not refusals: the identity is already
 in the target state, nothing is called, nothing is written, exit code `0`.
@@ -296,9 +298,36 @@ in the target state, nothing is called, nothing is written, exit code `0`.
 The Auth change stands and is NOT rolled back — rolling a ban back to keep the
 ledger tidy would restore a login the operator asked to remove. **Do not re-run
 the script to "fix" the ledger**: the re-run reads the new ban state, reports
-`ALREADY REVOKED` and writes nothing. Record one row by hand for that actor
-(`admin_revoked` or `admin_restored`, `entity_type='users'`, `entity_id` = the
-admin's `users.id`) and note the incident on the ticket.
+`ALREADY REVOKED` and writes nothing.
+
+Record the row by hand. `admin_audit_log.id` is `UUID PRIMARY KEY` with **no
+default** (`117_admin_audit_log.sql:50`) — application code normally supplies a
+UUIDv7 — so the id must be supplied here too:
+
+```sql
+-- Replace <event> with admin_revoked or admin_restored, and <email> with the
+-- admin's address. The actor is the admin itself: the self-actor shape the
+-- script uses, because a full reset may leave no other admin to name.
+INSERT INTO admin_audit_log (id, actor_user_id, event_type, entity_type, entity_id, payload)
+SELECT gen_random_uuid(), u.id, '<event>', 'users', u.id::text,
+       jsonb_build_object(
+         'source', 'docs/runbooks/mint-admin.md manual recovery',
+         'action', CASE WHEN '<event>' = 'admin_revoked' THEN 'revoke' ELSE 'restore' END,
+         'email', u.email,
+         'auth_id', u.auth_id,
+         'ban_duration', CASE WHEN '<event>' = 'admin_revoked' THEN '876000h' ELSE 'none' END,
+         'users_row_preserved', true,
+         'actor_is_subject', true,
+         'attribution', 'bootstrap_self_actor',
+         'manual_recovery', true)
+FROM users u
+WHERE lower(u.email) = lower('<email>') AND u.role = 'admin';
+```
+
+`gen_random_uuid()` rather than a UUIDv7 is deliberate for a hand-written
+recovery row: it is available in the session, and `manual_recovery: true` marks
+the row as not machine-written. Confirm it inserted exactly one row, then note
+the incident on the ticket.
 
 ### `FAILED: Supabase updateUserById failed`
 

@@ -28,6 +28,9 @@ import {
   auditEventFor,
   banDurationFor,
   buildRevokeGuardInput,
+  classifyBanState,
+  resolveRevokeTarget,
+  REVOKE_HORIZON_MS,
   formatRevokeReport,
   formatRevokeTarget,
   parseRevokeAdminArgs,
@@ -169,12 +172,111 @@ describe('buildRevokeGuardInput + assertMintTarget', () => {
 
 describe('banDurationFor / auditEventFor', () => {
   it('maps the action onto Supabase\'s documented ban vocabulary and one event name each', () => {
-    expect(banDurationFor('revoke')).toBe(REVOKE_BAN_DURATION);
-    expect(banDurationFor('restore')).toBe(RESTORE_BAN_DURATION);
-    // 'none' is GoTrue's documented lift; anything else would extend a ban.
+    // The VALUES, not the constants against themselves. `banDurationFor('revoke')
+    // === REVOKE_BAN_DURATION` is a tautology — both sides are the same import —
+    // and under it, setting REVOKE_BAN_DURATION to 'none' made `--revoke` send
+    // GoTrue the documented UNBAN verb while the report still printed
+    // "the Supabase Auth identity is banned". That mutant passed all 30 tests
+    // (red team RT-01, P0). The restore side was pinned; the revoke side was not.
+    expect(REVOKE_BAN_DURATION).toBe('876000h');
     expect(RESTORE_BAN_DURATION).toBe('none');
+    expect(banDurationFor('revoke')).toBe('876000h');
+    expect(banDurationFor('restore')).toBe('none');
     expect(auditEventFor('revoke')).toBe('admin_revoked');
     expect(auditEventFor('restore')).toBe('admin_restored');
+  });
+});
+
+// ── the ban-state classifier (RT-02, RT-03) ────────────────────────────────
+
+describe('classifyBanState', () => {
+  const NOW = Date.parse('2026-09-08T12:00:00Z');
+  const iso = (msFromNow: number) => new Date(NOW + msFromNow).toISOString();
+
+  it('reports an absent auth.users row as ABSENT, never as "not banned"', () => {
+    // The collapse this replaces made `--restore` answer ALREADY ACTIVE with
+    // exit 0 for an identity that cannot sign in at all.
+    expect(classifyBanState({ present: false, bannedUntil: null, deletedAt: null }, NOW))
+      .toEqual({ present: false, deleted: false, bannedNow: false, bannedForFullTerm: false });
+  });
+
+  it('reads a null banned_until as not banned', () => {
+    expect(classifyBanState({ present: true, bannedUntil: null, deletedAt: null }, NOW))
+      .toMatchObject({ present: true, bannedNow: false, bannedForFullTerm: false });
+  });
+
+  it('reads an elapsed ban as not banned', () => {
+    expect(classifyBanState({ present: true, bannedUntil: iso(-1000), deletedAt: null }, NOW))
+      .toMatchObject({ bannedNow: false, bannedForFullTerm: false });
+  });
+
+  it('reads a live ban as banned now', () => {
+    expect(classifyBanState({ present: true, bannedUntil: iso(60_000), deletedAt: null }, NOW))
+      .toMatchObject({ bannedNow: true });
+  });
+
+  it('separates a short ban from this script\'s full-term revoke', () => {
+    // A ban set by something else, about to lapse, must NOT read as "this
+    // script already revoked them" — it would write no audit row and then
+    // expire, leaving a signed-in admin and a ledger claiming a revoke.
+    const short = classifyBanState(
+      { present: true, bannedUntil: iso(REVOKE_HORIZON_MS - 1000), deletedAt: null }, NOW,
+    );
+    expect(short).toMatchObject({ bannedNow: true, bannedForFullTerm: false });
+
+    const full = classifyBanState(
+      { present: true, bannedUntil: iso(REVOKE_HORIZON_MS + 1000), deletedAt: null }, NOW,
+    );
+    expect(full).toMatchObject({ bannedNow: true, bannedForFullTerm: true });
+  });
+
+  it('surfaces a soft-deleted identity', () => {
+    expect(classifyBanState(
+      { present: true, bannedUntil: null, deletedAt: iso(-5000) }, NOW,
+    )).toMatchObject({ present: true, deleted: true });
+  });
+
+  it('treats an unparseable banned_until as not banned rather than as banned', () => {
+    expect(classifyBanState({ present: true, bannedUntil: 'not-a-date', deletedAt: null }, NOW))
+      .toMatchObject({ bannedNow: false, bannedForFullTerm: false });
+  });
+});
+
+// ── the guarded target seam (RT-04) ────────────────────────────────────────
+
+describe('resolveRevokeTarget', () => {
+  const stagingConfig = {
+    supabaseUrl: stagingSupabaseUrl,
+    databasePoolUrl: stagingDbUrl,
+    supabaseServiceKey: 'unused',
+    appUrl: 'https://staging.repworth.net',
+  };
+
+  it('describes a confirmed target', () => {
+    expect(resolveRevokeTarget({ confirmRef: STAGING_REF, envMode: 'staging' }, stagingConfig))
+      .toEqual({
+        projectRef: STAGING_REF,
+        supabaseHost: `${STAGING_REF}.supabase.co`,
+        databaseTarget: stagingDbTarget,
+      });
+  });
+
+  it('THROWS rather than describing an unconfirmed target', () => {
+    // Deleting the assertMintTarget call inside main() was invisible to the
+    // whole suite (red team RT-04): buildRevokeGuardInput's extraction pinned
+    // the guard's INPUT while leaving the call site uncovered. This is the
+    // test that fails when the guard call is removed.
+    expect(() =>
+      resolveRevokeTarget({ confirmRef: 'aaaabbbbccccddddeeee', envMode: 'staging' }, stagingConfig),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('refuses a production target from a non-production selector', () => {
+    expect(() =>
+      resolveRevokeTarget({ confirmRef: PROD_REF, envMode: 'staging' }, {
+        ...stagingConfig, supabaseUrl: prodSupabaseUrl, databasePoolUrl: prodDbUrl,
+      }),
+    ).toThrow(/PRODUCTION project ref/);
   });
 });
 
@@ -186,8 +288,11 @@ interface SupabaseDouble {
   deleteUser: ReturnType<typeof vi.fn>;
 }
 
-const ADMIN_USER_ID = '6b7a3503-1257-4f79-8e5e-6af46527f0a9';
-const ADMIN_AUTH_ID = '728769a7-4c92-4413-9641-40361d1c38ca';
+// Deliberately synthetic. An earlier revision used the OWNER'S REAL staging
+// `users.id`/`auth_id`, which the roster in the same PR takes care to mask
+// (red team RT-09). A fixture never needs a live identifier.
+const ADMIN_USER_ID = '11111111-2222-4333-8444-555555555555';
+const ADMIN_AUTH_ID = '99999999-8888-4777-8666-555555555555';
 
 function supabaseDouble(error: { message: string } | null = null): SupabaseDouble {
   const updateUserById = vi.fn(async () => ({
@@ -235,7 +340,14 @@ describe('revokeAdmin', () => {
 
   /** Queue for: users-by-email lookup, auth-schema guard, ban-state read. */
   function queuePreflight(
-    options: { role?: string; authId?: string | null; authSchema?: boolean; banned?: boolean } = {},
+    options: {
+      role?: string;
+      authId?: string | null;
+      authSchema?: boolean;
+      banned?: boolean;
+      authRow?: boolean;
+      deletedAt?: string | null;
+    } = {},
   ): void {
     harness.sqlReturnQueue.push(
       mkTaggedResult([{
@@ -246,9 +358,18 @@ describe('revokeAdmin', () => {
     );
     const authSchema = options.authSchema ?? true;
     harness.sqlReturnQueue.push(mkTaggedResult([{ present: authSchema }]));
-    if (authSchema) {
-      harness.sqlReturnQueue.push(mkTaggedResult([{ banned: options.banned ?? false }]));
+    if (!authSchema) return;
+    if (options.authRow === false) {
+      harness.sqlReturnQueue.push(mkTaggedResult([]));
+      return;
     }
+    harness.sqlReturnQueue.push(mkTaggedResult([{
+      // Far past REVOKE_HORIZON_MS, matching the real 100-year ban.
+      banned_until: options.banned
+        ? new Date(Date.now() + 100 * 365 * 24 * 3600 * 1000).toISOString()
+        : null,
+      deleted_at: options.deletedAt ?? null,
+    }]));
   }
 
   it('refuses when there is no users row for the email, and calls no Auth API', async () => {
@@ -412,6 +533,79 @@ describe('revokeAdmin', () => {
     expect(report).toMatch(/admin_revoked/);
   });
 
+  it('refuses when auth.users carries no row for the linked auth_id', async () => {
+    queuePreflight({ authRow: false });
+
+    const result = await revokeAdmin(sql, supabase.client, REVOKE_INPUT);
+
+    expect(result).toMatchObject({ status: 'refused', reason: 'auth_identity_missing' });
+    expect(supabase.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('refuses a restore when auth.users carries no row, instead of reporting already_active', async () => {
+    // The regression this pins: absence collapsed into "not banned", so a
+    // restore of the ONLY production admin would print ALREADY ACTIVE and
+    // exit 0 while that admin could not sign in.
+    queuePreflight({ authRow: false });
+
+    const result = await revokeAdmin(sql, supabase.client, { ...REVOKE_INPUT, action: 'restore' });
+
+    expect(result).toMatchObject({ status: 'refused', reason: 'auth_identity_missing' });
+    expect(supabase.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('refuses a soft-deleted Auth identity', async () => {
+    queuePreflight({ deletedAt: new Date().toISOString() });
+
+    const result = await revokeAdmin(sql, supabase.client, REVOKE_INPUT);
+
+    expect(result).toMatchObject({ status: 'refused', reason: 'auth_identity_deleted' });
+    expect(supabase.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('re-applies the revoke over a short pre-existing ban', async () => {
+    // Inside the horizon: banned now, but not by THIS script. Re-applying is
+    // what stops a lapsing ban from being recorded as a completed revoke.
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ id: ADMIN_USER_ID, role: 'admin', auth_id: ADMIN_AUTH_ID }]),
+    );
+    harness.sqlReturnQueue.push(mkTaggedResult([{ present: true }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([{
+      banned_until: new Date(Date.now() + 60_000).toISOString(),
+      deleted_at: null,
+    }]));
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    const result = await revokeAdmin(sql, supabase.client, REVOKE_INPUT);
+
+    expect(result).toMatchObject({ status: 'changed', action: 'revoke' });
+    expect(supabase.updateUserById).toHaveBeenCalledWith(ADMIN_AUTH_ID, {
+      ban_duration: '876000h',
+    });
+  });
+
+  it('records the operator provenance on the audit row', async () => {
+    // Dropping `operator` from the payload survived the whole suite (red team
+    // RT-06): a CLI has no authenticated actor, so the shell's own claim about
+    // itself, recorded WITH its provenance, is the only attribution there is.
+    queuePreflight();
+    harness.sqlReturnQueue.push(mkTaggedResult([]));
+
+    await revokeAdmin(sql, supabase.client, REVOKE_INPUT);
+
+    const payload = harness.sqlCalls.at(-1)?.values.find(
+      (v): v is Record<string, unknown> =>
+        typeof v === 'object' && v !== null && 'attribution' in v,
+    );
+    expect(payload).toMatchObject({
+      operator: TEST_OPERATOR,
+      attribution: 'bootstrap_self_actor',
+      actor_is_subject: true,
+      users_row_preserved: true,
+      ban_duration: '876000h',
+    });
+  });
+
   it('lowercases and trims the email before the lookup', async () => {
     queuePreflight();
     harness.sqlReturnQueue.push(mkTaggedResult([]));
@@ -419,6 +613,10 @@ describe('revokeAdmin', () => {
     await revokeAdmin(sql, supabase.client, { ...REVOKE_INPUT, email: '  Admin@RepWorth.NET ' });
 
     expect(harness.sqlCalls[0]?.values).toContain('admin@repworth.net');
+    // Normalizing the INPUT is only half of it: `users.email` is stored as
+    // typed, so dropping `lower()` from the column side matches nothing and the
+    // script refuses a real admin. Dropping it survived the suite (RT-07).
+    expect(harness.sqlCalls[0]?.text).toMatch(/lower\(email\)/i);
   });
 });
 
@@ -469,6 +667,32 @@ describe('formatRevokeReport', () => {
     // The bounded residual is stated, not hidden: a ban blocks sign-in and
     // refresh, not an already-issued access token.
     expect(report).toMatch(/until it expires/);
+  });
+
+  it('names the right unchanged state for each direction', () => {
+    // Swapping the two lines survived the suite (red team RT-08), and they say
+    // opposite things about whether an admin can sign in.
+    const revoked = formatRevokeReport(
+      { status: 'unchanged', action: 'revoke', identity }, target,
+    ).join('\n');
+    expect(revoked).toMatch(/ALREADY REVOKED/);
+    expect(revoked).not.toMatch(/ALREADY ACTIVE/);
+
+    const active = formatRevokeReport(
+      { status: 'unchanged', action: 'restore', identity }, target,
+    ).join('\n');
+    expect(active).toMatch(/ALREADY ACTIVE/);
+    expect(active).not.toMatch(/ALREADY REVOKED/);
+  });
+
+  it('does not claim the proxy enrols an unenrolled admin on restore', () => {
+    // ADR 0025 § Consequences: the form is lenient, so an unenrolled identity
+    // signs in at aal1 and is never prompted. The report used to say otherwise.
+    const report = formatRevokeReport(
+      { status: 'changed', action: 'restore', identity }, target,
+    ).join('\n');
+    expect(report).toMatch(/must\s+enrol manually at \/admin\/security/);
+    expect(report).not.toMatch(/enrols one if it has none/);
   });
 
   it('warns when a dry run could not read the ban state', () => {
