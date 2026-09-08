@@ -501,17 +501,28 @@ describe('mintAdmin', () => {
     expect(result.status).toBe('minted');
 
     // Structural, not a redaction rule: no password is ever generated, so
-    // there is none to leak.
+    // there is none to leak. The key set is asserted EXACTLY — `not.toContain`
+    // alone would still pass if a `password` key were spelled differently, and
+    // an exact set also fails if any other credential-shaped field is added.
     const [createArgs] = supabase.createUser.mock.calls[0] as [Record<string, unknown>];
-    expect(Object.keys(createArgs)).not.toContain('password');
+    expect(Object.keys(createArgs).sort()).toEqual([
+      'email',
+      'email_confirm',
+      'user_metadata',
+    ]);
 
     const report = formatMintReport(result, {
       projectRef: STAGING_REF,
       supabaseHost: `${STAGING_REF}.supabase.co`,
       databaseTarget: stagingDbTarget,
     }).join('\n');
-    expect(report).not.toMatch(/password/i);
+    // Field-shaped, because the recovery link legitimately carries the
+    // `/admin/reset-password` path: a bare /password/ matches that and would
+    // fail on correct output. `password=` / `password:` is what a leak looks
+    // like.
+    expect(report).not.toMatch(/password\s*[:=]/i);
     expect(report).toContain('/api/auth/callback');
+    expect(report).toContain('Treat it as a credential');
   });
 
   it('records the mint through writeAdminAuditLog with the new admin as its own actor', async () => {
