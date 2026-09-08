@@ -1014,3 +1014,53 @@ Neither is worth a finding against a guard that now kills every import form test
 M19 and M20 keep their `survived-confirmed-P0` rows: they are the measurement that was
 true at `dbefb3b8`, and deleting them would erase why RT8 exists. RT8's disposition,
 not its inventory row, is what records that it is now fixed.
+
+---
+
+## Re-bind to `38151f18` — RT16 verified
+
+- **head** `38151f189bef9e24c686f351aa9b89e54bf35254` · **intake sha256**
+  `ae4de848af5a3e665df8db537bd7fa953c801a3cd343fd2c54154db6144e5cb1` (the intake moved,
+  and `.feature/intake.json` still hashes identically to the `docs/superpowers/plans/`
+  copy)
+- **Status** `OPEN_P1` — RT2 alone. No open P0, no open P2.
+
+`git diff --name-only 217a6e4a..38151f18 -- src worker scripts` is EMPTY: documentation
+only, so no mutation was run and none was owed. Nothing executable changed, so every
+measurement above still holds at this SHA.
+
+**RT16 → `fixed`.** All three edits re-resolved against the tree:
+
+- `intake.json:58` now reads "covers **the THREE FAULT shapes of the five** that
+  handleError can raise" and names `AuthSessionMissingError` and
+  `AuthWeakPasswordError` as the correct 401 fall-throughs. The five-class count is
+  right and is now spelled identically in the module comment, the plan and the intake
+  (`AuthRetryableFetchError` has two throw sites but is one class, which is the unit
+  all three use).
+- `plan.md:161-164` now says "**the three** rethrow rows above are therefore the
+  complete infra arm" and carries the same five/three split. The table it refers to
+  does have three rethrow rows. The conclusion was always true; the count is now true
+  with it.
+- `deviations.md` D4 corrected on both facts this pass would otherwise have raised:
+  the word count (2,998 → "exactly 3,000", which `wc -w` confirms) and the flat "no row
+  lost a fact that does not exist verbatim in the file it now points at", which is now
+  the accurate version — two rows DID, RT13 named them, they are restored, and the
+  other seven re-resolve clean. D6's title is corrected from "a fifth" to "a THIRD
+  cookie-path difference", which was the labelling nit recorded but not reopened under
+  RT12; at HEAD there are exactly three (no-`users`-row 401→403, `currentLevel: null`
+  `mfa_required`→`mfa_check_failed`, and the ordering delta D6 declares).
+
+**RT2 remains `open`, unchanged and deliberately.** It is the only blocking item, and
+it goes to the owner as an authorization question rather than being self-accepted by
+any agent in this session.
+
+Final checker output at this SHA:
+
+```
+red-team-status: FAILED (2 issue(s))
+  - red-team status is OPEN_P1 — every non-CLEAR status blocks the transition
+  - finding RT2: a high-risk run cannot ship an open P1 — fix it, or record user
+    authorization and set disposition accepted-risk
+```
+
+Both lines are the same fact.

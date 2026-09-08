@@ -5,11 +5,11 @@
   "branch": "feat/1183-admin-transport-seam",
   "fork_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
   "merge_base_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
-  "head_sha": "217a6e4aad0a10544cef2c7e3ce97463e865a058",
-  "intake_sha256": "f03eda84ed250d0b092116bdb03d38885c58e596b9039c144a10fc93280f6679",
+  "head_sha": "38151f189bef9e24c686f351aa9b89e54bf35254",
+  "intake_sha256": "ae4de848af5a3e665df8db537bd7fa953c801a3cd343fd2c54154db6144e5cb1",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-09-08T04:52:50Z",
+  "generated_at": "2026-09-08T05:03:32Z",
   "inventory": [
     {
       "id": "M1",
@@ -310,7 +310,7 @@
       "duty": 3,
       "at": "docs/superpowers/plans/feat-1183-admin-transport-seam-intake.json:58",
       "title": "RT9's fix corrected the module comment but not its two restatements: the intake still says the 500 arm \"covers all THREE shapes handleError can raise\" (there are five), and plan:161 still calls the rethrow rows \"the two rethrow rows above\" after a third was inserted into the table at plan:149",
-      "disposition": "open"
+      "disposition": "fixed"
     }
   ],
   "authorizations": [],
@@ -325,9 +325,9 @@
     "findings_total": 16,
     "p0_open": 0,
     "p1_open": 1,
-    "p2_open": 1,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 11,
+    "fixed": 12,
     "rejected": 3
   },
   "status": "OPEN_P1"
