@@ -115,7 +115,9 @@
     "src/app/api/admin/locations/csv-import/__tests__/route.test.ts",
     "src/app/api/admin/offboardings/__tests__/route.test.ts",
     "src/app/api/admin/solicitation/batch/__tests__/routes.test.ts",
-    "src/app/api/admin/solicitation/breaker/__tests__/reset-route.test.ts"
+    "src/app/api/admin/solicitation/breaker/__tests__/reset-route.test.ts",
+    ".claude/reference/arch-review-log.md",
+    "scripts/ci/tenant-scope-allowlist.ts"
   ],
   "tests_to_add": [
     "cookie ok",
@@ -147,7 +149,7 @@
     "pnpm ci:directory-map"
   ],
   "estimated_prod_lines": 240,
-  "estimated_test_lines": 700,
+  "estimated_test_lines": 1700,
   "dependencies_added": [],
   "rollback_plan": "Single PR, no migration and no flag. Revert the merge commit on main and re-deploy: the gate returns to cookie-only and no caller outside this repo depends on the bearer arm yet (src/proxy.ts still 401s bearer-only requests until #1185, and CORS does not exist until #1186). On staging, reset staging to origin/main per deployment-guide.md § Re-sync staging.",
   "observability": [
