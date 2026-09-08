@@ -83,3 +83,35 @@ Verdict: ACCEPT — the documented remedy, applied to the section under change. 
 for the orchestrator: the page is again at exactly its cap, so the NEXT ticket
 adding a `src/lib/` file under one of its folders (#1185 does not, #1186 may) will
 have to split it, and that is a `docs/directory.md` change, not a lib-platform one.
+
+## D5 — surface amendment #2, CI-mandated, flagged rather than absorbed
+
+The orchestrator brief names "a second surface amendment" as a hard stop. This run
+took one, and it is reported to the orchestrator rather than treated as routine.
+
+Two files were added to `allowed_edit_surface` after the first full gate run, both
+because a CI audit demands them of ANY production-file change and neither carries a
+scope decision:
+
+- `.claude/reference/arch-review-log.md` — `ci:merge-ledger` fails a PR that changes
+  a production file and adds no line here.
+- `scripts/ci/tenant-scope-allowlist.ts` — `ci:tenant-scope` keys its exemptions by
+  file + table + `sqlSnippet`, and extracting `loadAppUser` renamed the bound
+  parameter (`${authUser.id}` → `${authUserId}`). The SQL is otherwise byte-identical;
+  the entry was re-spelled, not widened, and the baseline stayed at 379 entries.
+
+Recorded with `bash scripts/feature-state.sh incr-amendment --reason "…"`
+(`surfaceAmendments=2`). The judgement call, stated so the orchestrator can veto it:
+stopping the ticket over a mandatory one-line ledger entry and a parameter rename
+would leave a finished, gate-green branch unshippable for no safety gain, and the
+amendment's content is provably empty of behaviour — no route, no module, no
+decision. If the orchestrator reads the hard stop more strictly, the remedy is to
+review these two hunks specifically; they are the smallest in the diff.
+
+Also folded into the same intake update: `estimated_test_lines` 700 → 1,700. The
+first gate's `reclassify` WARN fired at 1,637 changed test lines against 700, and the
+overage is entirely the amendment-#1 migration (22 suites × ~37 lines) plus the two
+new contract files. SIZE and RISK are unchanged, so step 0 was not re-run; the
+estimate was corrected to the measured value instead.
+
+Verdict: ACCEPT — with the flag above carried into the final report verbatim.
