@@ -22,7 +22,15 @@ real-run refusal is closed independently by `auth.admin.createUser`'s own
 duplicate-email error. Both intake copies were updated before arming, so no
 locked decision moved.
 
-**Verdict:**
+**Verdict:** ACCEPT. Verified against the tree, not the memory of it: the
+bootstrap creates schema `auth` and `auth.uid()` and no `auth.users`, and the
+live container confirms it (`to_regclass('auth.users')` is NULL there while
+`admin_audit_log` resolves). The adaptation is strictly stronger than what the
+plan first proposed — TWO independent refusals instead of one — and plan round
+1 independently reached the same gap from the other side (dry-run parity), then
+round 2 accepted this remedy over its own `listUsers` proposal. `never a silent
+"no such identity"` is pinned by the test `reports the auth probe as
+unavailable when auth.users is absent`.
 
 ---
 
@@ -41,7 +49,11 @@ not `progress.json`, is the phase authority — but a stale ladder is exactly th
 kind of "claim a phase from memory" the working rules forbid, so it is fixed
 rather than tolerated. Candidate lab note at step 8.
 
-**Verdict:**
+**Verdict:** ACCEPT. Cosmetic and outside the change's blast radius: it touches
+no repository file, and every phase claim in this run is read from
+`.feature/state.json` (`phase=gate_green head=82b19407`), never from the
+ladder. Invalidates no locked decision. The durable lesson — re-`init` the
+ladder after `feature-setup.sh` — is promoted at step 8 rather than left here.
 
 ---
 
@@ -69,7 +81,12 @@ matches.
 stop is a SECOND surface amendment; this is the first, and no further amendment
 is expected.
 
-**Verdict:**
+**Verdict:** ACCEPT. It widens no capability and invalidates no locked
+decision: the added path is an append-only prose ledger, the added text asserts
+nothing the branch does not do, and the audit deliberately does not read or
+write the counter number — so nothing about this change's authority or blast
+radius moves. The alternative (relocating the suites, which means editing
+`vitest.config.ts`) is a strictly broader amendment for no benefit.
 
 ---
 
@@ -94,4 +111,11 @@ estimates were wrong. `estimated_prod_lines` 300 → 1000,
 `estimated_test_lines` 420 → 800 (measured 776, already inside 2x). Recorded
 rather than silently re-baselined, so the miss is visible to the review wave.
 
-**Verdict:**
+**Verdict:** ACCEPT. The trigger asks for a re-classification, and the
+re-classification was performed and came back unchanged — this is the trigger
+working, not a decision being invalidated. Guard against the obvious objection
+(raising an estimate to silence a WARN): the surface is still six code-bearing
+paths, the diff still has ONE production module and no second seam, and the
+review wave receives this entry, so the size claim is checkable rather than
+asserted. The standards axis joins the wave on the measured number regardless
+(risk is high, and 982 is well over the 300-line threshold).
