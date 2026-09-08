@@ -282,7 +282,7 @@ describe('revokeAdmin', () => {
     expect(supabase.updateUserById).not.toHaveBeenCalled();
   });
 
-  it('--dry-run runs every refusal check and writes nothing to Postgres or Supabase Auth', async () => {
+  it('a --dry-run runs every refusal check and writes nothing to Postgres or Supabase Auth', async () => {
     queuePreflight();
 
     const result = await revokeAdmin(sql, supabase.client, { ...REVOKE_INPUT, dryRun: true });

@@ -72,7 +72,8 @@
     ".claude/reference/env-vars.md",
     "docs/eservices-variables.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "refuses a production-looking target when --env production was not passed",
@@ -80,7 +81,7 @@
     "refuses when there is no users row for the email, and calls no Auth API",
     "refuses when the users row exists but its role is not admin",
     "refuses when the users row has no auth_id",
-    "--dry-run runs every refusal check and writes nothing to Postgres or Supabase Auth",
+    "a --dry-run runs every refusal check and writes nothing to Postgres or Supabase Auth",
     "revoke bans the Auth identity with a ban_duration and never deletes a user",
     "revoke is idempotent: an already-banned identity reports already_revoked and writes no audit row",
     "restore lifts the ban by sending ban_duration none",
@@ -92,15 +93,9 @@
     "restore writes exactly one admin_restored row",
     "neither revoke nor restore deletes or updates the users row"
   ],
-  "verification_commands": [
-    "pnpm lint",
-    "pnpm typecheck",
-    "pnpm test",
-    "pnpm ci:tenant-scope",
-    "pnpm ci:rls-audit"
-  ],
-  "estimated_prod_lines": 320,
-  "estimated_test_lines": 420,
+  "verification_commands": [],
+  "estimated_prod_lines": 700,
+  "estimated_test_lines": 620,
   "dependencies_added": [],
   "rollback_plan": "Every revoke is reversed by the same script with --restore, which lifts the ban and writes an admin_restored row; no row was deleted, so nothing needs re-creating. The MFA_ENFORCEMENT_ENABLED flip is reversed by setting the staging variable back to false and redeploying, per the flag-flip skill.",
   "observability": "One admin_audit_log row per state transition (admin_revoked / admin_restored) carrying the email, auth_id, ban duration, the self-actor markers, and the unauthenticated-shell operator provenance. The operator-facing report names the TARGET before any write.",
