@@ -5,7 +5,7 @@
   "branch": "feat/1183-admin-transport-seam",
   "fork_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
   "merge_base_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
-  "head_sha": "35e482247b9019ea1614712ae43f8e7450f52b72",
+  "head_sha": "9b27da780522ed20730feffab16f87cb48318655",
   "intake_sha256": "ae4de848af5a3e665df8db537bd7fa953c801a3cd343fd2c54154db6144e5cb1",
   "risk": "high",
   "round": 2,
