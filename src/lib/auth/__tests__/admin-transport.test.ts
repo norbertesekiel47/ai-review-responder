@@ -5,6 +5,8 @@
 // Edge (#1185), and a test needing a mock would mean the module grew a dependency
 // it must not have.
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { isBearerRequest, readBearerToken } from '../admin-transport';
 
@@ -89,5 +91,33 @@ describe('readBearerToken', () => {
     }
     expect(readBearerToken(req())).toBeNull();
     expect(isBearerRequest(req())).toBe(false);
+  });
+});
+
+describe('Edge safety', () => {
+  it('has no imports at all, so src/proxy.ts can take it to the Edge (#1185)', () => {
+    // The module's header calls Edge-safety "a hard constraint rather than a
+    // nicety" and, until this test, enforced nothing. Adding `import { sql } from
+    // '@/lib/db/server'` here is a green build today and a broken Edge bundle in
+    // someone else's PR — the failure lands on the wrong author, months later.
+    //
+    // Asserted as "zero imports" rather than "no BAD imports" deliberately: the
+    // module is pure header parsing, so it needs nothing, and an allowlist would
+    // have to be maintained against a runtime whose constraints we do not own.
+    // If a future edit genuinely needs an import, this test is the conversation.
+    const source = readFileSync(join(__dirname, '..', 'admin-transport.ts'), 'utf8');
+    // Comments are stripped first: this module's own header NAMES the things it
+    // must not do ("no node:*, no process.env"), so a naive scan of the raw file
+    // fails on the documentation of the rule it is checking.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    const importLines = code
+      .split('\n')
+      .filter((line) => /^\s*(import|export)\s.*\sfrom\s/.test(line) || /^\s*import\s*\(/.test(line))
+      .map((line) => line.trim());
+
+    expect(importLines).toEqual([]);
+    expect(code).not.toMatch(/\brequire\s*\(/);
+    expect(code).not.toMatch(/\bprocess\.env\b/);
   });
 });

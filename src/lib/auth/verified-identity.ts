@@ -12,11 +12,22 @@
 // which transports a caller may present is a security boundary, and a boolean
 // argument would turn a structural fact into a runtime branch.
 //
+// Their EXPORTS are deliberately asymmetric, which is not a contradiction of that:
+// `resolveCookieIdentity` is named by the ticket and is the delegation target, so it
+// is exported; `resolveBearerIdentity` is private, because exporting it would hand a
+// caller a way to take the bearer arm WITHOUT the transport decision — the one thing
+// the predicate exists to own. Siblings in structure, not in reachability.
+//
 // Terms: docs/context/core-accounts-channels-admin.md → **Admin transport**,
 // **Verified admin**.
 
 import { NextRequest } from 'next/server';
-import { createClient, isAuthApiError, isAuthRetryableFetchError } from '@supabase/supabase-js';
+import {
+  createClient,
+  isAuthApiError,
+  isAuthError,
+  isAuthRetryableFetchError,
+} from '@supabase/supabase-js';
 import { cookieBackedServerClient } from '@/lib/db/auth';
 import { isBearerRequest, readBearerToken, type AdminTransport } from '@/lib/auth/admin-transport';
 
@@ -37,9 +48,17 @@ export interface VerifiedIdentity {
 
 /**
  * A transport-level failure the caller can do nothing about — Supabase unreachable,
- * or answering 5xx. Thrown so it reaches the gate's existing catch and becomes a
- * 500 `internal_error` with its structured log line, rather than a 401 that would
- * make an admin-wide outage look like a wall of bad credentials.
+ * or something upstream answering 5xx. Thrown so it reaches the gate's existing
+ * catch and becomes a 500 `internal_error` rather than a 401 that would make an
+ * admin-wide outage look like a wall of bad credentials.
+ *
+ * What that 500 buys today, stated precisely because the first draft of this
+ * comment overclaimed it: the gate's `internalError` writes a `console.error` line,
+ * which is a queryable Vercel log and a distinguishable status — it is NOT a paged
+ * alert. Nothing in `docs/runbooks/beta-launch-alerting.md` watches admin 5xx.
+ * Routing this to an alert sink is real work and belongs to its own ticket; the
+ * value here is that the signal is CORRECT and greppable, so that ticket has
+ * something true to alert on.
  */
 export class IdentityTransportError extends Error {
   constructor(readonly cause: unknown) {
@@ -49,21 +68,31 @@ export class IdentityTransportError extends Error {
 }
 
 /**
- * True for the two RETURNED error shapes that mean "our infrastructure failed",
- * never "your credential is bad".
+ * True for the RETURNED error shapes that mean "our infrastructure failed", never
+ * "your credential is bad". Used by the BEARER arm only — see
+ * `resolveCookieIdentity` for why the cookie arm deliberately has no equivalent.
  *
- * Measured against @supabase/auth-js 2.106.2 (`lib/fetch.js:24-30, 72`):
- * `handleError` raises `AuthRetryableFetchError` for a transport failure and for
- * statuses 502/503/504/520-524/530, and turns EVERYTHING else — a plain HTTP 500
- * included — into `AuthApiError(message, status || 500, code)`. So a GoTrue 500
- * arrives as an ordinary AuthApiError and must be caught by the status test, not
- * by the name test alone.
+ * Measured against @supabase/auth-js 2.106.2, `lib/fetch.js` `handleError`, which
+ * raises exactly three shapes and each needs its own test:
  *
- * Both predicates compare `error.name` (`lib/errors.js:49-51, 222-224`), so they
- * keep working across a duplicated module instance where `instanceof` would not.
+ *   1. `AuthRetryableFetchError` — a transport failure, or a status in its list
+ *      (502/503/504/520-524/530).
+ *   2. `AuthUnknownError` — `await error.json()` THREW, so whatever answered was
+ *      not GoTrue: an HTML 502 from a CDN, a WAF block page, a truncated body.
+ *      Infrastructure by construction at any status, and it is neither of the
+ *      other two names, so omitting it turns an outage into 401s. This arm was
+ *      missing until the review wave; two independent reviewers found it.
+ *   3. `AuthApiError(message, status || 500, code)` — everything else, INCLUDING a
+ *      plain HTTP 500 with a JSON body. So a GoTrue 500 is an ordinary
+ *      `AuthApiError` and is caught by the status test, not by a name test.
+ *
+ * The predicates compare `error.name` (`lib/errors.js`), so they keep working
+ * across a duplicated module instance where `instanceof` would not. There is no
+ * exported `isAuthUnknownError`, so its name is spelled here the same way.
  */
 function isTransportFailure(error: unknown): boolean {
   if (isAuthRetryableFetchError(error)) return true;
+  if (isAuthError(error) && error.name === 'AuthUnknownError') return true;
   return isAuthApiError(error) && (error.status ?? 500) >= 500;
 }
 
@@ -74,26 +103,34 @@ function isExpired(exp: unknown): boolean {
 }
 
 /**
- * Today's path, unchanged (ADR 0025 D4): the cookie-backed SSR client's
- * `getUser()` for identity and liveness, and `getAuthenticatorAssuranceLevel()` for
- * the assurance level. Uniformity with the bearer arm is not worth re-verifying a
- * path that works.
+ * Today's path, unchanged (ADR 0025 D4, ticket #1183 §2 "byte-for-byte… Do not
+ * touch it"): the cookie-backed SSR client's `getUser()` for identity and liveness,
+ * and `getAuthenticatorAssuranceLevel()` for the assurance level. Uniformity with
+ * the bearer arm is not worth re-verifying a path that works.
  *
  * Returns `null` for "no live cookie session" — including a returned auth error
  * such as `AuthSessionMissingError`, which is a refusal (401) and not a fault.
+ *
+ * **`isTransportFailure` is deliberately NOT applied here**, and the omission is
+ * the point rather than an oversight. Today `getCurrentUser` ignores `getUser`'s
+ * `error` entirely and `requireCurrentAal2FromSupabase` answers `mfa_check_failed`
+ * on any AAL error, so a Supabase fault on the cookie path is a 401/403. Adding the
+ * bearer arm's fault classification here would silently move those to 500 — a third
+ * and fourth undeclared cookie-path behaviour change, on the path this ticket is
+ * told not to touch, and the one with real operational blast radius. The review
+ * wave caught exactly that and it was reverted. The bearer arm is NEW behaviour and
+ * may classify its own faults; this arm may not.
  */
 export async function resolveCookieIdentity(
   request: NextRequest,
 ): Promise<VerifiedIdentity | null> {
   const supabase = cookieBackedServerClient(request);
 
-  const { data, error } = await supabase.auth.getUser();
-  if (isTransportFailure(error)) throw new IdentityTransportError(error);
+  const { data } = await supabase.auth.getUser();
   const authUser = data?.user;
   if (!authUser) return null;
 
   const aalResult = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (isTransportFailure(aalResult.error)) throw new IdentityTransportError(aalResult.error);
 
   return {
     authUserId: authUser.id,

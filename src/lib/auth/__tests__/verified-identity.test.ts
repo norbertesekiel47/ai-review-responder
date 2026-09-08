@@ -189,3 +189,57 @@ describe('resolveDualModeIdentity', () => {
     expect(Object.keys(identity!).sort()).toEqual(['aal', 'authUserId', 'transport']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The SDK premise the whole failure classification rests on
+// ---------------------------------------------------------------------------
+//
+// Everything above stubs `getClaims`, so none of it can tell you whether the REAL
+// SDK throws or returns for a given token — and the seam's rule ("a throw from
+// either SDK await is a 401, the 500 arm is driven by the returned error type")
+// is only correct if attacker-supplied garbage really does arrive as a THROW.
+// This block asserts that against the installed auth-js, with no stub, so a
+// dependency bump that moves a shape from one channel to the other fails HERE
+// with a clear reason instead of silently reclassifying an outage.
+
+describe('@supabase/auth-js decode channel (the premise, unstubbed)', () => {
+  it('throws non-AuthError for malformed tokens that pass its shape checks', async () => {
+    const { createClient: realCreateClient } =
+      await vi.importActual<typeof import('@supabase/supabase-js')>('@supabase/supabase-js');
+    const real = realCreateClient('https://project.supabase.co', 'anon-key', {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    // Three segments, all valid base64url, so decodeJWT's regex passes and its
+    // JSON.parse (or the UTF-8 decode) is what fails. No network is reached.
+    const thrownShapes = [
+      'ew.e30.AA', // header decodes to `{`      → SyntaxError
+      'bnVsbA.e30.AA', // header decodes to `null`   → TypeError on header.alg
+      'aaaa.bbbb.cccc', // invalid UTF-8              → Error
+    ];
+
+    for (const token of thrownShapes) {
+      await expect(
+        real.auth.getClaims(token, { allowExpired: true }),
+        `expected ${token} to THROW, not return`,
+      ).rejects.toThrow();
+    }
+  });
+
+  it('RETURNS an AuthError for a token that fails its shape checks', async () => {
+    // The other side of the same boundary: decodeJWT's own AuthInvalidJwtError is
+    // an AuthError, so getClaims' internal catch returns it. If this ever throws
+    // instead, the seam still answers 401 — but the comment explaining why would
+    // be wrong, which on an auth seam is its own defect.
+    const { createClient: realCreateClient } =
+      await vi.importActual<typeof import('@supabase/supabase-js')>('@supabase/supabase-js');
+    const real = realCreateClient('https://project.supabase.co', 'anon-key', {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const result = await real.auth.getClaims('abc', { allowExpired: true });
+
+    expect(result.data).toBeNull();
+    expect(result.error?.name).toBe('AuthInvalidJwtError');
+  });
+});

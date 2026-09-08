@@ -1,14 +1,18 @@
 // src/lib/auth/admin-transport.ts
 //
 // The **Admin transport** predicate (docs/context/core-accounts-channels-admin.md;
-// ADR 0025 D6/D7). ONE owner for "is this request presenting a bearer", because
-// this module and `src/proxy.ts` both consume it (#1185) and two copies of that
-// test can disagree — a disagreement is either a bypass or a dead route.
+// ADR 0025 D6/D7). ONE owner for "is this request presenting a bearer". Today its
+// only consumer is `verified-identity.ts`; `src/proxy.ts` becomes the second in
+// #1185, and the ADR requires them to share this module rather than each spelling
+// the header test — two copies can disagree, and a disagreement is either a bypass
+// or a dead route.
 //
 // EDGE-SAFE, and that is a hard constraint rather than a nicety: `src/proxy.ts`
 // runs on the Edge runtime, so nothing here may import `node:*`, touch the
 // database, construct a Supabase client, or read `process.env`. Header parsing
-// only.
+// only, and this module currently has ZERO imports — which is what
+// `admin-transport.test.ts` asserts mechanically, because a comment cannot stop
+// #1185 from discovering the constraint as a broken Edge bundle.
 
 /** Which credential a request to the Admin API is presenting. */
 export type AdminTransport = 'cookie' | 'bearer';

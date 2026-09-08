@@ -53,9 +53,12 @@
     "401 Unauthorized for: any other returned getClaims error (AuthInvalidJwtError forged/garbage token, AuthSessionMissingError, a 4xx AuthApiError); data === null with no error; claims whose exp is missing or past; and getUser(jwt) returning { user: null } (the revocation arm).",
     "Cookie mode getUser() returning { user: null } — with or without an AuthSessionMissingError — is 401 Unauthorized, never a 500: a returned cookie auth error must not be thrown into the gates internal_error handler.",
     "loadAppUser throwing (network, pool exhaustion) reaches the gates catch and is 500 { error: internal_error }, preserving todays behaviour.",
-    "Bearer verification failure classification, measured against @supabase/auth-js 2.106.2 by live probe: getClaims does NOT funnel every bad token through its AuthError catch. decodeJWT regex-checks the segments then JSON.parses them (lib/helpers.js:153-157), so ew.e30.AA (header decodes to the single character open-brace) throws SyntaxError, bnVsbA.e30.AA (header decodes to null) throws TypeError on header.alg, and aaaa.bbbb.cccc throws Error Invalid UTF-8 sequence. The seams try therefore wraps each SDK await and nothing else, and ANY throw from those two awaits is 401 Unauthorized — the malformed-token boundary. Treating an escaping throw as 500 would let an unauthenticated caller force 500s on the admin control plane with a two-character token.",
-    "The 500 arm is driven entirely by the RETURNED error type — isAuthRetryableFetchError, or isAuthApiError whose (status ?? 500) >= 500 (a GoTrue HTTP 500 becomes AuthApiError(status 500), lib/fetch.js:72). That loses no observability because _request -> handleError raises an AuthError which both getClaims and getUser catch and RETURN, so every infrastructure fault arrives through that channel. Anything thrown OUTSIDE the two awaits — client construction, our own logic, loadAppUser — still reaches the gates catch as 500 internal_error.",
-    "The bearer arm calls getClaims(jwt, { allowExpired: true }) and enforces exp itself (exp <= Math.floor(Date.now()/1000), zero leeway, mirroring validateExp). allowExpired skips validateExp ONLY; signature verification is unchanged. This removes an unclassifiable exception channel rather than message-matching JWT has expired, which the house rule at src/lib/auth/reset-password-error.ts forbids. Expiry stays closed twice: this check and the getUser round-trip."
+    "The bearer arm calls getClaims(jwt, { allowExpired: true }) and enforces exp itself (exp <= Math.floor(Date.now()/1000), zero leeway, mirroring validateExp). allowExpired skips validateExp ONLY; signature verification is unchanged. This removes an unclassifiable exception channel rather than message-matching JWT has expired, which the house rule at src/lib/auth/reset-password-error.ts forbids. Expiry stays closed twice: this check and the getUser round-trip.",
+    "Bearer verification failure classification, measured against @supabase/auth-js 2.106.2 by live probe: getClaims does NOT funnel every bad token through its AuthError catch. decodeJWT regex-checks the segments then JSON.parses them, so ew.e30.AA (header decodes to the single character open-brace) throws SyntaxError, bnVsbA.e30.AA (header decodes to null) throws TypeError on header.alg, and aaaa.bbbb.cccc throws Error Invalid UTF-8 sequence. The seams try therefore wraps each SDK await and nothing else, and ANY throw from those two awaits is 401 Unauthorized — the malformed-token boundary. Treating an escaping throw as 500 would let an unauthenticated caller force 500s on the admin control plane with a two-character token. Pinned by an UNSTUBBED test against the real SDK so a dependency bump that moves a shape between channels fails loudly.",
+    "The 500 arm is driven entirely by the RETURNED error type and covers all THREE shapes handleError can raise: isAuthRetryableFetchError; AuthUnknownError (await error.json() threw, so something that is not GoTrue answered — an HTML 502, a WAF page, a truncated body); and isAuthApiError whose (status ?? 500) >= 500 (a GoTrue HTTP 500 becomes AuthApiError(status 500)). The AuthUnknownError arm was MISSING in the first implementation and was found independently by the adversarial pass and the red team — without it an upstream outage reads as a wall of bad credentials, the exact failure the classification exists to prevent.",
+    "The fault classification applies to the BEARER arm ONLY. resolveCookieIdentity deliberately classifies nothing: today getCurrentUser ignores getUsers error and requireCurrentAal2FromSupabase answers mfa_check_failed on any AAL error, so a Supabase fault on the cookie path is a 401/403. An earlier draft applied the classifier to both arms and the review wave caught it as a third and fourth undeclared cookie behaviour change on the path ADR 0025 D4 and the ticket forbid touching. Reverted and pinned by a test.",
+    "What the 500 buys is a CORRECT and greppable signal, not a page. internalError writes console.error and returns a response; it emits no Sentry exception, src/instrumentation.ts has no console-capture integration, onRequestError fires only for errors that escape a handler, and no row in docs/runbooks/beta-launch-alerting.md watches admin 5xx. Routing this to an alert sink is a separate ticket.",
+    "JWKS: auth-js caches keys in a module-global keyed by storageKey (sb-<project-ref>-auth-token, derived from the URL), so a per-request client shares the 10-minute cache. The no-extra-fetch property is CONDITIONAL on a known kid — fetchJwk bypasses the TTL for an unknown one, costing a JWKS GET per request. Unreachable while src/proxy.ts still refuses bearer-only requests; an unauthenticated amplification surface to weigh in #1185."
   ],
   "existing_patterns_to_follow": [
     "src/app/api/_shared/channels/resolve-actor.ts — the Channel actor rule: two sibling resolvers, never one with a posture parameter (ADR 0025 D2).",
@@ -91,8 +94,6 @@
     "docs/reviews/feat-1183-admin-transport-seam/spec-correctness.md",
     "docs/reviews/feat-1183-admin-transport-seam/standards.md",
     "docs/reviews/feat-1183-admin-transport-seam/adversarial.md",
-    "docs/reviews/red-team/1183-admin-transport-seam/findings.md",
-    "docs/reviews/red-team/1183-admin-transport-seam/findings.json",
     "src/lib/db/__tests__/auth.test.ts",
     "src/app/api/admin/autonomy/__tests__/routes.test.ts",
     "src/app/api/admin/billing/grant-extension/__tests__/route.test.ts",
@@ -117,7 +118,10 @@
     "src/app/api/admin/solicitation/batch/__tests__/routes.test.ts",
     "src/app/api/admin/solicitation/breaker/__tests__/reset-route.test.ts",
     ".claude/reference/arch-review-log.md",
-    "scripts/ci/tenant-scope-allowlist.ts"
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "docs/reviews/red-team/feat-1183-admin-transport-seam-7ee6d4/findings.md",
+    "docs/reviews/red-team/feat-1183-admin-transport-seam-7ee6d4/findings.json",
+    "docs/reviews/feat-1183-admin-transport-seam/triage.md"
   ],
   "tests_to_add": [
     "cookie ok",
@@ -140,7 +144,11 @@
     "a Supabase transport fault is internal_error, not Unauthorized",
     "the bearer client is built with persistSession and autoRefreshToken off",
     "a returned 4xx AuthApiError stays Unauthorized",
-    "malformed JWT JSON and header shapes remain Unauthorized"
+    "malformed JWT JSON and header shapes remain Unauthorized",
+    "a cookie-path Supabase fault keeps its pre-ticket answer, not the bearer 500",
+    "answers Forbidden when the caller is BOTH a non-admin and unreadable-AAL",
+    "throws non-AuthError for malformed tokens that pass its shape checks",
+    "has no imports at all, so src/proxy.ts can take it to the Edge (#1185)"
   ],
   "verification_commands": [
     "pnpm vitest run src/lib/auth/__tests__ src/lib/db/__tests__",

@@ -49,9 +49,8 @@ export function cookieBackedServerClient(request: NextRequest) {
  * Uses getUser() (not getSession()) — getUser() validates the token with the
  * Supabase Auth server on every call, which is required for server-side trust.
  *
- * Migration note (034): users.business_id was dropped; this function now
- * reads users.account_id and resolves the primary location from the
- * businesses table.
+ * The users-row mapping (and its migration-034 note) now lives in `loadAppUser`
+ * below; this function is the cookie half of the composition.
  */
 export async function getCurrentUser(
   request: NextRequest,

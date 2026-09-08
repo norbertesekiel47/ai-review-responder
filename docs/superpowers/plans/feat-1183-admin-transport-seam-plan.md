@@ -146,6 +146,7 @@ attacker-controlled bytes are parsed:
 | Outcome of `getClaims(jwt, {allowExpired:true})` / `getUser(jwt)` | Result |
 |---|---|
 | returned error where `isAuthRetryableFetchError(error)` | **rethrow** → the gate's existing 500 `{ error: 'internal_error' }` + its `console.error` |
+| returned error named `AuthUnknownError` | **rethrow** → 500 — `await error.json()` threw, so whatever answered was not GoTrue (an HTML 502 from a CDN, a WAF block page, a truncated body). Added by the review wave: it is neither of the other two names, so the first version of this table turned exactly that outage into 401s. Found independently by the adversarial pass and the red team. |
 | returned error where `isAuthApiError(error) && (error.status ?? 500) >= 500` | **rethrow** → 500 |
 | any other returned `error` — `AuthInvalidJwtError`, `AuthSessionMissingError`, a 4xx `AuthApiError` — or `data === null` with no error | unauthenticated → **401** |
 | **thrown out of either await** (`SyntaxError`, `TypeError`, `Error`) | unauthenticated → **401** — this is the malformed-token boundary |
@@ -164,8 +165,22 @@ infra arm.
 (`lib/errors.js:49-51, 222-224`), so they survive a duplicated module instance in a
 way `instanceof` would not.
 
-This is the intake's `observability` field made mechanical: an admin-wide Supabase
-outage or a GoTrue 500 is a 500 someone is paged for, not 401s nobody looks at.
+**Corrected after the review wave** (adversarial finding 2, red-team P1-2): the
+earlier wording here — "a 500 someone is paged for" — was an unproven claim about
+alerting. `internalError` writes a `console.error` and returns a response; it does
+not emit a Sentry exception, `src/instrumentation.ts` has no console-capture
+integration, `onRequestError` only fires for errors that ESCAPE a handler (this one
+is caught), and `docs/runbooks/beta-launch-alerting.md` has no admin-5xx row. What
+the classification actually buys is that the SIGNAL IS CORRECT: an outage is a 500
+in the logs and a distinguishable status, instead of being laundered into 401s that
+look like bad credentials. Routing it to an alert sink is real work and its own
+ticket; this change gives that ticket something true to alert on.
+
+**The classification applies to the BEARER arm only.** Review found that applying it
+to `resolveCookieIdentity` silently moved two more cookie answers (a Supabase fault
+went 401 → 500, and an AAL fault `mfa_check_failed` → 500), which ADR 0025 D4 and
+the ticket's "byte-for-byte… Do not touch it" forbid. Reverted; a test now pins the
+cookie arm's pre-ticket answers.
 
 ### The gate (`admin-mfa-gate.ts`)
 

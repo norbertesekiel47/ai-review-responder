@@ -352,11 +352,20 @@ describe('requireAdminWithAal2 — bearer verification', () => {
   });
 
   it('a Supabase transport fault is internal_error, not Unauthorized', async () => {
-    // An admin-wide Supabase outage must be a 500 someone is paged for, not 401s
-    // nobody looks at. Infra faults arrive through the RETURNED channel, because
-    // _request -> handleError raises an AuthError that both calls catch and return.
+    // An admin-wide Supabase outage must be a correctly-classified 500, not 401s
+    // that read as a wall of bad credentials. Infra faults arrive through the
+    // RETURNED channel, because _request -> handleError raises an AuthError that
+    // both calls catch and return.
+    //
+    // All THREE shapes handleError can raise are covered, and AuthUnknownError is
+    // here because the review wave found it missing: `await error.json()` throwing
+    // means something that is not GoTrue answered — an HTML 502 from a CDN, a WAF
+    // block page — and it is neither of the other two names, so the first version
+    // of this classifier turned exactly that outage into 401s.
     const infra = [
       namedAuthError('AuthRetryableFetchError', 0),
+      namedAuthError('AuthUnknownError'),
+      namedAuthError('AuthUnknownError', 500),
       namedAuthError('AuthApiError', 500),
       namedAuthError('AuthApiError', 503),
     ];
@@ -433,6 +442,60 @@ describe('requireAdminWithAal2 — cookie refusals', () => {
         error: 'Unauthorized',
       });
     }
+  });
+
+  it('a cookie-path Supabase fault keeps its pre-ticket answer, not the bearer 500', async () => {
+    // ADR 0025 D4 and ticket #1183 §2: the cookie resolver is today's path
+    // byte-for-byte. Today `getCurrentUser` ignores getUser's error entirely and
+    // requireCurrentAal2FromSupabase answers mfa_check_failed on any AAL error, so
+    // a Supabase fault here is a 401/403 — NOT the 500 the bearer arm gives its own
+    // faults. An earlier draft applied the bearer classifier to this arm and the
+    // review wave caught it as an undeclared third cookie behaviour change; this
+    // case is what stops it coming back.
+    const fault = namedAuthError('AuthRetryableFetchError', 0);
+
+    mockCookieGetUser.mockResolvedValue({ data: { user: null }, error: fault });
+    await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 401, {
+      error: 'Unauthorized',
+    });
+
+    mockCookieGetUser.mockResolvedValue({ data: { user: { id: AUTH_ID } }, error: null });
+    mockCookieAal.mockResolvedValue({ data: null, error: fault });
+    await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 403, {
+      error: 'mfa_check_failed',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refusal ORDER, not just refusal content
+// ---------------------------------------------------------------------------
+
+describe('refusal precedence', () => {
+  it('answers Forbidden when the caller is BOTH a non-admin and unreadable-AAL', async () => {
+    // Every other case presents one defect at a time, so nothing pinned the ORDER
+    // of the gate's checks: moving the role test below the AAL tests would change
+    // the answer here from Forbidden to mfa_check_failed and no test would notice.
+    // Role first is the right order — telling a non-admin to go run an MFA
+    // challenge invites them to, and leaks that their credential was otherwise
+    // acceptable.
+    mockGetClaims.mockResolvedValue(claims({ aal: undefined }));
+    sqlRows.next = [OWNER_ROW];
+
+    await expectRefusal(refusalOf(await requireAdminWithAal2(bearerReq())), 403, {
+      error: 'Forbidden',
+    });
+  });
+
+  it('answers Unauthorized when the credential is bad AND the user is a non-admin', async () => {
+    // Same argument one level up: authentication outranks authorization, so a
+    // caller who is both unauthenticated and unprivileged learns only the former.
+    mockGetClaims.mockResolvedValue({ data: null, error: namedAuthError('AuthInvalidJwtError') });
+    sqlRows.next = [OWNER_ROW];
+
+    await expectRefusal(refusalOf(await requireAdminWithAal2(bearerReq())), 401, {
+      error: 'Unauthorized',
+    });
   });
 });
 

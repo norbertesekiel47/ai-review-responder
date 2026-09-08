@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1183-admin-transport-seam-7ee6d4",
+  "branch": "feat/1183-admin-transport-seam",
+  "fork_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
+  "merge_base_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
+  "head_sha": "344dcbc0524e6733fef988ce66fc43db013dd088",
+  "intake_sha256": "d7ccd28ecb4e0447a7d86018d96507f3ee668f6655df03d00ee9c49975c1e979",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-08T03:59:31.359461Z",
+  "inventory": [
+    {
+      "id": "M1",
+      "test": "admin-transport-seam.test.ts > bearer revoked (the getUser arm)",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M2",
+      "test": "admin-transport-seam.test.ts > a malformed Authorization header does not fall back to the cookie",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M3",
+      "test": "admin-transport-seam.test.ts > unreadable AAL returns mfa_check_failed on both transports",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M4",
+      "test": "admin-transport-seam.test.ts > bearer non-admin",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M5",
+      "test": "admin-transport-seam.test.ts > a malformed Authorization header does not fall back to the cookie",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M6",
+      "test": "src/lib/db/__tests__/auth.test.ts > identity mapping uses users.auth_id, never users.id",
+      "file": "src/lib/db/auth.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M7",
+      "test": "admin-transport-seam.test.ts > a Supabase transport fault is internal_error, not Unauthorized",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M8",
+      "test": "src/app/api/admin/flagged/__tests__/route.test.ts > returns 403 for non-admins",
+      "file": "src/app/api/admin/flagged/route.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M9",
+      "test": "src/app/api/admin/solicitation/batch/__tests__/routes.test.ts > the admin halt route refuses a non-admin caller even with an AAL2 session and writes nothing",
+      "file": "src/app/api/admin/solicitation/batch/halt/route.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M10",
+      "test": "src/app/api/admin/channels/telegram/__tests__/disable.test.ts > returns 403 when MFA step-up is not satisfied (AAL2)",
+      "file": "src/app/api/_shared/channels/resolve-actor.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M11",
+      "test": "src/lib/auth/__tests__/verified-identity.test.ts > passes a non-aal2 level through instead of refusing it",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M12",
+      "test": "admin-transport-seam.test.ts > requireRole remains cookie-only for admin and mixed roles",
+      "file": "src/lib/db/auth.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M13",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > returns null for every malformed shape",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M14",
+      "test": "admin-transport-seam.test.ts > bearer expired",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT1",
+      "severity": "P1",
+      "title": "FALSE auth-js doc claim: handleError does not turn EVERYTHING else into AuthApiError - an AuthUnknownError (non-JSON 5xx/429 body) is classified as a refusal (401), not a transport fault (500)",
+      "at": "src/lib/auth/verified-identity.ts:57",
+      "duty": 3,
+      "disposition": "open"
+    },
+    {
+      "id": "RT2",
+      "severity": "P1",
+      "title": "The terminal 5xx class this diff newly routes into internalError has no emitting Sentry signal and no rule row in beta-launch-alerting.md; a cookie-transport Supabase fault moved 401 -> 500 silently, and no log line distinguishes the bearer transport",
+      "at": "src/lib/auth/admin-mfa-gate.ts:23",
+      "duty": 5,
+      "disposition": "open"
+    },
+    {
+      "id": "RT3",
+      "severity": "P2",
+      "title": "Deviation D2 enumerates two cookie-path refusal deltas; the third (cookie Supabase transport fault 401 -> 500) is undeclared, and the gate docblock repeats the same 'two' count",
+      "at": "docs/superpowers/plans/feat-1183-admin-transport-seam-deviations.md:25",
+      "duty": 3,
+      "disposition": "open"
+    },
+    {
+      "id": "RT4",
+      "severity": "P2",
+      "title": "Fragile assertion: invariant #8 is enforced by a regex over SQL template TEXT, which behaviour-preserving reformatting (parenthesisation, alias rename) turns red",
+      "at": "src/lib/db/__tests__/auth.test.ts:121",
+      "duty": 2,
+      "disposition": "open"
+    },
+    {
+      "id": "RT5",
+      "severity": "P2",
+      "title": "The refusal table's ordering is unpinned: no test presents a non-admin AND a non-aal2 together, so moving the role check below the assurance checks would change the refusal code undetected",
+      "at": "src/lib/auth/admin-mfa-gate.ts:111",
+      "duty": 2,
+      "disposition": "open"
+    },
+    {
+      "id": "RT6",
+      "severity": "P2",
+      "title": "Intake JWKS claim 'pays no extra fetch' holds only for a cached kid; fetchJwk bypasses the TTL for an unknown kid, costing an uncached JWKS GET plus a getUser fallback per request - an unauthenticated amplification surface once #1185 lets bearers through",
+      "at": "docs/superpowers/plans/feat-1183-admin-transport-seam-intake.json:51",
+      "duty": 5,
+      "disposition": "open"
+    },
+    {
+      "id": "RT7",
+      "severity": "P2",
+      "title": "Claim 1 is a module contract, not end-to-end: src/proxy.ts branch 4 still gates /api/admin on the cookie session, so no bearer reaches the gate in a deployed environment (declared at plan:293)",
+      "at": "src/proxy.ts:139",
+      "duty": 4,
+      "disposition": "open"
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 14,
+    "killed": 14,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 0,
+    "findings_total": 7,
+    "p0_open": 0,
+    "p1_open": 2,
+    "p2_open": 5,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P1"
+}
