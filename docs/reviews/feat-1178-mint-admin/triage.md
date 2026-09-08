@@ -93,3 +93,34 @@ same reason (its target is also outside this branch's edit surface, so the
 write guard blocks it). The kill is established by construction from the
 assertion instead, which is weaker evidence than a re-run and is recorded here
 as such.
+
+---
+
+# Owner decisions, 2026-09-07 — post-review
+
+Three decisions arrived after the review wave. All three are implemented.
+
+1. **Production refs: the outright refusal is REVERSED.** The ticket stands —
+   the script serves BOTH projects. Production is now reachable behind TWO
+   independent controls, neither sufficient alone: the explicit `--env
+   production` selector, AND a `--confirm-ref` equal to the ref parsed from
+   both halves of the target. Nothing defaults to production; `ambient`,
+   `local` and `staging` still cannot reach it; `--dry-run` works there. The
+   promised title `refuses a production project ref outright` is **retired**
+   from `tests_to_add` — it asserted the behaviour the owner removed — and is
+   replaced by the three the owner specified. #1179 remains only the
+   developer's account. **Nothing was run against production in this run.**
+2. **`assertMintTarget` MOVED into `scripts/staging-guard.ts`** (standards
+   finding M3, previously deferred). Its docblock now declares three modes and
+   states the one sanctioned production exception. Surface amendment #2,
+   owner-approved, reason recorded verbatim in `.feature/state.json`. The
+   mint-mode tests and the `extractProjectRefForLog` pins moved with it, so the
+   function and its suite stay together. Three promised titles kept VERBATIM
+   through the move.
+3. **A third red-team round is owner-authorized** at the final HEAD.
+
+Gate note: one full-gate run went RED on
+`src/lib/locations/__tests__/review-qr.test.ts` at 10.3 s. Re-run in isolation
+it passes in 864 ms, and `src/lib/locations/` is untouched by this branch — a
+timeout flake under full-suite load, not a regression. Recorded rather than
+silently re-run.

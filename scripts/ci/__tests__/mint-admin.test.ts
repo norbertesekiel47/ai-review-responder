@@ -23,9 +23,7 @@ import {
   mkTaggedResult,
   type MockSqlHarness,
 } from '../../../worker/__tests__/helpers/mock-sql';
-import { extractProjectRefForLog } from '../../staging-guard';
 import {
-  assertMintTarget,
   buildAdminRecoveryUrl,
   confirmsRollback,
   formatMintReport,
@@ -55,12 +53,7 @@ vi.mock('node:crypto', async (importOriginal) => {
 // The real refs, from scripts/staging-guard.ts. Project refs are non-secret
 // discriminators (they appear in public connection hosts), which is why that
 // module hardcodes them too.
-const PROD_REF = 'udeyaqnvpojbwgoaxwdg';
 const STAGING_REF = 'kubdiqdhqbhwmqfditeg';
-const OTHER_REF = 'aaaabbbbccccddddeeee';
-
-/** Mirrors mint-admin's own PROJECT_REF_PATTERN — a complete Supabase ref. */
-const PROJECT_REF_SHAPE = /^[a-z0-9]{20}$/;
 
 const stagingSupabaseUrl = `https://${STAGING_REF}.supabase.co`;
 const stagingDbTarget = `postgres.${STAGING_REF}@aws-0-eu-west-2.pooler.supabase.com:6543`;
@@ -128,147 +121,6 @@ describe('parseMintAdminArgs', () => {
     expect(() =>
       parseMintAdminArgs(['--email', 'admin@repworth.net', '--confirm-ref', STAGING_REF]),
     ).toThrow(MintAdminUsageError);
-  });
-});
-
-describe('assertMintTarget', () => {
-  it('refuses when the Supabase host does not contain the confirmed project ref', () => {
-    expect(() =>
-      assertMintTarget({
-        supabaseUrl: `https://${OTHER_REF}.supabase.co`,
-        dbTarget: stagingDbTarget,
-        dbProjectRef: STAGING_REF,
-        confirmRef: STAGING_REF,
-      }),
-    ).toThrow(/supabase/i);
-  });
-
-  it('refuses when the database target does not contain the confirmed project ref', () => {
-    // The mismatched-credential-pair case: staging Supabase URL beside another
-    // project's database. Exact equality on PARSED refs is what catches it.
-    expect(() =>
-      assertMintTarget({
-        supabaseUrl: stagingSupabaseUrl,
-        dbTarget: `postgres.${OTHER_REF}@aws-0-eu-west-2.pooler.supabase.com:6543`,
-        dbProjectRef: OTHER_REF,
-        confirmRef: STAGING_REF,
-      }),
-    ).toThrow(/database/i);
-  });
-
-  it('refuses a confirmed ref that is not a full Supabase project ref', () => {
-    // `supabase` is a substring of BOTH ordinary targets, so a substring test
-    // would confirm nothing at all (plan §6 F2).
-    //
-    // The 16-, 19- and 21-character entries are LOAD-BEARING and must not be
-    // dropped: they are the only values that distinguish `{20}` from a
-    // loosened `{16,}`. Everything shorter is rejected by either pattern, so a
-    // list of short refs alone lets that widening survive — it did in red-team
-    // round 1 (RT-05), and it survived the first attempt at this very fix.
-    for (const partial of [
-      'supabase',
-      STAGING_REF.slice(0, 8),
-      '',
-      STAGING_REF.slice(0, 16),
-      STAGING_REF.slice(0, 19),
-      `${STAGING_REF}x`,
-    ]) {
-      expect(() =>
-        assertMintTarget({
-          supabaseUrl: stagingSupabaseUrl,
-          dbTarget: stagingDbTarget,
-          dbProjectRef: STAGING_REF,
-          confirmRef: partial,
-        }),
-        // Attributed, not a bare .toThrow(): the message must name the
-        // COMPLETE-REF rule. Without this, widening the pattern from {20} to
-        // {16,} survives, because the exact-equality guard throws anyway and
-        // the test cannot tell the two refusals apart (red team RT-05).
-      ).toThrow(/complete Supabase project ref/i);
-    }
-  });
-
-  it('refuses a production project ref outright', () => {
-    expect(() =>
-      assertMintTarget({
-        supabaseUrl: `https://${PROD_REF}.supabase.co`,
-        dbTarget: `postgres.${PROD_REF}@aws-0-eu-west-2.pooler.supabase.com:6543`,
-        dbProjectRef: PROD_REF,
-        confirmRef: PROD_REF,
-      }),
-    ).toThrow(/produc/i);
-
-    // The denylist beats the flag in BOTH directions: a staging confirmation
-    // may not authorise a production-looking target either.
-    expect(() =>
-      assertMintTarget({
-        supabaseUrl: `https://${PROD_REF}.supabase.co`,
-        dbTarget: stagingDbTarget,
-        dbProjectRef: STAGING_REF,
-        confirmRef: STAGING_REF,
-      }),
-    ).toThrow(/produc/i);
-  });
-
-  it('refuses a production ref reaching the guard through dbProjectRef alone', () => {
-    // The denylist loop gained a `dbProjectRef` row with the M2 fix; without
-    // this, deleting that row survives (red team RT2-03). A production ref must
-    // be refused on the PROD path, never fall through to the ref-mismatch path.
-    expect(() =>
-      assertMintTarget({
-        supabaseUrl: stagingSupabaseUrl,
-        dbTarget: stagingDbTarget,
-        dbProjectRef: PROD_REF,
-        confirmRef: STAGING_REF,
-      }),
-    ).toThrow(/produc/i);
-  });
-
-  it('accepts a staging target whose parsed refs both equal the confirmation', () => {
-    expect(() =>
-      assertMintTarget({
-        supabaseUrl: stagingSupabaseUrl,
-        dbTarget: stagingDbTarget,
-        dbProjectRef: STAGING_REF,
-        confirmRef: STAGING_REF,
-      }),
-    ).not.toThrow();
-  });
-});
-
-/**
- * `assertMintTarget` takes `dbProjectRef` from `extractProjectRefForLog`
- * (`scripts/staging-guard.ts`), so the guard is only as good as that parser —
- * and it has NO tests anywhere in the repo. Red team round 2 proved the gap:
- * replacing its whole body with `return '(ref-not-found)'` survived 146 tests
- * across five suites.
- *
- * The failure direction is closed (a sentinel can never equal a 20-character
- * `--confirm-ref`, so the mutant refuses every mint rather than allowing a
- * wrong one), but an unpinned parser under an auth guard is exactly what this
- * feature must not rely on. These pin the shapes mint-admin depends on.
- */
-describe('extractProjectRefForLog — the parser assertMintTarget depends on', () => {
-  it('parses the pooler user form, postgres.<ref>@…', () => {
-    expect(
-      extractProjectRefForLog(`postgres://postgres.${STAGING_REF}:pw@aws-0-eu-west-2.pooler.supabase.com:6543/postgres`),
-    ).toBe(STAGING_REF);
-  });
-
-  it('parses the direct host form, db.<ref>.supabase.co', () => {
-    expect(
-      extractProjectRefForLog(`postgres://postgres:pw@db.${STAGING_REF}.supabase.co:5432/postgres`),
-    ).toBe(STAGING_REF);
-  });
-
-  it('returns a sentinel — never a bare ref — when it cannot parse one', () => {
-    // Both sentinels must fail `dbProjectRef === confirmRef`, which is what
-    // makes an unparseable target a refusal rather than a pass.
-    for (const url of ['postgres://user:pw@localhost:5432/postgres', 'not a url at all']) {
-      const parsed = extractProjectRefForLog(url);
-      expect(parsed).toMatch(/^\(.*\)$/);
-      expect(PROJECT_REF_SHAPE.test(parsed)).toBe(false);
-    }
   });
 });
 

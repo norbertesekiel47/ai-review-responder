@@ -43,15 +43,15 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { writeAdminAuditLog } from '../src/lib/audit/log';
 import { resetPasswordPathForFlow } from '../src/lib/shared/auth-flow';
 import {
+  assertMintTarget,
   describeConnectionTarget,
   extractProjectRefForLog,
-  PROD_PROJECT_REFS,
 } from './staging-guard';
 import { runDirectCli } from './run-direct-cli';
 
 // ── the CLI contract ───────────────────────────────────────────────────────
 
-export type MintEnvMode = 'ambient' | 'local' | 'staging';
+export type MintEnvMode = 'ambient' | 'local' | 'staging' | 'production';
 
 export interface MintAdminArgs {
   email: string;
@@ -76,8 +76,13 @@ export const MINT_ADMIN_USAGE = [
   '  --confirm-ref  the Supabase project ref you MEAN to write to. It must equal',
   '                 the ref parsed out of BOTH the Supabase URL and the database',
   '                 connection, so a mismatched credential pair cannot be confirmed.',
-  '  --env          load .env.local (local) or .env.staging.local (staging, mapping',
-  '                 STAGING_X -> X). Omit to use the ambient environment.',
+  '  --env          local     load .env.local',
+  '                 staging   load .env.staging.local, mapping STAGING_X -> X',
+  '                 production  use the ambient environment AND permit a production',
+  '                             project ref. Never a default; the only way to reach',
+  '                             production, and a matching --confirm-ref is still',
+  '                             required.',
+  '                 Omit to use the ambient environment WITHOUT production access.',
   '  --dry-run      run every refusal check and write nothing.',
 ].join('\n');
 
@@ -106,8 +111,13 @@ export function parseMintAdminArgs(argv: readonly string[]): MintAdminArgs {
   if (!email) throw new MintAdminUsageError('--email is required');
   if (!name) throw new MintAdminUsageError('--name is required');
   if (!confirmRef) throw new MintAdminUsageError('--confirm-ref is required');
-  if (rawEnv !== 'ambient' && rawEnv !== 'local' && rawEnv !== 'staging') {
-    throw new MintAdminUsageError(`--env must be local or staging, got "${rawEnv}"`);
+  if (
+    rawEnv !== 'ambient' && rawEnv !== 'local' &&
+    rawEnv !== 'staging' && rawEnv !== 'production'
+  ) {
+    throw new MintAdminUsageError(
+      `--env must be local, staging or production, got "${rawEnv}"`,
+    );
   }
 
   return { email, name, confirmRef, envMode: rawEnv, dryRun: argv.includes('--dry-run') };
@@ -151,7 +161,7 @@ export interface MintConfig {
   appUrl: string;
 }
 
-const ENV_FILES: Record<Exclude<MintEnvMode, 'ambient'>, { path: string; prefix: string }> = {
+const ENV_FILES: Record<Exclude<MintEnvMode, 'ambient' | 'production'>, { path: string; prefix: string }> = {
   local: { path: '.env.local', prefix: '' },
   staging: { path: '.env.staging.local', prefix: 'STAGING_' },
 };
@@ -168,7 +178,11 @@ function requireValue(source: Record<string, string | undefined>, name: string):
 
 export function readMintConfig(envMode: MintEnvMode): MintConfig {
   let source: Record<string, string | undefined> = process.env;
-  if (envMode !== 'ambient') {
+  // `production` reads the AMBIENT environment exactly as `ambient` does: the
+  // selector grants target permission, it does not name a different config
+  // source. Production secrets come from a prod-scoped shell (e.g. `railway
+  // run`), never from a file in the repo.
+  if (envMode !== 'ambient' && envMode !== 'production') {
     const { path, prefix } = ENV_FILES[envMode];
     if (!existsSync(path)) {
       throw new MintAdminUsageError(
@@ -186,102 +200,6 @@ export function readMintConfig(envMode: MintEnvMode): MintConfig {
 }
 
 // ── the target guard ───────────────────────────────────────────────────────
-
-/**
- * A Supabase project ref: twenty lowercase alphanumerics. Both known refs in
- * `staging-guard.ts` have exactly this shape, and requiring the FULL ref is
- * what stops a partial or common substring — `supabase` appears in every
- * ordinary target — from confirming anything at all.
- */
-const PROJECT_REF_PATTERN = /^[a-z0-9]{20}$/;
-
-/** Parse the project ref out of a Supabase API URL (`https://<ref>.supabase.co`). */
-function refFromSupabaseUrl(supabaseUrl: string): string | null {
-  let host: string;
-  try {
-    host = new URL(supabaseUrl).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-  const [label] = host.split('.');
-  return label && PROJECT_REF_PATTERN.test(label) ? label : null;
-}
-
-function containsProdRef(value: string): string | null {
-  const lowered = value.toLowerCase();
-  return PROD_PROJECT_REFS.find((ref) => lowered.includes(ref)) ?? null;
-}
-
-export interface MintTargetInput {
-  supabaseUrl: string;
-  /** Password-FREE descriptor from `describeConnectionTarget`: `user@host:port`. */
-  dbTarget: string;
-  /**
-   * The database's project ref, parsed by `extractProjectRefForLog`
-   * (`scripts/staging-guard.ts`) — the module that OWNS connection-target
-   * parsing. Passed in rather than re-parsed here so the ref this guard
-   * validates and the ref `main()` prints come from the same parser; two
-   * parsers with different accepted shapes is how a printed ref and a
-   * validated ref drift apart (review finding M2). Its miss sentinels
-   * (`(ref-not-found)`, `(unparseable)`) simply fail the equality below.
-   */
-  dbProjectRef: string;
-  confirmRef: string;
-}
-
-/**
- * Refuse unless the operator named the project they are actually pointed at.
- *
- * Order matters and mirrors `assertStagingTarget`: the production denylist runs
- * FIRST over both actual targets AND the confirmation, so no flag value can
- * ever authorise a production-looking target. Then the confirmation must be a
- * complete project ref, and must EQUAL the ref parsed out of each half of the
- * target — not merely appear in it. Exact equality on parsed refs is what makes
- * a mismatched credential pair (one project's Supabase URL beside another's
- * database) impossible to confirm, and an unparseable target is a refusal.
- */
-export function assertMintTarget(input: MintTargetInput): void {
-  const { supabaseUrl, dbTarget, dbProjectRef, confirmRef } = input;
-
-  for (const [label, value] of [
-    ['Supabase URL', supabaseUrl],
-    ['database target', dbTarget],
-    ['database project ref', dbProjectRef],
-    ['--confirm-ref', confirmRef],
-  ] as const) {
-    const prodRef = containsProdRef(value);
-    if (prodRef) {
-      throw new Error(
-        `REFUSING TO RUN: the ${label} matches a PRODUCTION project ref (${prodRef}). ` +
-          'Minting into production is ticket #1179 and is not this script\'s job today.',
-      );
-    }
-  }
-
-  if (!PROJECT_REF_PATTERN.test(confirmRef)) {
-    throw new Error(
-      `REFUSING TO RUN: --confirm-ref must be a complete Supabase project ref ` +
-        `(20 lowercase alphanumerics), got "${confirmRef}". A partial ref confirms nothing — ` +
-        '"supabase" is a substring of every ordinary target.',
-    );
-  }
-
-  const supabaseRef = refFromSupabaseUrl(supabaseUrl);
-  if (supabaseRef !== confirmRef) {
-    throw new Error(
-      `REFUSING TO RUN: the Supabase URL resolves to project ref ` +
-        `${supabaseRef ?? '(unparseable)'}, not the confirmed ${confirmRef}.`,
-    );
-  }
-
-  if (dbProjectRef !== confirmRef) {
-    throw new Error(
-      `REFUSING TO RUN: the database target (${dbTarget}) resolves to project ref ` +
-        `${dbProjectRef}, not the confirmed ${confirmRef}. ` +
-        'The Supabase URL and the database URL must belong to the SAME project.',
-    );
-  }
-}
 
 // ── the recovery link ──────────────────────────────────────────────────────
 
@@ -828,6 +746,9 @@ async function main(): Promise<number> {
     dbTarget: databaseTarget,
     dbProjectRef,
     confirmRef: args.confirmRef,
+    // The ONLY route to production, and it is a selector the operator typed —
+    // a mistyped ref can never reach it. The matching-ref checks still apply.
+    allowProduction: args.envMode === 'production',
   });
 
   const target: MintTargetDescription = {

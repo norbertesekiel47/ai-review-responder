@@ -23,8 +23,13 @@ lost their authenticator. This one creates identities; that one repairs them.
       This is not a reversible convenience.
 - [ ] You know which project you mean. `--confirm-ref` must be the FULL
       twenty-character Supabase project ref, and it must match the ref parsed
-      out of both the Supabase URL and the database connection. A production
-      ref is refused outright by this script (production minting is #1179).
+      out of both the Supabase URL and the database connection.
+- [ ] **Production needs TWO independent things, and neither is sufficient
+      alone**: the explicit `--env production` selector, AND a matching
+      `--confirm-ref`. No other mode can reach a production project, nothing
+      defaults to production, and a mistyped ref can never get there — the
+      selector is not a value. `--dry-run` works against production too, and
+      you should always use it first.
 - [ ] `MFA_ENFORCEMENT_ENABLED` — a new admin enrols in MFA at first sign-in
       once that flag is on. Check its state for the target environment; see
       `.claude/rules/env-flags.md`.
@@ -38,7 +43,7 @@ and `NEXT_PUBLIC_APP_URL` for the target.
 |---|---|
 | **Staging** | `--env staging`. Parses `.env.staging.local` and maps `STAGING_X` → `X`, including the empty-`STAGING_SUPABASE_URL` fallback. Both facts are owned, with dates and evidence, by `docs/runbooks/mfa-factor-reset.md` § step 2 "Environment matters" — read it there; this runbook does not keep a second copy. |
 | **Local** | `--env local`. Parses `.env.local` with no prefix. |
-| **Production** | No `--env`. Export the four variables in a production-scoped shell (e.g. `railway run`). **The script refuses a production project ref today** — that is ticket #1179, and lifting the refusal is a deliberate change, not an operator flag. |
+| **Production** | `--env production`. Reads the AMBIENT environment (the selector grants target permission; it does not name a config file), so export the four variables in a production-scoped shell — e.g. `railway run`. Production secrets never live in a repo file. |
 
 The script parses the file with `dotenv.parse` and never shells out, so the
 `source` hazard `mfa-factor-reset.md` documents does not arise here — there is
@@ -104,7 +109,7 @@ admin and then re-mints), and the operator is recorded in the row's `payload`.
 
 | Output | Meaning | Do |
 |---|---|---|
-| `REFUSING TO RUN: … PRODUCTION project ref` | The target or the confirmation is production. | Nothing. Production minting is #1179. |
+| `REFUSING TO RUN: … PRODUCTION project ref … production was not explicitly selected` | You are pointed at production without `--env production`. | If production is what you meant, re-run with `--env production` AND the production `--confirm-ref`, dry-run first. If it is not, fix your environment — do not add the selector to silence the message. |
 | `REFUSING TO RUN: --confirm-ref must be a complete Supabase project ref` | A partial ref was passed. | Pass the full twenty-character ref. |
 | `REFUSING TO RUN: the Supabase URL / database target resolves to project ref X, not the confirmed Y` | Either you named the wrong project, or your Supabase URL and database URL belong to DIFFERENT projects. | Fix the environment. Do not "correct" `--confirm-ref` to match — that defeats the check. |
 | `REFUSED (users_row_exists)` | A `users` row already holds that email, in any role. | Nothing was written. Decide deliberately whether that person should be an admin; never convert an owner row by hand. |
