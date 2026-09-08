@@ -6,6 +6,8 @@ Accepted — 2026-09-07. Resolves decision ticket
 [#1164](https://github.com/RepWorth/ai-review-responder/issues/1164) on wayfinder
 map [#1159](https://github.com/RepWorth/ai-review-responder/issues/1159).
 
+Terms: `docs/context/core-accounts-channels-admin.md` → **Admin API contract** (coined here), **Admin API**, **Admin app**.
+
 ## Context
 
 The **Admin app** is built by a developer with no read access to this repo
@@ -114,7 +116,7 @@ changing with nobody noticing, not a reviewer misjudging a diff they can see.
 `main` opens or updates a pull request in the Admin app repo carrying the same
 files.
 
-This is the **Console visual system** export precedent (ADR 0024 D8, executed by
+This is the Console visual system export precedent (ADR 0024 D8, executed by
 hand once in #1167) with the manual step automated. It keeps one owner, which is
 D8's actual reasoning — the objection to `@repworth/console` was two publishing
 surfaces, not the copying.
@@ -147,7 +149,7 @@ which is exactly what the legacy client does today.
 The three `src/proxy.ts` branch-4 bodies are part of the contract and are
 enumerated by hand in the README, because they come from the proxy and not from any
 route file: `401 {error:'Unauthorized'}`, `403 {error:'Forbidden'}`, and
-`403 {error:<aal gate value>}`. ADR 0025 D3's refusal vocabulary
+`403 {error:<aal gate value>}`. ADR 0025 D9's refusal vocabulary
 (`mfa_required`, `mfa_check_failed`) is named there too.
 
 **Normalizing all 37 strings to codes first is rejected as a blocker.** It is a

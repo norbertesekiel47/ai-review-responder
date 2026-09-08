@@ -9,6 +9,8 @@ map [#1159](https://github.com/RepWorth/ai-review-responder/issues/1159).
 Amends **ADR 0024 D5**: the survivor list of the **Legacy admin portal** does not
 grow. `/admin/security` and `/admin/runbook` move to the **Admin app**.
 
+Terms: `docs/context/core-accounts-channels-admin.md` → **Legacy admin portal** (D3 keeps its survivor list unchanged).
+
 ## Context
 
 Every page under `src/app/admin/**` is a server component that reads the database

@@ -9,6 +9,8 @@ map [#1159](https://github.com/RepWorth/ai-review-responder/issues/1159).
 Sharpens the **Legacy admin portal** glossary term with the exact end-state file
 set. Does not change ADR 0024 D5's page list.
 
+Terms: `docs/context/core-accounts-channels-admin.md` → **Legacy admin portal** (D2, D5), **Admin app**.
+
 ## Context
 
 Once the **Admin app** is live and `/admin/overview` is deleted here, every site

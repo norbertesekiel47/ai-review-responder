@@ -142,7 +142,7 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
    fire on a retirement: a stale href, and — for `/admin/businesses/new` only
    — a stale `NON_NAV_PAGES` entry. Treat the prune as ordinary checklist work
    whose omission the gate reports, not as a hazard the reviewer must catch.
-   The file dies entirely at the end: ADR 0029 D3 drops the sidebar from
+   The file dies entirely at the end: ADR 0029 D5 drops the sidebar from
    `AdminShellFrame`.
 
    **Corrected 2026-09-07, after this ADR merged.** It first claimed the prune
@@ -172,8 +172,11 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
    chances to forget with nothing failing when someone does.
 
 6. **The end-state ticket is cut NOW (#1203), blocked by the last retirement.**
-   It removes cookie mode and `withSameOrigin` from `/api/admin/**` and the
-   cookie path from `src/proxy.ts` branch 4, and it carries D5's sweep. This
+   It removes cookie mode and `withSameOriginUnlessBearer` (ADR 0025 D8) from
+   `/api/admin/**` — EXCEPT `/api/admin/impersonation/**`, which keeps cookie
+   mode and `withSameOrigin` permanently because impersonation never moves (ADR
+   0024 D5, D4 amended at validation 2026-09-08) — narrows the cookie path of
+   `src/proxy.ts` branch 4 to that prefix, and carries D5's sweep. This
    graduates map #1159's second fog patch, so the map shows a finish line
    rather than a prose note.
 
