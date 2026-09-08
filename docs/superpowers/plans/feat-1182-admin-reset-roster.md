@@ -120,3 +120,30 @@ steps 1, 2 and 4 run from a production-scoped shell. Step 3 is what makes the
 owner's own production sign-in require the TOTP challenge; the owner must have
 their authenticator to hand before step 3, and step 4 must follow step 2 in the
 same sitting or production has no admin who can sign in.
+
+## Re-verified against staging with the SHIPPED code
+
+The execution above ran the pre-review-wave script. The review wave changed the
+ban-state path substantially (the predicate moved out of SQL into
+`classifyBanState`; absence became a refusal; `REVOKE_HORIZON_MS` was added), so
+the evidence was re-derived at the final HEAD rather than carried forward. No
+staging state changed: three of the four runs are no-ops by design and the
+fourth is a dry run.
+
+| check | result |
+|---|---|
+| dry-run an active admin (`norbertesekiel@gmail.com`) | `DRY RUN (revoke): every refusal check passed; nothing was written.` |
+| a 100-year ban (`daoni@repworth.net`) | `ALREADY REVOKED … nothing written.` — the horizon logic reading a REAL `banned_until` of `2126-08-15 08:54:37.317124+00` |
+| an active identity restored (`yoknyei@repworth.net`) | `ALREADY ACTIVE … nothing written.` — the NULL `banned_until` arm |
+| a production ref without the selector | `REFUSING TO RUN: the --confirm-ref matches a PRODUCTION project ref (udeyaqnvpojbwgoaxwdg), and production was not explicitly selected.` |
+
+Rows 2 and 3 are the ones worth keeping: they exercise the new `banned_until::text`
++ `deleted_at::text` read and the pure classifier against the **real** `auth.users`
+schema, which no live-DB suite can reach (the test databases provision schema
+`auth` with no `auth.users` relation at all). They also settle empirically that
+`Date.parse` handles Postgres's rendering — space separator, six microsecond
+digits — which was the review's leading hypothesis for a defect in the fix.
+
+Final staging admin set, re-read afterwards and unchanged: `norbertesekiel@gmail.com`
+and `yoknyei@repworth.net` active with 2 reset rows each (`admin_revoked` then
+`admin_restored`); the other four banned with 1 row each.
