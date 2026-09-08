@@ -49,9 +49,8 @@ export function cookieBackedServerClient(request: NextRequest) {
  * Uses getUser() (not getSession()) — getUser() validates the token with the
  * Supabase Auth server on every call, which is required for server-side trust.
  *
- * Migration note (034): users.business_id was dropped; this function now
- * reads users.account_id and resolves the primary location from the
- * businesses table.
+ * The users-row mapping (and its migration-034 note) now lives in `loadAppUser`
+ * below; this function is the cookie half of the composition.
  */
 export async function getCurrentUser(
   request: NextRequest,
@@ -64,9 +63,28 @@ export async function getCurrentUser(
 
   if (!authUser) return null;
 
-  // Map Supabase Auth identity to app user + resolve primary location.
-  // Reads users.account_id (not users.business_id, which was dropped in
-  // migration 034). Joins to businesses to find the primary location.
+  return loadAppUser(authUser.id);
+}
+
+/**
+ * Maps a Supabase Auth identity (`users.auth_id`) to its app `users` row, or null
+ * when there is none. Resolves the account's primary location in the same query.
+ *
+ * Extracted from `getCurrentUser` for the **Admin transport** seam (#1183): that
+ * seam resolves an `authUserId` from EITHER a session cookie or a bearer and then
+ * needs exactly this mapping — but it must not import `@/lib/db/server` itself
+ * (invariant #15). This file is the composition root that owns the singleton, so
+ * the mapping lives here and the seam stays a pure identity resolver.
+ *
+ * The predicate is `u.auth_id`, never `u.id` (invariant #8). Those are two
+ * different namespaces — the Supabase Auth identity and the app's own primary key —
+ * and transposing them would return whichever `users` row happens to carry an auth
+ * id as its primary key.
+ *
+ * Migration note (034): `users.business_id` was dropped; this reads
+ * `users.account_id` and joins `businesses` for the primary location.
+ */
+export async function loadAppUser(authUserId: string): Promise<AppUser | null> {
   const rows = await sql<{
     id: string;
     name: string;
@@ -82,7 +100,7 @@ export async function getCurrentUser(
               AND b.archived_at IS NULL
             LIMIT 1) AS primary_location_id
     FROM users u
-    WHERE u.auth_id = ${authUser.id}
+    WHERE u.auth_id = ${authUserId}
     LIMIT 1
   `;
 

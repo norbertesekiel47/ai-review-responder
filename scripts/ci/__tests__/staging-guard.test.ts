@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   assertEphemeralBranchTarget,
+  assertMintTarget,
   assertStagingTarget,
   describeConnectionTarget,
+  extractProjectRefForLog,
   KNOWN_STAGING_REF,
   PROD_PROJECT_REFS,
+  PROJECT_REF_PATTERN,
 } from '../../staging-guard';
 
 const STAGING_REF = KNOWN_STAGING_REF;
@@ -129,5 +132,235 @@ describe('describeConnectionTarget', () => {
     );
     expect(() => assertStagingTarget(target, STAGING_REF)).toThrow(/PRODUCTION project ref/);
     expect(() => assertEphemeralBranchTarget(target, BRANCH_REF)).toThrow(/PRODUCTION project ref/);
+  });
+});
+
+// ── mode 3: assertMintTarget (#1178) ────────────────────────────────────────
+//
+// Moved here from scripts/mint-admin.ts on the owner's decision (2026-09-07,
+// surface amendment #2): this module declares itself the single owner of "is
+// this connection target safe", and a third mode living elsewhere made that
+// docblock false (standards review finding M3).
+
+const OTHER_REF = 'aaaabbbbccccddddeeee';
+const STAGING_SUPABASE_URL = `https://${STAGING_REF}.supabase.co`;
+const PROD_SUPABASE_URL = `https://${PROD_REF}.supabase.co`;
+const PROD_DB_REF = PROD_REF;
+
+describe('assertMintTarget (mint mode — #1178)', () => {
+  it('accepts a staging target whose parsed refs both equal the confirmation', () => {
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: STAGING_SUPABASE_URL,
+        dbTarget: STAGING_POOLER,
+        dbProjectRef: STAGING_REF,
+        confirmRef: STAGING_REF,
+      }),
+    ).not.toThrow();
+  });
+
+  it('refuses when the Supabase host does not contain the confirmed project ref', () => {
+    // DISCRIMINATING matcher, not /supabase/i: all four messages this function
+    // can throw contain "supabase", so the loose form cannot tell this check
+    // from a different one firing first (red team RT3-05).
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: `https://${OTHER_REF}.supabase.co`,
+        dbTarget: STAGING_POOLER,
+        dbProjectRef: STAGING_REF,
+        confirmRef: STAGING_REF,
+      }),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('refuses a Supabase host that merely CONTAINS the confirmed ref — equality, not containment', () => {
+    // The superstring case, and the ONLY shape that separates
+    // `supabaseRef !== confirmRef` from `!supabaseUrl.includes(confirmRef)`.
+    // Without it, degrading that equality to containment survives the whole
+    // suite (red team RT3-01, mutant S8) — and once `--env production` lifts
+    // the denylist, this equality is one of just two controls between a typed
+    // selector and a production write.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: `https://xx${STAGING_REF}.supabase.co`,
+        dbTarget: STAGING_POOLER,
+        dbProjectRef: STAGING_REF,
+        confirmRef: STAGING_REF,
+      }),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('refuses when the database target does not contain the confirmed project ref', () => {
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: STAGING_SUPABASE_URL,
+        dbTarget: `postgres.${OTHER_REF}@aws-0-us-west-1.pooler.supabase.com:6543`,
+        dbProjectRef: OTHER_REF,
+        confirmRef: STAGING_REF,
+      }),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('refuses a database target that merely CONTAINS the confirmed ref — equality, not containment', () => {
+    // The database half of RT3-01 (mutant S9). The mutant never reads
+    // `dbProjectRef` at all, which destroys the documented sentinel guarantee
+    // while the sentinel test below still passes on fixture luck — so the
+    // sentinel case alone does NOT cover this. A host that contains the ref as
+    // a prefix is refused by equality and accepted by containment.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: STAGING_SUPABASE_URL,
+        dbTarget: `postgres@${STAGING_REF}-shadow.example.com:5432`,
+        dbProjectRef: '(ref-not-found)',
+        confirmRef: STAGING_REF,
+      }),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('refuses a confirmed ref that is not a full Supabase project ref', () => {
+    // The 16-, 19- and 21-character entries are LOAD-BEARING: they are the only
+    // values that distinguish `{20}` from a loosened `{16,}`. Everything shorter
+    // is rejected by either pattern, so a list of short refs alone lets that
+    // widening survive — it did (red team RT-05).
+    for (const partial of [
+      'supabase',
+      STAGING_REF.slice(0, 8),
+      '',
+      STAGING_REF.slice(0, 16),
+      STAGING_REF.slice(0, 19),
+      `${STAGING_REF}x`,
+    ]) {
+      expect(() =>
+        assertMintTarget({
+          supabaseUrl: STAGING_SUPABASE_URL,
+          dbTarget: STAGING_POOLER,
+          dbProjectRef: STAGING_REF,
+          confirmRef: partial,
+        }),
+      ).toThrow(/complete Supabase project ref/i);
+    }
+  });
+
+  it('refuses an unparseable database target — a sentinel can never confirm', () => {
+    for (const sentinel of ['(ref-not-found)', '(unparseable)']) {
+      expect(PROJECT_REF_PATTERN.test(sentinel)).toBe(false);
+      expect(() =>
+        assertMintTarget({
+          supabaseUrl: STAGING_SUPABASE_URL,
+          dbTarget: 'postgres@localhost:5432',
+          dbProjectRef: sentinel,
+          confirmRef: STAGING_REF,
+        }),
+      ).toThrow(/resolves to project ref .*, not the confirmed/);
+    }
+  });
+
+  // ── the production path (owner decision 2026-09-07) ────────────────────────
+  //
+  // Ticket #1178 requires the script to serve BOTH projects. Production is
+  // reachable, but only through an explicit selector AND a matching ref — two
+  // independent controls, neither sufficient alone.
+
+  it('refuses a production target when --env production is not selected', () => {
+    for (const input of [
+      { supabaseUrl: PROD_SUPABASE_URL, dbTarget: PROD_POOLER, dbProjectRef: PROD_DB_REF, confirmRef: PROD_REF },
+      // Denylist beats a staging confirmation too — it is checked over the
+      // ACTUAL targets, not just the confirmation.
+      { supabaseUrl: PROD_SUPABASE_URL, dbTarget: STAGING_POOLER, dbProjectRef: STAGING_REF, confirmRef: STAGING_REF },
+      { supabaseUrl: STAGING_SUPABASE_URL, dbTarget: PROD_POOLER, dbProjectRef: PROD_DB_REF, confirmRef: STAGING_REF },
+    ]) {
+      expect(() => assertMintTarget(input)).toThrow(/PRODUCTION project ref/);
+      expect(() => assertMintTarget(input)).toThrow(/--env production/);
+      // ...and explicitly NOT when the selector is on (that is the next test).
+      expect(() => assertMintTarget({ ...input, allowProduction: false })).toThrow(/PRODUCTION/);
+    }
+  });
+
+  it('refuses a production target when --confirm-ref does not match', () => {
+    // The selector alone is NOT sufficient: every other check still applies.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: PROD_SUPABASE_URL,
+        dbTarget: PROD_POOLER,
+        dbProjectRef: PROD_DB_REF,
+        confirmRef: STAGING_REF,
+        allowProduction: true,
+      }),
+    ).toThrow(/not the confirmed/);
+
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: PROD_SUPABASE_URL,
+        dbTarget: PROD_POOLER,
+        dbProjectRef: PROD_DB_REF,
+        confirmRef: PROD_REF.slice(0, 16),
+        allowProduction: true,
+      }),
+    ).toThrow(/complete Supabase project ref/i);
+
+    // A mismatched pair is still a mismatched pair under the selector.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: PROD_SUPABASE_URL,
+        dbTarget: STAGING_POOLER,
+        dbProjectRef: STAGING_REF,
+        confirmRef: PROD_REF,
+        allowProduction: true,
+      }),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('accepts a production target under --env production with the matching ref', () => {
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: PROD_SUPABASE_URL,
+        dbTarget: PROD_POOLER,
+        dbProjectRef: PROD_DB_REF,
+        confirmRef: PROD_REF,
+        allowProduction: true,
+      }),
+    ).not.toThrow();
+
+    // The direct (non-pooler) host form too.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: PROD_SUPABASE_URL,
+        dbTarget: PROD_DIRECT,
+        dbProjectRef: PROD_DB_REF,
+        confirmRef: PROD_REF,
+        allowProduction: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it('leaves the other two modes production-proof — the selector is mint-mode only', () => {
+    // assertStagingTarget / assertEphemeralBranchTarget have no allowProduction
+    // parameter and must stay unconditionally prod-denying.
+    expect(() => assertStagingTarget(PROD_POOLER, STAGING_REF)).toThrow(/PRODUCTION/);
+    expect(() => assertEphemeralBranchTarget(PROD_POOLER, BRANCH_REF)).toThrow(/PRODUCTION/);
+  });
+});
+
+describe('extractProjectRefForLog — the parser assertMintTarget depends on', () => {
+  it('parses the pooler user form, postgres.<ref>@…', () => {
+    expect(
+      extractProjectRefForLog(
+        `postgres://postgres.${STAGING_REF}:pw@aws-0-eu-west-2.pooler.supabase.com:6543/postgres`,
+      ),
+    ).toBe(STAGING_REF);
+  });
+
+  it('parses the direct host form, db.<ref>.supabase.co', () => {
+    expect(
+      extractProjectRefForLog(`postgres://postgres:pw@db.${STAGING_REF}.supabase.co:5432/postgres`),
+    ).toBe(STAGING_REF);
+  });
+
+  it('returns a sentinel — never a bare ref — when it cannot parse one', () => {
+    for (const url of ['postgres://user:pw@localhost:5432/postgres', 'not a url at all']) {
+      const parsed = extractProjectRefForLog(url);
+      expect(parsed).toMatch(/^\(.*\)$/);
+      expect(PROJECT_REF_PATTERN.test(parsed)).toBe(false);
+    }
   });
 });

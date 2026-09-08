@@ -1,0 +1,343 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1183-admin-transport-seam-7ee6d4",
+  "branch": "feat/1183-admin-transport-seam",
+  "fork_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
+  "merge_base_sha": "4aa132bac9e3d7f6f2eb72e669b57885ba16c6e5",
+  "head_sha": "c6c6fd61ebc088e3aff6972f0e22e7715bf78e3e",
+  "intake_sha256": "ae4de848af5a3e665df8db537bd7fa953c801a3cd343fd2c54154db6144e5cb1",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-09-08T05:03:32Z",
+  "inventory": [
+    {
+      "id": "M1",
+      "test": "admin-transport-seam.test.ts > bearer revoked (the getUser arm)",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M2",
+      "test": "admin-transport-seam.test.ts > a malformed Authorization header does not fall back to the cookie",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M3",
+      "test": "admin-transport-seam.test.ts > unreadable AAL returns mfa_check_failed on both transports",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M4",
+      "test": "admin-transport-seam.test.ts > bearer non-admin",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M5",
+      "test": "admin-transport-seam.test.ts > a malformed Authorization header does not fall back to the cookie",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M6",
+      "test": "src/lib/db/__tests__/auth.test.ts > identity mapping uses users.auth_id, never users.id",
+      "file": "src/lib/db/auth.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M7",
+      "test": "admin-transport-seam.test.ts > a Supabase transport fault is internal_error, not Unauthorized",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M8",
+      "test": "src/app/api/admin/flagged/__tests__/route.test.ts > returns 403 for non-admins",
+      "file": "src/app/api/admin/flagged/route.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M9",
+      "test": "src/app/api/admin/solicitation/batch/__tests__/routes.test.ts > the admin halt route refuses a non-admin caller even with an AAL2 session and writes nothing",
+      "file": "src/app/api/admin/solicitation/batch/halt/route.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M10",
+      "test": "src/app/api/admin/channels/telegram/__tests__/disable.test.ts > returns 403 when MFA step-up is not satisfied (AAL2)",
+      "file": "src/app/api/_shared/channels/resolve-actor.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M11",
+      "test": "src/lib/auth/__tests__/verified-identity.test.ts > passes a non-aal2 level through instead of refusing it",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M12",
+      "test": "admin-transport-seam.test.ts > requireRole remains cookie-only for admin and mixed roles",
+      "file": "src/lib/db/auth.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M13",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > returns null for every malformed shape",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M14",
+      "test": "admin-transport-seam.test.ts > bearer expired",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M15",
+      "test": "admin-transport-seam.test.ts > a Supabase transport fault is internal_error, not Unauthorized",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M16",
+      "test": "admin-transport-seam.test.ts > a cookie-path Supabase fault keeps its pre-ticket answer, not the bearer 500",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M17",
+      "test": "admin-transport-seam.test.ts > answers Forbidden when the caller is BOTH a non-admin and unreadable-AAL",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M18",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M19",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT8"
+    },
+    {
+      "id": "M20",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT8"
+    },
+    {
+      "id": "M21",
+      "test": "src/lib/auth/__tests__/verified-identity.test.ts > throws non-AuthError for malformed tokens that pass its shape checks",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "excluded",
+      "reason": "Subject is installed-SDK behaviour in node_modules, not a production hunk, so no production line carries a meaningful mutation. Non-vacuity proved instead by a green individual run at HEAD: a stubbed getClaims returns undefined and .rejects.toThrow() would fail, so green means vi.importActual really bypassed the mock. Assertion strength graded in RT10."
+    },
+    {
+      "id": "M22",
+      "test": "src/lib/auth/__tests__/verified-identity.test.ts > RETURNS an AuthError for a token that fails its shape checks",
+      "file": "src/lib/auth/verified-identity.ts",
+      "outcome": "excluded",
+      "reason": "Same reason as M21; ran green individually at HEAD, which proves the real SDK is in play."
+    },
+    {
+      "id": "M23",
+      "test": "admin-transport-seam.test.ts > answers Unauthorized when the credential is bad AND the user is a non-admin",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "excluded",
+      "reason": "Statically proven to exercise no ordering branch: with a null identity the gate refuses at admin-mfa-gate.ts:98 before loadAppUser at :100, so the test's OWNER_ROW is inert. The only separating mutation also kills its sibling at :475, so running it would manufacture an uninformative row. Reported as RT11."
+    },
+    {
+      "id": "M24",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M25",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M26",
+      "test": "src/lib/auth/__tests__/admin-transport.test.ts > has no imports at all, so src/proxy.ts can take it to the Edge (#1185)",
+      "file": "src/lib/auth/admin-transport.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "M27",
+      "test": "admin-transport-seam.test.ts > answers Unauthorized when the credential is bad AND the user is a non-admin",
+      "file": "src/lib/auth/admin-mfa-gate.ts",
+      "outcome": "killed"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT1",
+      "severity": "P1",
+      "title": "FALSE auth-js doc claim: handleError does not turn EVERYTHING else into AuthApiError - an AuthUnknownError (non-JSON 5xx/429 body) is classified as a refusal (401), not a transport fault (500)",
+      "at": "src/lib/auth/verified-identity.ts:57",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT2",
+      "severity": "P1",
+      "title": "The terminal 5xx class this diff newly routes into internalError has no emitting Sentry signal and no rule row in beta-launch-alerting.md; a cookie-transport Supabase fault moved 401 -> 500 silently, and no log line distinguishes the bearer transport",
+      "at": "src/lib/auth/admin-mfa-gate.ts:23",
+      "duty": 5,
+      "disposition": "accepted-risk",
+      "authorization": "AUTH-RT2",
+      "reason": "Owner accepted the risk on 2026-09-07 with a follow-up ticket. The gap is pre-existing (admin 5xx have never been alerted); #1183 adds new sources of it and made the signal correct rather than laundering an outage into 401s. Routed to RepWorth/ai-review-responder#1212, which carries the measurements so they are not re-derived."
+    },
+    {
+      "id": "RT3",
+      "severity": "P2",
+      "title": "Deviation D2 enumerates two cookie-path refusal deltas; the third (cookie Supabase transport fault 401 -> 500) is undeclared, and the gate docblock repeats the same 'two' count",
+      "at": "docs/superpowers/plans/feat-1183-admin-transport-seam-deviations.md:25",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT4",
+      "severity": "P2",
+      "title": "Fragile assertion: invariant #8 is enforced by a regex over SQL template TEXT, which behaviour-preserving reformatting (parenthesisation, alias rename) turns red",
+      "at": "src/lib/db/__tests__/auth.test.ts:121",
+      "duty": 2,
+      "disposition": "rejected",
+      "reason": "Triage #16: a live-DB fixture would flip the branch to db_touching and add a gate row that SKIPs without TEST_DATABASE_POOL_URL; the current assertion is proven non-vacuous by M6. Reasoning accepted. One stated mitigation is false (RT-R16 note in findings.md): the test is byte-unchanged since 344dcbc0 and its :122-128 comment records the counterexample, not the limitation."
+    },
+    {
+      "id": "RT5",
+      "severity": "P2",
+      "title": "The refusal table's ordering is unpinned: no test presents a non-admin AND a non-aal2 together, so moving the role check below the assurance checks would change the refusal code undetected",
+      "at": "src/lib/auth/admin-mfa-gate.ts:111",
+      "duty": 2,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT6",
+      "severity": "P2",
+      "title": "Intake JWKS claim 'pays no extra fetch' holds only for a cached kid; fetchJwk bypasses the TTL for an unknown kid, costing an uncached JWKS GET plus a getUser fallback per request - an unauthenticated amplification surface once #1185 lets bearers through",
+      "at": "docs/superpowers/plans/feat-1183-admin-transport-seam-intake.json:51",
+      "duty": 5,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT7",
+      "severity": "P2",
+      "title": "Claim 1 is a module contract, not end-to-end: src/proxy.ts branch 4 still gates /api/admin on the cookie session, so no bearer reaches the gate in a deployed environment (declared at plan:293)",
+      "at": "src/proxy.ts:139",
+      "duty": 4,
+      "disposition": "rejected",
+      "reason": "Triage #17: already declared in the plan, the intake user_visible_behavior and the staging-smoke section as the #1185 boundary. Re-verified at dbefb3b8 \u2014 src/proxy.ts is untouched by both commits, so the qualification still holds as written."
+    },
+    {
+      "id": "RT8",
+      "severity": "P0",
+      "title": "The Edge zero-imports guard is line-oriented and misses two of the three natural import forms: a wrapped `import { x } from 'node:crypto'` (M19) and a bare `import 'node:crypto'` (M20) both survive, so the sole mechanical enforcement of the module's hard Edge-safety constraint has a hole",
+      "at": "src/lib/auth/__tests__/admin-transport.test.ts:118",
+      "duty": 1,
+      "disposition": "fixed",
+      "arbiter_reasoning": "Not equivalent: after M19 (`import {\\n  createHash,\\n} from 'node:crypto';`) and after M20 (`import 'node:crypto';`) the module genuinely imports a node: builtin, which is exactly the condition the test title ('has no imports at all') and the module header ('nothing here may import node:*') declare impossible \u2014 the Edge bundle for src/proxy.ts would break in #1185. Not on an unexecuted branch: the test reads the mutated file off disk with readFileSync and scans every line of it, and the control mutation M18 (the same import on one line) turned the same test red at the same SHA, so the assertion does execute and does discriminate. M19 evades because the filter regex requires `import` and `from` on ONE line; M20 evades because a side-effect import has no `from` at all. M19's shape is what Prettier emits for any import list past the print width, so it is a formatter away from being the default rather than an adversarial construction."
+    },
+    {
+      "id": "RT9",
+      "severity": "P1",
+      "title": "The corrected comment substitutes one false enumeration for another: handleError does not raise 'exactly three shapes' \u2014 it has five throw sites (AuthRetryableFetchError x2, AuthUnknownError, AuthWeakPasswordError, AuthSessionMissingError, AuthApiError). No behavioural consequence; restated in the intake and the plan, plus two stale 'both predicates' claims",
+      "at": "src/lib/auth/verified-identity.ts:76",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT10",
+      "severity": "P1",
+      "title": "The unstubbed premise test is named 'throws non-AuthError' but asserts only .rejects.toThrow(), which an AuthError also satisfies \u2014 so the exact channel move it exists to catch (a thrown AuthApiError(500) letting an unauthenticated caller force 500s) would keep it green",
+      "at": "src/lib/auth/__tests__/verified-identity.test.ts:206",
+      "duty": 2,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT11",
+      "severity": "P2",
+      "title": "The second 'refusal precedence' test pins no precedence: with a null identity the gate refuses at :98 before loadAppUser at :100, so its OWNER_ROW is inert and the case is behaviourally identical to 'bearer with a forged signature' at :320",
+      "at": "src/lib/auth/__tests__/admin-transport-seam.test.ts:490",
+      "duty": 2,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT12",
+      "severity": "P2",
+      "title": "The cookie-arm revert is complete for fault classification but not byte-for-byte for every outcome: an ordering change makes {live session, no users row or non-admin role} x {AAL call THROWS} a 500 where the fork answered 401/403, and every refused cookie request now pays an AAL round-trip the fork short-circuited",
+      "at": "src/lib/auth/verified-identity.ts:106",
+      "duty": 1,
+      "disposition": "rejected",
+      "reason": "Declared rather than fixed, and the declaration is defensible. deviations D6 states both consequences (non-admin or no users row + a THROWING AAL read -> 500 instead of 401/403; one extra AAL round-trip per refused cookie request), the gate docblock repeats the narrower half and points at D6, and the stated cost of fixing it is real: a lazy AAL read means returning a thunk instead of the flat { authUserId, aal, transport } that ADR 0025 D1 says the seam returns. The delta is fail-closed and needs a Supabase fault and a non-admin at the same moment. One labelling nit, not worth reopening: D6 calls this \"a fifth cookie-path difference\", counting the two deltas the classifier revert removed \u2014 at HEAD there are three."
+    },
+    {
+      "id": "RT13",
+      "severity": "P2",
+      "title": "Two facts dropped in the 2,999/3,000-word trim are not verbatim in the file their row points at: mfa.ts's remaining consumers (page-gate.ts, shell-context.ts, the impersonate view, the mfa challenge route) and reset-password-error.ts's 'the house rule for EVERY Supabase error' generalization. The other seven dropped facts re-resolve clean",
+      "at": "docs/directory/lib-platform.md:82",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT14",
+      "severity": "P2",
+      "title": "namedAuthError('AuthUnknownError', 500) is a shape the SDK cannot produce \u2014 AuthUnknownError's constructor is (message, originalError) and never sets status \u2014 presented under a comment calling these 'the THREE shapes handleError can raise'",
+      "at": "src/lib/auth/__tests__/admin-transport-seam.test.ts:368",
+      "duty": 2,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT15",
+      "severity": "P2",
+      "title": "Rejection #16 states the limitation was 'recorded in the test', but src/lib/db/__tests__/auth.test.ts is byte-unchanged since 344dcbc0 and its :122-128 comment records the counterexample (why the assertion is strong), not the limitation (that a behaviour-preserving reformat turns it red)",
+      "at": "docs/reviews/feat-1183-admin-transport-seam/triage.md:16",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT16",
+      "severity": "P2",
+      "duty": 3,
+      "at": "docs/superpowers/plans/feat-1183-admin-transport-seam-intake.json:58",
+      "title": "RT9's fix corrected the module comment but not its two restatements: the intake still says the 500 arm \"covers all THREE shapes handleError can raise\" (there are five), and plan:161 still calls the rethrow rows \"the two rethrow rows above\" after a third was inserted into the table at plan:149",
+      "disposition": "fixed"
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "AUTH-RT2",
+      "date": "2026-09-07",
+      "text": "owner 2026-09-07: accepted-risk, follow-up alerting ticket",
+      "finding_ids": ["RT2"]
+    }
+  ],
+  "counts": {
+    "inventory_total": 27,
+    "killed": 22,
+    "survived_confirmed_p0": 2,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 3,
+    "findings_total": 16,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 1,
+    "fixed": 12,
+    "rejected": 3
+  },
+  "status": "CLEAR"
+}
