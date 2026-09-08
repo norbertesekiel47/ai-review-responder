@@ -27,6 +27,10 @@ import { assertMintTarget } from '../../staging-guard';
 import {
   auditEventFor,
   authClientOptions,
+  EXIT_FAILED,
+  EXIT_OK,
+  EXIT_REFUSED,
+  exitCodeFor,
   AUTH_REQUEST_TIMEOUT_MS,
   banDurationFor,
   buildRevokeGuardInput,
@@ -260,6 +264,31 @@ describe('classifyBanState', () => {
       .toMatchObject({ bannedNow: true, bannedForFullTerm: true });
     expect(classifyBanState({ present: true, bannedUntil: '-infinity', deletedAt: null }, NOW))
       .toMatchObject({ bannedNow: false, bannedForFullTerm: false });
+  });
+});
+
+// ── the exit-code contract ─────────────────────────────────────────────────
+
+describe('exitCodeFor', () => {
+  const identity = { userId: 'u', authId: 'a' };
+
+  it('maps every result status onto the operator-facing exit code', () => {
+    expect(exitCodeFor({ status: 'changed', action: 'revoke', identity })).toBe(EXIT_OK);
+    expect(exitCodeFor({ status: 'unchanged', action: 'revoke', identity })).toBe(EXIT_OK);
+    expect(exitCodeFor({
+      status: 'would_change', action: 'revoke', identity, banProbe: 'checked',
+    })).toBe(EXIT_OK);
+    expect(exitCodeFor({ status: 'refused', reason: 'not_an_admin', detail: 'x' }))
+      .toBe(EXIT_REFUSED);
+    expect(exitCodeFor({ status: 'failed', detail: 'x', authOutcome: 'unknown' }))
+      .toBe(EXIT_FAILED);
+    // The one worth pinning: a committed ban whose audit row failed must never
+    // read as success to a shell script.
+    expect(exitCodeFor({ status: 'audit_failed', action: 'revoke', identity, detail: 'x' }))
+      .toBe(EXIT_FAILED);
+    expect(EXIT_OK).toBe(0);
+    expect(EXIT_REFUSED).toBe(3);
+    expect(EXIT_FAILED).toBe(4);
   });
 });
 

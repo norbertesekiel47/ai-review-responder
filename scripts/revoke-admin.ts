@@ -60,10 +60,12 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { writeAdminAuditLog } from '../src/lib/audit/log';
 import {
+  describeError,
   describeOperator,
   flagValue,
   MintAdminUsageError,
   readMintConfig,
+  requiredFlagValue,
   type MintConfig,
   type MintEnvMode,
   type MintOperator,
@@ -110,12 +112,10 @@ const REVOKE_ADMIN_USAGE = [
 
 /** `argv` is the arguments AFTER node and the script path. Throws on misuse. */
 export function parseRevokeAdminArgs(argv: readonly string[]): RevokeAdminArgs {
-  const email = flagValue(argv, '--email')?.trim().toLowerCase() ?? '';
-  const confirmRef = flagValue(argv, '--confirm-ref')?.trim().toLowerCase() ?? '';
+  const email = requiredFlagValue(argv, '--email', { lowercase: true });
+  const confirmRef = requiredFlagValue(argv, '--confirm-ref', { lowercase: true });
   const rawEnv = flagValue(argv, '--env')?.trim() ?? 'ambient';
 
-  if (!email) throw new MintAdminUsageError('--email is required');
-  if (!confirmRef) throw new MintAdminUsageError('--confirm-ref is required');
   if (
     rawEnv !== 'ambient' && rawEnv !== 'local' &&
     rawEnv !== 'staging' && rawEnv !== 'production'
@@ -337,7 +337,9 @@ export function classifyBanState(state: AuthIdentityState, now: number): BanClas
  * project on 2026-09-08 — the key is simply absent), so absence there cannot
  * be told apart from a version that does not serialize the field.
  */
-export async function probeBanState(
+// NOT exported: `revokeAdmin` is its only consumer, and the classifier beside
+// it — `classifyBanState` — is the seam the tests actually need.
+async function probeBanState(
   sql: Sql,
   authId: string,
 ): Promise<{ state: 'unavailable' } | { state: 'checked'; identity: AuthIdentityState }> {
@@ -369,14 +371,6 @@ export interface RevokeAdminInput {
   action: RevokeAction;
   dryRun: boolean;
   operator: MintOperator;
-}
-
-function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    const code = (error as { code?: unknown }).code;
-    return typeof code === 'string' ? `${code} ${error.message}` : error.message;
-  }
-  return String(error);
 }
 
 /**
@@ -614,10 +608,26 @@ export function formatRevokeReport(
 
 // ── the composition root ───────────────────────────────────────────────────
 
-const EXIT_OK = 0;
+export const EXIT_OK = 0;
 const EXIT_USAGE = 2;
-const EXIT_REFUSED = 3;
-const EXIT_FAILED = 4;
+export const EXIT_REFUSED = 3;
+export const EXIT_FAILED = 4;
+
+/**
+ * The result-to-exit-code contract, lifted out of `main()`.
+ *
+ * `main()` is reachable by no test, so every branch inside it is uncovered by
+ * construction — which is what the fallow gate measured as a CRAP breach. The
+ * mapping is also the half an operator's shell scripts depend on, and
+ * `audit_failed` sharing an exit code with `failed` is a deliberate choice
+ * worth pinning: a committed ban with a missing audit row must never read as
+ * success.
+ */
+export function exitCodeFor(result: RevokeAdminResult): number {
+  if (result.status === 'refused') return EXIT_REFUSED;
+  if (result.status === 'failed' || result.status === 'audit_failed') return EXIT_FAILED;
+  return EXIT_OK;
+}
 
 /**
  * Assert the target is the one the operator named, and describe it.
@@ -704,9 +714,7 @@ async function main(): Promise<number> {
       operator: describeOperator(),
     });
     for (const line of formatRevokeReport(result, target)) console.log(line);
-    if (result.status === 'refused') return EXIT_REFUSED;
-    if (result.status === 'failed' || result.status === 'audit_failed') return EXIT_FAILED;
-    return EXIT_OK;
+    return exitCodeFor(result);
   } finally {
     await sql.end({ timeout: 5 });
   }
