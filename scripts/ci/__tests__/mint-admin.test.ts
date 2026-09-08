@@ -25,6 +25,7 @@ import {
 } from '../../../worker/__tests__/helpers/mock-sql';
 import {
   buildAdminRecoveryUrl,
+  buildMintGuardInput,
   confirmsRollback,
   formatMintReport,
   formatMintTarget,
@@ -114,6 +115,44 @@ describe('parseMintAdminArgs', () => {
     ).toThrow(/--confirm-ref is required/);
   });
 
+  it('accepts the production selector, and only the exact word', () => {
+    // No test parsed `--env production` at all until now: the validation branch
+    // that admits it, and the MintEnvMode widening behind it, shipped
+    // unexercised (red team RT3-03).
+    const args = parseMintAdminArgs([
+      '--email', 'a@b.net', '--name', 'A', '--confirm-ref', STAGING_REF,
+      '--env', 'production',
+    ]);
+    expect(args.envMode).toBe('production');
+
+    // Surrounding whitespace IS trimmed, deliberately — a trailing space from a
+    // shell paste must not silently become an unknown mode.
+    expect(
+      parseMintAdminArgs([
+        '--email', 'a@b.net', '--name', 'A', '--confirm-ref', STAGING_REF,
+        '--env', '  production  ',
+      ]).envMode,
+    ).toBe('production');
+
+    // Everything else near the word is refused — the selector is exact.
+    for (const near of ['prod', 'Production', 'PRODUCTION', 'productio', 'production!']) {
+      expect(() =>
+        parseMintAdminArgs([
+          '--email', 'a@b.net', '--name', 'A', '--confirm-ref', STAGING_REF,
+          '--env', near,
+        ]),
+      ).toThrow(/--env must be/);
+    }
+  });
+
+  it('defaults to ambient, never to production, when --env is absent', () => {
+    // `?? 'ambient'` → `?? 'production'` is a one-token mutation that would
+    // make every unflagged run production-capable.
+    expect(
+      parseMintAdminArgs(['--email', 'a@b.net', '--name', 'A', '--confirm-ref', STAGING_REF]).envMode,
+    ).toBe('ambient');
+  });
+
   it('refuses when --email or --name is missing', () => {
     expect(() =>
       parseMintAdminArgs(['--name', 'Admin Person', '--confirm-ref', STAGING_REF]),
@@ -121,6 +160,44 @@ describe('parseMintAdminArgs', () => {
     expect(() =>
       parseMintAdminArgs(['--email', 'admin@repworth.net', '--confirm-ref', STAGING_REF]),
     ).toThrow(MintAdminUsageError);
+  });
+});
+
+describe('buildMintGuardInput — the selector-to-guard wiring', () => {
+  // Both ENDS of this join were pinned (the guard by mutation, the parse
+  // default by test) while the wiring itself was executed by nothing, because
+  // it lived inline in an unexported main(). A mutant hard-coding
+  // `allowProduction: true` would have let ambient, local and staging reach a
+  // production project with a matching --confirm-ref, and would have shipped
+  // green (red team RT3-02).
+  const config = {
+    supabaseUrl: stagingSupabaseUrl,
+    databasePoolUrl: `postgres://postgres.${STAGING_REF}:pw@aws-0-eu-west-2.pooler.supabase.com:6543/postgres`,
+  };
+
+  it.each([
+    ['production', true],
+    ['ambient', false],
+    ['local', false],
+    ['staging', false],
+  ] as const)('sets allowProduction=%s for --env %s', (envMode, expected) => {
+    const input = buildMintGuardInput(
+      { confirmRef: STAGING_REF, envMode },
+      config,
+      stagingDbTarget,
+    );
+    expect(input.allowProduction).toBe(expected);
+  });
+
+  it('takes dbProjectRef from the parser staging-guard owns, so the printed and validated refs agree', () => {
+    const input = buildMintGuardInput(
+      { confirmRef: STAGING_REF, envMode: 'staging' },
+      config,
+      stagingDbTarget,
+    );
+    expect(input.dbProjectRef).toBe(STAGING_REF);
+    expect(input.supabaseUrl).toBe(stagingSupabaseUrl);
+    expect(input.confirmRef).toBe(STAGING_REF);
   });
 });
 
@@ -767,6 +844,28 @@ describe('readMintConfig', () => {
         supabaseServiceKey: 'k',
         databasePoolUrl: 'postgres://u:p@h:6543/postgres',
         appUrl: 'https://staging.repworth.net',
+      });
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it('reads the ambient environment under the production selector — no file, no repo secrets', () => {
+    // RT3-04: the `envMode !== 'production'` branch was uncovered. `production`
+    // must take the AMBIENT path (the selector grants target permission; it
+    // does not name a config file), because production secrets come from a
+    // prod-scoped shell and never from a file in the repo.
+    const saved = { ...process.env };
+    try {
+      process.env.SUPABASE_URL = 'https://aaaaaaaaaaaaaaaaaaaa.supabase.co';
+      process.env.SUPABASE_SERVICE_KEY = 'k';
+      process.env.DATABASE_POOL_URL = 'postgres://u:p@h:6543/postgres';
+      process.env.NEXT_PUBLIC_APP_URL = 'https://repworth.net';
+      expect(readMintConfig('production')).toEqual({
+        supabaseUrl: 'https://aaaaaaaaaaaaaaaaaaaa.supabase.co',
+        supabaseServiceKey: 'k',
+        databasePoolUrl: 'postgres://u:p@h:6543/postgres',
+        appUrl: 'https://repworth.net',
       });
     } finally {
       process.env = saved;

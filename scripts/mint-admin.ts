@@ -13,7 +13,7 @@
 // human are perfectly legal.
 //
 //   pnpm tsx scripts/mint-admin.ts --email <e> --name <n> \
-//     --confirm-ref <project-ref> [--env local|staging] [--dry-run]
+//     --confirm-ref <project-ref> [--env local|staging|production] [--dry-run]
 //
 // Needs the service-role key, so it is a script and never a route.
 // Procedure, environment selection and the reconciliation cases:
@@ -46,6 +46,7 @@ import {
   assertMintTarget,
   describeConnectionTarget,
   extractProjectRefForLog,
+  type MintTargetInput,
 } from './staging-guard';
 import { runDirectCli } from './run-direct-cli';
 
@@ -71,7 +72,7 @@ export class MintAdminUsageError extends Error {
 export const MINT_ADMIN_USAGE = [
   'Usage:',
   '  pnpm tsx scripts/mint-admin.ts --email <e> --name <n> --confirm-ref <project-ref>',
-  '                                [--env local|staging] [--dry-run]',
+  '                                [--env local|staging|production] [--dry-run]',
   '',
   '  --confirm-ref  the Supabase project ref you MEAN to write to. It must equal',
   '                 the ref parsed out of BOTH the Supabase URL and the database',
@@ -198,8 +199,6 @@ export function readMintConfig(envMode: MintEnvMode): MintConfig {
     appUrl: requireValue(source, 'NEXT_PUBLIC_APP_URL'),
   };
 }
-
-// ── the target guard ───────────────────────────────────────────────────────
 
 // ── the recovery link ──────────────────────────────────────────────────────
 
@@ -729,6 +728,35 @@ export function formatMintReport(
   return lines;
 }
 
+/**
+ * Assemble the guard's input from the parsed args and the resolved config.
+ *
+ * Extracted from `main()` so the JOIN between the operator's selector and the
+ * guard is testable. Both ENDS were pinned — the guard by mutation, the parse
+ * default by test — while the wiring between them was executed by nothing, so
+ * a mutant hard-coding `allowProduction: true` would have let ambient, local
+ * and staging reach a production project and shipped green (red team RT3-02).
+ *
+ * `dbProjectRef` comes from `extractProjectRefForLog`, the parser
+ * `staging-guard.ts` owns, so the ref the guard validates and the ref the
+ * report PRINTS are the same value from the same parser.
+ */
+export function buildMintGuardInput(
+  args: Pick<MintAdminArgs, 'confirmRef' | 'envMode'>,
+  config: Pick<MintConfig, 'supabaseUrl' | 'databasePoolUrl'>,
+  databaseTarget: string,
+): MintTargetInput {
+  return {
+    supabaseUrl: config.supabaseUrl,
+    dbTarget: databaseTarget,
+    dbProjectRef: extractProjectRefForLog(config.databasePoolUrl),
+    confirmRef: args.confirmRef,
+    // The ONLY route to production, and it is a selector the operator typed —
+    // a mistyped ref can never reach it. The matching-ref checks still apply.
+    allowProduction: args.envMode === 'production',
+  };
+}
+
 const EXIT_OK = 0;
 const EXIT_USAGE = 2;
 const EXIT_REFUSED = 3;
@@ -739,20 +767,10 @@ async function main(): Promise<number> {
   const config = readMintConfig(args.envMode);
   const databaseTarget = describeConnectionTarget(config.databasePoolUrl);
 
-  const dbProjectRef = extractProjectRefForLog(config.databasePoolUrl);
-
-  assertMintTarget({
-    supabaseUrl: config.supabaseUrl,
-    dbTarget: databaseTarget,
-    dbProjectRef,
-    confirmRef: args.confirmRef,
-    // The ONLY route to production, and it is a selector the operator typed —
-    // a mistyped ref can never reach it. The matching-ref checks still apply.
-    allowProduction: args.envMode === 'production',
-  });
+  assertMintTarget(buildMintGuardInput(args, config, databaseTarget));
 
   const target: MintTargetDescription = {
-    projectRef: dbProjectRef,
+    projectRef: extractProjectRefForLog(config.databasePoolUrl),
     supabaseHost: new URL(config.supabaseUrl).host,
     databaseTarget,
   };

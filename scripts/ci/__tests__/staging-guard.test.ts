@@ -160,6 +160,9 @@ describe('assertMintTarget (mint mode — #1178)', () => {
   });
 
   it('refuses when the Supabase host does not contain the confirmed project ref', () => {
+    // DISCRIMINATING matcher, not /supabase/i: all four messages this function
+    // can throw contain "supabase", so the loose form cannot tell this check
+    // from a different one firing first (red team RT3-05).
     expect(() =>
       assertMintTarget({
         supabaseUrl: `https://${OTHER_REF}.supabase.co`,
@@ -167,7 +170,24 @@ describe('assertMintTarget (mint mode — #1178)', () => {
         dbProjectRef: STAGING_REF,
         confirmRef: STAGING_REF,
       }),
-    ).toThrow(/supabase/i);
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('refuses a Supabase host that merely CONTAINS the confirmed ref — equality, not containment', () => {
+    // The superstring case, and the ONLY shape that separates
+    // `supabaseRef !== confirmRef` from `!supabaseUrl.includes(confirmRef)`.
+    // Without it, degrading that equality to containment survives the whole
+    // suite (red team RT3-01, mutant S8) — and once `--env production` lifts
+    // the denylist, this equality is one of just two controls between a typed
+    // selector and a production write.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: `https://xx${STAGING_REF}.supabase.co`,
+        dbTarget: STAGING_POOLER,
+        dbProjectRef: STAGING_REF,
+        confirmRef: STAGING_REF,
+      }),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
   });
 
   it('refuses when the database target does not contain the confirmed project ref', () => {
@@ -178,7 +198,23 @@ describe('assertMintTarget (mint mode — #1178)', () => {
         dbProjectRef: OTHER_REF,
         confirmRef: STAGING_REF,
       }),
-    ).toThrow(/database/i);
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
+  });
+
+  it('refuses a database target that merely CONTAINS the confirmed ref — equality, not containment', () => {
+    // The database half of RT3-01 (mutant S9). The mutant never reads
+    // `dbProjectRef` at all, which destroys the documented sentinel guarantee
+    // while the sentinel test below still passes on fixture luck — so the
+    // sentinel case alone does NOT cover this. A host that contains the ref as
+    // a prefix is refused by equality and accepted by containment.
+    expect(() =>
+      assertMintTarget({
+        supabaseUrl: STAGING_SUPABASE_URL,
+        dbTarget: `postgres@${STAGING_REF}-shadow.example.com:5432`,
+        dbProjectRef: '(ref-not-found)',
+        confirmRef: STAGING_REF,
+      }),
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
   });
 
   it('refuses a confirmed ref that is not a full Supabase project ref', () => {
@@ -215,7 +251,7 @@ describe('assertMintTarget (mint mode — #1178)', () => {
           dbProjectRef: sentinel,
           confirmRef: STAGING_REF,
         }),
-      ).toThrow(/database/i);
+      ).toThrow(/resolves to project ref .*, not the confirmed/);
     }
   });
 
@@ -271,7 +307,7 @@ describe('assertMintTarget (mint mode — #1178)', () => {
         confirmRef: PROD_REF,
         allowProduction: true,
       }),
-    ).toThrow(/database/i);
+    ).toThrow(/resolves to project ref .*, not the confirmed/);
   });
 
   it('accepts a production target under --env production with the matching ref', () => {
