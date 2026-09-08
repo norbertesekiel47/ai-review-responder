@@ -222,7 +222,7 @@ forecast. Fixed obligations divided by a positive, evidenced average
 contribution can inform an operating break-even estimate; tier mix and
 collection timing still matter.
 
-The co-founder must reconcile opening unrestricted cash, dated receipts, all
+The CFO must reconcile opening unrestricted cash, dated receipts, all
 outflows, founder support and a chosen reserve. Compare current commitments,
 approved lower outflows and conditional financing/paid-pilot cases. Forecast
 balance by date = opening cash + cumulative receipts − cumulative outflows.
@@ -328,7 +328,7 @@ block. Use these codes in `cogs-template.md` and any bookkeeping export.
    assumptions. Do not overwrite historical estimates as though they were bills.
 4. Prepare current, lean and conditional-cash cases; rank real funding paths
    by evidenced clearing dates. Signed pilots and term sheets are not cash.
-5. Co-founder presents cash decisions in week 1 and at day 7/day 14, or sooner
+5. CFO presents cash decisions in week 1 and at day 7/day 14, or sooner
    if required. Ask before spending, contacting anyone, changing services or
    seeking revised terms. Approved changes to the tracker/service map are
    separate actions; no such changes occurred in this refresh.

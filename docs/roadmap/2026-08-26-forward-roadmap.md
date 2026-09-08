@@ -12,20 +12,23 @@ paid offer for owner-approved conversations, and observe one actual beta
 workflow. Further building depends on what those steps reveal. The feature
 sketches below are a reference appendix, not this week's task list.
 
-The founder owns product/design/engineering; the cofounder handles marketing,
-operations, and finance. Available hours, actual beta composition, and the
+The owner clarified four founders on September 7: CEO/CTO owns product and
+engineering; COO prepares the pitch, pitches with the CEO and owns customer
+operations; CFO owns finance and supports CMO; CMO owns marketing. Each is
+available 40–60 hours weekly; the [role assignment draft](2026-09-08-founder-90-day-plan/README.md)
+plans around 40. Actual beta composition and the
 amount/date of cash needed are still unknown. The owner reported a one to
 two month runway and wants owner time saved as the primary customer outcome,
 with bookings/revenue evidence where it can be supported.
 
 | Work | First action | Evidence and decision |
 |---|---|---|
-| Cash and funding, led by cofounder | Record cash, obligations, minimum founder support, cash-needed date, and available hours. Prepare a short product demonstration and investor questions. | Track actual paid decisions and investor feedback, including who can decide and when money could arrive. Interest alone is not cash. The owner approves outreach and spending. |
-| Beta value, coordinated by founder with cofounder helping collect evidence | List active beta accounts, their business type/software, review volume, and the work they currently do. Select one customer type for this month's improvement. | Compare owner effort before and with RepWorth, including review/correction/support time. Record continued use, reasons for leaving, and willingness to pay while honoring beta promises. |
+| Cash and funding: CFO owns cash/model; COO owns pitch/process with CEO | Record cash, obligations, minimum founder support, cash-needed date, and available hours. Prepare a short product demonstration and investor questions. | Track actual paid decisions and investor feedback, including who can decide and when money could arrive. Interest alone is not cash. The owner approves outreach and spending. |
+| Beta value: COO owns delivery/evidence; CMO owns buyer discovery; CEO joins product observations | List active beta accounts, their business type/software, review volume, and the work they currently do. Select one customer type for this month's improvement. | Compare owner effort before and with RepWorth, including review/correction/support time. Record continued use, reasons for leaving, and willingness to pay while honoring beta promises. |
 | Product delivery, led by founder | Observe an actual workflow and select the single problem that most blocks its usefulness or paid adoption. | Deliver one bounded improvement with evidence from the affected journey and backend where applicable. Continue only if it addresses the observed problem. |
 
 **Cash decision sheet, due September 8 or sooner if obligations require it.**
-The cofounder records unrestricted cash, dated obligations, minimum founder
+The CFO records unrestricted cash, dated obligations, minimum founder
 support, and the smallest amount needed for an explicitly chosen continuation
 period (start by calculating three months). List candidate sources separately:
 paid continuation/pilots that honor existing beta promises, known angels or
@@ -36,7 +39,7 @@ cash arriving before the deadline and amount covered; one subscription does
 not necessarily fund continuation, and cold fundraising has no assumed close
 date. Add a required line: **sources that can credibly clear before the
 cash-needed date**, with the amount each covers. If it is empty, bring the
-smaller-scope/pause decision to both founders that day. If the cash date is
+smaller-scope/pause decision to the CEO and founding team that day. If the cash date is
 unknown, label the funding test unresolved and seek the missing input that
 day. Investor conversations can build a later pipeline; include them in the
 near-term cash case only when evidence supports their timing and amount.
@@ -44,7 +47,7 @@ Prepare one batch of specific outreach drafts for the owner's approval.
 
 The active beta/prospect roster is also due September 8. Separate interested
 prospects, participating beta accounts, and paying customers. Cap the first
-pass of investor brief/demo preparation at **two combined founder/cofounder
+pass of investor brief/demo preparation at **two combined CEO/COO
 hours**, provisionally, using existing material; lower it if capacity
 requires. Record any need to exceed it as a decision, not an automatic deck
 or film project. Conversations and follow-up use separately confirmed
@@ -59,7 +62,7 @@ sheet requires it; October 7 is the product review, not the first cash review.
 Choose a decision buffer based on the lead time needed to reduce commitments
 or arrange income/support, and make the continuation decision before cash
 runs out. A week is only a starting assumption, not a sufficient buffer in
-every case. On September 8 the cofounder proposes, and both founders record,
+every case. On September 8 the CFO proposes, and the CEO records with the founding team,
 one continuation decision date: cash-needed date minus the chosen buffer.
 If those inputs remain unavailable, use September 21 as the provisional
 decision meeting date and surface the unresolved cash risk immediately;
