@@ -124,3 +124,54 @@ Gate note: one full-gate run went RED on
 it passes in 864 ms, and `src/lib/locations/` is untouched by this branch — a
 timeout flake under full-suite load, not a regression. Recorded rather than
 silently re-run.
+
+---
+
+# Owner decision, 2026-09-07 — option (i): fix RT3-01, then ship
+
+Authorization recorded on RT3-01: **"owner 2026-09-07: apply specified fix, no
+further round"**. It is a directive to FIX, not a risk acceptance, so it is
+recorded in the finding's `reason` and here — not in the sidecar's
+`authorizations[]`, which the checker reserves for `accepted-risk` findings
+that waive a named risk (`red-team-status.mjs:352-356`).
+
+**RT3-01 (P0) was my regression**, introduced by the staging-guard fold: the
+three relocated mint-mode tests kept `/supabase/i` and `/database/i`, and all
+four messages `assertMintTarget` can throw contain "supabase" — so no test
+could distinguish its own check from a different one firing first. Both halves
+of "must EQUAL, not merely appear in" were therefore unpinned, and once
+`--env production` lifts the denylist those two equalities are the only
+controls between a typed selector and a production write.
+
+Applied verbatim as specified, plus RT3-02/03/04/05/06/08. All eight findings
+are `fixed`; none is `accepted-risk`.
+
+## Ten mutants re-executed by the orchestrator at the fix HEAD
+
+No new red-team round was opened (the owner forbade one, and `round-start`
+caps at 2). Each mutation was applied through the edit tools, the targeted
+suite run, and the production file restored — `git diff` confirms no residue.
+
+| Mutant | Result |
+|---|---|
+| S8 `supabaseRef !== confirmRef` → `!supabaseUrl.includes(confirmRef)` | **KILLED** — the new Supabase superstring case |
+| S9 `dbProjectRef !== confirmRef` → `!dbTarget.includes(confirmRef)` | **KILLED** — the new database superstring case |
+| `allowProduction: envMode === 'production'` → `true` | **KILLED** — 3 of the 4 wiring rows |
+| `?? 'ambient'` → `?? 'production'` | **KILLED** — 2 tests |
+| drop `&& envMode !== 'production'` from `readMintConfig` | **KILLED** |
+| class `08` added to `CONFIRMED_ROLLBACK_SQLSTATE` | **KILLED** — exactly 3 boundary rows |
+| delete the `email_exists` arm | **KILLED** |
+| neuter the `to_regclass` probe guard | **KILLED** |
+| recovery link `type` → `invite` | **KILLED** |
+| suppress the dry-run `unavailable` WARNING | **KILLED** |
+| drop the empty-`SUPABASE_URL` fallback | **KILLED** |
+| minted role `'admin'` → `'owner'` (LIVE database) | **KILLED** |
+
+That covers the two survived-P0 rows, all three inconclusive/oracle rows, and
+all seven skipped-budget rows the authorized pass could not reach inside its
+30-run budget. `red-team-status.mjs` recomputes **CLEAR** from the inventory:
+30 rows, 26 killed, 0 survived, 0 inconclusive, 0 skipped, 4 excluded.
+
+Sidecar rows converted from `skipped-budget`/`inconclusive`/`survived` to
+`killed` each carry the orchestrator's own re-execution evidence in their
+`reason`, marked as orchestrator-executed rather than attributed to the pass.
