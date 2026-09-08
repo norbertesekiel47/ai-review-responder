@@ -1723,9 +1723,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/db/auth.ts",
     table: "businesses",
-    sqlSnippet: "SELECT u.id, u.name, u.email, u.role, u.account_id, (SELECT b.id FROM businesses b WHERE b.account_id = u.account_id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_location_id FROM users u WHERE u.auth_id = ${authUser.id} LIMIT 1",
+    sqlSnippet: "SELECT u.id, u.name, u.email, u.role, u.account_id, (SELECT b.id FROM businesses b WHERE b.account_id = u.account_id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS primary_location_id FROM users u WHERE u.auth_id = ${authUserId} LIMIT 1",
     category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
+    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows. The query is unchanged by #1183; only its bound parameter was renamed (${authUser.id} → ${authUserId}) when loadAppUser was extracted from getCurrentUser so the Admin transport seam could map a bearer identity without importing @/lib/db/server.",
   },
   {
     file: "src/lib/responses/voice-learning.ts",

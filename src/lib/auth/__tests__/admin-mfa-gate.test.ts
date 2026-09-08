@@ -1,36 +1,32 @@
 // src/lib/auth/__tests__/admin-mfa-gate.test.ts
 //
-// Contract for requireAdminWithAal2 — the shared admin control-plane preamble
-// (requireRole(admin) → AAL2 step-up) used by the five admin routes
-// (grant-extension, impersonation start/end, zernio-queue, flagged). CSRF is
-// applied separately at each route export via withSameOrigin(), so same-origin
-// is intentionally NOT part of this gate's contract.
+// Contract for requireAdminWithAal2 — the shared admin control-plane preamble.
+// Since #1183 it COMPOSES the **Admin transport** seam (resolveDualModeIdentity)
+// with loadAppUser, then decides: role, then a STRICT aal2 test. CSRF is applied
+// separately at each route export via withSameOrigin(), so same-origin is
+// intentionally NOT part of this gate's contract.
+//
+// This file pins the gate's COMPOSITION and requireAdminJson, with the seam mocked
+// away. The dual-mode behaviour itself — both transports, the full refusal table,
+// the no-fallback rule — lives in ./admin-transport-seam.test.ts, which drives the
+// REAL seam through mocked Supabase SDKs. Neither file is sufficient alone: this
+// one would pass a seam that resolves nothing correctly, and that one would pass a
+// gate that ignored requireAdminJson.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockRequireRole, mockAal } = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-  mockAal: vi.fn(),
+const { mockResolveIdentity, mockLoadAppUser } = vi.hoisted(() => ({
+  mockResolveIdentity: vi.fn(),
+  mockLoadAppUser: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => ({
-  requireRole: mockRequireRole,
-  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
-  AuthError: class AuthError extends Error {
-    constructor(message: string, public readonly statusCode: number) {
-      super(message);
-      this.name = 'AuthError';
-    }
-  },
+  loadAppUser: mockLoadAppUser,
 }));
 
-vi.mock('@/lib/auth/mfa', () => ({
-  requireCurrentAal2FromSupabase: mockAal,
-}));
-
-vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+vi.mock('@/lib/auth/verified-identity', () => ({
+  resolveDualModeIdentity: mockResolveIdentity,
 }));
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
@@ -38,9 +34,9 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 import { z } from 'zod';
 import { requireAdminJson, requireAdminWithAal2 } from '../admin-mfa-gate';
-import { AuthError } from '@/lib/db/auth';
 
 const ADMIN = { id: 'admin-1', name: 'Root', email: 'a@x.com', role: 'admin', accountId: null, locationId: null };
+const IDENTITY = { authUserId: 'auth-1', aal: 'aal2', transport: 'cookie' as const };
 
 function req(): NextRequest {
   return new NextRequest('https://app.example.com/api/admin/x', { method: 'POST' });
@@ -48,19 +44,24 @@ function req(): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRequireRole.mockResolvedValue(ADMIN);
-  mockAal.mockResolvedValue({ ok: true });
+  mockResolveIdentity.mockResolvedValue(IDENTITY);
+  mockLoadAppUser.mockResolvedValue(ADMIN);
 });
 
 describe('requireAdminWithAal2', () => {
   it('returns { ok: true, admin } when admin role and AAL2 both pass', async () => {
     const result = await requireAdminWithAal2(req());
+
     expect(result).toEqual({ ok: true, admin: ADMIN });
-    expect(mockRequireRole).toHaveBeenCalledWith(expect.anything(), 'admin');
+    // The gate hands the request to the seam and the seam's authUserId to the
+    // mapper. It never reads a cookie or a header itself — one owner for the
+    // transport decision, which is what keeps `src/proxy.ts` (#1185) in step.
+    expect(mockResolveIdentity).toHaveBeenCalledWith(expect.anything());
+    expect(mockLoadAppUser).toHaveBeenCalledWith('auth-1');
   });
 
-  it('maps an AuthError to its status + message (no-store)', async () => {
-    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+  it('maps a verified non-admin to 403 Forbidden (no-store)', async () => {
+    mockLoadAppUser.mockResolvedValue({ ...ADMIN, role: 'owner' });
 
     const result = await requireAdminWithAal2(req());
 
@@ -71,8 +72,22 @@ describe('requireAdminWithAal2', () => {
     expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
   });
 
+  it('maps an unresolved identity to 401 Unauthorized (no-store)', async () => {
+    mockResolveIdentity.mockResolvedValue(null);
+
+    const result = await requireAdminWithAal2(req());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(401);
+    expect(await result.response.json()).toEqual({ error: 'Unauthorized' });
+    expect(result.response.headers.get('Cache-Control')).toBe('no-store, private');
+    // Auth outranks the lookup: a refused credential never reaches the database.
+    expect(mockLoadAppUser).not.toHaveBeenCalled();
+  });
+
   it('returns 403 with the AAL2 reason when step-up is missing', async () => {
-    mockAal.mockResolvedValue({ ok: false, reason: 'mfa_required' });
+    mockResolveIdentity.mockResolvedValue({ ...IDENTITY, aal: 'aal1' });
 
     const result = await requireAdminWithAal2(req());
 
@@ -82,8 +97,22 @@ describe('requireAdminWithAal2', () => {
     expect(await result.response.json()).toEqual({ error: 'mfa_required' });
   });
 
+  it('returns 403 mfa_check_failed when the seam could not read an AAL', async () => {
+    // A different answer from mfa_required, and the Admin app acts on the
+    // difference: mfa_required means "run your challenge", mfa_check_failed means
+    // the assurance level was unreadable. Collapsing them strands the client.
+    mockResolveIdentity.mockResolvedValue({ ...IDENTITY, aal: null });
+
+    const result = await requireAdminWithAal2(req());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ error: 'mfa_check_failed' });
+  });
+
   it('returns a clean 500 internal_error on an unexpected (non-auth) failure', async () => {
-    mockRequireRole.mockRejectedValue(new Error('db down'));
+    mockResolveIdentity.mockRejectedValue(new Error('db down'));
 
     const result = await requireAdminWithAal2(req());
 
@@ -93,11 +122,11 @@ describe('requireAdminWithAal2', () => {
     expect(await result.response.json()).toEqual({ error: 'internal_error' });
   });
 
-  it('returns a clean 500 internal_error when the AAL2 step itself throws', async () => {
-    // requireCurrentAal2FromSupabase / the Supabase client can throw (network,
-    // misconfig) rather than returning { ok: false } — that must not escape the
-    // gate as a raw 500; it gets the same internalError treatment as the role step.
-    mockAal.mockRejectedValue(new Error('aal backend unreachable'));
+  it('returns a clean 500 internal_error when the users lookup itself throws', async () => {
+    // loadAppUser can throw (pool exhaustion, network) rather than returning null.
+    // That must not escape the gate as a raw 500 — it gets the same internalError
+    // treatment the identity step uses. A null return is a 403, not a fault.
+    mockLoadAppUser.mockRejectedValue(new Error('pool exhausted'));
 
     const result = await requireAdminWithAal2(req());
 
@@ -142,7 +171,7 @@ describe('requireAdminJson', () => {
     // The helper must not re-wrap or re-word an auth refusal: the three routes
     // returned `gate.response` verbatim, and an admin hitting a step-up wall
     // must read the same thing after the extraction as before it.
-    mockAal.mockResolvedValue({ ok: false, reason: 'mfa_required' });
+    mockResolveIdentity.mockResolvedValue({ ...IDENTITY, aal: 'aal1' });
 
     const result = await requireAdminJson(jsonReq({ note: 'ok' }), Schema);
 
@@ -155,7 +184,7 @@ describe('requireAdminJson', () => {
   it('never reads the body when the gate refuses — auth outranks parsing', async () => {
     // Order is load-bearing. Parsing first would let an unauthenticated caller
     // learn which bodies a schema accepts by reading the 400 it gets back.
-    mockRequireRole.mockRejectedValue(new AuthError('Unauthorized', 401));
+    mockResolveIdentity.mockResolvedValue(null);
 
     const result = await requireAdminJson(jsonReq('not json at all'), Schema);
 
