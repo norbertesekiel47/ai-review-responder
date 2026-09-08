@@ -141,8 +141,10 @@ export function readAdminAppOrigins(): readonly string[] {
  *
  * The proxy echoes THIS value in `Access-Control-Allow-Origin`, never the raw
  * header, so the header written is always exactly the origin that was decided
- * about (ADR 0026 D14 — a canonical-output rule; a browser's own serialization
- * is already identical to it).
+ * about — a canonical-output rule, not an injection defence, and a browser's own
+ * serialization is already identical to it. Rationale:
+ * `docs/superpowers/plans/feat-1186-admin-api-cors-plan.md` §2 and §5 delta D-14.
+ * (ADR 0026 itself has only D1–D8 and states no canonical-output decision.)
  */
 export function normalizeOrigin(origin: string | null | undefined): string | null {
   if (!origin) return null;

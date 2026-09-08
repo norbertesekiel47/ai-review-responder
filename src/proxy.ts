@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import {
+  isAdminApiRoute,
   isProtectedMixedRoleApiRoute,
   isProtectedOwnerApiRoute,
   isProtectedRoute,
@@ -9,6 +10,7 @@ import {
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 import { mfaEnforcementEnabled } from '@/lib/auth/flags';
 import {
+  AdminOriginConfigError,
   isAllowedAdminOrigin,
   normalizeOrigin,
   readAdminAppOrigins,
@@ -44,11 +46,6 @@ const ADMIN_CORS_ALLOW_HEADERS = 'Authorization, Content-Type';
 // browser sends one preflight per path per ten minutes rather than one per
 // request.
 const ADMIN_CORS_MAX_AGE = '600';
-
-/** The Admin API surface, matched exactly as `isProtectedRoute` matches it. */
-function isAdminApiRoute(routePath: string): boolean {
-  return routePath === '/api/admin' || routePath.startsWith('/api/admin/');
-}
 
 /**
  * Add `Origin` to `Vary` without destroying what is already there.
@@ -122,28 +119,55 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return handleProxy(request);
   }
 
-  const allowlist = readAdminAppOrigins();
-  const rawOrigin = request.headers.get('origin');
-  // Null for an absent header AND for a value that is not an http(s) origin —
-  // '', the literal 'null' (an opaque origin), malformed, multi-valued. The
-  // difference is `rawOrigin`: absent means no check, unparseable means refused.
-  const origin = rawOrigin === null ? null : normalizeOrigin(rawOrigin);
-
-  if (rawOrigin !== null && (origin === null || !isAllowedAdminOrigin(origin, allowlist))) {
+  let allowlist: readonly string[];
+  try {
+    allowlist = readAdminAppOrigins();
+  } catch (error) {
+    if (!(error instanceof AdminOriginConfigError)) throw error;
+    // A misconfigured ADMIN_APP_ORIGINS is a REFUSAL, not a crash. Letting the
+    // throw escape makes an unhandled proxy exception — a platform 500 with no
+    // CORS envelope, on every /api/admin/** request including the no-Origin and
+    // same-origin ones, for as long as the deployment lives (the value cannot be
+    // re-read: changing it requires a redeploy). Failing closed with the SAME
+    // 403 envelope keeps the response contract, still denies everything, and is
+    // still loud — the log line below is the diagnosis, and the Admin app being
+    // down is the alarm ADR 0026 Consequences intends.
+    //
+    // The envelope is deliberately IDENTICAL to an origin refusal: a distinct
+    // body would be a contract element ADR 0026 D3's table does not define, and
+    // would tell an unauthenticated caller that the admin edge is misconfigured.
+    //
+    // The message names the offending entry on purpose. ADMIN_APP_ORIGINS holds
+    // public web origins an operator typed into a dashboard — it is
+    // server-authoritative (invariant #13), not confidential — and a config
+    // outage nobody can diagnose is the worse failure.
+    console.error('[proxy] ADMIN_APP_ORIGINS is invalid — refusing every /api/admin request', {
+      reason: error.message,
+    });
     return adminOriginRefusal();
   }
 
-  if (origin !== null && request.method === 'OPTIONS') {
-    return adminCorsPreflight(origin);
+  const rawOrigin = request.headers.get('origin');
+  // `allowedOrigin` is non-null ONLY once the request has passed the check, so
+  // it is exactly "the origin we will echo". Absent header and refused origin
+  // are both handled before it is read again, and normalization happens once.
+  const candidate = rawOrigin === null ? null : normalizeOrigin(rawOrigin);
+  if (rawOrigin !== null && (candidate === null || !isAllowedAdminOrigin(candidate, allowlist))) {
+    return adminOriginRefusal();
+  }
+  const allowedOrigin = candidate;
+
+  if (allowedOrigin !== null && request.method === 'OPTIONS') {
+    return adminCorsPreflight(allowedOrigin);
   }
 
   const response = await handleProxy(request);
   addVaryOrigin(response.headers);
-  if (origin !== null) {
+  if (allowedOrigin !== null) {
     // The NORMALIZED origin, never the raw header: the value written is then
     // always exactly the origin that was decided about. A browser's own
     // serialization is already identical to it.
-    response.headers.set('Access-Control-Allow-Origin', origin);
+    response.headers.set('Access-Control-Allow-Origin', allowedOrigin);
   }
   return response;
 }

@@ -33,8 +33,18 @@ re-admit it in production. The lane predicate is `VERCEL_TARGET_ENV`, never
 the one environment ADR 0024 D7 built it for. Governance surface: one new file
 under `src/lib/config/` with its `docs/directory` row. Three Codex plan-skeptic
 rounds to APPROVED, 21 of 22 round-1 findings accepted (the owed test list grew
-19 → 40 as a result); 40 proxy tests + 37 config/CSRF tests. Counter: not
-incremented — this is a pre-merge trace, and the number is the architecture
+19 → 40 as a result). Test surface: 24 new CORS cases in `proxy.test.ts` (40
+file-wide) and 18 new cases across `admin-origins.test.ts` / `flags.test.ts` /
+`csrf.test.ts` (31 file-wide). Red team: 28 mutations, all 13 named security
+properties killed; two P0s in the TEST surface (an unreachable scheme-guard
+fixture, an Edge-safety pattern that could never match) fixed in round 1's
+triage. Adversarial review added two: `isProductionEnvironment` now fails CLOSED
+on a missing `VERCEL_TARGET_ENV`, because a Vercel project with system variables
+switched off would otherwise admit loopback in production; and the parser's throw
+is CAUGHT at the proxy boundary and mapped to the ordinary 403 refusal, so a
+misconfigured list is an admin-wide denial rather than an unhandled proxy
+exception (a platform 500 with no CORS envelope) for the life of the deployment.
+Counter: not incremented — this is a pre-merge trace, and the number is the architecture
 pass's judgement.
 
 2026-09-08 — **feat/1178-mint-admin (pre-merge):** The first admin-minting path

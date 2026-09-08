@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { addVaryOrigin, proxy } from '../proxy';
-import { AdminOriginConfigError } from '@/lib/config/admin-origins';
+import { AdminOriginConfigError, readAdminAppOrigins } from '@/lib/config/admin-origins';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 
 const {
@@ -483,18 +483,50 @@ describe('admin API CORS', () => {
   });
 
   it('validates the entire allowlist before the self-origin, loopback and missing-Origin shortcuts', async () => {
-    // ADR 0026 D2: an entry containing '*' is a configuration error that throws
-    // AT READ. If the read happened only on the path that consults the list, a
+    // ADR 0026 D2: an entry containing '*' is a configuration error caught AT
+    // READ. If the read happened only on the path that consults the list, a
     // wildcard would sit undetected for every self-origin and no-Origin request.
+    //
+    // The parser THROWS (that is D2, and a red-team mutation deleting the throw
+    // must still fail); the proxy CATCHES and fails closed with the ordinary
+    // refusal envelope, so a misconfiguration is an admin-wide 403 rather than
+    // an unhandled proxy exception — a platform 500 with no CORS headers on
+    // every request for the life of the deployment. Adversarial review A2.
     process.env.ADMIN_APP_ORIGINS = '*';
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await expect(proxy(corsRequest(ADMIN_API_URL, { origin: APP_ORIGIN }))).rejects.toThrow(
-      AdminOriginConfigError,
-    );
-    await expect(
-      proxy(corsRequest(ADMIN_API_URL, { origin: 'http://localhost:3000' })),
-    ).rejects.toThrow(AdminOriginConfigError);
-    await expect(proxy(corsRequest(ADMIN_API_URL))).rejects.toThrow(AdminOriginConfigError);
+    try {
+      for (const label of ['self-origin', 'loopback', 'no Origin'] as const) {
+        vi.clearAllMocks();
+        const request =
+          label === 'self-origin'
+            ? corsRequest(ADMIN_API_URL, { origin: APP_ORIGIN })
+            : label === 'loopback'
+              ? corsRequest(ADMIN_API_URL, { origin: 'http://localhost:3000' })
+              : corsRequest(ADMIN_API_URL);
+
+        const response = await proxy(request);
+
+        expect(response.status, label).toBe(403);
+        expect(await response.json()).toEqual({ error: 'origin' });
+        expect(response.headers.get('vary')).toBe('Origin');
+        expect(accessControlHeaderNames(response)).toEqual([]);
+        // Failing closed means no Supabase work either.
+        expect(createServerClient).not.toHaveBeenCalled();
+      }
+
+      // Not a silent catch: the operator gets a named reason in the logs.
+      expect(consoleError).toHaveBeenCalled();
+      const [message, context] = consoleError.mock.calls[0] ?? [];
+      expect(String(message)).toContain('ADMIN_APP_ORIGINS is invalid');
+      expect(JSON.stringify(context)).toContain('wildcard');
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    // The parser itself still throws — the proxy's catch must not be mistaken
+    // for the parser having gone permissive (ADR 0026 D2 / D7).
+    expect(() => readAdminAppOrigins()).toThrow(AdminOriginConfigError);
   });
 
   it('does not read ADMIN_APP_ORIGINS on a non-admin request', async () => {
@@ -553,15 +585,16 @@ describe('admin API CORS', () => {
     );
 
     // Never echoed: DELETE is absent because no admin route exports one, and the
-    // allowed header list is a constant, not the caller's wish list.
+    // allowed header list is a constant, not the caller's wish list. The exact
+    // equalities below already subsume "does not contain DELETE" and "does not
+    // contain x-admin-override" — an absence-of-substring assertion beside an
+    // exact-match one proves nothing extra and reads as if it did.
     expect(response.headers.get('access-control-allow-methods')).toBe(
       'GET, POST, PUT, PATCH, OPTIONS',
     );
-    expect(response.headers.get('access-control-allow-methods')).not.toContain('DELETE');
     expect(response.headers.get('access-control-allow-headers')).toBe(
       'Authorization, Content-Type',
     );
-    expect(response.headers.get('access-control-allow-headers')).not.toContain('x-admin-override');
   });
 
   it('never sends Allow-Credentials or Expose-Headers, and sends no Access-Control header on a refusal', async () => {
@@ -571,7 +604,13 @@ describe('admin API CORS', () => {
     const actual = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
     const refused = await proxy(corsRequest(ADMIN_API_URL, { origin: EVIL_ORIGIN }));
 
-    for (const response of [preflight, actual, refused]) {
+    // Sweep the whole vocabulary on the refusal, rather than asserting the
+    // length of the list that names it — every Access-Control header this repo
+    // knows about must be absent, not just the two named in the title.
+    for (const header of ALL_ACCESS_CONTROL_HEADERS) {
+      expect(refused.headers.get(header), `refusal must not send ${header}`).toBeNull();
+    }
+    for (const response of [preflight, actual]) {
       expect(response.headers.get('access-control-allow-credentials')).toBeNull();
       expect(response.headers.get('access-control-expose-headers')).toBeNull();
     }
@@ -579,7 +618,6 @@ describe('admin API CORS', () => {
     expect(accessControlHeaderNames(actual)).toEqual(['access-control-allow-origin']);
     // A refusal carries nothing at all.
     expect(accessControlHeaderNames(refused)).toEqual([]);
-    expect(ALL_ACCESS_CONTROL_HEADERS).toHaveLength(6); // the list this test sweeps
   });
 
   it('lets an OPTIONS request with no Origin reach the existing auth branch and adds only Vary', async () => {
@@ -685,14 +723,21 @@ describe('admin API CORS', () => {
   it('echoes the normalized allowed origin, never the raw Origin header', async () => {
     // A browser always sends a canonical origin, so the two agree in practice.
     // What this pins is that the header we WRITE is the origin we DECIDED about.
-    const response = await proxy(
-      corsRequest(ADMIN_API_URL, {
-        method: 'OPTIONS',
-        origin: 'https://ADMIN.Staging.RepWorth.net',
-      }),
-    );
+    //
+    // Two fixtures, and the second is the one that matters: WHATWG URL parsing
+    // strips tab and newline characters, so a raw header can normalize ONTO an
+    // allowlisted origin while differing from it byte for byte. A raw echo would
+    // put those bytes in the response; the canonical echo cannot.
+    for (const raw of [
+      'https://ADMIN.Staging.RepWorth.net',
+      'https://admin.stag\ting.repworth.net',
+    ]) {
+      const response = await proxy(
+        corsRequest(ADMIN_API_URL, { method: 'OPTIONS', origin: raw }),
+      );
 
-    expect(response.status).toBe(204);
-    expect(response.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
+      expect(response.status, `raw=${JSON.stringify(raw)}`).toBe(204);
+      expect(response.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
+    }
   });
 });

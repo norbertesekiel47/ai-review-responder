@@ -33,19 +33,40 @@ export function readFlagEnabledByDefault(name: string): boolean {
 // `staging` reports VERCEL_ENV='preview' but VERCEL_TARGET_ENV='staging'. Only genuine
 // per-PR previews have VERCEL_TARGET_ENV='preview'. Both are runtime-available. This is
 // the one home for the target-env resolution (moved here from auto-approval/flags.ts).
-//
-// `requiresProductionConfig()` (src/lib/config/deployment-lane.ts) is NOT a substitute for
-// isProductionEnvironment and must not be swapped in: it is the UNION of the lane signals,
-// and Vercel sets NODE_ENV=production on staging AND preview builds. Using it for the Admin
-// origin allowlist's loopback rule (#1186) would make that rule inert on staging — the one
-// environment ADR 0024 D7 built it for. The two predicates ask different questions:
-// requiresProductionConfig asks "must this process satisfy production-grade config?" (broad
-// on purpose), while this asks "is this the production deployment target?" — and only
-// VERCEL_TARGET_ENV distinguishes that target from a preview-type custom environment.
 export function isPreviewEnvironment(): boolean {
   return process.env.VERCEL_TARGET_ENV === 'preview';
 }
 
+/**
+ * Must this process be TREATED as the production deployment target?
+ *
+ * Sibling of `isPreviewEnvironment`, same variable — but deliberately NOT a
+ * plain `=== 'production'`. It FAILS CLOSED on a MISSING signal, and that
+ * asymmetry is the point. Its one caller is the Admin origin allowlist's
+ * loopback rule (#1186), which ADR 0026 D2 requires to be inert in production.
+ * A plain equality check makes the ABSENCE of evidence read as evidence of
+ * non-production — and a Vercel project whose system environment variables are
+ * not exposed has exactly that absence on a real production deployment, which
+ * would admit `http://localhost:<any port>` there. Adversarial review A1 found it.
+ *
+ * A non-empty `VERCEL_TARGET_ENV` is affirmative evidence and is trusted
+ * verbatim: `production` is production, and any other value (`preview`,
+ * `staging`, a future custom-environment name) is a target Vercel does not call
+ * production. An empty or missing value means either "on Vercel with the signal
+ * switched off" — treat as production — or "not a Vercel deployment at all"
+ * (local dev, a test run, the Railway worker), where `VERCEL` is unset and
+ * loopback is the whole point.
+ *
+ * `requiresProductionConfig()` (src/lib/config/deployment-lane.ts) is NOT a
+ * substitute and must not be swapped in: it is the UNION of the lane signals,
+ * and Vercel sets `NODE_ENV=production` on staging AND preview builds too, so
+ * it would make the loopback rule inert on staging — the one environment
+ * ADR 0024 D7 built it for. The two ask different questions: that one asks
+ * "must this process satisfy production-grade config?" (broad on purpose),
+ * this one asks "is this the production deployment TARGET?".
+ */
 export function isProductionEnvironment(): boolean {
-  return process.env.VERCEL_TARGET_ENV === 'production';
+  const target = process.env.VERCEL_TARGET_ENV?.trim();
+  if (target) return target === 'production';
+  return process.env.VERCEL !== undefined;
 }

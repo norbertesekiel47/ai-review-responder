@@ -184,9 +184,9 @@ describe('isSelfOrigin', () => {
     // agreement is not enough — two equivalent copies pass every behavioural
     // test and then drift apart in someone else's PR.
     const repoRoot = join(__dirname, '..', '..', '..', '..');
-    // LINE comments first: a line comment naming `/api/admin/**` carries a
-    // literal `/*` that would otherwise open a phantom block comment and eat
-    // the import statements after it.
+    // LINE comments first — the order is load-bearing. Rationale (and the
+    // failure it prevents) is documented once, on `stripComments` in
+    // src/lib/config/__tests__/admin-origins.test.ts.
     const read = (file: string) =>
       readFileSync(join(repoRoot, file), 'utf8')
         .replace(/^\s*\/\/.*$/gm, '')

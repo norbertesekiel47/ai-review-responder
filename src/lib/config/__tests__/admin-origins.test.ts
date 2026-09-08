@@ -31,6 +31,10 @@ afterEach(() => {
 function withEnv(env: Record<string, string | undefined>): void {
   process.env.NEXT_PUBLIC_APP_URL = APP_ORIGIN;
   delete process.env.VERCEL_TARGET_ENV;
+  // Off Vercel unless a case says otherwise: isProductionEnvironment fails
+  // CLOSED when VERCEL is set with no target-env signal, so leaving a stray
+  // VERCEL in the environment would silently make every lane read as production.
+  delete process.env.VERCEL;
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -76,7 +80,15 @@ describe('readAdminAppOrigins', () => {
     // new URL() happily accepts these. file:/data: serialize to the origin "null",
     // and blob:https://admin.example/id normalizes to https://admin.example — which
     // would silently grant authority to an origin nobody wrote down.
+    //
+    // The first two fixtures are the ones that actually PIN the scheme guard:
+    // they have a root path, no userinfo, no query and no fragment, so the
+    // scheme check is the ONLY rule they break. Every other entry below also
+    // trips the path guard two clauses later — a red-team mutation deleted the
+    // scheme throw and this test still passed until these two were added.
     for (const raw of [
+      'ftp://admin.example',
+      'ws://admin.example/',
       'file:///etc/passwd',
       'data:text/html,<script>',
       'blob:https://admin.example/1234',
@@ -205,15 +217,44 @@ describe('Edge safety', () => {
 
     for (const file of graph) {
       const code = stripComments(readFileSync(join(repoRoot, file), 'utf8'));
-      const specifiers = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1] ?? '');
+      // FOUR import shapes, not one. A red-team pass added
+      // `import { createHash } from 'node:crypto'` AND a bare
+      // `import 'node:crypto';` and BOTH survived the first version of this
+      // guard: the bare form has no `from` clause at all, and the prefix match
+      // below was `s.startsWith('node:/')`, which no real specifier ever is.
+      // The same bypass is documented on this test's own cited precedent.
+      const specifiers = [
+        ...code.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g),
+        ...code.matchAll(/\bimport\s+['"]([^'"]+)['"]/g),
+        ...code.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]/g),
+        ...code.matchAll(/\brequire\s*\(\s*['"]([^'"]+)['"]/g),
+      ].map((m) => m[1] ?? '');
 
       for (const bad of forbidden) {
-        expect(
-          specifiers.filter((s) => s === bad || s.startsWith(`${bad}/`)),
-          `${file} must not import ${bad}`,
-        ).toEqual([]);
+        // A scheme prefix (`node:`) matches on the prefix alone; a package name
+        // matches exactly or on a subpath, so `postgres` never matches
+        // `postgres-array`.
+        const matches = specifiers.filter((s) =>
+          bad.endsWith(':') ? s.startsWith(bad) : s === bad || s.startsWith(`${bad}/`),
+        );
+        expect(matches, `${file} must not import ${bad}`).toEqual([]);
       }
     }
+  });
+
+  it('scans direct specifiers only — the depth-1 limit is stated, not implied', () => {
+    // The title above says "import graph"; this is the honest scope of the scan.
+    // `src/proxy.ts` imports `@supabase/ssr`, which itself depends on
+    // `@supabase/supabase-js` — so the forbidden list is a ban on DIRECT
+    // imports by these four files, not a claim about the transitive closure.
+    // That is deliberate: `@supabase/ssr` is the Edge-safe client the proxy has
+    // always used, and banning its transitive dependency would ban the proxy.
+    const proxySource = readFileSync(
+      join(__dirname, '..', '..', '..', 'proxy.ts'),
+      'utf8',
+    );
+    expect(proxySource).toContain("from '@supabase/ssr'");
+    expect(proxySource).not.toContain("from '@supabase/supabase-js'");
   });
 });
 

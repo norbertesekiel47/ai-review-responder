@@ -15,7 +15,7 @@ Layer **L1** of the admin split. RISK = high, SIZE = standard, SURFACE = backend
 | 1 | `docs/adr/0026-admin-api-cors.md` — design of record, D1–D8, LOCKED |
 | 2 | `docs/superpowers/plans/feat-1186-admin-api-cors-intake.json` — locked intake (sign-off INHERITED from the ticket per the orchestrator handoff §4) |
 | 3 | `docs/superpowers/plans/feat-1186-admin-api-cors-plan.md` — the plan; §2 is the code shape, §5 the seventeen grilled deltas, §8 the three plan rounds |
-| 4 | `docs/superpowers/plans/feat-1186-admin-api-cors-deviations.md` — DEV-1 … DEV-4, each with a verdict |
+| 4 | `docs/superpowers/plans/feat-1186-admin-api-cors-deviations.md` — every entry carries a resolved verdict |
 | 5 | `docs/superpowers/plans/2026-09-08-admin-split-orchestrator-handoff.md` §3 L1, §4 — where this ticket sits |
 | 6 | `docs/context/core-accounts-channels-admin.md` — **Admin origin allowlist**, **Admin transport**, **Legacy admin portal** |
 

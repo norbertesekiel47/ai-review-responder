@@ -222,8 +222,11 @@ resolve and the code does. **None contradicts a locked decision.**
   is `VERCEL_TARGET_ENV === 'production'` (`src/lib/config/flags.ts:32-37` documents why
   `VERCEL_TARGET_ENV`, not `VERCEL_ENV`: the staging custom env reports `VERCEL_ENV='preview'`).
 - **D-2 — `Vary: Origin` needs a wrapper, not four stamps.** A `/api/admin/**` request
-  leaves `proxy()` from four sites today (`src/proxy.ts:141`, `:145`, `:149`, `:263`), and
-  #1185/#1190 add more. The exported `proxy()` therefore post-stamps whatever the extracted
+  leaves `proxy()` from four sites today — branch 4's `401 Unauthorized`, its
+  `403 Forbidden`, its `403 mfa_*` (all three inside `handleProxy`'s
+  `routePath.startsWith('/api/admin')` block) and the final `return response` — and
+  #1185/#1190 add more. (Cited by symbol, not by line: the fork-relative numbers this delta
+  originally carried now land on unrelated lines in the same file.) The exported `proxy()` therefore post-stamps whatever the extracted
   `handleProxy()` returns. Branch 4's cookie/bearer authorization logic is not touched — that
   is #1185's ticket.
 - **D-3 — `Access-Control-Allow-Origin` on the ACTUAL response.** ADR 0026 D3's table is

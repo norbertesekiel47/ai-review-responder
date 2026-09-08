@@ -70,6 +70,20 @@ function isProtectedAppApiRoute(pathname: string): boolean {
   );
 }
 
+/**
+ * The **Admin API** surface — `/api/admin` and everything under it.
+ *
+ * Extracted (#1186) because `src/proxy.ts`'s CORS block must decide "is this the
+ * Admin API?" using exactly the set `isProtectedRoute` protects. Two copies of
+ * that shape drift into a path that is gated but gets no CORS headers, or the
+ * reverse — and a comment saying "matched exactly as isProtectedRoute matches
+ * it" is not a mechanism. Takes an ALREADY-normalized path, like the other
+ * predicates on this line.
+ */
+export function isAdminApiRoute(normalized: string): boolean {
+  return normalized === '/api/admin' || normalized.startsWith('/api/admin/');
+}
+
 export function isProtectedRoute(pathname: string): boolean {
   const normalized = normalizePath(pathname);
 
@@ -82,7 +96,7 @@ export function isProtectedRoute(pathname: string): boolean {
   }
   return (
     normalized === '/admin' || normalized.startsWith('/admin/') ||
-    normalized === '/api/admin' || normalized.startsWith('/api/admin/') ||
+    isAdminApiRoute(normalized) ||
     isProtectedAppApiRoute(normalized) ||
     normalized === '/dashboard' || normalized.startsWith('/dashboard/') ||
     normalized === '/account' || normalized.startsWith('/account/') ||

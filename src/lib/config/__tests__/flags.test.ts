@@ -68,6 +68,7 @@ describe('isProductionEnvironment', () => {
     // loopback inert on staging, the one environment ADR 0024 D7 built it for.
     delete process.env.VERCEL_ENV;
     delete process.env.VERCEL_TARGET_ENV;
+    delete process.env.VERCEL;
     expect(isProductionEnvironment()).toBe(false);
 
     process.env.VERCEL_TARGET_ENV = 'production';
@@ -77,9 +78,26 @@ describe('isProductionEnvironment', () => {
     process.env.VERCEL_TARGET_ENV = 'Production';
     expect(isProductionEnvironment()).toBe(false);
 
-    for (const lane of ['preview', 'staging', 'development', '']) {
+    for (const lane of ['preview', 'staging', 'development']) {
       process.env.VERCEL_TARGET_ENV = lane;
       expect(isProductionEnvironment(), `lane=${lane}`).toBe(false);
+    }
+
+    // FAIL CLOSED on a MISSING signal. A Vercel project whose system
+    // environment variables are not exposed has no VERCEL_TARGET_ENV on a real
+    // production deployment; reading that absence as "not production" would
+    // admit http://localhost:* there. Adversarial review A1 (#1186).
+    for (const missing of [undefined, '', '   ']) {
+      if (missing === undefined) delete process.env.VERCEL_TARGET_ENV;
+      else process.env.VERCEL_TARGET_ENV = missing;
+
+      process.env.VERCEL = '1';
+      expect(isProductionEnvironment(), `on Vercel, target=${JSON.stringify(missing)}`).toBe(true);
+
+      delete process.env.VERCEL;
+      expect(isProductionEnvironment(), `off Vercel, target=${JSON.stringify(missing)}`).toBe(
+        false,
+      );
     }
 
     // NODE_ENV is not the signal, and neither is VERCEL_ENV. (@types/node types
