@@ -1,0 +1,403 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1178-mint-admin-4d0734",
+  "branch": "feat/1178-mint-admin",
+  "fork_sha": "b23172836bc5c435dc429f1fa7505812c168fa87",
+  "merge_base_sha": "b23172836bc5c435dc429f1fa7505812c168fa87",
+  "head_sha": "8c4108b4bd2a6a50a2a63b5b7a044fd050719a39",
+  "intake_sha256": "1d4fdd7c867d8fa0feae75518b9ee5175d193a6836813b2c480180a85a3fb36f",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-08T03:01:46.195159Z",
+  "inventory": [
+    {
+      "id": "IV-01",
+      "test": "preserves the auth user when the transaction outcome is ambiguous",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "inconclusive",
+      "reason": "M1: CONFIRMED_ROLLBACK_SQLSTATE /^(22|23|42)\\d{3}$/ -> /^(08|22|23|42)\\d{3}$/ (mint-admin.ts:363). Mutant SURVIVED. Arbiter: this test's injected error is `new Error('write CONNECTION_CLOSED')` with no `code`, so confirmsRollback short-circuits at `typeof code === 'string'` and the regex is never evaluated \u2014 the mutation is not executed on this test's path, which is a claim about the ORACLE, not the mutant. No test anywhere reaches confirmsRollback with a class-08 or class-57 SQLSTATE and an absent reconciliation row.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-04"
+    },
+    {
+      "id": "IV-02",
+      "test": "refuses a confirmed ref that is not a full Supabase project ref",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "inconclusive",
+      "reason": "M3: every `[a-z0-9]{20}` -> `[a-z0-9]{16,}` (mint-admin.ts:186,207,209). Mutant SURVIVED. Arbiter: the mutated line IS executed, but the test asserts a bare `.toThrow()` with no message matcher, and all three probes are <=8 chars, so the refusal it observes is indistinguishable from the exact-equality refusal at :261/:269. The oracle cannot attribute the throw to the pattern guard it is named for.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-05"
+    },
+    {
+      "id": "IV-03",
+      "test": "dry run performs the refusal checks and writes nothing",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "killed",
+      "reason": "M8: `if (input.dryRun)` -> `if (false && input.dryRun)` (mint-admin.ts:565). Test failed."
+    },
+    {
+      "id": "IV-04",
+      "test": "never prints a password",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "killed",
+      "reason": "M9: added `password: randomUUID()` to the createUser argument object (mint-admin.ts:580). Test failed on the exact key-set assertion."
+    },
+    {
+      "id": "IV-05",
+      "test": "treats a reconciled row with a different id as a failure, not a mint",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "killed",
+      "reason": "M10: `if (linked?.id === userId)` -> `if (linked)` (mint-admin.ts:472). Test failed \u2014 the row-identity rule is real."
+    },
+    {
+      "id": "IV-06",
+      "test": "auth_id_taken returns refused without deleting the linked auth identity",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "killed",
+      "reason": "M11: `if (linked)` -> `if (linked && !refusal)` (mint-admin.ts:477), i.e. a refusal skips the linked-row check and compensates anyway. Test failed."
+    },
+    {
+      "id": "IV-07",
+      "test": "records the mint through writeAdminAuditLog with the new admin as its own actor",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "inconclusive",
+      "reason": "M12: `writeAdminAuditLog(tx, \u2026)` -> `writeAdminAuditLog(sql, \u2026)` (mint-admin.ts:643) \u2014 the audit row leaves the transaction. Mutant SURVIVED this test. Arbiter: mock-sql records `inTransaction: isInTransaction()` (worker/__tests__/helpers/mock-sql.ts:134), a module-level time-window flag, so any query issued DURING the begin() callback is stamped true regardless of which tag object issued it. The assertion at mint-admin.test.ts:544 cannot see this mutant. Coverage is NOT lost: IV-08 kills the same mutant on the live schema. The defect is in this oracle.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-06"
+    },
+    {
+      "id": "IV-08",
+      "test": "commits the users row and its admin_audit_log row in one transaction",
+      "file": "scripts/ci/__tests__/mint-admin.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Two mutations, both killed on the live local Postgres: M12 (audit write moved onto the outer `sql`, mint-admin.ts:643) and M6 (the users INSERT reordered to run AFTER writeAdminAuditLog, mint-admin.ts:631-649). The single-transaction claim and the users-INSERT-first ordering are both really asserted."
+    },
+    {
+      "id": "IV-09",
+      "test": "parses email, name and the dry-run flag",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-10",
+      "test": "lowercases and trims the email before use",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-11",
+      "test": "refuses when --confirm-ref is missing",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-12",
+      "test": "refuses when --email or --name is missing",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-13",
+      "test": "refuses when the Supabase host does not contain the confirmed project ref",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-14",
+      "test": "refuses when the database target does not contain the confirmed project ref",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-15",
+      "test": "refuses a production project ref outright",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-16",
+      "test": "accepts a staging target whose parsed refs both equal the confirmation",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-17",
+      "test": "maps STAGING_-prefixed variables onto their bare names",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-18",
+      "test": "falls back to STAGING_NEXT_PUBLIC_SUPABASE_URL when STAGING_SUPABASE_URL is empty",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-19",
+      "test": "builds the admin recovery URL from hashed_token and the admin reset path",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-20",
+      "test": "refuses when a users row already exists for the email",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-21",
+      "test": "refuses when an auth user already exists for the email",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-22",
+      "test": "refuses when a users row already exists for the resolved auth id",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-23",
+      "test": "returns a refusal when the in-transaction email re-check fires",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-24",
+      "test": "deletes the created auth user when the mint transaction fails",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-25",
+      "test": "does not delete the auth user when the mint transaction committed despite an error",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-26",
+      "test": "does not delete the auth user when the post-failure reconciliation read also fails",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-27",
+      "test": "reports the orphan auth id when the compensating delete also fails",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-28",
+      "test": "refuses in dry run when an auth identity already exists for the email",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-29",
+      "test": "reports the auth probe as unavailable when auth.users is absent",
+      "file": "scripts/ci/__tests__/mint-admin.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-30",
+      "test": "leaves no users row when the audit write fails",
+      "file": "scripts/ci/__tests__/mint-admin.integration.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-31",
+      "test": "refuses a second mint for the same email against the live schema",
+      "file": "scripts/ci/__tests__/mint-admin.integration.test.ts",
+      "outcome": "skipped-budget"
+    },
+    {
+      "id": "IV-32",
+      "test": "(no covering test) createUser duplicate-email refusal",
+      "file": "scripts/mint-admin.ts:522-527,581-590",
+      "outcome": "inconclusive",
+      "reason": "Reverse import search over both suites plus an istanbul coverage run of mint-admin.ts under the two suites: no test makes supabase.auth.admin.createUser return an error, so isDuplicateEmailError and the whole `created.error` branch are 0-covered. No mutation can be scored against an absent oracle.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-01"
+    },
+    {
+      "id": "IV-33",
+      "test": "(no covering test) createUser returned no user and no error",
+      "file": "scripts/mint-admin.ts:597-604",
+      "outcome": "inconclusive",
+      "reason": "0-covered under both suites (coverage run at HEAD). The intake names this edge case verbatim.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-02"
+    },
+    {
+      "id": "IV-34",
+      "test": "(no covering test) generateLink failure after a committed mint",
+      "file": "scripts/mint-admin.ts:662-674",
+      "outcome": "inconclusive",
+      "reason": "0-covered under both suites. Every test double returns a hashed_token, so the recoveryLinkError branch never runs.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-03"
+    },
+    {
+      "id": "IV-35",
+      "test": "(no covering test) direct db.<ref>. target form and the unparseable-target refusal",
+      "file": "scripts/mint-admin.ts:194,207-208,260-275",
+      "outcome": "inconclusive",
+      "reason": "0-covered: mint-admin.ts:208 (the `db.<ref>.\u2026` direct-connection branch of refFromDatabaseTarget) and mint-admin.ts:194 (refFromSupabaseUrl's invalid-URL `return null`) never execute. Every assertMintTarget test uses the pooler form with a well-formed 20-char ref.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-07"
+    },
+    {
+      "id": "IV-36",
+      "test": "(no covering test) readMintConfig / requireValue env selection",
+      "file": "scripts/mint-admin.ts:149-176",
+      "outcome": "inconclusive",
+      "reason": "0-covered. resolveMintEnv is tested; readMintConfig \u2014 which picks .env.local vs .env.staging.local, raises the missing-file refusal and the four missing-variable refusals \u2014 is not, nor is parseMintAdminArgs's `--env must be local or staging` throw (:100).",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-08"
+    },
+    {
+      "id": "IV-37",
+      "test": "(no covering test) formatMintReport refused/failed/dry-run-warning branches, and the deleteUser throw path",
+      "file": "scripts/mint-admin.ts:425-427,707-742",
+      "outcome": "inconclusive",
+      "reason": "0-covered. Only the `minted` arm of formatMintReport runs (via 'never prints a password'); the 'Orphaned Supabase Auth identity' line, the dry-run auth-probe WARNING and the recovery-link WARNING are never rendered by any assertion. deleteOrphanAuthUser's catch arm (a thrown deleteUser) is also 0-covered.",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-09"
+    },
+    {
+      "id": "IV-38",
+      "test": "(out of scope) main() and the runDirectCli exit-code mapping",
+      "file": "scripts/mint-admin.ts:753-810",
+      "outcome": "excluded",
+      "reason": "Declared out of scope by the plan itself (feat-1178-mint-admin-plan.md:208, T5: 'the CLI glue is scripts/-only, which scripts/diff-coverage.ts:6-8 puts out of the changed-line-coverage scope by design'). Recorded, with a P2 finding for the undocumented exit codes."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-01",
+      "severity": "P1",
+      "title": "The Auth-API duplicate-email refusal \u2014 the plan's second 'independent closer' \u2014 has no test at all",
+      "at": "scripts/mint-admin.ts:522",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "plan \u00a72 row (c\u2032) and intake edge_cases both present TWO independent closers for the half-succeeded hand process: the read-only auth.users probe, and auth.admin.createUser's own duplicate-email error. Only the probe is tested. isDuplicateEmailError (:522-527) and the entire `created.error` arm (:581-595) are 0-covered \u2014 no test double ever returns an error from createUser. This matters most on the target the runbook actually names: the local and CI databases have no auth.users relation, so the probe reports `unavailable` and the createUser classifier is the ONLY closer left. Fix: one unit test per arm (code 'email_exists', status 422, an 'already registered' message, and a non-duplicate error -> status 'failed').",
+      "arbiter_reasoning": "Not mutation-derived: an uncovered production hunk with no covering candidate is a P1 by Step 2. Verified by reading both suites and by an istanbul coverage run of mint-admin.ts at HEAD under both suites."
+    },
+    {
+      "id": "RT-02",
+      "severity": "P1",
+      "title": "'The Supabase createUser call returns no user with no error' is a locked intake edge case with no test",
+      "at": "scripts/mint-admin.ts:597",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "intake edge_cases names it verbatim ('treated as a failure, not as a mint'). mint-admin.ts:597-604 is 0-covered. The sibling it copies, provision-auth-user.ts:67, exists precisely because hosted Supabase Auth does return { error: null, user: null }. Fix: one test asserting status 'failed' with orphanAuthId null.",
+      "arbiter_reasoning": "Uncovered change, coverage-verified at HEAD."
+    },
+    {
+      "id": "RT-03",
+      "severity": "P1",
+      "title": "'generateLink fails after the transaction committed' is a locked intake edge case with no test",
+      "at": "scripts/mint-admin.ts:662",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "intake edge_cases: 'the mint stands and the script tells the operator to re-issue a recovery link rather than re-mint'. mint-admin.ts:664-674 is 0-covered \u2014 every double returns a hashed_token. This is the arm that must return status 'minted' with recoveryUrl null; a regression that returned 'failed' here would tell an operator to re-run a script that already committed. Fix: one test with generateLink -> { error } and one with a missing hashed_token.",
+      "arbiter_reasoning": "Uncovered change, coverage-verified at HEAD."
+    },
+    {
+      "id": "RT-04",
+      "severity": "P1",
+      "title": "confirmsRollback's class-08/57 ambiguity \u2014 the asymmetric safety property \u2014 has no oracle; a mutant that adds class 08 to the confirmed-rollback set survives",
+      "at": "scripts/mint-admin.ts:363",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "intake edge_cases defines the ambiguous set as 'no SQLSTATE, or class 08 / 57'. The one test named for that edge case ('preserves the auth user when the transaction outcome is ambiguous') injects a code-less Error, so it exercises only the first third. Mutating CONFIRMED_ROLLBACK_SQLSTATE to /^(08|22|23|42)\\d{3}$/ survives the whole suite. The regression it would let through is the exact failure the design forbids: an 08007 transaction_resolution_unknown would confirm a rollback and delete the Auth identity behind a users row that committed. Fix: two tests \u2014 pgError('08007') and pgError('57014'), each with an empty reconciliation read, asserting deleteUser NOT called.",
+      "arbiter_reasoning": "Mutation M1 survived. It is not executed on the candidate test's path (the injected error carries no `code`), so the inventory row is inconclusive/oracle rather than a confirmed survivor \u2014 a claim about the oracle. Not raised as P0 because the production code at HEAD is CORRECT; what is missing is the assertion that keeps it correct."
+    },
+    {
+      "id": "RT-05",
+      "severity": "P1",
+      "title": "Fragile assertion: 'refuses a confirmed ref that is not a full Supabase project ref' asserts only that something throws",
+      "at": "scripts/ci/__tests__/mint-admin.test.ts:137",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "The loop probes 'supabase', an 8-char slice and '' against a bare `.toThrow()` with no matcher. Every one of those is ALSO refused by the exact-equality checks at mint-admin.ts:261/:269, so the test passes whether or not the PROJECT_REF_PATTERN guard exists at all \u2014 proved by mutating all three `{20}` quantifiers to `{16,}` and watching it stay green. Behavioural replacement: assert the message the guard owns, `.toThrow(/must be a complete Supabase project ref/)`, and add a 19-char probe so the length contract is actually exercised.",
+      "arbiter_reasoning": "Mutation M3 survived on an executed line. Archetype 1 (a proxy assertion that passes while the bug exists)."
+    },
+    {
+      "id": "RT-06",
+      "severity": "P1",
+      "title": "Fragile assertion: `inTransaction` is a time-window flag, not a connection identity, so the audit write can leave the transaction undetected",
+      "at": "scripts/ci/__tests__/mint-admin.test.ts:544",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "mock-sql stamps `inTransaction: isInTransaction()` (worker/__tests__/helpers/mock-sql.ts:134) \u2014 a module-level flag set for the duration of begin(). Any query issued during the callback is stamped true, including one issued on the OUTER sql handle. Mutating `writeAdminAuditLog(tx, \u2026)` to `writeAdminAuditLog(sql, \u2026)` \u2014 a real defect that would put the audit row on a separate pooled connection outside the transaction \u2014 leaves this test green. The test's own comment ('In the SAME transaction as the users INSERT') claims more than the assertion proves. Mitigating: the live-DB sibling ('commits the users row and its admin_audit_log row in one transaction') DOES kill the same mutant, so no coverage is lost; the remedy is to assert the tag identity (or to retitle the comment and point it at the live-DB suite as the real oracle).",
+      "arbiter_reasoning": "Mutation M12 survived the unit candidate and was killed by the integration candidate. The row is inconclusive/oracle rather than survived-confirmed-P0 precisely because the property IS covered elsewhere."
+    },
+    {
+      "id": "RT-07",
+      "severity": "P1",
+      "title": "Two documented target-parser behaviours are unreachable by any test: the direct `db.<ref>.` form and the unparseable-target refusal",
+      "at": "scripts/mint-admin.ts:207",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "refFromDatabaseTarget's JSDoc promises both forms \u2014 `db.<ref>.\u2026` direct and `postgres.<ref>@\u2026` pooler \u2014 and assertMintTarget's JSDoc promises 'an unparseable target is a refusal'. Coverage at HEAD: mint-admin.ts:208 (the direct branch) and :194 (refFromSupabaseUrl's invalid-URL return) never execute; every test uses a well-formed pooler descriptor with a 20-char ref. A regression that made either parser return the confirmRef instead of null would ship green. Fix: one test per form, plus one asserting a garbage dbTarget is refused with '(unparseable)' in the message.",
+      "arbiter_reasoning": "Sibling hunt (Duty 4) over the guard's own documented input shapes, confirmed against the coverage run."
+    },
+    {
+      "id": "RT-08",
+      "severity": "P2",
+      "title": "readMintConfig, requireValue and the --env validation throw are entirely untested",
+      "at": "scripts/mint-admin.ts:149",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "resolveMintEnv (the pure mapping) is tested; readMintConfig \u2014 which selects .env.local vs .env.staging.local, raises the missing-file refusal (:163-167) and the four missing-variable refusals (:151-155) \u2014 is 0-covered, as is parseMintAdminArgs's `--env must be local or staging` throw (:100). P2 rather than P1: it is near-glue over a tested pure core, and a misconfiguration fails loudly on the operator's first invocation."
+    },
+    {
+      "id": "RT-09",
+      "severity": "P2",
+      "title": "Only the `minted` arm of formatMintReport is ever rendered; the operator-facing warning lines are unasserted",
+      "at": "scripts/mint-admin.ts:707",
+      "duty": 5,
+      "disposition": "open",
+      "reason": "The 'Orphaned Supabase Auth identity: <id>' line (:734, :740), the dry-run 'auth.users is not readable' WARNING (:709-713) and the 'mint COMMITTED but the recovery link could not be generated' WARNING (:725-728) are all 0-covered \u2014 yet each is the ONLY channel by which the operator learns something the runbook then tells them to act on. deleteOrphanAuthUser's catch arm (:425-427) is likewise 0-covered. Operational note: the alert path itself is sound \u2014 this is an operator-run CLI with no Sentry signal and no rule row in beta-launch-alerting.md, and none is required; every terminal path is reported to stdout and mapped to a non-zero exit."
+    },
+    {
+      "id": "RT-10",
+      "severity": "P1",
+      "title": "Plan \u00a71 cites `staging-guard.ts:65,76` as 'the includes() test'; :76 is an equality test and the includes() is at :82",
+      "at": "docs/superpowers/plans/feat-1178-mint-admin-plan.md:21",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "Re-resolved against HEAD: staging-guard.ts:65 is `const ref = confirmRef.trim().toLowerCase();` and :76 is `if (ref !== KNOWN_STAGING_REF)` \u2014 an EQUALITY test whose own JSDoc at :54-55 says 'the confirmed ref must EQUAL the known staging ref'. The `includes()` the plan means is at :82 (`if (!target.includes(ref))`), with a sibling at :126. The substantive comparison the plan draws is TRUE \u2014 assertMintTarget is stricter, because it parses the ref out of each half and requires equality where staging-guard only requires substring PRESENCE in the raw target \u2014 so this is a wrong pointer, not a false design claim. Fix: cite :82 (and :126).",
+      "arbiter_reasoning": "P1, not P0: the claim the citation supports is verifiable and correct at :82; only the line numbers mislead. Every other path:line in the changed docs re-resolved cleanly at HEAD \u2014 29 citations checked by hand (prevalidate-plan.py exists but is plan-shaped, so citations were resolved directly against HEAD)."
+    },
+    {
+      "id": "RT-11",
+      "severity": "P2",
+      "title": "The runbook documents no exit codes, and omits the two createUser FAILED outputs from its refusal table",
+      "at": "docs/runbooks/mint-admin.md:103",
+      "duty": 5,
+      "disposition": "open",
+      "reason": "The script maps outcomes to 0 / 2 (usage) / 3 (refused) / 4 (failed) at mint-admin.ts:748-751, which is the only signal a wrapper or a runbook step can branch on, and no doc records them. The 'Refusals, and what each one means' table also omits `FAILED: Supabase createUser failed: \u2026` and `Supabase createUser returned no user and no error`. Everything else in the runbook re-resolved correctly, including both \u00a7 headings the script points operators at."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 38,
+    "killed": 5,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 9,
+    "skipped_budget": 23,
+    "excluded": 1,
+    "findings_total": 11,
+    "p0_open": 0,
+    "p1_open": 8,
+    "p2_open": 3,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "INCOMPLETE_ORACLE"
+}
