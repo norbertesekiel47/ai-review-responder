@@ -56,7 +56,16 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
   purpose: `src/app/**` is route files". `docs/directory/app-admin.md` holds 58
   rows and nothing checks them.
 - **`src/components/admin/nav-config.ts:18-47` carries fifteen `/admin/...`
-  hrefs** and is absent from the checklist.
+  hrefs, and it IS guarded.** `src/components/admin/__tests__/AdminSidebar.test.tsx`
+  holds four nav-versus-filesystem tests that walk `src/app/admin` for
+  `page.tsx` files: `points every nav href at a real page` (`:221-225`) fails
+  on a stale entry, `lists every non-auth admin page exactly once`
+  (`:210-215`) fails on a page with no entry, and
+  `keeps the excluded-page list honest` (`:227-231`) fails when a page named
+  in `NON_NAV_PAGES` is deleted — that list names `/admin/businesses/new`
+  (`:190`). So the prune is a HARD PIN, not a silent hazard, and tranche 3
+  must also drop the `NON_NAV_PAGES` entry. The file was absent from the
+  ticket's checklist all the same.
 - **`/admin/businesses/[id]` has ELEVEN client components** — ten under
   `_components/` plus `BusinessDetailClient.tsx` — not the seven the ticket
   states. Its twelve fetch sites are counted correctly.
@@ -110,7 +119,9 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
 
    1. Confirm **Page parity** (D2) for every page in the tranche.
    2. Delete `src/app/admin/<page>/**`, co-located `__tests__/` included.
-   3. **Prune `src/components/admin/nav-config.ts`** (D4).
+   3. **Prune `src/components/admin/nav-config.ts`** (D4), and drop the page's
+      `NON_NAV_PAGES` entry if it has one. `AdminSidebar.test.tsx`'s
+      nav-versus-filesystem block fails on either omission.
    4. Fix the HARD PINS the deletion breaks — the five files named in Context,
       of which two are new to this checklist. The gate finds them; the list
       exists so the run is not surprised.
@@ -124,12 +135,21 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
    runs to update two things that cannot fail. They are swept once instead
    (D5).
 
-4. **Pruning `nav-config.ts` is a step, and it is the step with a visible
-   failure mode.** A deleted page whose nav entry survives leaves the
-   **Legacy admin portal** sidebar linking to a 404. `AdminSidebar.test.tsx`
-   asserts on several of those hrefs, so the prune and its test move together.
+4. **Pruning `nav-config.ts` is a step, and the gate enforces it.** A deleted
+   page whose nav entry survives would leave the **Legacy admin portal**
+   sidebar linking to a 404, and `AdminSidebar.test.tsx`'s nav-versus-
+   filesystem block turns red before that ships. Three of its four cases can
+   fire on a retirement: a stale href, and — for `/admin/businesses/new` only
+   — a stale `NON_NAV_PAGES` entry. Treat the prune as ordinary checklist work
+   whose omission the gate reports, not as a hazard the reviewer must catch.
    The file dies entirely at the end: ADR 0029 D3 drops the sidebar from
    `AdminShellFrame`.
+
+   **Corrected 2026-09-07, after this ADR merged.** It first claimed the prune
+   was the one omission with a user-visible failure. That was wrong — the
+   guard already existed and was not looked for. The claim is recorded here
+   rather than deleted, because "we checked and there is a guard" is the fact
+   worth inheriting.
 
 5. **The silently-stale references are swept ONCE, at the end — not sixteen
    times.** They stay green after a deletion, so nothing is at risk while they
