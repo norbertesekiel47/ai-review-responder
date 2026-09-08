@@ -125,9 +125,11 @@ describe('loadAppUser', () => {
     // break before `=`, an alias rename) turns it red even though nothing broke.
     // When that happens the ASSERTION needs updating, not the query. The stronger
     // proof — a live-DB row where one user's `id` equals another's `auth_id` —
-    // was deliberately not taken: it flips this branch to `db_touching` and adds a
-    // gate row that SKIPs loudly without `TEST_DATABASE_POOL_URL`, trading a
-    // deterministic offline check for a usually-absent one.
+    // was deliberately not taken: it would flip this branch to `db_touching` and
+    // add a gate row that skips loudly whenever a local test database is absent,
+    // trading a deterministic offline check for a usually-absent one. (Naming that
+    // environment variable here would also trip `ci:live-db-suites`, which reads
+    // the mention as a connection.)
     //
     // The counterexample, carried here so the assertion's own strength is pinned:
     // a query that SELECTs auth_id but FILTERS on id satisfies a "contains" check
