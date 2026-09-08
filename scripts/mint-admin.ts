@@ -69,7 +69,7 @@ export class MintAdminUsageError extends Error {
   }
 }
 
-export const MINT_ADMIN_USAGE = [
+const MINT_ADMIN_USAGE = [
   'Usage:',
   '  pnpm tsx scripts/mint-admin.ts --email <e> --name <n> --confirm-ref <project-ref>',
   '                                [--env local|staging|production] [--dry-run]',
@@ -268,7 +268,7 @@ export interface MintOperator {
   provenance: 'unauthenticated_shell';
 }
 
-export function describeOperator(): MintOperator {
+function describeOperator(): MintOperator {
   return {
     os_user: userInfo().username,
     host: hostname(),
