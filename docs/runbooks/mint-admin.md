@@ -16,6 +16,10 @@ guardrail against two admin identities for one human (`users_email_key` and
 **Sibling runbook:** `docs/runbooks/mfa-factor-reset.md` for an admin who has
 lost their authenticator. This one creates identities; that one repairs them.
 
+**Removing an admin's access is the other half of this file** — see
+§ "Revoking and restoring an admin" below. It is a REVOKE (`scripts/revoke-admin.ts`),
+never a row deletion.
+
 ## Before you mint
 
 - [ ] The person is authorised to hold RepWorth admin — full access to every
@@ -230,6 +234,114 @@ rebuild the callback URL exactly as `buildAdminRecoveryUrl` does
 (`type=recovery`, `flow=admin`, `next=/admin/reset-password`). **Never re-run
 the mint to get a new link** — it will refuse, correctly, and if it did not it
 would create a second identity.
+
+## Revoking and restoring an admin
+
+`scripts/revoke-admin.ts` (#1182). Same targeting contract as the mint script,
+same exit codes, opposite verb.
+
+```
+pnpm tsx scripts/revoke-admin.ts --email <e> --confirm-ref <20-char-project-ref> \
+  [--env local|staging|production] [--restore] [--dry-run]
+```
+
+**A revoke is never a deletion.** `users` rows are FK targets —
+`businesses.onboarded_by` (`001_initial_schema.sql:107`),
+`impersonation_sessions.actor_user_id` NOT NULL (`048`),
+`admin_audit_log.actor_user_id` NOT NULL (`117`), plus the `014`/`034` actor
+columns — so deleting an admin row either fails loudly or takes a security
+trail with it. The script never issues a DELETE or an UPDATE against `users`.
+
+**What it changes, exactly:** the Supabase Auth identity is banned
+(`auth.admin.updateUserById(id, { ban_duration: '876000h' })`, Supabase's
+documented 100-year ban), so it can no longer sign in or refresh a session.
+`users.role` stays `'admin'`, the row stays, and the MFA factors stay — which
+is what makes `--restore` (`ban_duration: 'none'`) an exact reversal.
+
+**The one residual, stated rather than hidden:** an access token minted BEFORE
+the ban stays valid until it expires (the project's JWT expiry, 1 hour by
+default). A ban blocks the sign-in and the refresh, not an already-issued JWT.
+Nothing in this repo writes the `auth` schema, and adding the first such write
+(`DELETE FROM auth.sessions`) to shorten a one-hour window was judged the worse
+trade. If a revoke ever has to be instant, revoke and then rotate the project's
+JWT secret — that is the supported lever, and it logs every other session out too.
+
+**Order for a full reset:** dry-run each identity, revoke each identity, flip
+`MFA_ENFORCEMENT_ENABLED`, then `--restore` the identities that stay. Restoring
+is one command per identity, so a reset is reversible end to end.
+
+### The audit row
+
+One `admin_audit_log` row per state transition — `admin_revoked` or
+`admin_restored` — written through `writeAdminAuditLog`, the only sanctioned
+writer (migration 117). **Not `account_audit_log`:** its `account_id` is NOT
+NULL and an admin's `account_id` is NULL, which is the entire reason 117
+exists. The actor is the revoked admin itself (`actor_is_subject: true`,
+`attribution: 'bootstrap_self_actor'`), the same self-actor shape
+`admin_minted` uses, because a full reset may leave no other admin to name.
+
+### Refusals
+
+| Reason | Meaning |
+|---|---|
+| `users_row_missing` | No `users` row for that email. Nothing was called. |
+| `not_an_admin` | The row exists but its role is not `admin`. This script only reaches admins. |
+| `auth_id_missing` | The admin row carries no `auth_id`, so there is no Auth identity to ban. See § "An Auth identity with no `users` row". |
+| `auth_identity_missing` | The admin row names an `auth_id` that `auth.users` does not carry — the mirror of the row above, and what `mint-admin.ts`'s compensating delete leaves behind. Nothing was changed. **This refusal is why `--restore` cannot report a false `ALREADY ACTIVE`:** absence is a refusal, never a state. |
+| `auth_identity_deleted` | The Auth identity is soft-deleted (`auth.users.deleted_at`). Banning or unbanning it would report success over an identity that cannot sign in either way. |
+
+`ALREADY REVOKED` / `ALREADY ACTIVE` are not refusals: the identity is already
+in the target state, nothing is called, nothing is written, exit code `0`.
+
+### `WARNING: the … COMMITTED but the admin_audit_log row FAILED`
+
+The Auth change stands and is NOT rolled back — rolling a ban back to keep the
+ledger tidy would restore a login the operator asked to remove. **Do not re-run
+the script to "fix" the ledger**: the re-run reads the new ban state, reports
+`ALREADY REVOKED` and writes nothing.
+
+Record the row by hand. `admin_audit_log.id` is `UUID PRIMARY KEY` with **no
+default** (`117_admin_audit_log.sql:50`) — application code normally supplies a
+UUIDv7 — so the id must be supplied here too:
+
+```sql
+-- Replace <event> with admin_revoked or admin_restored, and <email> with the
+-- admin's address. The actor is the admin itself: the self-actor shape the
+-- script uses, because a full reset may leave no other admin to name.
+INSERT INTO admin_audit_log (id, actor_user_id, event_type, entity_type, entity_id, payload)
+SELECT gen_random_uuid(), u.id, '<event>', 'users', u.id::text,
+       jsonb_build_object(
+         'source', 'docs/runbooks/mint-admin.md manual recovery',
+         'action', CASE WHEN '<event>' = 'admin_revoked' THEN 'revoke' ELSE 'restore' END,
+         'email', u.email,
+         'auth_id', u.auth_id,
+         'ban_duration', CASE WHEN '<event>' = 'admin_revoked' THEN '876000h' ELSE 'none' END,
+         'users_row_preserved', true,
+         'actor_is_subject', true,
+         'attribution', 'bootstrap_self_actor',
+         'manual_recovery', true)
+FROM users u
+WHERE lower(u.email) = lower('<email>') AND u.role = 'admin';
+```
+
+`gen_random_uuid()` rather than a UUIDv7 is deliberate for a hand-written
+recovery row: it is available in the session, and `manual_recovery: true` marks
+the row as not machine-written. Confirm it inserted exactly one row, then note
+the incident on the ticket.
+
+### `FAILED: Supabase updateUserById failed`
+
+The Auth outcome is reported as UNKNOWN, deliberately: the SDK surfaces a
+transport failure the same way it surfaces a server refusal, so "nothing
+changed" is a claim the script cannot make. Re-read the state before retrying:
+
+```sql
+SELECT id, email, banned_until FROM auth.users WHERE lower(email) = '<email>';
+```
+
+`banned_until` in the future means the ban applied. A retry is safe either way
+— the ban is idempotent — but the audit row is written only by the run that
+performs the transition.
 
 ## Related
 
