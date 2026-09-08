@@ -111,4 +111,58 @@ second an `Object.assign(process.env, { NODE_ENV: 'production' })` (element acce
 escape the `readonly` modifier, so an indexed write is not the fix). Recorded here rather
 than silently absorbed, because T2 must not edit a test file to make its own gate green.
 
-**Verdict:** PENDING
+**Verdict:** ACCEPT — both fixed by the root (which holds the `__tests__` lease) in the
+T3 commit, exactly as T2 proposed: `.map((m) => m[1] ?? '')` and
+`Object.assign(process.env, { NODE_ENV: 'production' })`. T2 was right to refuse to edit a
+test file to make its own gate green, and right to report rather than absorb it.
+
+---
+
+## DEV-6 — a `//` comment naming `/api/admin/**` opens a phantom block comment
+
+**What happened.** Both structural tests strip comments before scanning source, with the
+usual two-pass idiom — block comments first, then line comments. On
+`src/lib/config/admin-origins.ts` that produced a file with **zero import statements**, and
+the two structural assertions failed against code that was perfectly correct.
+
+The cause: the module's header comment contains the literal `` `/api/admin/**` ``. Inside a
+`//` line that is still just text — but the FIRST pass does not know that. It sees the `/`
+before `**` as a block-comment opener, matches non-greedily to the next `*/` (the end of the
+first JSDoc, ~10 lines later), and deletes everything in between — which is exactly where
+the `import` statements live.
+
+**Why it matters beyond this branch.** Every module in this repo documents its own rules in a
+header comment, and any module whose rules concern an API path will contain `/**`. The
+existing precedent (`src/lib/auth/__tests__/admin-transport.test.ts` § Edge safety, #1183)
+uses the same block-first order and is only safe because that module's header happens not to
+name a `/**` path. The next one will not be so lucky.
+
+**Resolution.** Strip LINE comments FIRST, then block comments — the line pass removes the
+phantom opener before the block pass can see it. Applied in both scan sites
+(`admin-origins.test.ts`'s `stripComments` helper and `csrf.test.ts`'s `read`), each with a
+comment saying why the order is load-bearing.
+
+**Verdict:** ACCEPT. Promote at merge: this is a durable trap for any future source-scanning
+test, and belongs in the lab notes (testing topic page) — the failure mode is that a
+structural guard silently scans an empty file and PASSES, which is worse than the red we got.
+
+---
+
+## DEV-7 — production diff is 1.9× the estimate (under the trigger, recorded)
+
+**What happened.** Measured from the fork point: **398** production lines against a 210
+estimate (1.9×) and **797** test lines against 820. The step-5 `reclassify` row did not fire
+(the trigger is ~2×) and the gate is green.
+
+**Why the estimate was low, honestly:** the estimate counted logic, and this repo's house
+style is comment-dense — `src/lib/config/admin-origins.ts` is 189 lines of which roughly half
+are the header and the per-function rationale that ADR 0026's decisions require to survive.
+`src/proxy.ts`'s +130 is the same shape: the three `Access-Control-*` constants and the block
+are small; the paragraphs explaining why the block runs before `isProtectedRoute` are not.
+
+**Impact.** None on scope or classification. The 398 also crosses the 300-line threshold in
+`execution-lanes.md` § The review wave, so the standards axis joins the wave — it would have
+anyway at RISK = high, but the measurement is recorded rather than estimated, as that section
+requires.
+
+**Verdict:** ACCEPT.
