@@ -22,16 +22,36 @@ describe('scanRouteFile — admin AAL2 gate audit', () => {
   const adminPath = 'src/app/api/admin/businesses/route.ts';
   const nonAdminPath = 'src/app/api/owner/reviews/route.ts';
 
-  it('(a) GET-only admin route → no finding', () => {
+  // (a) read "GET-only admin route → no finding" until #1184 widened the ROUTES
+  // contract from the mutation verbs to EVERY exported handler. That fixture
+  // asserted the exemption this ticket deleted, so it is INVERTED rather than
+  // removed — the shape it used to clear is now the canonical finding, and the
+  // shape that clears today sits beside it.
+  it('(a) GET-only admin route WITH a gate → no finding', () => {
     const text = [
-      "import { requireRoleOr401 } from '@/lib/db/auth';",
+      "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';",
+      '',
+      'export async function GET(request: Request) {',
+      '  const gate = await requireAdminWithAal2(request);',
+      '  if (!gate.ok) return gate.response;',
+      '  return Response.json({ ok: true });',
+      '}',
+    ].join('\n');
+    expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+  });
+
+  it('(a2) GET-only admin route on requireRoleOr401 → FINDING (#1184)', () => {
+    const text = [
+      "import { requireRoleOr401 } from '@/lib/auth/route-helpers';",
       '',
       'export async function GET(request: Request) {',
       "  await requireRoleOr401(request, 'admin');",
       '  return Response.json({ ok: true });',
       '}',
     ].join('\n');
-    expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('handler GET must use requireAdminWithAal2');
   });
 
   it('(b) export const POST without the gate → finding', () => {
@@ -297,7 +317,7 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
     ].join('\n');
     const findings = scanRouteFile(adminPath, text);
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toContain('mutation handler POST');
+    expect(findings[0]).toContain('handler POST');
     expect(findings[0]).toContain('requireAdminWithAal2');
   });
 
@@ -315,8 +335,8 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
     ].join('\n');
     const findings = scanRouteFile(adminPath, text);
     expect(findings).toHaveLength(2);
-    expect(findings.some((f) => f.includes('mutation handler PATCH'))).toBe(true);
-    expect(findings.some((f) => f.includes('mutation handler DELETE'))).toBe(true);
+    expect(findings.some((f) => f.includes('handler PATCH'))).toBe(true);
+    expect(findings.some((f) => f.includes('handler DELETE'))).toBe(true);
   });
 
   it('(H3-b) unused import of requireAdminWithAal2 with an ungated POST → FINDING', () => {
@@ -334,7 +354,7 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
     ].join('\n');
     const findings = scanRouteFile(adminPath, text);
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toContain('mutation handler POST');
+    expect(findings[0]).toContain('handler POST');
   });
 
   it('(H3-c) renaming re-export indirection binding the owner resolver → FINDING', () => {
@@ -354,7 +374,7 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
     ].join('\n');
     const findings = scanRouteFile(channelPath, text);
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toContain('mutation handler POST');
+    expect(findings[0]).toContain('handler POST');
   });
 
   it('(H3-c2) the Pathfinder "minimal passing-but-wrong shape": gated GET + alias-bound POST → FINDING', () => {
@@ -379,7 +399,7 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
     ].join('\n');
     const findings = scanRouteFile(channelPath, text);
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toContain('mutation handler POST');
+    expect(findings[0]).toContain('handler POST');
   });
 
   it('(H3-c3) same-file alias of the owner resolver → FINDING (the denied literal survives the rename)', () => {
@@ -898,10 +918,34 @@ describe('auditRoutes / auditPages — the composed passes', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('auditRoutes walks and scans every admin route, and finds nothing when all are gated', async () => {
+  it('auditRoutes walks and scans every admin route, GET included (#1184)', async () => {
     const pass = await auditRoutes(root);
     expect(pass.files).toHaveLength(2);
-    expect(pass.findings).toEqual([]);
+    // The flagged fixture gates both its verbs; the jobs fixture's GET is on
+    // requireRoleOr401, which was OUT of the ROUTES contract until #1184 widened
+    // it to every exported handler. This assertion is the composed-level proof
+    // that the widening reaches a real walk, not only the pure scanner — and the
+    // jobs fixture stays ungated on purpose, because auditPages below needs it as
+    // the PLAIN parity anchor.
+    expect(pass.findings).toHaveLength(1);
+    expect(pass.findings[0]).toContain('src/app/api/admin/jobs/route.ts');
+    expect(pass.findings[0]).toContain('handler GET must use requireAdminWithAal2');
+    expect(pass.traversalErrors).toEqual([]);
+  });
+
+  it('auditRoutes reports the directories it could not read, so a clean pass is never vacuous', async () => {
+    // main() treats any traversal error as fatal. The reason a zero-FILE floor is
+    // not enough: collectNamedFiles swallows one directory's readdir failure and
+    // keeps walking its siblings, so an unreadable subtree hides its routes while
+    // every other route scans clean and the audit still reports success.
+    const missing = realpathSync(mkdtempSync(join(tmpdir(), 'aal2-missing-')));
+    rmSync(missing, { recursive: true, force: true });
+
+    const pass = await auditRoutes(missing);
+
+    expect(pass.files).toEqual([]);
+    expect(pass.traversalErrors).toHaveLength(1);
+    expect(pass.traversalErrors[0]!.dir).toContain(join('src', 'app', 'api', 'admin'));
   });
 
   it('auditPages applies P2 against the sibling route and exempts pre-auth pages', async () => {
@@ -1108,5 +1152,123 @@ describe('resolveSpecifier — the provenance primitive (#909 hardening)', () =>
     // readAdminPageGate(text) with no path is the bare-text scan the unit tests
     // use. It must credit nothing it cannot prove.
     expect(resolveSpecifier('../../lib/auth/admin-mfa-gate', null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1184: the ROUTES contract binds EVERY exported handler, not the mutation verbs
+// ---------------------------------------------------------------------------
+//
+// The widening is a compensating control (ADR 0025 D5/D6): once src/proxy.ts
+// lets a bearer through to the route, the route's own gate is the only admin
+// check, and what makes that acceptable is CI proving every handler has one.
+//
+// The block pins BOTH directions per verb, because a widened verb list has two
+// failure modes and only one of them is loud. A verb wrongly OMITTED from the
+// list is silent — nothing fails, the guarantee just stops covering it — and
+// that is exactly the risk for HEAD and OPTIONS, which no admin route exports
+// today. A verb wrongly ADDED would be loud on the first run.
+describe('scanRouteFile — the widened ROUTES contract (#1184)', () => {
+  const adminPath = 'src/app/api/admin/overview/route.ts';
+
+  const handler = (verb: string, body: string[]): string =>
+    [`export async function ${verb}(request: Request) {`, ...body, '}'].join('\n');
+
+  const GATED_BODY = [
+    '  const gate = await requireAdminWithAal2(request);',
+    '  if (!gate.ok) return gate.response;',
+    '  return Response.json({ ok: true });',
+  ];
+  const ROLE_ONLY_BODY = [
+    "  const auth = await requireRoleOr401(request, 'admin');",
+    '  if (!auth.ok) return auth.response;',
+    '  return Response.json({ ok: true });',
+  ];
+
+  const GATE_IMPORT = "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';";
+  const ROLE_IMPORT = "import { requireRoleOr401 } from '@/lib/auth/route-helpers';";
+
+  it('a GET with a recognized gate passes', () => {
+    expect(scanRouteFile(adminPath, [GATE_IMPORT, handler('GET', GATED_BODY)].join('\n'))).toEqual([]);
+  });
+
+  it('a GET with requireRoleOr401 is a finding', () => {
+    const findings = scanRouteFile(adminPath, [ROLE_IMPORT, handler('GET', ROLE_ONLY_BODY)].join('\n'));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('handler GET must use requireAdminWithAal2 or requireAdminJson');
+    // The message must not still call a read a mutation — a security audit that
+    // misdescribes what it flagged sends the reader looking for the wrong thing.
+    expect(findings[0]).not.toContain('mutation handler');
+  });
+
+  it('a GET with an unrecognized imported wrapper is a finding', () => {
+    // Fail-closed: the wrapper may well call the gate inside, but its body is in
+    // another file and this audit can see no gate. Silence on an unrecognized
+    // shape is how a guard becomes decorative.
+    const text = [
+      "import { requireAdminRead } from '@/lib/auth/admin-read-gate';",
+      handler('GET', [
+        '  const gate = await requireAdminRead(request);',
+        '  if (!gate.ok) return gate.response;',
+        '  return Response.json({ ok: true });',
+      ]),
+    ].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('UNRECOGNIZED imported wrapper');
+  });
+
+  it('a HEAD with requireRoleOr401 is a finding', () => {
+    const findings = scanRouteFile(adminPath, [ROLE_IMPORT, handler('HEAD', ROLE_ONLY_BODY)].join('\n'));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('handler HEAD must use requireAdminWithAal2');
+  });
+
+  it('an OPTIONS with requireRoleOr401 is a finding', () => {
+    // No admin route exports OPTIONS today — CORS preflight is answered in
+    // src/proxy.ts (#1186) and never reaches a handler. Binding it anyway makes a
+    // future admin OPTIONS export a deliberate review moment; this fixture is
+    // what keeps the binding from being silently dropped.
+    const findings = scanRouteFile(adminPath, [ROLE_IMPORT, handler('OPTIONS', ROLE_ONLY_BODY)].join('\n'));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('handler OPTIONS must use requireAdminWithAal2');
+  });
+
+  it('every verb Next.js routes is bound, and each is reported by name', () => {
+    for (const verb of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+      const findings = scanRouteFile(adminPath, [ROLE_IMPORT, handler(verb, ROLE_ONLY_BODY)].join('\n'));
+      expect(findings, `${verb} must be bound by the ROUTES contract`).toHaveLength(1);
+      expect(findings[0]).toContain(`handler ${verb} must use`);
+    }
+  });
+
+  it('a route exporting only config is still not a finding', () => {
+    // The "no bound handlers" early-out survives the widening: `export const
+    // dynamic = 'force-dynamic'` is not a handler and must not be flagged.
+    expect(scanRouteFile(adminPath, "export const dynamic = 'force-dynamic';")).toEqual([]);
+  });
+
+  it('a gated GET still does NOT clear an ungated sibling mutation', () => {
+    // The property the fold must not cost: both verbs are resolved separately.
+    const text = [
+      GATE_IMPORT,
+      ROLE_IMPORT,
+      handler('GET', GATED_BODY),
+      handler('DELETE', ROLE_ONLY_BODY),
+    ].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('handler DELETE must use');
+  });
+
+  it('the deny rule message no longer calls an admin route a mutation route', () => {
+    const text = [
+      GATE_IMPORT,
+      "import { resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      handler('GET', GATED_BODY),
+    ].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('admin route must not reference resolveOwnerActor');
   });
 });
