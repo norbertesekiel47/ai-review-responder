@@ -160,6 +160,11 @@ it is the `?from=` redirect target), that the gate is awaited BEFORE any data re
 read), and that a refused step-up stops the page instead of rendering. It is
 strictly complementary to `ci:admin-aal2`'s static P2 check, not a duplicate of it.
 
-**Verdict:** _pending owner decision_
+**Owner decision 2026-09-08: APPROVED.** Recorded as `surfaceAmendments=3` with the
+reason "owner-approved 2026-09-08: runtime coverage for the six aal2 page flips
+(new test file, no production change)". Applied as staged; 7 cases pass and no
+production file changed.
+
+**Verdict:** ACCEPT
 
 ---

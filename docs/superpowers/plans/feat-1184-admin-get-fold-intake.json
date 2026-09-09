@@ -94,6 +94,7 @@
     "src/app/admin/jobs/page.tsx",
     "src/app/admin/notifications/page.tsx",
     "src/app/admin/overview/page.tsx",
+    "src/app/admin/__tests__/page-aal2-parity.test.tsx",
     "scripts/ci/admin-aal2-audit.ts",
     "scripts/ci/__tests__/admin-aal2-audit.test.ts",
     "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts",
