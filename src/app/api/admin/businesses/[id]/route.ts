@@ -9,7 +9,7 @@ import {
   getBusinessDetail,
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -17,6 +17,12 @@ export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/businesses/[id] — business detail + reviews + latest responses
+//
+// #1184 (ADR 0025 D5): folded onto the admin control-plane gate PATCH below
+// already used, so this read requires AAL2 and accepts either Admin transport. An
+// aal1 admin is now refused `mfa_required` where it was served, and a non-auth
+// failure is the gate's clean `internal_error` 500 rather than
+// `requireRoleOr401`'s re-throw.
 // ---------------------------------------------------------------------------
 
 export async function GET(
@@ -26,8 +32,8 @@ export async function GET(
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
 
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   try {
     const detail = await getBusinessDetail(sql, businessId);

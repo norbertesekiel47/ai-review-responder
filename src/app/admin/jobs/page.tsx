@@ -11,7 +11,10 @@ import { JOBS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminJobsPage() {
-  await requireAdminPage(sql, { from: '/admin/jobs' });
+  // Gate parity with GET /api/admin/jobs, which uses requireAdminWithAal2
+  // since #1184 — the outbox and queue rows name every tenant's in-flight work
+  // and this page reads them directly via `sql`, not through that route.
+  await requireAdminPage(sql, { from: '/admin/jobs', aal2: true });
 
   const [jobs, health] = await Promise.all([
     getAdminJobsData(sql, { limit: PAGE_SIZE, offset: 0 }),

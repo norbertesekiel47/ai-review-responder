@@ -4,12 +4,15 @@ import { NextRequest } from 'next/server';
 const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
+  mockLoadAppUser,
+  mockResolveDualModeIdentity,
   mockWriteAccountAuditLog,
   mockSql,
   mockTx,
   txResults,
   txCalls,
-} = vi.hoisted(() => {
+} = await vi.hoisted(async () => {
+  const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
   const txCalls: { text: string; values: unknown[] }[] = [];
   const txResults: unknown[] = [];
   const mockTx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -19,8 +22,7 @@ const {
   const mockSql: any = vi.fn(() => Promise.resolve([]));
   mockSql.begin = vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx));
   return {
-    mockRequireRole: vi.fn(),
-    mockRequireCurrentAal2FromSupabase: vi.fn(),
+    ...makeAdminGateMocks(),
     mockWriteAccountAuditLog: vi.fn(),
     mockSql,
     mockTx,
@@ -31,23 +33,7 @@ const {
 
 vi.mock('@/lib/db/auth', () => ({
   requireRole: mockRequireRole,
-  // #1183: the admin gate maps a resolved identity to its users row instead of
-  // calling requireRole. mockRequireRole still drives both outcomes — a 401
-  // rejection becomes "no identity" (see the verified-identity mock below), a 403
-  // becomes "authenticated but not an admin" here.
-  // resolveDualModeIdentity below already made the ONE mockRequireRole call the
-  // gate is entitled to; calling it again here would swallow a `...Once` control
-  // (a mockRejectedValueOnce(403) would land on the seam and never reach this
-  // step). Reuse that same outcome instead of consuming a second one.
-  loadAppUser: async () => {
-    const last = mockRequireRole.mock.results.at(-1);
-    if (!last) return null;
-    try {
-      return await last.value;
-    } catch {
-      return null;
-    }
-  },
+  loadAppUser: mockLoadAppUser,
   cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
   AuthError: class AuthError extends Error {
     constructor(message: string, public readonly statusCode: number) {
@@ -59,27 +45,10 @@ vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => ({ __js
 vi.mock('@supabase/ssr', () => ({ createServerClient: vi.fn(() => ({ auth: { mfa: {} } })) }));
 vi.mock('@/lib/auth/mfa', () => ({ requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase }));
 
-// #1183: the admin gate reads its identity through the Admin transport seam. This
-// shim keeps the suite's existing controls meaningful — mockRequireRole still says
-// whether there is a live admin, and mockRequireCurrentAal2FromSupabase still says
-// whether the AAL2 step-up passed.
+// #1184: the gate's dependency stand-ins have one owner —
+// src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: async (request: unknown) => {
-    try {
-      await mockRequireRole(request, 'admin');
-    } catch (err) {
-      const status = (err as { statusCode?: number } | null)?.statusCode;
-      if (status === 401) return null; // no live credential → the gate's 401
-      if (status !== 403) throw err; // a real fault → the gate's 500
-      // 403 is "authenticated but not an admin"; loadAppUser reports that.
-    }
-    const aal = await mockRequireCurrentAal2FromSupabase();
-    return {
-      authUserId: 'auth-1',
-      aal: aal?.ok ? 'aal2' : aal?.reason === 'mfa_check_failed' ? null : 'aal1',
-      transport: 'cookie',
-    };
-  },
+  resolveDualModeIdentity: mockResolveDualModeIdentity,
 }));
 vi.mock('@/lib/audit/log', () => ({ writeAccountAuditLog: mockWriteAccountAuditLog }));
 

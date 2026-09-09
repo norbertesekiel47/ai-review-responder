@@ -8,10 +8,28 @@ import { NextRequest } from 'next/server';
 // queueHealth:{unavailable:true} on any failure. Outbox + failed-job parts still
 // come from Postgres (mocked sql here).
 
-const { mockSql, sqlReturnQueue, mockGetServerConfig, configState, mockFetch } = vi.hoisted(() => {
+// #1184: this route folded from `requireRoleOr401` onto `requireAdminWithAal2`, so
+// the REAL gate runs here and only its dependencies are mocked — through the shared
+// shim, the single owner of that mock triple
+// (src/lib/auth/__tests__/helpers/admin-gate-mocks.ts). It replaces the old blanket
+// `vi.mock('@/lib/auth/route-helpers')` stub, which would have made the new gate
+// assertions vacuous.
+const {
+  mockSql,
+  sqlReturnQueue,
+  mockGetServerConfig,
+  configState,
+  mockFetch,
+  mockRequireRole,
+  mockRequireCurrentAal2FromSupabase,
+  mockLoadAppUser,
+  mockResolveDualModeIdentity,
+} = await vi.hoisted(async () => {
+  const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
   const sqlReturnQueue: unknown[] = [];
   const configState: { WORKER_INTERNAL_SECRET?: string; WORKER_PUBLIC_URL?: string } = {};
   return {
+    ...makeAdminGateMocks(),
     sqlReturnQueue,
     configState,
     mockSql: vi.fn((s: TemplateStringsArray, ..._v: unknown[]) => {
@@ -31,11 +49,46 @@ const { mockSql, sqlReturnQueue, mockGetServerConfig, configState, mockFetch } =
 vi.mock('@/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('@/lib/config/server', () => ({ getServerConfig: mockGetServerConfig }));
 vi.mock('@/lib/shared/report-caught-error', () => ({ reportCaughtError: vi.fn() }));
-vi.mock('@/lib/auth/route-helpers', () => ({
-  requireRoleOr401: vi.fn().mockResolvedValue({ ok: true, user: { id: 'admin' } }),
+
+vi.mock('@/lib/db/auth', () => {
+  class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+      this.name = 'AuthError';
+    }
+  }
+  return {
+    requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    loadAppUser: mockLoadAppUser,
+    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
+    AuthError,
+  };
+});
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
+}));
+
+vi.mock('@/lib/auth/verified-identity', () => ({
+  resolveDualModeIdentity: mockResolveDualModeIdentity,
 }));
 
 import { GET } from '@/app/api/admin/jobs/route';
+
+const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null };
+
+/** Puts a passing aal2 admin behind the gate. */
+function seedPassingAdmin(): void {
+  mockRequireRole.mockReset();
+  mockRequireCurrentAal2FromSupabase.mockReset();
+  mockResolveDualModeIdentity.mockClear();
+  mockRequireRole.mockResolvedValue(ADMIN);
+  mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
+}
 
 const SECRET = 'a'.repeat(64);
 const WORKER_URL = 'https://worker.example.com';
@@ -58,6 +111,7 @@ function req(): NextRequest {
 describe('GET /api/admin/jobs queueHealth sourcing', () => {
   beforeEach(() => {
     sqlReturnQueue.length = 0;
+    seedPassingAdmin();
     configState.WORKER_INTERNAL_SECRET = SECRET;
     configState.WORKER_PUBLIC_URL = WORKER_URL;
     mockFetch.mockReset();
@@ -197,5 +251,87 @@ describe('GET /api/admin/jobs queueHealth sourcing', () => {
 
     expect(body.queueHealth).toEqual({ unavailable: true });
     expect(body.pool).toBeNull();
+  });
+});
+
+// ── The admin MFA gate on GET (#1184) ───────────────────────────────
+//
+// The five cases every folded Admin API read owes. Each refusal also asserts the
+// no-store header — that is what catches a fold which REWRAPS `gate.response`
+// instead of returning it: the status and body would still look right while the
+// cache semantics of an admin refusal silently changed.
+describe('GET /api/admin/jobs — the admin MFA gate (#1184)', () => {
+  beforeEach(() => {
+    sqlReturnQueue.length = 0;
+    mockSql.mockClear();
+    seedPassingAdmin();
+    configState.WORKER_INTERNAL_SECRET = undefined;
+    configState.WORKER_PUBLIC_URL = undefined;
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('GET /api/admin/jobs — an aal2 admin is served', async () => {
+    seedOutboxRows();
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(200);
+    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
+  });
+
+  it('GET /api/admin/jobs — an aal1 admin is refused 403 mfa_required', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: false, reason: 'mfa_required' });
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'mfa_required' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/jobs — a non-admin is refused 403 Forbidden', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'Forbidden' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/jobs — an unauthenticated caller is refused 401 Unauthorized', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthenticated', 401));
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Unauthorized' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/jobs — a bearer-transport aal2 admin is served', async () => {
+    seedOutboxRows();
+    const bearerReq = new NextRequest('http://localhost:3000/api/admin/jobs', {
+      headers: { authorization: 'Bearer test-admin-access-token' },
+    });
+
+    const res = await GET(bearerReq);
+
+    expect(res.status).toBe(200);
+    // The seam saw the real header, so this is a transport test rather than a
+    // second spelling of the cookie case.
+    const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
+    expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
   });
 });

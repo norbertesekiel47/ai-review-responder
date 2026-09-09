@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRoleOr401 } from '@/lib/auth/route-helpers';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getAdminJobsData, parseJobsTopicFilter, type AdminJobsData } from '@/lib/admin/jobs-service';
 import { fetchQueueHealth, type PoolWaitPayload } from '@/lib/admin/queue-health';
@@ -14,9 +14,13 @@ type JobsData = AdminJobsData & {
   pool: PoolWaitPayload | null;
 };
 
+// #1184 (ADR 0025 D5): folded onto the admin control-plane gate, so this read requires
+// AAL2 and accepts either Admin transport. An aal1 admin is now refused `mfa_required`
+// where it was served, and a non-auth failure is the gate's clean `internal_error` 500
+// rather than `requireRoleOr401`'s re-throw.
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   try {
     const rawLimit = request.nextUrl.searchParams.get('limit');

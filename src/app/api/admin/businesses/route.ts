@@ -5,7 +5,7 @@ import {
   onboardBusinessAsAdmin,
   AdminOnboardingError,
 } from '@/lib/onboarding/admin-onboarding-service';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getBusinessSummaries, parseBusinessListFilters } from '@/lib/admin/business-summary';
@@ -26,10 +26,17 @@ export const dynamic = 'force-dynamic';
 // params off `searchParams`). Only PRESENT filters reach the service, so an
 // unfiltered call is byte-identical to the pre-filter contract.
 // ---------------------------------------------------------------------------
+//
+// #1184 (ADR 0025 D5): folded onto the admin control-plane gate, so this read now
+// requires AAL2 and accepts either Admin transport — the same gate POST below has
+// always used. An aal1 admin is now refused `mfa_required` where it was served, and
+// a non-auth failure is the gate's clean `internal_error` 500 rather than
+// `requireRoleOr401`'s re-throw.
+// ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   try {
     const limit = Math.min(

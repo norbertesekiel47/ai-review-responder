@@ -24,7 +24,7 @@ paths:
 
 The 12 mobile-channel enrollment routes:
 
-- (a) routes are thin shims — behaviour lives in the runner or resolver (`src/app/api/_shared/channels/`), never a route; (b) `resolveAdminActor` reads `businessId` from the BODY, `resolveOwnerActor` reads `locationId` from the SESSION — tenant boundary, keep TWO functions; (c) `ChannelRouteConfig` is 4 fields — a fifth means the seam is wrong. The admin MFA gate is configuration, not structure — `ci:admin-aal2` compensates.
+- (a) routes are thin shims — behaviour lives in the runner or resolver (`src/app/api/_shared/channels/`), never a route; (b) `resolveAdminActor` reads `businessId` from the BODY, `resolveOwnerActor` reads `locationId` from the SESSION — tenant boundary, keep TWO functions; (c) `ChannelRouteConfig` is 4 fields — a fifth means the seam is wrong. The admin MFA gate is configuration, not structure — `ci:admin-aal2` compensates, and since #1184 its ROUTES contract binds EVERY exported handler under `src/app/api/admin/**`, GET included, so a new admin route of any verb needs one of the three credited gate shapes.
 
 ## Rules
 

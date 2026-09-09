@@ -10,7 +10,11 @@ import { NOTIFICATIONS_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminNotificationsPage() {
-  await requireAdminPage(sql, { from: '/admin/notifications' });
+  // Gate parity with GET /api/admin/notifications, which uses
+  // requireAdminWithAal2 since #1184 — the delivery log names owner recipients
+  // across every tenant and this page reads it directly via `sql`, not through
+  // that route.
+  await requireAdminPage(sql, { from: '/admin/notifications', aal2: true });
 
   const notifications = await getAdminNotifications(sql, { limit: PAGE_SIZE, offset: 0 });
 

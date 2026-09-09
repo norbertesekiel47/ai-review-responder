@@ -3,37 +3,48 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
+// #1184: GET folded from `requireRoleOr401` onto `requireAdminWithAal2`, so the REAL
+// gate runs here for BOTH verbs and only its dependencies are mocked — through the
+// shared shim, the single owner of that mock triple
+// (src/lib/auth/__tests__/helpers/admin-gate-mocks.ts). It replaces the inline #1183
+// copy this suite used to carry. `mockRequireRole` still says whether there is a live
+// admin and `mockRequireCurrentAal2FromSupabase` still says whether the AAL2 step-up
+// passed, so every pre-existing assertion below keeps its meaning.
 const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
+  mockLoadAppUser,
+  mockResolveDualModeIdentity,
   mockTxCalls,
   mockInviteUserByEmail,
   mockDeleteUser,
   mockTopLevelSqlCalls,
   mockGetBusinessSummaries,
   linkUpdateState,
-} = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-  mockRequireCurrentAal2FromSupabase: vi.fn(),
-  // GET delegates its queries + row mapping to
-  // src/lib/admin/business-summary (the single owner shared with
-  // /admin/overview, spec §5.2). That service has its own unit suite, so these
-  // route tests mock it and assert the handler's OWN contract: the admin gate,
-  // query-param clamping, the response envelope, and the 500 mapping.
-  mockGetBusinessSummaries: vi.fn(),
-  mockTxCalls: [] as unknown[][],
-  mockInviteUserByEmail: vi.fn(),
-  mockDeleteUser: vi.fn(() => Promise.resolve({ data: null, error: null })),
-  // Captures top-level (outside-tx) sql tagged-template calls so tests can
-  // assert which SQL ran during the post-createBusinessTx provisioning steps
-  // (auth_id link UPDATE + the rollback `sql.begin` block).
-  mockTopLevelSqlCalls: [] as Array<{ template: string; values: unknown[] }>,
-  // Test-controlled state for the auth_id link UPDATE outcome:
-  //   'success' — returns [{ id: 'returned-user-id' }] (default; happy path)
-  //   'zero_rows' — returns [] (simulates UPDATE matching no rows → rollback)
-  //   'throws' — rejects with a synthetic error (simulates db transient)
-  linkUpdateState: { mode: 'success' as 'success' | 'zero_rows' | 'throws' },
-}));
+} = await vi.hoisted(async () => {
+  const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
+  return {
+    ...makeAdminGateMocks(),
+    // GET delegates its queries + row mapping to
+    // src/lib/admin/business-summary (the single owner shared with
+    // /admin/overview, spec §5.2). That service has its own unit suite, so these
+    // route tests mock it and assert the handler's OWN contract: the admin gate,
+    // query-param clamping, the response envelope, and the 500 mapping.
+    mockGetBusinessSummaries: vi.fn(),
+    mockTxCalls: [] as unknown[][],
+    mockInviteUserByEmail: vi.fn(),
+    mockDeleteUser: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    // Captures top-level (outside-tx) sql tagged-template calls so tests can
+    // assert which SQL ran during the post-createBusinessTx provisioning steps
+    // (auth_id link UPDATE + the rollback `sql.begin` block).
+    mockTopLevelSqlCalls: [] as Array<{ template: string; values: unknown[] }>,
+    // Test-controlled state for the auth_id link UPDATE outcome:
+    //   'success' — returns [{ id: 'returned-user-id' }] (default; happy path)
+    //   'zero_rows' — returns [] (simulates UPDATE matching no rows → rollback)
+    //   'throws' — rejects with a synthetic error (simulates db transient)
+    linkUpdateState: { mode: 'success' as 'success' | 'zero_rows' | 'throws' },
+  };
+});
 
 // ── Mock auth ───────────────────────────────────────────────────────
 
@@ -46,20 +57,7 @@ vi.mock('@/lib/db/auth', () => {
   }
   return {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
-    // #1183: the admin gate maps a resolved identity to its users row instead of
-    // calling requireRole. Reuse the outcome resolveDualModeIdentity already
-    // produced rather than invoking mockRequireRole a second time — a `...Once`
-    // control would be consumed by the seam, and the second call would fall through
-    // to the beforeEach default, silently turning a 403 case into a success.
-    loadAppUser: async () => {
-      const last = mockRequireRole.mock.results.at(-1);
-      if (!last) return null;
-      try {
-        return await last.value;
-      } catch {
-        return null;
-      }
-    },
+    loadAppUser: mockLoadAppUser,
     cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
     AuthError,
   };
@@ -133,27 +131,8 @@ vi.mock('@/lib/auth/mfa', () => ({
   requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
-// #1183: the admin gate reads its identity through the Admin transport seam. This
-// shim keeps the suite's existing controls meaningful — mockRequireRole still says
-// whether there is a live admin, and mockRequireCurrentAal2FromSupabase still says
-// whether the AAL2 step-up passed.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: async (request: unknown) => {
-    try {
-      await mockRequireRole(request, 'admin');
-    } catch (err) {
-      const status = (err as { statusCode?: number } | null)?.statusCode;
-      if (status === 401) return null; // no live credential → the gate's 401
-      if (status !== 403) throw err; // a real fault → the gate's 500
-      // 403 is "authenticated but not an admin"; loadAppUser reports that.
-    }
-    const aal = await mockRequireCurrentAal2FromSupabase();
-    return {
-      authUserId: 'auth-1',
-      aal: aal?.ok ? 'aal2' : aal?.reason === 'mfa_check_failed' ? null : 'aal1',
-      transport: 'cookie',
-    };
-  },
+  resolveDualModeIdentity: mockResolveDualModeIdentity,
 }));
 
 const APP_URL = 'https://app.example.com';
@@ -564,6 +543,10 @@ const LIST_FIXTURE = {
 describe('GET /api/admin/businesses', () => {
   beforeEach(() => {
     mockRequireRole.mockReset();
+    // #1184: GET now runs the real admin gate, so the AAL2 step-up needs an explicit
+    // passing default here rather than whatever the POST block last left behind.
+    mockRequireCurrentAal2FromSupabase.mockReset();
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     mockGetBusinessSummaries.mockReset();
     mockRequireRole.mockResolvedValue({
       id: '01890000-0000-7000-8000-000000000001',
@@ -767,5 +750,78 @@ describe('GET /api/admin/businesses', () => {
       limit: 20,
       offset: 0,
     });
+  });
+});
+
+// ── The admin MFA gate on GET (#1184) ───────────────────────────────
+//
+// The five cases every folded Admin API read owes. Each refusal also asserts the
+// no-store header — that is what catches a fold which REWRAPS `gate.response`
+// instead of returning it: the status and body would still look right while the
+// cache semantics of an admin refusal silently changed.
+describe('GET /api/admin/businesses — the admin MFA gate (#1184)', () => {
+  const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireRole.mockResolvedValue(ADMIN);
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
+    mockGetBusinessSummaries.mockResolvedValue(LIST_FIXTURE);
+  });
+
+  it('GET /api/admin/businesses — an aal2 admin is served', async () => {
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(200);
+    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
+  });
+
+  it('GET /api/admin/businesses — an aal1 admin is refused 403 mfa_required', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: false, reason: 'mfa_required' });
+
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'mfa_required' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockGetBusinessSummaries).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/businesses — a non-admin is refused 403 Forbidden', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'Forbidden' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockGetBusinessSummaries).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/businesses — an unauthenticated caller is refused 401 Unauthorized', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthenticated', 401));
+
+    const res = await GET(makeGetRequest());
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Unauthorized' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockGetBusinessSummaries).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/businesses — a bearer-transport aal2 admin is served', async () => {
+    const req = new NextRequest('http://localhost/api/admin/businesses', {
+      headers: { authorization: 'Bearer test-admin-access-token' },
+    });
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    // The seam saw the real header, so this is a transport test rather than a
+    // second spelling of the cookie case.
+    const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
+    expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
   });
 });

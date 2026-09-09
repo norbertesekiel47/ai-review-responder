@@ -1,5 +1,57 @@
 # Architecture review log
 
+2026-09-08 — **feat/1184-admin-get-fold (pre-merge):** The nine role-only admin
+GET handlers fold onto `requireAdminWithAal2`, and `ci:admin-aal2`'s ROUTES
+contract widens from the four mutation verbs to every exported handler under
+`src/app/api/admin/**` (#1184, ADR 0025 D5). This is the compensating control
+D6 spends: once #1185 lets a bearer through `src/proxy.ts` branch 4, the route
+gate is the ONLY admin check on that request, and what makes that acceptable is
+CI proving every handler has one. Nine route files, six page files, one audit,
+one new test-only helper; no migration, no flag, no dependency, no new writer.
+Four points are the reviewable ones. (1) **Widening the bound HANDLERS is the
+opposite act from widening the credited SHAPES.** The first tightens a
+fail-closed rule, the second would loosen it, and only the first happened — the
+three gate shapes and their resolves-to-`CANONICAL` provenance check are
+byte-identical. `HANDLER_VERBS` binds `HEAD` and `OPTIONS` although no admin
+route exports either (preflight is answered in `src/proxy.ts` since #1186), so a
+future admin `OPTIONS` export becomes a review moment instead of an invisible
+front door; both are pinned by fixtures, because a verb the tree does not use is
+exactly the verb a wrong list omits silently. (2) **The audit will no longer
+report clean about a tree it could not read.** `collectNamedFiles` swallows a
+`readdir` failure per directory and keeps walking its siblings, so one
+unreadable subtree hid its routes while the other 34 scanned green — a zero-file
+floor does not close that. The collectors now take an OPTIONAL error sink (their
+sink-less behaviour, and its unit-test pin, unchanged) and `main()` fails on any
+recorded traversal error, zero route files, or zero pages. Found by the
+plan-skeptic round, not by the gate. (3) **Page rule P2 flipped six pages and
+falsified the audit's own worked example.** `/admin/overview`,
+`/admin/businesses`, `/admin/businesses/[id]`, `/admin/costs`, `/admin/jobs` and
+`/admin/notifications` now pass `{ aal2: true }`, because a server page reads
+`sql` directly and a weaker page gate is a parallel read path around the route's
+step-up. `/admin/businesses/[id]` was the header's example of "P2 is NOT 'a page
+hosting mutations must be AAL2'" and its recorded reason — plain parity with a
+plain GET — is no longer true, so the paragraph now teaches the rule with
+`/admin/businesses/new` (a form page with NO sibling route that opts into `aal2`
+anyway) and keeps the old case as a dated historical note. A security audit that
+teaches its rule with a false citation is worse than one that teaches it with
+none. (4) **The #1183 mock-shim debt is paid.** Twenty-two admin suites carried
+a byte-identical copy of the gate-dependency shim, verified by hash, and this
+ticket would have added seven more; it now has one owner at
+`src/lib/auth/__tests__/helpers/admin-gate-mocks.ts`, whose miss mode #1183
+named — a silently vacuous authorization test — is guarded two ways: the helper
+derives **Admin transport** from the request through the PRODUCTION
+`isBearerRequest` rather than a knob (so a "bearer ok" case cannot reproduce the
+cookie case's 200 without sending the header), and `admin-gate-mocks.test.ts`
+pins that none of the nine folded suites stubs `@/lib/auth/admin-mfa-gate`.
+Declared behaviour changes, both accepted directions: an `aal1` admin is refused
+`mfa_required` on all nine reads and on the six pages (safe only because #1182
+put `MFA_ENFORCEMENT_ENABLED=true` on staging AND production, so the proxy
+offers the step-up), and a non-auth failure is the gate's clean `internal_error`
+500 instead of `requireRoleOr401`'s re-throw — `costs`'s hand-written catch,
+which answered 401 for ANY non-`AuthError`, is deleted with it. Nothing else is
+unified onto the gate. The merge counter is unchanged until this branch is
+merged.
+
 2026-09-08 — **feat/1186-admin-api-cors (pre-merge):** CORS for the **Admin API**
 (#1186, ADR 0026), the last edge-level blocker on the admin split. Nothing in this
 repo admitted a cross-origin caller before this, so the **Admin app** could not
