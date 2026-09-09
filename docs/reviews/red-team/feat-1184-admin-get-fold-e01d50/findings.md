@@ -1096,3 +1096,32 @@ The mutation evidence in the inventory above was gathered by the round-3 agent a
 checkable: the executable surface those mutations exercised is unchanged between
 `8d734808`, `4a588cdd` and `9a150e51` except for the R3-F1/R3-F2 fixes, whose
 effect was re-measured directly and is recorded above.
+
+### Second re-stamp, to `4624f469` — and this one DID move executable code
+
+`ci:fallow`'s coverage-informed gate — the one CI job outside the local verify
+gate — failed the PR on a finding this branch created: `main()` in
+`scripts/ci/admin-aal2-audit.ts` at CRAP 56.0, 0% tested, after #1184 gave it a
+third failure mode. Red team had already recorded the same gap from the other
+direction as **R2-F6**: "`main()`'s print-and-exit wiring has no covering test."
+
+Unlike the previous re-stamp, this delta is NOT comment-only. The reporting
+decision moved out of `main()` into `buildAuditReport()` and
+`preAuthDerivationFailure()`, both now exercised directly, leaving `main()` with
+I/O and a single ternary. So it was re-verified by mutation rather than asserted:
+
+- **Coverage-floor mutant, re-run by the ROOT at `4624f469`** — root evidence,
+  gathered outside a red-team round and labelled as such. `auditCoverageFailures`
+  short-circuited to always return `[]`, the same neutering round 1's C2 and
+  round 3's M1 applied: **6 of 117 tests fail.** Restored byte-for-byte
+  afterwards; `git status --porcelain` empty.
+- `pnpm ci:admin-aal2` passes identically (35 route files, 21 pages), and the
+  audit suite is 117 green, up from 112. The five added cases cover the extracted
+  decision — including the precedence a reader depends on (a coverage failure
+  OUTRANKS findings) and the pre-auth derivation fatal, neither of which any test
+  could reach while they lived inside `main()`.
+
+The refactor therefore CLOSED R2-F6 rather than relocating it, and the property
+round 3 measured — that neutering the floor gets caught — is measurably stronger
+at `4624f469` than at `8d734808`, where the identical mutation was caught by
+nothing at all.

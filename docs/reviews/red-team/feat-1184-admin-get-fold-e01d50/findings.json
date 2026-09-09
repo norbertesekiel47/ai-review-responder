@@ -5,7 +5,7 @@
   "branch": "feat/1184-admin-get-fold",
   "fork_sha": "e8893544204888d6b1639de4f2612cf84517954f",
   "merge_base_sha": "e8893544204888d6b1639de4f2612cf84517954f",
-  "head_sha": "9a150e511d6817b2daf7233f9cb304b9220bdb76",
+  "head_sha": "4624f469fdaaac62788a4ac714c5154985add3c0",
   "intake_sha256": "b1b81d508d6377f33a96ad3518a371117c2c29f35d02e5075594f2f612c7ffa2",
   "risk": "high",
   "round": 3,
