@@ -18,11 +18,15 @@
 // not the markup, and their own suites cover them.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// The two parameters are declared even though the body ignores them: the
+// assertions below read `mock.calls[0][1]` (the options object), and a zero-arg
+// implementation types `calls` as a 0-tuple, which `next build`'s type check
+// rejects with TS2493 even though `pnpm typecheck` lets it through.
 const { mockRequireAdminPage, callOrder } = vi.hoisted(() => {
   const callOrder: string[] = [];
   return {
     callOrder,
-    mockRequireAdminPage: vi.fn(async () => {
+    mockRequireAdminPage: vi.fn(async (_sql: unknown, _options: unknown) => {
       callOrder.push('gate');
       return { id: 'admin-1', role: 'admin' };
     }),
@@ -141,7 +145,7 @@ describe('admin page gate parity (P2) — proven at runtime, not only in source'
   beforeEach(() => {
     vi.clearAllMocks();
     callOrder.length = 0;
-    mockRequireAdminPage.mockImplementation(async () => {
+    mockRequireAdminPage.mockImplementation(async (_sql: unknown, _options: unknown) => {
       callOrder.push('gate');
       return { id: 'admin-1', role: 'admin' };
     });
@@ -165,7 +169,7 @@ describe('admin page gate parity (P2) — proven at runtime, not only in source'
   it('a refused step-up stops the page before any data read', async () => {
     // requireAdminPage redirects rather than returning on refusal, and `redirect()`
     // signals that by throwing. The page must not swallow it into a render.
-    mockRequireAdminPage.mockImplementation(async () => {
+    mockRequireAdminPage.mockImplementation(async (_sql: unknown, _options: unknown) => {
       callOrder.push('gate');
       throw new Error('NEXT_REDIRECT');
     });
