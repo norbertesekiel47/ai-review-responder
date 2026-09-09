@@ -120,9 +120,18 @@
 // The page contract: read-gate PARITY, not "pages need AAL2"
 // ---------------------------------------------------------------------------
 //
-// `requireAdminPage`'s `aal2` parameter (src/lib/auth/page-gate.ts:41) DEFAULTS
-// TO FALSE and 8 of 16 gated admin pages opt in. Nothing watched either way.
-// The rule below is DERIVED from what the tree actually does, not imposed:
+// `requireAdminPage`'s `aal2` parameter (src/lib/auth/page-gate.ts) DEFAULTS TO
+// FALSE, and before this audit existed nothing watched either way. The rule
+// below is DERIVED from what the tree actually does, not imposed.
+//
+// The tree at #1184: of the 18 non-pre-auth admin pages, 17 gate through
+// `requireAdminPage` and 15 of those pass `aal2: true`; the 18th
+// (impersonate/[sessionId]/view) steps up through its own
+// `requireCurrentAal2FromSupabase` shape, and the two that stay plain are
+// /admin/security and /admin/runbook. This sentence read "8 of 16" until
+// red-team round 3 (R3-F2): #1184's six page flips moved the ratio and left the
+// sentence that DERIVES rule P2 describing the pre-fold tree. Recount from the
+// tree when you change a page gate — never adjust the number by arithmetic.
 //
 //   P1 (floor). Every `src/app/admin/**/page.tsx` must call a recognized admin
 //   page gate — `requireAdminPage`, or `requireCurrentAal2FromSupabase` for the

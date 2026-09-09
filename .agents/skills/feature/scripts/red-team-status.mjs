@@ -269,7 +269,24 @@ export function validateShape(sidecar) {
     errors.push('intake_sha256 must be a 64-character hex digest or null');
   }
   if (!RISKS.has(sidecar.risk)) errors.push('risk must be normal or high');
-  if (sidecar.round !== 1 && sidecar.round !== 2) errors.push('round must be 1 or 2 (hard cap)');
+  // Rounds 1 and 2 stand on their own. A THIRD is legal only when the sidecar
+  // itself carries the owner authorization that opened it — the same condition
+  // `mutation-runner.mjs round-start` enforces, re-checked here so a sidecar can
+  // never claim a round the runner would have refused. Nothing past 3.
+  //
+  // The cap moved from 2 to 3 in #1184, after #1178 and #1186 hit the same wall:
+  // a round-2 finding whose fix touches the tree makes the sidecar stale by
+  // construction, and with no third round the only ways out were to leave a known
+  // defect unfixed or to hand-edit `head_sha` — an evidence file rewriting its own
+  // provenance.
+  if (sidecar.round === 3) {
+    const authorizations = Array.isArray(sidecar.authorizations) ? sidecar.authorizations : [];
+    if (!authorizations.some((entry) => /third round/i.test(String(entry?.text ?? '')))) {
+      errors.push('round 3 requires an authorizations entry whose text names the third round');
+    }
+  } else if (sidecar.round !== 1 && sidecar.round !== 2) {
+    errors.push('round must be 1, 2, or an authorized 3 (hard cap)');
+  }
   if (!nonEmptyString(sidecar.generated_at)) errors.push('generated_at must be a non-empty string');
   if (!STATUS_PRECEDENCE.includes(sidecar.status)) {
     errors.push(`status must be one of ${STATUS_PRECEDENCE.join(', ')}`);

@@ -22,15 +22,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // assertions below read `mock.calls[0][1]` (the options object), and a zero-arg
 // implementation types `calls` as a 0-tuple, which `next build`'s type check
 // rejects with TS2493 even though `pnpm typecheck` lets it through.
-const { mockRequireAdminPage, callOrder } = vi.hoisted(() => {
+//
+// THE YIELD BEFORE `callOrder.push('gate')` IS THE POINT OF THIS MOCK, and it was
+// missing until red-team round 3 (R3-F1). Without it the body runs synchronously
+// to completion the instant the page CALLS the gate, so `'gate'` is recorded even
+// when the page never AWAITED it — and a dropped `await` survived on five of the
+// six pages with `ci:admin-aal2`, ESLint and `tsc` all clean. That is not a
+// cosmetic gap: an unawaited gate lets the page read `sql` before the step-up
+// resolves, which is the parallel read path rule P2 exists to close. With the
+// yield, an unawaited gate lets a service record first, `callOrder[0]` is
+// `'read'`, and the case fails. Do not remove it to "simplify" the mock.
+const { mockRequireAdminPage, callOrder, gateImplementation } = vi.hoisted(() => {
   const callOrder: string[] = [];
-  return {
-    callOrder,
-    mockRequireAdminPage: vi.fn(async (_sql: unknown, _options: unknown) => {
-      callOrder.push('gate');
-      return { id: 'admin-1', role: 'admin' };
-    }),
+  // ONE owner for the gate body, so `beforeEach` cannot reinstall a different
+  // one. That is not hypothetical: R3-F1's first fix added the yield here and
+  // left `beforeEach` restating the synchronous version, and the mutation went
+  // on surviving on five of six pages.
+  const gateImplementation = async (_sql: unknown, _options: unknown) => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    callOrder.push('gate');
+    return { id: 'admin-1', role: 'admin' };
   };
+  return { callOrder, gateImplementation, mockRequireAdminPage: vi.fn(gateImplementation) };
 });
 
 function service<T>(name: string, value: T) {
@@ -145,10 +158,11 @@ describe('admin page gate parity (P2) — proven at runtime, not only in source'
   beforeEach(() => {
     vi.clearAllMocks();
     callOrder.length = 0;
-    mockRequireAdminPage.mockImplementation(async (_sql: unknown, _options: unknown) => {
-      callOrder.push('gate');
-      return { id: 'admin-1', role: 'admin' };
-    });
+    // Re-install the SAME yielding body as the hoisted default. Restating it
+    // without the yield is what made R3-F1 survive its first fix: the hoisted
+    // implementation was corrected, and this line quietly put the synchronous
+    // one back before every test.
+    mockRequireAdminPage.mockImplementation(gateImplementation);
   });
 
   it.each(PAGES)('$name steps up to aal2 before reading anything', async ({ load, props, from }) => {

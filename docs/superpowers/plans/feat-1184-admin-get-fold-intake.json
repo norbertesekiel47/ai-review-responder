@@ -143,7 +143,12 @@
     "docs/reviews/feat-1184-admin-get-fold/adversarial.md",
     "docs/reviews/feat-1184-admin-get-fold/triage.md",
     "docs/reviews/red-team/feat-1184-admin-get-fold-e01d50/findings.md",
-    "docs/reviews/red-team/feat-1184-admin-get-fold-e01d50/findings.json"
+    "docs/reviews/red-team/feat-1184-admin-get-fold-e01d50/findings.json",
+    ".agents/skills/feature/scripts/red-team-status.mjs",
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    ".agents/skills/red-team/SKILL.md",
+    "scripts/ci/__tests__/red-team-status.test.ts",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts"
   ],
   "tests_to_add": [
     "GET /api/admin/costs — an aal2 admin is served",

@@ -500,13 +500,72 @@ describe('the mutation budget', () => {
     expect(run('round-start').stderr).toContain('dotenv swap is still open');
   });
 
-  // Two rounds is the hard cap the loop protocol states; the runner enforces it
-  // rather than trusting the caller to count.
-  it('refuses to open a third round', () => {
+  // Two rounds is what a run reaches on its own, and the runner enforces that
+  // rather than trusting the caller to count. #1184 added ONE exception — a third
+  // round the owner authorized IN the sidecar — and an exception is only worth
+  // having if its condition binds, so every direction is pinned here.
+  function seedSidecar(text: string): void {
+    write('docs/reviews/red-team/fixture-run/findings.json', JSON.stringify({
+      branch: 'fixture',
+      authorizations: [{ id: 'AUTH-1', date: '2026-09-08', finding_ids: ['F1'], text }],
+    }, null, 2));
+  }
+
+  it('refuses an UNAUTHORIZED third round', () => {
     expect(run('round-start').status).toBe(0);
     expect(run('round-start').status).toBe(0);
     const third = run('round-start');
     expect(third.status).toBe(1);
-    expect(third.stderr).toContain('hard cap of 2');
+    expect(third.stderr).toContain('needs a recorded owner authorization');
+  });
+
+  it('refuses a third round when the sidecar authorizes something else', () => {
+    // A near-miss must fail closed: an authorization exists, but it is not the one
+    // that opens a third round.
+    seedSidecar('owner 2026-09-08: accepted-risk on F4, alerting follow-up');
+    expect(run('round-start').status).toBe(0);
+    expect(run('round-start').status).toBe(0);
+    expect(run('round-start').stderr).toContain('needs a recorded owner authorization');
+  });
+
+  it('opens a third round the sidecar records an owner authorization for', () => {
+    seedSidecar('owner 2026-09-08: third round authorized, journal reset by owner');
+    expect(run('round-start').status).toBe(0);
+    expect(run('round-start').status).toBe(0);
+    const third = run('round-start');
+    expect(third.status).toBe(0);
+    expect(third.stdout).toContain('round 3 open');
+  });
+
+  it('refuses a FOURTH round even with the authorization present', () => {
+    seedSidecar('owner 2026-09-08: third round authorized, journal reset by owner');
+    for (let index = 0; index < 3; index += 1) expect(run('round-start').status).toBe(0);
+    const fourth = run('round-start');
+    expect(fourth.status).toBe(1);
+    expect(fourth.stderr).toContain('hard cap of 3');
+  });
+
+  it('ignores an authorization recorded for a DIFFERENT branch', () => {
+    write('docs/reviews/red-team/other-run/findings.json', JSON.stringify({
+      branch: 'some-other-branch',
+      authorizations: [{
+        id: 'AUTH-1',
+        date: '2026-09-08',
+        finding_ids: ['F1'],
+        text: 'owner 2026-09-08: third round authorized, journal reset by owner',
+      }],
+    }, null, 2));
+    expect(run('round-start').status).toBe(0);
+    expect(run('round-start').status).toBe(0);
+    expect(run('round-start').stderr).toContain('needs a recorded owner authorization');
+  });
+
+  it('fails closed on an unparseable sidecar rather than crashing', () => {
+    write('docs/reviews/red-team/fixture-run/findings.json', '{ not json');
+    expect(run('round-start').status).toBe(0);
+    expect(run('round-start').status).toBe(0);
+    const third = run('round-start');
+    expect(third.status).toBe(1);
+    expect(third.stderr).toContain('needs a recorded owner authorization');
   });
 });
