@@ -45,6 +45,8 @@
     "Admin channel POST exports and canonical gate"
   ],
   "allowed_edit_surface": [
+    ".claude/reference/arch-review-log.md",
+    "docs/directory/lib-platform.md",
     "src/proxy.ts",
     "src/__tests__/proxy.test.ts",
     "src/lib/auth/route-helpers.ts",
