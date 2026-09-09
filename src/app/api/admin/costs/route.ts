@@ -7,13 +7,8 @@ import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
-// #1184 (ADR 0025 D5): folded from a bare `requireRole` onto the admin control-plane
-// gate, so this read requires AAL2 and accepts either **Admin transport**. Two
-// behaviours changed with it and both are the accepted direction, not accidents:
-// an `aal1` admin is now refused `mfa_required` where it was served, and a non-auth
-// failure is now the gate's clean `internal_error` 500 instead of this handler's old
-// catch, which answered 401 for ANY non-`AuthError` and so masked a server fault as
-// a credential problem.
+// #1184: the hand-written auth catch deleted here answered 401 for ANY non-`AuthError`,
+// masking a server fault as a credential problem; the gate now owns that refusal.
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;

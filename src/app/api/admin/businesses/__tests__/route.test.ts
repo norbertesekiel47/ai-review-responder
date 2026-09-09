@@ -15,6 +15,7 @@ const {
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
   mockResolveDualModeIdentity,
+  adminAuthModuleMock,
   mockTxCalls,
   mockInviteUserByEmail,
   mockDeleteUser,
@@ -22,9 +23,11 @@ const {
   mockGetBusinessSummaries,
   linkUpdateState,
 } = await vi.hoisted(async () => {
-  const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
+  const { makeAdminGateMocks, adminAuthModuleMock } =
+    await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
   return {
     ...makeAdminGateMocks(),
+    adminAuthModuleMock,
     // GET delegates its queries + row mapping to
     // src/lib/admin/business-summary (the single owner shared with
     // /admin/overview, spec §5.2). That service has its own unit suite, so these
@@ -48,20 +51,7 @@ const {
 
 // ── Mock auth ───────────────────────────────────────────────────────
 
-vi.mock('@/lib/db/auth', () => {
-  class AuthError extends Error {
-    constructor(message: string, public readonly statusCode: number) {
-      super(message);
-      this.name = 'AuthError';
-    }
-  }
-  return {
-    requireRole: (...args: unknown[]) => mockRequireRole(...args),
-    loadAppUser: mockLoadAppUser,
-    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
-    AuthError,
-  };
-});
+vi.mock('@/lib/db/auth', () => adminAuthModuleMock(mockRequireRole, mockLoadAppUser));
 
 // ── Mock DB ─────────────────────────────────────────────────────────
 
@@ -774,6 +764,10 @@ describe('GET /api/admin/businesses — the admin MFA gate (#1184)', () => {
 
     expect(res.status).toBe(200);
     expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
+    // The negative half of the bearer case: no Authorization header, so the shim
+    // must resolve cookie transport rather than a value it invented.
+    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
+    expect(resolved?.transport).toBe('cookie');
   });
 
   it('GET /api/admin/businesses — an aal1 admin is refused 403 mfa_required', async () => {
@@ -823,5 +817,10 @@ describe('GET /api/admin/businesses — the admin MFA gate (#1184)', () => {
     // second spelling of the cookie case.
     const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
     expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
+    // …and the transport the shim RESOLVED from it. Asserting only the header
+    // above leaves a hardcoded `transport` in the shim passing every one of the
+    // nine bearer cases, which is exactly the mutation this line kills.
+    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
+    expect(resolved?.transport).toBe('bearer');
   });
 });

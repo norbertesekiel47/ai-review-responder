@@ -30,10 +30,12 @@ const {
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
   mockResolveDualModeIdentity,
+  adminAuthModuleMock,
 } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
-  const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
-  return { ...createMockSql(), ...makeAdminGateMocks() };
+  const { makeAdminGateMocks, adminAuthModuleMock } =
+    await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
+  return { ...createMockSql(), ...makeAdminGateMocks(), adminAuthModuleMock };
 });
 
 // The notifications route uses sql.unsafe() for dynamic queries — the shared
@@ -56,14 +58,7 @@ vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 // which still import the singleton (composition roots).
 const sql = mockSql as unknown as Sql;
 
-vi.mock('@/lib/db/auth', () => ({
-  requireRole: mockRequireRole,
-  loadAppUser: mockLoadAppUser,
-  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
-  AuthError: class AuthError extends Error {
-    constructor(message: string, public readonly statusCode: number) { super(message); }
-  },
-}));
+vi.mock('@/lib/db/auth', () => adminAuthModuleMock(mockRequireRole, mockLoadAppUser));
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),

@@ -25,13 +25,8 @@ export const dynamic = 'force-dynamic';
 // `parseBusinessListFilters` (shared with the server page, which reads the same
 // params off `searchParams`). Only PRESENT filters reach the service, so an
 // unfiltered call is byte-identical to the pre-filter contract.
-// ---------------------------------------------------------------------------
 //
-// #1184 (ADR 0025 D5): folded onto the admin control-plane gate, so this read now
-// requires AAL2 and accepts either Admin transport — the same gate POST below has
-// always used. An aal1 admin is now refused `mfa_required` where it was served, and
-// a non-auth failure is the gate's clean `internal_error` 500 rather than
-// `requireRoleOr401`'s re-throw.
+// #1184: GET and POST now end on the same gate.
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

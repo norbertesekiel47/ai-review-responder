@@ -9,11 +9,6 @@ export const dynamic = 'force-dynamic';
 // Thin orchestrator (auth → parse → call getAdminOverview → return; invariant #12).
 // Its fallow CRAP score is high only because it has no dedicated unit test (covered
 // by e2e), not because of control-flow complexity — cyclomatic is 7.
-//
-// #1184 (ADR 0025 D5): folded onto the admin control-plane gate, so this read requires
-// AAL2 and accepts either Admin transport. An aal1 admin is now refused `mfa_required`
-// where it was served, and a non-auth failure is the gate's clean `internal_error` 500
-// rather than `requireRoleOr401`'s re-throw.
 // fallow-ignore-next-line complexity
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);

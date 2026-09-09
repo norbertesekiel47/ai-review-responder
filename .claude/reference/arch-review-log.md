@@ -44,13 +44,25 @@ derives **Admin transport** from the request through the PRODUCTION
 cookie case's 200 without sending the header), and `admin-gate-mocks.test.ts`
 pins that none of the nine folded suites stubs `@/lib/auth/admin-mfa-gate`.
 Declared behaviour changes, both accepted directions: an `aal1` admin is refused
-`mfa_required` on all nine reads and on the six pages (safe only because #1182
-put `MFA_ENFORCEMENT_ENABLED=true` on staging AND production, so the proxy
-offers the step-up), and a non-auth failure is the gate's clean `internal_error`
-500 instead of `requireRoleOr401`'s re-throw — `costs`'s hand-written catch,
-which answered 401 for ANY non-`AuthError`, is deleted with it. Nothing else is
-unified onto the gate. The merge counter is unchanged until this branch is
-merged.
+`mfa_required` on all nine reads and on the six pages, and a non-auth failure is
+the gate's clean `internal_error` 500 instead of `requireRoleOr401`'s re-throw —
+`costs`'s hand-written catch, which answered 401 for ANY non-`AuthError`, is
+deleted with it. Nothing else is unified onto the gate.
+
+**The first of those is only safe because `MFA_ENFORCEMENT_ENABLED` is on in
+BOTH environments, and that fact must be read from the environment rather than
+from this repo.** #1182's resolution comment (2026-09-08T23:35Z) records the
+owner running the production half directly, from a production-scoped shell,
+AFTER PR #1216 merged — so `env-vars.md:653`, the #1182 entry below, and commit
+`cca34475` all predate it and all still say staging only. Verified live for this
+branch instead: `vercel env ls production` shows `MFA_ENFORCEMENT_ENABLED` on the
+Production environment created that day (value stored Encrypted, so the listing
+proves presence and creation time; the value is attested by the owner's
+password + TOTP sign-in rendering `/admin/overview` on production). A red-team
+pass raised the stale documents as a P0 against this entry, which is the correct
+instinct and the reason the sentence now names its evidence. Correcting
+`env-vars.md` is its own ticket. The merge counter is unchanged until this branch
+is merged.
 
 2026-09-08 — **feat/1186-admin-api-cors (pre-merge):** CORS for the **Admin API**
 (#1186, ADR 0026), the last edge-level blocker on the admin split. Nothing in this

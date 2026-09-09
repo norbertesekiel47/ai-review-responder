@@ -10,8 +10,18 @@
 // in plus a `loadAppUser` stand-in, byte-identical in all twenty-two, verified by
 // hash. #1183's resolution comment names both the debt and its miss mode: a shim
 // that drifts, or is pasted slightly wrong, produces a suite whose 401/403
-// assertions pass while no authorization code runs at all. #1184 adds seven more
-// consumers, so the logic gets ONE owner instead of a twenty-ninth copy.
+// assertions pass while no authorization code runs at all. #1184 adds more
+// consumers, so the logic gets ONE owner instead of another copy.
+//
+// WHAT THIS HELPER DOES AND DOES NOT PROVE. It gives a suite a faithful stand-in
+// for the gate's dependencies; it does not verify a credential, because nothing
+// here parses a token. The identity a suite configures is the identity the gate
+// sees. The real seam and the real refusal contract are proven WITHOUT this helper
+// by `src/lib/auth/__tests__/{admin-mfa-gate,verified-identity,admin-transport-seam}.test.ts`,
+// which is what keeps its consumers from becoming the only — and therefore
+// circular — evidence that admin authorization works. (Count them with
+// `rg -l admin-gate-mocks src | wc -l` rather than trusting a number written
+// here: every figure of that kind in this file's history has gone stale.)
 //
 // HOW TO CONSUME IT. `vi.mock` factories are hoisted ABOVE imports, so a plain
 // top-level import of this module referenced from a factory is a TDZ error at
@@ -31,16 +41,13 @@
 //   vi.mock('@/lib/auth/mfa', () => ({
 //     requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 //   }));
-//   vi.mock('@/lib/db/auth', () => ({
-//     requireRole: mockRequireRole,
-//     loadAppUser: mockLoadAppUser,
-//     cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
-//     AuthError: /* the suite's own class */,
-//   }));
+//   vi.mock('@/lib/db/auth', () => adminAuthModuleMock(mockRequireRole, mockLoadAppUser));
 //
-// The `@/lib/db/auth` factory stays per-suite on purpose: its OTHER members differ
-// (some suites need `AuthError` as a local class, some re-export more), and this
-// helper owns the gate LOGIC, not every suite's mock surface.
+// A suite whose `@/lib/db/auth` mock genuinely needs more members spreads that
+// result and adds them. An earlier version of this note claimed the factory had to
+// stay per-suite because "its OTHER members differ"; the standards review measured
+// it and found ten suites spelling the identical four members with `AuthError`
+// re-declared in each, so the claim was false and `adminAuthModuleMock` replaced it.
 //
 // WHAT IT MUST NOT DO. It may not import `@/lib/db/auth` or
 // `@/lib/auth/verified-identity` at runtime — it stands in for both, and importing
@@ -50,6 +57,22 @@
 import { vi, type Mock } from 'vitest';
 import { isBearerRequest } from '@/lib/auth/admin-transport';
 import type { AdminTransport } from '@/lib/auth/admin-transport';
+import type { VerifiedIdentity } from '@/lib/auth/verified-identity';
+
+/**
+ * The `AuthError` suites construct to drive the gate's refusal arms
+ * (`new AuthError('Forbidden', 403)`). A real class, because the shim reads
+ * `statusCode` off what `mockRequireRole` rejects with.
+ */
+export class AuthError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = 'AuthError';
+  }
+}
 
 /** The two suite-facing controls, plus the two stand-ins the gate consumes. */
 export interface AdminGateMocks {
@@ -135,28 +158,60 @@ export function makeAdminGateMocks(): AdminGateMocks {
     }
   });
 
-  const mockResolveDualModeIdentity: Mock = vi.fn(async (request: unknown) => {
-    try {
-      await mockRequireRole(request, 'admin');
-    } catch (err) {
-      const status = (err as { statusCode?: number } | null)?.statusCode;
-      if (status === 401) return null; // no live credential → the gate's 401
-      if (status !== 403) throw err; // a real fault → the gate's 500
-      // 403 is "authenticated but not an admin"; loadAppUser reports that.
-    }
+  // The return type is the REAL `VerifiedIdentity`, not an inline literal: this
+  // function stands in for `resolveDualModeIdentity`, and an untyped literal lets
+  // the seam's shape drift away from its stand-in silently across 30 suites.
+  const mockResolveDualModeIdentity: Mock = vi.fn(
+    async (request: unknown): Promise<VerifiedIdentity | null> => {
+      try {
+        await mockRequireRole(request, 'admin');
+      } catch (err) {
+        const status = (err as { statusCode?: number } | null)?.statusCode;
+        if (status === 401) return null; // no live credential → the gate's 401
+        if (status !== 403) throw err; // a real fault → the gate's 500
+        // 403 is "authenticated but not an admin"; loadAppUser reports that.
+      }
 
-    const aal = aalFrom((await mockRequireCurrentAal2FromSupabase()) as AalAnswer | null);
-    const transport: AdminTransport = isBearerRequest(request as { headers: Headers })
-      ? 'bearer'
-      : 'cookie';
+      const aal = aalFrom((await mockRequireCurrentAal2FromSupabase()) as AalAnswer | null);
+      const transport: AdminTransport = isBearerRequest(request as { headers: Headers })
+        ? 'bearer'
+        : 'cookie';
 
-    return { authUserId: 'auth-1', aal, transport };
-  });
+      return { authUserId: 'auth-1', aal, transport };
+    },
+  );
 
   return {
     mockRequireRole,
     mockRequireCurrentAal2FromSupabase,
     mockLoadAppUser,
     mockResolveDualModeIdentity,
+  };
+}
+
+/**
+ * The `vi.mock('@/lib/db/auth', …)` factory body every folded admin read suite
+ * needs, spelled once.
+ *
+ * Ten suites had pasted these four members verbatim, `AuthError` re-declared in
+ * each — 140 lines of exactly the duplication this helper exists to retire. The
+ * shim's original note said their OTHER members differ; for these ten that was
+ * simply not true, and the standards review caught it.
+ *
+ *   vi.mock('@/lib/db/auth', () => adminAuthModuleMock(mockRequireRole, mockLoadAppUser));
+ *
+ * A suite that genuinely needs more spreads the result and adds them.
+ */
+export function adminAuthModuleMock(
+  mockRequireRole: Mock,
+  mockLoadAppUser: Mock,
+): Record<string, unknown> {
+  return {
+    requireRole: mockRequireRole,
+    loadAppUser: mockLoadAppUser,
+    // The gate's identity seam builds a cookie-backed client; the suites that
+    // reach it only need the shape, never a real client.
+    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
+    AuthError,
   };
 }

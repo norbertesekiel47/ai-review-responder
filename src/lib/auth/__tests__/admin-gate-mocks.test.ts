@@ -2,11 +2,15 @@
 //
 // Two jobs, and the second is the reason this file exists at all.
 //
-// 1. The shared gate-dependency shim is now the single owner of a mapping 29 admin
-//    route suites depend on. A shim that quietly answers "admin, aal2" for every
-//    input turns every 401/403 assertion in those suites green while proving
-//    nothing, so the mapping gets its own tests rather than being verified only
-//    through the suites that trust it.
+// 1. The shared gate-dependency shim is now the single owner of a mapping that every
+//    admin route suite which imports it depends on — plus
+//    `src/lib/admin/__tests__/denorm-queries.test.ts`. Deliberately no count here:
+//    #1184 alone moved it twice, so a number in prose is a claim that goes stale
+//    between tickets while still reading as verified. `CONSUMER_SPECIFIER` below is
+//    the thing to grep when you want today's list. A shim that quietly answers
+//    "admin, aal2" for every input turns every 401/403 assertion in those suites
+//    green while proving nothing, so the mapping gets its own tests rather than
+//    being verified only through the suites that trust it.
 //
 // 2. THE ANTI-VACUITY PIN. #1184's whole claim is that the nine folded Admin API
 //    reads are now protected by `requireAdminWithAal2`. A suite that stubs
@@ -166,6 +170,26 @@ const FOLDED_SUITES = [
   'src/app/api/admin/overview/__tests__/route.test.ts',
 ] as const;
 
+/**
+ * The import specifier a folded suite must actually carry. Matching the bare string
+ * `admin-gate-mocks` was satisfied by a suite's own header PROSE — every one of the
+ * nine mentions the shim by name in a comment — so the check passed on a suite that
+ * had stopped importing it. The specifier, quotes included, is the import.
+ */
+const CONSUMER_SPECIFIER = "'@/lib/auth/__tests__/helpers/admin-gate-mocks'";
+
+/**
+ * WHAT THIS PIN CANNOT SEE. It is a text scan, so it catches the shape a suite would
+ * plausibly regress into and nothing cleverer: a computed specifier
+ * (`vi.mock(GATE, …)`), a path alias that resolves to the same module under another
+ * name, or a mock installed from an imported setup file all read as clean here. That
+ * limit is recorded rather than closed — closing it means resolving modules, which is
+ * a mechanism this ticket did not ask for. The pin is a guardrail against drift, not
+ * a proof that no suite can ever stub the gate.
+ */
+const GATE_STUB = /vi\.(?:mock|doMock)\(\s*['"]@\/lib\/auth\/admin-mfa-gate['"]/;
+const RELATIVE_GATE_STUB = /vi\.(?:mock|doMock)\(\s*['"][./]+[^'"]*admin-mfa-gate['"]/;
+
 function readSuite(relative: string): string {
   return readFileSync(join(process.cwd(), relative), 'utf8');
 }
@@ -176,9 +200,12 @@ describe('the nine folded admin read suites exercise the REAL gate', () => {
 
     // Stubbing the gate would let the suite assert 401/403/200 with no
     // authorization code running: the refusals would be values it invented.
-    expect(text).not.toMatch(/vi\.mock\(\s*['"]@\/lib\/auth\/admin-mfa-gate['"]/);
-    // A relative specifier resolving to the same module is the same hole.
-    expect(text).not.toMatch(/vi\.mock\(\s*['"][./]+[^'"]*admin-mfa-gate['"]/);
+    // `vi.doMock` is the same hole spelled lazily — it is not hoisted, so a suite
+    // reaching for it after a dynamic `import('../route')` gets exactly the stub
+    // `vi.mock` would have given it.
+    expect(text).not.toMatch(GATE_STUB);
+    // A relative specifier resolving to the same module is the same hole again.
+    expect(text).not.toMatch(RELATIVE_GATE_STUB);
   });
 
   it.each(FOLDED_SUITES)('%s drives the gate through the shared shim', (relative) => {
@@ -187,7 +214,7 @@ describe('the nine folded admin read suites exercise the REAL gate', () => {
     // The other half of the same guarantee: the suite reaches the gate's
     // dependencies through the one owner, so a future change to the mapping
     // reaches all nine instead of drifting in eight of them.
-    expect(text).toContain('admin-gate-mocks');
+    expect(text).toContain(CONSUMER_SPECIFIER);
     expect(text).toContain('makeAdminGateMocks');
     expect(text).toMatch(/vi\.mock\(\s*['"]@\/lib\/auth\/verified-identity['"]/);
   });

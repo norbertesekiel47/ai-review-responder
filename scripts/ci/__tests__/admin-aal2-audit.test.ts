@@ -11,10 +11,13 @@ import {
   resolveSpecifier,
   pageRoutePath,
   siblingRouteFile,
+  siblingRouteCandidates,
   collectRouteFiles,
   collectAdminPageFiles,
   auditRoutes,
   auditPages,
+  auditCoverageFailures,
+  type AuditPass,
   type PageScanContext,
 } from '../admin-aal2-audit';
 
@@ -790,10 +793,15 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
     mkdirSync(join(admin, 'businesses'), { recursive: true });
     mkdirSync(join(admin, 'channels', 'telegram', 'start'), { recursive: true });
     mkdirSync(join(admin, 'channels', 'telegram', '__tests__'), { recursive: true });
+    mkdirSync(join(admin, 'legacy'), { recursive: true });
 
     writeFileSync(join(admin, 'businesses', 'route.ts'), 'export const POST = 1;');
     writeFileSync(join(admin, 'channels', 'telegram', 'start', 'route.ts'), 'export const POST = 1;');
-    // Must be ignored: not named route.ts.
+    // Next.js routes route.{ts,tsx,js,jsx} and this repo sets no pageExtensions
+    // override, so a .js route is a REAL admin route — matching the exact
+    // filename `route.ts` enforced a convention the framework does not.
+    writeFileSync(join(admin, 'legacy', 'route.js'), 'export const POST = 1;');
+    // Must be ignored: not a route file at all.
     writeFileSync(join(admin, 'businesses', 'helpers.ts'), 'export const x = 1;');
     // Must be ignored: test directories are deliberately out of scope, and their
     // fixtures contain route-shaped strings that would produce phantom findings.
@@ -801,8 +809,10 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
 
     const pages = join(root, 'src', 'app', 'admin');
     mkdirSync(join(pages, 'jobs'), { recursive: true });
+    mkdirSync(join(pages, 'legacy'), { recursive: true });
     mkdirSync(join(pages, 'flagged', '__tests__'), { recursive: true });
     writeFileSync(join(pages, 'jobs', 'page.tsx'), 'export default function P() {}');
+    writeFileSync(join(pages, 'legacy', 'page.js'), 'export default function P() {}');
     writeFileSync(join(pages, 'layout.tsx'), 'export default function L() {}');
     writeFileSync(join(pages, 'flagged', '__tests__', 'page.tsx'), 'export default function P() {}');
   });
@@ -811,17 +821,18 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('collects every route.ts under the tree, relative to root', async () => {
+  it('collects every routable route file under the tree, relative to root', async () => {
     const out: string[] = [];
     await collectRouteFiles(join(root, 'src', 'app', 'api', 'admin'), root, out);
 
     expect(out.sort()).toEqual([
       join('src', 'app', 'api', 'admin', 'businesses', 'route.ts'),
       join('src', 'app', 'api', 'admin', 'channels', 'telegram', 'start', 'route.ts'),
+      join('src', 'app', 'api', 'admin', 'legacy', 'route.js'),
     ]);
   });
 
-  it('skips __tests__ directories and non-route.ts files', async () => {
+  it('skips __tests__ directories and files that are not route files', async () => {
     const out: string[] = [];
     await collectRouteFiles(join(root, 'src', 'app', 'api', 'admin'), root, out);
 
@@ -837,11 +848,125 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
     expect(out).toEqual([]);
   });
 
-  it('collects page.tsx only — not layout.tsx, not __tests__ fixtures', async () => {
+  it('collects every routable page file — not layout.tsx, not __tests__ fixtures', async () => {
     const out: string[] = [];
     await collectAdminPageFiles(join(root, 'src', 'app', 'admin'), root, out);
 
-    expect(out).toEqual([join('src', 'app', 'admin', 'jobs', 'page.tsx')]);
+    expect(out.sort()).toEqual([
+      join('src', 'app', 'admin', 'jobs', 'page.tsx'),
+      join('src', 'app', 'admin', 'legacy', 'page.js'),
+    ]);
+    expect(out.some((p) => p.endsWith('layout.tsx'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A route is a CONVENTION, not a filename (#1184 review, F2)
+// ---------------------------------------------------------------------------
+//
+// Next.js routes route.{ts,tsx,js,jsx} and page.{tsx,ts,jsx,js}, and
+// next.config.mjs sets no `pageExtensions` override to narrow that. An ungated
+// src/app/api/admin/example/route.js was invisible to the collector — and
+// produced no traversal error either, so nothing anywhere said the audit had
+// skipped a route.
+describe('routable extensions — a .js route is scanned and a .js sibling anchors P2', () => {
+  let root: string;
+
+  beforeAll(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'aal2-ext-')));
+
+    const api = join(root, 'src', 'app', 'api', 'admin');
+    mkdirSync(join(api, 'legacy'), { recursive: true });
+    mkdirSync(join(api, 'flagged'), { recursive: true });
+    // An ungated GET in a .js route file — the shape that used to be invisible.
+    writeFileSync(
+      join(api, 'legacy', 'route.js'),
+      [
+        "import { requireRoleOr401 } from '@/lib/db/auth';",
+        'export async function GET(request) {',
+        "  await requireRoleOr401(request, 'admin');",
+        '  return Response.json({});',
+        '}',
+      ].join('\n'),
+    );
+    // An AAL2-gated GET in a .js route file — the P2 parity anchor for the page
+    // below, which only resolves if the sibling lookup tries every extension.
+    writeFileSync(
+      join(api, 'flagged', 'route.js'),
+      [
+        "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';",
+        'export async function GET(request) {',
+        '  const gate = await requireAdminWithAal2(request);',
+        '  return gate.ok ? Response.json({}) : gate.response;',
+        '}',
+      ].join('\n'),
+    );
+
+    const pages = join(root, 'src', 'app', 'admin');
+    mkdirSync(join(pages, 'flagged'), { recursive: true });
+    writeFileSync(
+      join(pages, 'flagged', 'page.tsx'),
+      [
+        "import { requireAdminPage } from '@/lib/auth/page-gate';",
+        'export default async function P() {',
+        "  await requireAdminPage(sql, { from: '/admin/flagged' });",
+        '  return null;',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('auditRoutes scans a route.js and reports its ungated GET', async () => {
+    const pass = await auditRoutes(root);
+    expect(pass.files).toHaveLength(2);
+    expect(pass.traversalErrors).toEqual([]);
+
+    const legacy = pass.findings.filter((f) => f.includes(join('legacy', 'route.js')));
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0]).toContain('handler GET must use requireAdminWithAal2');
+  });
+
+  it('auditPages anchors P2 on a route.js sibling', async () => {
+    // Without the extension sweep the lookup misses route.js, the anchor comes
+    // back null, and this under-gated page passes P2 vacuously.
+    const pass = await auditPages(root, new Set<string>());
+    expect(pass.findings).toHaveLength(1);
+    expect(pass.findings[0]).toContain('{ aal2: true }');
+    // The message keeps naming the CANONICAL spelling — route.ts is the
+    // extension every route in this repo uses and the one a reader should add.
+    expect(pass.findings[0]).toContain('src/app/api/admin/flagged/route.ts');
+  });
+
+  it('siblingRouteCandidates lists every routable spelling, canonical first', () => {
+    expect(siblingRouteCandidates('src/app/admin/flagged/page.tsx')).toEqual([
+      'src/app/api/admin/flagged/route.ts',
+      'src/app/api/admin/flagged/route.tsx',
+      'src/app/api/admin/flagged/route.js',
+      'src/app/api/admin/flagged/route.jsx',
+    ]);
+  });
+
+  it('scanAdminPageFile and pageRoutePath read a page.js the collector now hands them', () => {
+    expect(pageRoutePath('src/app/admin/legacy/page.js')).toBe('/admin/legacy');
+    const findings = scanAdminPageFile('src/app/admin/legacy/page.js', 'export default function P() {}', {
+      preAuthPaths: new Set<string>(),
+      siblingGetRequiresAal2: null,
+    });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('must call requireAdminPage');
+  });
+
+  it('layout.tsx is still out of scope for the page contract', () => {
+    expect(
+      scanAdminPageFile('src/app/admin/layout.tsx', 'export default function L() {}', {
+        preAuthPaths: new Set<string>(),
+        siblingGetRequiresAal2: null,
+      }),
+    ).toEqual([]);
   });
 });
 
@@ -955,6 +1080,10 @@ describe('auditRoutes / auditPages — the composed passes', () => {
     expect(pass.findings).toHaveLength(1);
     expect(pass.findings[0]).toContain('src/app/admin/flagged/page.tsx');
     expect(pass.findings[0]).toContain('{ aal2: true }');
+  });
+
+  it('the coverage floor holds for this healthy pass — no fatal messages', async () => {
+    expect(auditCoverageFailures(await auditRoutes(root), await auditPages(root, new Set(['/admin/login'])))).toEqual([]);
   });
 
   it('auditPages flags a pre-auth page once it is no longer exempt (the derivation is load-bearing)', async () => {
@@ -1270,5 +1399,196 @@ describe('scanRouteFile — the widened ROUTES contract (#1184)', () => {
     const findings = scanRouteFile(adminPath, text);
     expect(findings).toHaveLength(1);
     expect(findings[0]).toContain('admin route must not reference resolveOwnerActor');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Handler DISCOVERY must be exhaustive, or the widened verb list guarantees
+// nothing (#1184 review, F1)
+// ---------------------------------------------------------------------------
+//
+// The verb list decides which handlers are BOUND by the contract; the export
+// index decides which handlers the audit can SEE. Two export forms Next.js
+// routes contributed nothing to that index, so a callable, ungated GET could
+// exist while the file scanned clean:
+//
+//   `export * from './handlers'`      — an ExportDeclaration with no named
+//                                       clause, re-exporting names from a file
+//                                       this audit never opens.
+//   `export const { GET } = handlers` — a declaration whose name is a
+//                                       BindingPattern, which the local/export
+//                                       reader skipped by name.
+//
+// Neither is caught by the zero-handler early-out (which reads the same empty
+// index) and neither is saved by a compliant sibling. Both are now reported
+// BEFORE the handler filter: a file this audit cannot fully read is not
+// certifiable, the same posture the re-export case already took.
+describe('scanRouteFile — export forms the index cannot read (#1184 F1)', () => {
+  const adminPath = 'src/app/api/admin/example/route.ts';
+  const GATE_IMPORT = "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';";
+
+  it('a wildcard re-export ALONE is a FINDING', () => {
+    const findings = scanRouteFile(adminPath, "export * from './handlers';");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain(adminPath);
+    expect(findings[0]).toContain('export *');
+    expect(findings[0]).toContain('cannot resolve');
+    expect(findings[0]).toContain('requireAdminWithAal2');
+  });
+
+  it('a wildcard re-export BESIDE a correctly gated POST is STILL a FINDING', () => {
+    // The early-out cannot fire here — the file is not zero-handler — and the
+    // gated POST is exactly the cover an attacker would arrange. The GET the
+    // wildcard drags in is never seen by either rule.
+    const text = [
+      GATE_IMPORT,
+      "export * from './handlers';",
+      '',
+      'export async function POST(request: Request) {',
+      '  const gate = await requireAdminWithAal2(request);',
+      '  if (!gate.ok) return gate.response;',
+      '  return Response.json({ ok: true });',
+      '}',
+    ].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('export *');
+  });
+
+  it('a NAMESPACE re-export is a FINDING', () => {
+    const findings = scanRouteFile(adminPath, "export * as handlers from './handlers';");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('export * as ns');
+  });
+
+  it('`export const { GET } = handlers` is a FINDING (object destructuring)', () => {
+    const text = ["import { handlers } from './handlers';", 'export const { GET } = handlers;'].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('export const { GET }');
+  });
+
+  it('`export const [GET] = handlers` is a FINDING (array destructuring)', () => {
+    const text = ["import { handlers } from './handlers';", 'export const [GET] = handlers;'].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('export const [GET]');
+  });
+
+  it('a NAMED export clause with no module specifier still RESOLVES and is NOT a finding', () => {
+    // The behaviour that must not regress while closing the two holes above:
+    // `export { createBusiness as POST }` is a named clause the index resolves
+    // through the local table, and it is how the shipped tree exports handlers.
+    const text = [
+      GATE_IMPORT,
+      '',
+      'async function createBusiness(request: NextRequest) {',
+      '  const gate = await requireAdminWithAal2(request);',
+      '  return gate.ok ? Response.json({}) : gate.response;',
+      '}',
+      '',
+      'export { createBusiness as POST };',
+    ].join('\n');
+    expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+  });
+
+  it('a NON-exported destructuring declaration is not reported — it can only cost evidence', () => {
+    // Failing toward a finding is safe; failing toward silence is not. A local
+    // destructure that hides a gate produces the ordinary ungated-handler
+    // finding, so there is nothing to widen the unreadable-form rule for.
+    const text = [
+      GATE_IMPORT,
+      "const { helper } = await import('./helpers');",
+      '',
+      'export async function GET(request: Request) {',
+      '  const gate = await requireAdminWithAal2(request);',
+      '  if (!gate.ok) return gate.response;',
+      '  return Response.json({ ok: true });',
+      '}',
+    ].join('\n');
+    expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+  });
+
+  it('a type-only wildcard re-export is not a finding — it routes nothing', () => {
+    const text = [
+      GATE_IMPORT,
+      "export type * from './types';",
+      'export async function GET(request: Request) {',
+      '  const gate = await requireAdminWithAal2(request);',
+      '  if (!gate.ok) return gate.response;',
+      '  return Response.json({ ok: true });',
+      '}',
+    ].join('\n');
+    expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+  });
+
+  it('the unreadable-form rule is scoped to admin routes like every other rule', () => {
+    expect(scanRouteFile('src/app/api/owner/reviews/route.ts', "export * from './handlers';")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The anti-vacuity floor (#1184 review, F3)
+// ---------------------------------------------------------------------------
+//
+// "Nothing is ungated" and "nothing I could see is ungated" are different
+// claims, and since #1184 the ROUTES contract is the compensating control that
+// lets a bearer reach a route with the gate as its only check (ADR 0025 D6) —
+// so a pass that inspected nothing must be fatal, not quiet.
+//
+// The decision used to live inside a non-exported helper that called
+// process.exit(1), which made it untestable: deleting all three conditions left
+// the suite green. It is a pure function now, and these are the covering tests.
+describe('auditCoverageFailures — the audit may only report clean about a tree it read', () => {
+  const pass = (over: Partial<AuditPass> = {}): AuditPass => ({
+    files: ['src/app/api/admin/flagged/route.ts'],
+    findings: [],
+    traversalErrors: [],
+    ...over,
+  });
+
+  it('a healthy pass returns NO fatal messages', () => {
+    expect(auditCoverageFailures(pass(), pass())).toEqual([]);
+  });
+
+  it('a traversal error is fatal and names the directory it could not read', () => {
+    const failures = auditCoverageFailures(
+      pass({ traversalErrors: [{ dir: '/repo/src/app/api/admin/locked', error: new Error('EACCES') }] }),
+      pass(),
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('could not read every admin directory');
+    expect(failures[0]).toContain('/repo/src/app/api/admin/locked');
+  });
+
+  it('a traversal error on the PAGES pass is fatal too', () => {
+    const failures = auditCoverageFailures(
+      pass(),
+      pass({ traversalErrors: [{ dir: '/repo/src/app/admin/locked', error: new Error('EACCES') }] }),
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('/repo/src/app/admin/locked');
+  });
+
+  it('zero route files is fatal', () => {
+    const failures = auditCoverageFailures(pass({ files: [] }), pass());
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('collected 0 admin route files from src/app/api/admin');
+  });
+
+  it('zero pages is fatal', () => {
+    const failures = auditCoverageFailures(pass(), pass({ files: [] }));
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('collected 0 admin pages from src/app/admin');
+  });
+
+  it('every condition is reported, not just the first', () => {
+    // Each condition is a separate way the run was vacuous, and an operator
+    // reading the failure should see all of them in one run.
+    const failures = auditCoverageFailures(
+      pass({ files: [], traversalErrors: [{ dir: '/repo/src/app/api/admin', error: new Error('EACCES') }] }),
+      pass({ files: [] }),
+    );
+    expect(failures).toHaveLength(3);
   });
 });

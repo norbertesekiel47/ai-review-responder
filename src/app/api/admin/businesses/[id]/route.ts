@@ -18,22 +18,18 @@ export const dynamic = 'force-dynamic';
 // ---------------------------------------------------------------------------
 // GET /api/admin/businesses/[id] — business detail + reviews + latest responses
 //
-// #1184 (ADR 0025 D5): folded onto the admin control-plane gate PATCH below
-// already used, so this read requires AAL2 and accepts either Admin transport. An
-// aal1 admin is now refused `mfa_required` where it was served, and a non-auth
-// failure is the gate's clean `internal_error` 500 rather than
-// `requireRoleOr401`'s re-throw.
+// #1184: GET and PATCH now end on the same gate.
 // ---------------------------------------------------------------------------
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const { id: rawBusinessId } = await params;
-  const businessId: LocationId = asLocationId(rawBusinessId);
-
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
+
+  const { id: rawBusinessId } = await params;
+  const businessId: LocationId = asLocationId(rawBusinessId);
 
   try {
     const detail = await getBusinessDetail(sql, businessId);

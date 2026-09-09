@@ -21,12 +21,8 @@ import { getBusinessChannelEnrollments } from '@/lib/admin/business-channels-ser
 // admin business detail API at src/app/api/admin/businesses/[id]/route.ts:7.
 export const dynamic = 'force-dynamic';
 
-// #1184 (ADR 0025 D5): folded onto the admin control-plane gate, so this read requires
-// AAL2 and accepts either Admin transport; an aal1 admin is now refused `mfa_required`.
-// The gate is now the FIRST statement — it used to run after `await params` +
-// `asLocationId`, so a malformed id could answer an unauthenticated caller differently
-// from a well-formed one. This handler never had a catch, so the gate's clean
-// `internal_error` 500 is new behaviour here rather than a replacement.
+// Convention: the gate is the FIRST statement, so the handler does no work at all —
+// not even reading `params` — before the caller is authorized.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
