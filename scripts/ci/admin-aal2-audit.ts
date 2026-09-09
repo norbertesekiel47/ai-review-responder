@@ -10,11 +10,34 @@
 //
 // It enforces two contracts:
 //
-//   ROUTES (src/app/api/admin/**/route.ts) — every EXPORTED state-mutating
-//   handler (POST | PUT | PATCH | DELETE) must reach an admin MFA gate: a CALL
-//   to `requireAdminWithAal2`, a CALL to `requireAdminJson` (which composes it —
-//   see GATE_JSON_FN, added by #909), or a binding of `resolveAdminActor` (whose
-//   own first act is that call). Per HANDLER, not per file.
+//   ROUTES (src/app/api/admin/**/route.ts) — every EXPORTED handler, of ANY
+//   HTTP verb (GET | HEAD | POST | PUT | PATCH | DELETE | OPTIONS), must reach
+//   an admin MFA gate: a CALL to `requireAdminWithAal2`, a CALL to
+//   `requireAdminJson` (which composes it — see GATE_JSON_FN, added by #909),
+//   or a binding of `resolveAdminActor` (whose own first act is that call).
+//   Per HANDLER, not per file.
+//
+//   #1184 WIDENED THIS FROM THE MUTATION VERBS TO EVERY VERB, and the widening
+//   is a compensating control rather than tidiness. ADR 0025 D6 lets a bearer
+//   request pass STRAIGHT THROUGH src/proxy.ts branch 4 so the route gate can
+//   be the only admin check — the proxy is deliberately not taught to verify
+//   tokens, because a second verifier on the Edge drifts from this one. What
+//   makes "the only check" acceptable is that "every Admin API handler calls a
+//   gate this audit has vetted" stops being a convention and becomes a
+//   CI-enforced fact, which is what this contract now says (ADR 0025 D5).
+//
+//   THE ALLOWLIST DID NOT GROW WITH IT. Widening the SET OF HANDLERS bound by
+//   a fail-closed rule tightens the guarantee; widening the SET OF SHAPES that
+//   satisfy it would loosen the guarantee. Those are opposite acts and only the
+//   first happened here — the three credited shapes and their provenance check
+//   are exactly what they were.
+//
+//   HEAD and OPTIONS are bound even though no admin route exports either
+//   today. CORS preflight is answered in src/proxy.ts (#1186, ADR 0026 D1) and
+//   never reaches a handler, so binding them costs nothing now and makes a
+//   future admin OPTIONS export a deliberate review moment rather than an
+//   invisible front door. Both are pinned by fixtures, because a verb the tree
+//   does not use is a verb a wrong list can silently omit.
 //
 //   PAGES (src/app/admin/**/page.tsx) — read-gate parity with the sibling API
 //   route. See "The page contract" below.
@@ -33,10 +56,13 @@
 //      the whole file, so a compliant `export async function GET` calling the
 //      gate cleared a sibling `export const POST` that bound the owner
 //      resolver. Mixed-verb admin routes are the normal App Router shape and
-//      this repo has them (`src/app/api/admin/businesses/route.ts` — plain-admin
-//      GET, AAL2 POST; `businesses/[id]/route.ts` — same). Closed by resolving
-//      each exported mutation handler independently and searching only the
-//      declarations REACHABLE from that handler.
+//      this repo has them (`src/app/api/admin/businesses/route.ts` and
+//      `businesses/[id]/route.ts` each export a GET beside a mutation; both
+//      verbs end on the gate since #1184, but the two are still resolved
+//      SEPARATELY — a gated GET must never clear an ungated sibling, which is
+//      the property that survives the fold). Closed by resolving each exported
+//      handler independently and searching only the declarations REACHABLE
+//      from that handler.
 //
 //   2. AN UNUSED IMPORT SATISFIED THE ALLOW RULE. `import { requireAdminWithAal2 }`
 //      at the top of a file cleared every handler in it, even after the real
@@ -94,9 +120,18 @@
 // The page contract: read-gate PARITY, not "pages need AAL2"
 // ---------------------------------------------------------------------------
 //
-// `requireAdminPage`'s `aal2` parameter (src/lib/auth/page-gate.ts:41) DEFAULTS
-// TO FALSE and 8 of 16 gated admin pages opt in. Nothing watched either way.
-// The rule below is DERIVED from what the tree actually does, not imposed:
+// `requireAdminPage`'s `aal2` parameter (src/lib/auth/page-gate.ts) DEFAULTS TO
+// FALSE, and before this audit existed nothing watched either way. The rule
+// below is DERIVED from what the tree actually does, not imposed.
+//
+// The tree at #1184: of the 18 non-pre-auth admin pages, 17 gate through
+// `requireAdminPage` and 15 of those pass `aal2: true`; the 18th
+// (impersonate/[sessionId]/view) steps up through its own
+// `requireCurrentAal2FromSupabase` shape, and the two that stay plain are
+// /admin/security and /admin/runbook. This sentence read "8 of 16" until
+// red-team round 3 (R3-F2): #1184's six page flips moved the ratio and left the
+// sentence that DERIVES rule P2 describing the pre-fold tree. Recount from the
+// tree when you change a page gate — never adjust the number by arithmetic.
 //
 //   P1 (floor). Every `src/app/admin/**/page.tsx` must call a recognized admin
 //   page gate — `requireAdminPage`, or `requireCurrentAal2FromSupabase` for the
@@ -124,36 +159,93 @@
 // requireAdminWithAal2 on the routes this page calls" (suppressions).
 //
 // WHAT P2 IS DELIBERATELY NOT. It is NOT "a page that renders a mutation
-// surface must be AAL2". That rule is FALSE here and pinning it would flag a
-// correct page: `/admin/businesses/[id]` hosts five mutation surfaces (PATCH
-// business, POST resend-invite / ranking / zernio-queue / grant-extension, PUT
-// keywords) whose routes are ALL AAL2-gated, and the page is deliberately
-// `aal2: false` with the reason recorded — "Gate parity with GET
-// /api/admin/businesses/[id] — plain admin role, no AAL2." Mutations are not
-// the page's job: every admin mutation route enforces its own gate, which is
-// exactly what the ROUTE half of this audit exists to keep true. A form-hosting
-// page MAY still opt into `aal2: true` as a UX affordance — step up before the
-// form is filled in rather than after, which businesses/new, locations/csv-import,
-// impersonate and demos each say in a comment — and that is a SUPERSET of the
-// requirement, never a finding.
+// surface must be AAL2". That rule is FALSE here, and the ROUTE half of this
+// audit is exactly why: every admin mutation route enforces its own gate, so a
+// page hosting a form protects nothing by stepping up — the form's POST is
+// gated whether the page was or not. P2 is about the page's OWN read, which
+// bypasses the route entirely (a server page queries `sql` directly), and its
+// only question is whether that read is weaker than the route's.
 //
-// Verified against the tree at the time of writing: P1 and P2 hold in BOTH
-// directions for all 21 admin pages with zero findings and zero allowlist
-// entries. Every page with a sibling GET route matches its gate exactly.
+// The tree's live proof of the difference is `/admin/businesses/new`: it hosts
+// the onboarding form, has NO sibling `route.ts` and therefore no parity anchor
+// at all, and passes `aal2: true` anyway as a UX affordance — step up before
+// the form is filled in rather than after. That is a SUPERSET of the
+// requirement and never a finding. `locations/csv-import`, `impersonate` and
+// `demos` each say the same in a comment.
 //
-// RECORDED LIMITATION (P2): a page with no sibling `route.ts` has no parity
-// anchor and is checked by P1 only — /admin/autonomy (its reads live under
-// autonomy/suspensions/), /admin/security, /admin/runbook, /admin/impersonate,
-// /admin/businesses/new. All five are correct today; four are AAL2 anyway. The
-// alternative — mapping page → service module → route — was rejected as a
+// HISTORICAL NOTE, because this paragraph used to teach the rule with a
+// different example. Until #1184, `/admin/businesses/[id]` was the worked case:
+// five mutation surfaces on the page, all their routes AAL2-gated, and the page
+// itself deliberately `aal2: false` — "Gate parity with GET
+// /api/admin/businesses/[id] — plain admin role, no AAL2." #1184 folded that
+// GET onto `requireAdminWithAal2`, which FALSIFIED the recorded reason, so P2
+// moved the page to `aal2: true` along with five others. The rule did not
+// change; its anchor did. Do not resurrect the old sentence — a security audit
+// that teaches its rule with a citation that is no longer true is worse than
+// one that teaches it with none.
+//
+// Verified against the tree after #1184: P1 and P2 hold in BOTH directions for
+// all 21 admin pages with zero findings and zero allowlist entries. Every page
+// with a sibling GET route matches its gate exactly.
+//
+// RECORDED LIMITATION (P2): a page with no sibling route file has no parity
+// anchor and is checked by P1 only. SEVEN pages — /admin/autonomy (its reads
+// live under autonomy/suspensions/), /admin/security, /admin/runbook,
+// /admin/impersonate, /admin/impersonate/[sessionId]/view,
+// /admin/businesses/new, and /admin/solicitation (its reads live under
+// solicitation/batch/ and solicitation/breaker/).
+//
+// All seven are correct today, and they partition 4 + 1 + 2: FOUR pass
+// `aal2: true` to `requireAdminPage` (/admin/autonomy, /admin/impersonate,
+// /admin/businesses/new, /admin/solicitation); the impersonation VIEW steps up
+// through its own `requireCurrentAal2FromSupabase` shape; and /admin/security
+// and /admin/runbook are deliberately plain — /admin/security IS the MFA
+// enrollment surface, so requiring a step-up to reach it is the same bootstrap
+// paradox the pre-auth exemption exists for.
+//
+// DERIVE THIS LIST, never trust the prose: it is every NON-PRE-AUTH page under
+// src/app/admin whose `siblingRouteCandidates()` all miss. That clause is
+// load-bearing — without it the same walk yields TEN, because
+// /admin/{login,forgot-password,reset-password} have no sibling either and are
+// exempted by `readPreAuthAdminPaths` instead.
+//
+// #1184 found this paragraph saying "five", corrected it to "six", corrected
+// that to "seven", and had its own replacement sentence caught miscounting the
+// seven as 5 + 1 + 2. Four errors in one branch is the argument, not an
+// anecdote: a hand-maintained inventory inside a security control decays this
+// way, which is why P1's pre-auth exemption is DERIVED from src/proxy.ts and
+// never listed here.
+//
+// The alternative — mapping page → service module → route — was rejected as a
 // heuristic that fails silently in the passing direction.
 import { readFile, readdir } from 'node:fs/promises';
 import { join, posix, resolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
-/** State-mutating HTTP verbs. A route exporting one of these needs the gate. */
-const MUTATION_VERBS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
+/**
+ * Every HTTP verb Next.js will route to an exported handler. A route exporting
+ * ANY of these needs the gate (#1184 — see the ROUTES paragraph in the header
+ * for why this is the whole set and not the mutation verbs).
+ *
+ * Deliberately NOT exported. `ci:admin-contract` (#1190, ADR 0028 D2) will
+ * enumerate the same handlers to build the **Admin API contract**'s route table
+ * and must reuse this list and this file's gate resolver rather than write a
+ * second reader — two readers of the same gate shape can disagree, and a
+ * disagreement there understates a route's posture in a document a stranger
+ * codes against. #1190 adds the `export` keyword when it has that consumer; an
+ * export with no consumer in the tree is what `ci:fallow` flags (the same
+ * reason #1183 withheld `IdentityTransportError`).
+ */
+const HANDLER_VERBS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'OPTIONS',
+] as const;
 
 const GATE_FN = 'requireAdminWithAal2';
 
@@ -251,6 +343,18 @@ interface ModuleIndex {
   locals: ReadonlyMap<string, ts.Node>;
   /** Exported name → its declaration node, or null when re-exported from elsewhere. */
   exports: ReadonlyMap<string, ts.Node | null>;
+  /**
+   * Export forms this index CANNOT enumerate, one description per occurrence.
+   *
+   * A non-empty list means the export map is INCOMPLETE, which is a different
+   * claim from "this file exports no handlers" and must never be confused with
+   * it: `export * from './handlers'` and `export const { GET } = handlers` both
+   * put a callable handler on the route with nothing in `exports` to resolve.
+   * The caller reports these instead of scanning — see the fail-closed posture
+   * in the header. Same reason the re-export case yields a null export node
+   * rather than being skipped.
+   */
+  unsupportedExports: string[];
 }
 
 /** Local binding name → origin, for every NAMED import in `statement`. */
@@ -284,6 +388,43 @@ function readValueDeclarations(statement: ts.Statement): Array<[string, ts.Node]
   return declared;
 }
 
+/**
+ * The binding-pattern export forms `readValueDeclarations` cannot name, one
+ * description per declaration, for an EXPORTED variable statement.
+ *
+ * `export const { GET } = handlers` and `export const [GET] = handlers` both
+ * introduce an exported `GET` binding that Next.js routes, while the declaration
+ * name is a BindingPattern rather than an Identifier — so the loop above skips
+ * it and the export map never learns the handler exists. Non-exported
+ * destructuring is not reported: it can only cost a handler its evidence, which
+ * fails toward a finding.
+ */
+function unsupportedBindingPatterns(statement: ts.Statement): string[] {
+  if (!ts.isVariableStatement(statement)) return [];
+  return statement.declarationList.declarations
+    .filter((declaration) => !ts.isIdentifier(declaration.name))
+    .map((declaration) =>
+      ts.isArrayBindingPattern(declaration.name)
+        ? '`export const [GET] = …` (array destructuring)'
+        : '`export const { GET } = …` (object destructuring)',
+    );
+}
+
+/**
+ * The wildcard `export … from` forms, which contribute NOTHING to the export
+ * index while re-exporting whatever the target module exports — including a
+ * `GET` this audit would then never see. `export type * from` is exempt: a
+ * type-only re-export creates no runtime binding for Next.js to route.
+ */
+function unsupportedWildcardExport(statement: ts.ExportDeclaration): string | null {
+  const clause = statement.exportClause;
+  if (clause !== undefined && ts.isNamedExports(clause)) return null;
+  if (statement.isTypeOnly) return null;
+  return clause === undefined
+    ? "`export * from './handlers'` (wildcard re-export)"
+    : "`export * as ns from './handlers'` (namespace re-export)";
+}
+
 /** True when `statement` carries an `export` modifier. */
 function hasExportModifier(statement: ts.Statement): boolean {
   return (
@@ -314,11 +455,12 @@ function setAll<V>(target: Map<string, V>, entries: ReadonlyArray<readonly [stri
   for (const [key, value] of entries) target.set(key, value);
 }
 
-/** The three maps `indexModule` fills, before they are frozen into a ModuleIndex. */
+/** What `indexModule` fills, before it is frozen into a ModuleIndex. */
 interface MutableIndex {
   imports: Map<string, ImportOrigin>;
   locals: Map<string, ts.Node>;
   exports: Map<string, ts.Node | null>;
+  unsupportedExports: string[];
 }
 
 /**
@@ -332,12 +474,17 @@ function indexStatement(statement: ts.Statement, index: MutableIndex): void {
     return;
   }
   if (ts.isExportDeclaration(statement)) {
-    setAll(index.exports, readNamedExportAliases(statement, index.locals));
+    const wildcard = unsupportedWildcardExport(statement);
+    if (wildcard !== null) index.unsupportedExports.push(wildcard);
+    else setAll(index.exports, readNamedExportAliases(statement, index.locals));
     return;
   }
   const declared = readValueDeclarations(statement);
   setAll(index.locals, declared);
-  if (hasExportModifier(statement)) setAll(index.exports, declared);
+  if (hasExportModifier(statement)) {
+    setAll(index.exports, declared);
+    index.unsupportedExports.push(...unsupportedBindingPatterns(statement));
+  }
 }
 
 function indexModule(text: string, file: string | null = null): ModuleIndex {
@@ -348,7 +495,12 @@ function indexModule(text: string, file: string | null = null): ModuleIndex {
     /* setParentNodes */ true,
     ts.ScriptKind.TSX,
   );
-  const index: MutableIndex = { imports: new Map(), locals: new Map(), exports: new Map() };
+  const index: MutableIndex = {
+    imports: new Map(),
+    locals: new Map(),
+    exports: new Map(),
+    unsupportedExports: [],
+  };
   for (const statement of source.statements) indexStatement(statement, index);
   return { source, file: file === null ? null : file.replace(/\\/g, '/'), ...index };
 }
@@ -479,15 +631,33 @@ export function scanRouteFile(path: string, text: string): string[] {
   if (!normalized.includes('src/app/api/admin/')) return [];
 
   const index = indexModule(text, normalized);
-  const handlers = MUTATION_VERBS.filter((verb) => index.exports.has(verb));
+
+  // BEFORE the handler filter, because these forms are exactly the ones that
+  // make the filter lie. A file the audit cannot fully read is not certifiable:
+  // `export * from './handlers'` puts a callable, ungated GET on the route while
+  // `index.exports` stays empty, so the zero-handler early-out below would let
+  // it through — and a correctly gated sibling POST would not save it either,
+  // since the file is then not zero-handler at all. Same posture as the
+  // re-export case: an export this audit cannot resolve is reported, not skipped.
+  if (index.unsupportedExports.length > 0) {
+    return index.unsupportedExports.map(
+      (form) =>
+        `${path} [admin-aal2] admin route uses ${form}, an export form this audit cannot resolve ` +
+        `to a handler declaration — Next.js routes whatever it exports, so an ungated handler ` +
+        `would be reachable while this file scanned clean. Export each handler from this file by ` +
+        `name (\`export async function GET(request) { … }\`) and call ${GATE_FN} in it.`,
+    );
+  }
+
+  const handlers = HANDLER_VERBS.filter((verb) => index.exports.has(verb));
   if (handlers.length === 0) return [];
 
   // Deny rule first — it outranks the allowlist, so gating one handler
   // correctly cannot buy absolution for the file also naming the owner resolver.
   if (referencesOwnerResolver(index)) {
     return [
-      `${path} [admin-aal2] admin mutation route must not reference ${OWNER_RESOLVER} ` +
-        `(it runs behind requireRoleOr401 with no MFA step-up)`,
+      `${path} [admin-aal2] admin route must not reference ${OWNER_RESOLVER} ` +
+        `(it resolves the OWNER's tenant from the session, with no MFA step-up)`,
     ];
   }
 
@@ -504,7 +674,7 @@ export function scanRouteFile(path: string, text: string): string[] {
     const evidence = collectGateEvidence(index, node);
     if (evidence.callsGate || evidence.bindsAdminResolver) continue;
     findings.push(
-      `${path} [admin-aal2] mutation handler ${verb} must use ${GATE_FN} or ${GATE_JSON_FN} — no ` +
+      `${path} [admin-aal2] handler ${verb} must use ${GATE_FN} or ${GATE_JSON_FN} — no ` +
         `call to either, and no ${ADMIN_RESOLVER} binding, is reachable from this handler. A gate ` +
         'hidden behind an UNRECOGNIZED imported wrapper is not visible to this audit and does not ' +
         'count; the three recognized shapes must be imported from their canonical modules.',
@@ -515,8 +685,14 @@ export function scanRouteFile(path: string, text: string): string[] {
 
 /**
  * The AAL2 gate an exported GET handler applies, used as the parity anchor for
- * the sibling page. Same reachability walk as the mutation handlers, so a GET
+ * the sibling page. Same reachability walk `scanRouteFile` uses, so a GET
  * delegating to a local helper is read correctly.
+ *
+ * Deliberately narrower than `scanRouteFile`'s allow rule: only a GATE CALL
+ * counts, not a `resolveAdminActor` binding. The resolver is a mutation-route
+ * shape (it reads `businessId` from the request BODY) and no admin GET binds it,
+ * so crediting it here would widen the parity anchor on a case that does not
+ * exist. #1184 did not change that.
  */
 export function routeGetRequiresAal2(text: string, fromFile: string | null = null): boolean {
   const index = indexModule(text, fromFile);
@@ -597,12 +773,25 @@ export function readPreAuthAdminPaths(proxyText: string): Set<string> {
 
 /** `src/app/admin/businesses/[id]/page.tsx` → `/admin/businesses/[id]`. */
 export function pageRoutePath(file: string): string {
-  return file.replace(/\\/g, '/').replace(/^src\/app/, '').replace(/\/page\.tsx$/, '');
+  return file.replace(/\\/g, '/').replace(/^src\/app/, '').replace(PAGE_FILE_SUFFIX, '');
 }
 
-/** `src/app/admin/flagged/page.tsx` → `src/app/api/admin/flagged/route.ts`. */
+/**
+ * `src/app/admin/flagged/page.tsx` → `src/app/api/admin/flagged/route.ts`.
+ *
+ * The CANONICAL spelling of a page's parity anchor, and what the P2 finding
+ * message names — `route.ts` is the extension every route in this repo uses and
+ * the one a reader should create. `siblingRouteCandidates` is what the LOOKUP
+ * walks, because a `route.js` sibling anchors P2 just as well.
+ */
 export function siblingRouteFile(file: string): string {
   return `src/app/api${pageRoutePath(file)}/route.ts`;
+}
+
+/** Every routable spelling of `siblingRouteFile`, canonical one first. */
+export function siblingRouteCandidates(file: string): string[] {
+  const base = `src/app/api${pageRoutePath(file)}/route`;
+  return ['ts', 'tsx', 'js', 'jsx'].map((extension) => `${base}.${extension}`);
 }
 
 export interface PageScanContext {
@@ -619,12 +808,12 @@ export interface PageScanContext {
 /**
  * Pure scan for one admin page. Applies P1 (every admin page carries a gate)
  * and P2 (read-gate parity with the sibling route's GET). Scoped to
- * `src/app/admin/`; `page.tsx` only — `layout.tsx` renders chrome, not tenant
- * data, and src/proxy.ts already gates all of /admin.
+ * `src/app/admin/`; routable `page.*` files only — `layout.tsx` renders chrome,
+ * not tenant data, and src/proxy.ts already gates all of /admin.
  */
 export function scanAdminPageFile(path: string, text: string, context: PageScanContext): string[] {
   const normalized = path.replace(/\\/g, '/');
-  if (!normalized.startsWith('src/app/admin/') || !normalized.endsWith('/page.tsx')) return [];
+  if (!normalized.startsWith('src/app/admin/') || !PAGE_FILE_SUFFIX.test(normalized)) return [];
 
   const routePath = pageRoutePath(normalized);
   if (context.preAuthPaths.has(routePath)) return [];
@@ -651,46 +840,101 @@ export function scanAdminPageFile(path: string, text: string, context: PageScanC
   return [];
 }
 
-/** Walks `dir` and appends every file named `name` (relative to `root`) to `out`. */
+/** One directory the walk could not read, and why. */
+export interface TraversalError {
+  dir: string;
+  error: unknown;
+}
+
+/**
+ * Walks `dir` and appends every file whose name is in `names` (relative to
+ * `root`) to `out`, recording each unreadable directory in `errors` when a sink
+ * is supplied.
+ *
+ * `names` is a SET of filenames rather than one, because Next.js routes a
+ * convention, not a filename: `route.{ts,tsx,js,jsx}` and `page.{tsx,ts,jsx,js}`
+ * are all routed, and this repo sets no `pageExtensions` override in
+ * next.config.mjs to narrow that. Matching only `route.ts` enforced a convention
+ * Next.js does not require — an ungated `src/app/api/admin/example/route.js` was
+ * invisible to the collector and produced no traversal error either, so the
+ * audit reported clean about a route it never opened.
+ */
 async function collectNamedFiles(
   dir: string,
   root: string,
   out: string[],
-  name: string,
+  names: ReadonlySet<string>,
+  errors?: TraversalError[],
 ): Promise<void> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    errors?.push({ dir, error });
     return;
   }
   for (const entry of entries) {
     if (entry.isDirectory()) {
       // Skip test directories.
       if (entry.name === '__tests__') continue;
-      await collectNamedFiles(join(dir, entry.name), root, out, name);
-    } else if (entry.isFile() && entry.name === name) {
+      await collectNamedFiles(join(dir, entry.name), root, out, names, errors);
+    } else if (entry.isFile() && names.has(entry.name)) {
       out.push(relative(root, join(dir, entry.name)));
     }
   }
 }
 
+/** Every filename Next.js routes as a Route Handler. `scanRouteFile` parses all
+ *  four — `indexModule` uses `ts.ScriptKind.TSX`, so JS parses fine. */
+const ROUTE_FILENAMES: ReadonlySet<string> = new Set([
+  'route.ts',
+  'route.tsx',
+  'route.js',
+  'route.jsx',
+]);
+
+/** Every filename Next.js routes as a Page. */
+const PAGE_FILENAMES: ReadonlySet<string> = new Set(['page.tsx', 'page.ts', 'page.jsx', 'page.js']);
+
+/** The page half of ROUTE/PAGE_FILENAMES, as a suffix matcher for a path. */
+const PAGE_FILE_SUFFIX = /\/page\.(?:tsx|ts|jsx|js)$/;
+
 /**
- * Walks `dir` and appends every `route.ts` path (relative to `root`) to `out`.
+ * Walks `dir` and appends every routable `route.*` path (relative to `root`)
+ * to `out`.
  *
  * Exported for tests because it decides the audit's SCOPE: a directory this
  * function silently skips is a directory `scanRouteFile` never sees, so an
- * under-walk makes the whole MFA guarantee pass vacuously. An unreadable
- * directory returns quietly by design — a permissions error must not fail the
- * build — which is exactly the branch worth pinning.
+ * under-walk makes the whole MFA guarantee pass vacuously.
+ *
+ * WITHOUT the optional `errors` sink it returns quietly on an unreadable
+ * directory — the behaviour it has always had, and the branch its unit test
+ * pins. WITH the sink it records what it could not read and keeps walking, so
+ * the CALLER decides. `main()` is the caller that supplies one and treats any
+ * entry as fatal, because the two questions are genuinely different: a helper
+ * may not care that one directory was unreadable, but an audit whose whole
+ * output is "nothing is ungated" cannot say that about a tree it could not
+ * read. A zero-file floor alone does NOT close this — the recursion continues
+ * for siblings, so one unreadable subtree hides its routes while the other 34
+ * scan clean (#1184, plan-skeptic round 2).
  */
-export async function collectRouteFiles(dir: string, root: string, out: string[]): Promise<void> {
-  await collectNamedFiles(dir, root, out, 'route.ts');
+export async function collectRouteFiles(
+  dir: string,
+  root: string,
+  out: string[],
+  errors?: TraversalError[],
+): Promise<void> {
+  await collectNamedFiles(dir, root, out, ROUTE_FILENAMES, errors);
 }
 
-/** Walks `dir` and appends every `page.tsx` path (relative to `root`) to `out`. */
-export async function collectAdminPageFiles(dir: string, root: string, out: string[]): Promise<void> {
-  await collectNamedFiles(dir, root, out, 'page.tsx');
+/** Walks `dir` and appends every routable `page.*` path (relative to `root`) to `out`. */
+export async function collectAdminPageFiles(
+  dir: string,
+  root: string,
+  out: string[],
+  errors?: TraversalError[],
+): Promise<void> {
+  await collectNamedFiles(dir, root, out, PAGE_FILENAMES, errors);
 }
 
 async function readIfPresent(path: string): Promise<string | null> {
@@ -701,74 +945,202 @@ async function readIfPresent(path: string): Promise<string | null> {
   }
 }
 
-/** One pass of the audit: the files it walked, and what it found in them. */
+/**
+ * One pass of the audit: the files it walked, what it found in them, and every
+ * directory it could not read.
+ *
+ * `traversalErrors` is part of the RESULT rather than swallowed inside the walk
+ * because it is the difference between "nothing is ungated" and "nothing I
+ * could see is ungated", and only the caller knows which claim it is about to
+ * make.
+ */
 export interface AuditPass {
   files: string[];
   findings: string[];
+  traversalErrors: TraversalError[];
 }
 
 /** Scans every `route.ts` under `<root>/src/app/api/admin`. */
 export async function auditRoutes(root: string): Promise<AuditPass> {
   const files: string[] = [];
-  await collectRouteFiles(resolve(root, 'src', 'app', 'api', 'admin'), root, files);
+  const traversalErrors: TraversalError[] = [];
+  await collectRouteFiles(resolve(root, 'src', 'app', 'api', 'admin'), root, files, traversalErrors);
   const findings: string[] = [];
   for (const file of files) {
     findings.push(...scanRouteFile(file, await readFile(resolve(root, file), 'utf8')));
   }
-  return { files, findings };
+  return { files, findings, traversalErrors };
 }
 
 /**
- * Scans every `page.tsx` under `<root>/src/app/admin`, anchoring P2 on each
- * page's sibling route. A page with no sibling gets a null anchor and is
+ * The first routable sibling route file that exists, with the path it was found
+ * at (relative specifiers in it resolve against THAT path). Null when the page
+ * has no sibling in any spelling — P2 then has no anchor.
+ */
+async function readSiblingRoute(
+  root: string,
+  page: string,
+): Promise<{ file: string; text: string } | null> {
+  for (const candidate of siblingRouteCandidates(page)) {
+    const text = await readIfPresent(resolve(root, candidate));
+    if (text !== null) return { file: candidate, text };
+  }
+  return null;
+}
+
+/**
+ * Scans every routable `page.*` under `<root>/src/app/admin`, anchoring P2 on
+ * each page's sibling route. A page with no sibling gets a null anchor and is
  * checked by P1 only.
  */
 export async function auditPages(root: string, preAuthPaths: ReadonlySet<string>): Promise<AuditPass> {
   const files: string[] = [];
-  await collectAdminPageFiles(resolve(root, 'src', 'app', 'admin'), root, files);
+  const traversalErrors: TraversalError[] = [];
+  await collectAdminPageFiles(resolve(root, 'src', 'app', 'admin'), root, files, traversalErrors);
   const findings: string[] = [];
   for (const file of files) {
     const normalized = file.replace(/\\/g, '/');
-    const siblingText = await readIfPresent(resolve(root, siblingRouteFile(normalized)));
+    const sibling = await readSiblingRoute(root, normalized);
     findings.push(
       ...scanAdminPageFile(normalized, await readFile(resolve(root, file), 'utf8'), {
         preAuthPaths,
         siblingGetRequiresAal2:
-          siblingText === null
-            ? null
-            : routeGetRequiresAal2(siblingText, siblingRouteFile(normalized)),
+          sibling === null ? null : routeGetRequiresAal2(sibling.text, sibling.file),
       }),
     );
   }
-  return { files, findings };
+  return { files, findings, traversalErrors };
 }
 
+/**
+ * The floor beneath both contracts: this audit may only report "clean" about a
+ * tree it actually read. Returns one message per way the pass is vacuous; an
+ * EMPTY array means the coverage floor holds.
+ *
+ * Three ways a pass can be vacuous, and all three are fatal rather than silent
+ * (the same posture as the zero-pre-auth-paths check in `main()`): a directory
+ * the walk could not read, zero admin route files collected, zero admin pages
+ * collected. Since #1184 the ROUTES contract is the compensating control that
+ * lets a bearer reach a route with the gate as its only check (ADR 0025 D6), so
+ * an audit that quietly inspected nothing is strictly worse than one that fails.
+ *
+ * PURE, and exported, on purpose. The predecessor called `process.exit(1)` from
+ * inside a non-exported helper, so the floor could not be asserted from a test —
+ * neutering all three conditions left the whole suite green (proven by
+ * mutation), which is a security control with no covering test. `main()` owns
+ * the printing and the exit code; this function owns the decision.
+ */
+export function auditCoverageFailures(routes: AuditPass, pages: AuditPass): string[] {
+  const failures: string[] = [];
+  const unreadable = [...routes.traversalErrors, ...pages.traversalErrors];
+  if (unreadable.length > 0) {
+    failures.push(
+      'the walk could not read every admin directory, so a clean result would be vacuous ' +
+        `(${unreadable.map(({ dir }) => dir).join(', ')})`,
+    );
+  }
+  if (routes.files.length === 0) {
+    failures.push('collected 0 admin route files from src/app/api/admin');
+  }
+  if (pages.files.length === 0) {
+    failures.push('collected 0 admin pages from src/app/admin');
+  }
+  return failures;
+}
+
+/** What `main()` should print, and the code it should exit with. */
+export interface AuditReport {
+  exitCode: 0 | 1;
+  /** Lines for stderr, in the order a reader needs them. */
+  errors: string[];
+  /** The single stdout line, present only on a pass. */
+  output: string | null;
+}
+
+/**
+ * The whole reporting DECISION, as a pure function of the two passes.
+ *
+ * `main()` is a CLI entry point: it reads the filesystem and calls
+ * `process.exit`, so it cannot be unit-tested and every branch inside it is a
+ * branch nothing covers. That was tolerable while it held two `if`s. #1184 gave
+ * it three failure modes — a derivation that yielded nothing, a tree it could not
+ * read, and the findings themselves — at which point `ci:fallow` flagged it as
+ * high-CRAP untested complexity, and red team had already recorded the same gap
+ * from the other side (R2-F6: the coverage floor's wiring has no covering test).
+ * Moving the decision here answers both; `main()` keeps only the I/O.
+ *
+ * PRECEDENCE IS THE PART WORTH TESTING. A coverage failure OUTRANKS findings: if
+ * the walk could not read the tree then "no findings" is not a result, and
+ * reporting findings first would let a vacuous pass read like a real one. The
+ * unreadable directories are echoed individually as well, because the summary
+ * says how many and a reader needs to know which.
+ */
+export function buildAuditReport(routes: AuditPass, pages: AuditPass): AuditReport {
+  const errors: string[] = [];
+  for (const { dir, error } of [...routes.traversalErrors, ...pages.traversalErrors]) {
+    errors.push(`admin-aal2-audit: could not read ${dir}: ${String(error)}`);
+  }
+
+  const coverageFailures = auditCoverageFailures(routes, pages);
+  if (coverageFailures.length > 0) {
+    for (const failure of coverageFailures) errors.push(`admin-aal2-audit: fatal — ${failure}`);
+    return { exitCode: 1, errors, output: null };
+  }
+
+  const findings = [...routes.findings, ...pages.findings];
+  if (findings.length > 0) {
+    errors.push('admin-aal2-audit: FAILED');
+    for (const finding of findings) errors.push(`  ${finding}`);
+    return { exitCode: 1, errors, output: null };
+  }
+
+  return {
+    exitCode: 0,
+    errors,
+    output:
+      `admin-aal2-audit: passed (${routes.files.length} admin route files, ` +
+      `${pages.files.length} admin pages scanned)`,
+  };
+}
+
+/**
+ * The report for a pre-auth derivation that yielded nothing.
+ *
+ * Deriving zero exemptions would flag every pre-auth page — loud rather than
+ * silent, but still a broken derivation, and it must not be reported as if the
+ * pages were genuinely ungated. It short-circuits BEFORE the passes run, so it is
+ * its own report rather than a branch inside `buildAuditReport`.
+ */
+export function preAuthDerivationFailure(): AuditReport {
+  return {
+    exitCode: 1,
+    errors: ['admin-aal2-audit: fatal — derived 0 pre-auth admin paths from src/proxy.ts'],
+    output: null,
+  };
+}
+
+/** The only I/O in the reporting path: print, then exit. */
+function emitReport(report: AuditReport): void {
+  for (const line of report.errors) console.error(line);
+  if (report.output !== null) console.log(report.output);
+  if (report.exitCode !== 0) process.exit(report.exitCode);
+}
+
+/**
+ * The CLI entry point, deliberately kept to I/O and one decision.
+ *
+ * Everything it used to decide inline now lives in a pure function that tests
+ * exercise directly — `main` cannot be unit-tested (it reads `process.cwd()` and
+ * calls `process.exit`), so any branch left here is a branch nothing covers.
+ */
 async function main(): Promise<void> {
   const root = process.cwd();
-
   const preAuthPaths = readPreAuthAdminPaths(await readFile(resolve(root, 'src', 'proxy.ts'), 'utf8'));
-  if (preAuthPaths.size === 0) {
-    // Deriving zero exemptions would flag every pre-auth page — a loud failure
-    // rather than a silent one, but still a broken derivation worth naming.
-    console.error('admin-aal2-audit: fatal — derived 0 pre-auth admin paths from src/proxy.ts');
-    process.exit(1);
-  }
 
-  const routes = await auditRoutes(root);
-  const pages = await auditPages(root, preAuthPaths);
-  const findings = [...routes.findings, ...pages.findings];
-
-  if (findings.length > 0) {
-    console.error('admin-aal2-audit: FAILED');
-    for (const finding of findings) {
-      console.error(`  ${finding}`);
-    }
-    process.exit(1);
-  }
-
-  console.log(
-    `admin-aal2-audit: passed (${routes.files.length} admin route files, ` +
-      `${pages.files.length} admin pages scanned)`,
+  emitReport(
+    preAuthPaths.size === 0
+      ? preAuthDerivationFailure()
+      : buildAuditReport(await auditRoutes(root), await auditPages(root, preAuthPaths)),
   );
 }
 

@@ -66,8 +66,19 @@ Stop and report rather than proceed if any of these is false:
    a round must never start on top of an unrestored mutation or an open dotenv
    swap:
    `node .agents/skills/red-team/scripts/mutation-runner.mjs round-start`
-   It refuses over an unclean journal, resets the per-round run budget, and
-   refuses a third round outright.
+   It refuses over an unclean journal, resets the per-round run budget, and caps
+   the rounds: two open on their own, a THIRD opens only when the sidecar already
+   carries an owner authorization whose text names the third round, and a fourth
+   never opens. `red-team-status.mjs` re-checks that same condition, so a sidecar
+   can never claim a round the runner would have refused.
+
+   The exception exists because a round-2 finding whose fix touches the tree makes
+   the sidecar stale by construction. Under a hard cap of two, the only ways
+   forward were to leave a known defect unfixed or to hand-edit `head_sha` — an
+   evidence file rewriting its own provenance. #1184 hit that after #1178 and
+   #1186. Requiring the authorization to be IN the sidecar before the round opens
+   keeps a third round something the owner granted, not something a stuck agent
+   decided for itself.
 
 ## Step 1 — pin the diff
 

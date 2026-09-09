@@ -14,9 +14,28 @@ import type { Sql } from 'postgres';
 // mirrors real Postgres.js: nested fragments are lazy thenables that only
 // record + consume the queue when AWAITED.
 
-const { mockSql, sqlReturnQueue, sqlCalls, isInTransaction, resetMockSql } = await vi.hoisted(async () => {
+// #1184: the costs and notifications GET handlers folded onto
+// `requireAdminWithAal2`, so the REAL gate now runs when this suite calls them and
+// its dependencies come from the shared shim — the single owner of that mock triple
+// (src/lib/auth/__tests__/helpers/admin-gate-mocks.ts). This file asserts SQL
+// SHAPES, not authorization, so every assertion below is unchanged; the shim's only
+// job here is to let the handlers reach their queries.
+const {
+  mockSql,
+  sqlReturnQueue,
+  sqlCalls,
+  isInTransaction,
+  resetMockSql,
+  mockRequireRole,
+  mockRequireCurrentAal2FromSupabase,
+  mockLoadAppUser,
+  mockResolveDualModeIdentity,
+  adminAuthModuleMock,
+} = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
-  return { ...createMockSql() };
+  const { makeAdminGateMocks, adminAuthModuleMock } =
+    await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
+  return { ...createMockSql(), ...makeAdminGateMocks(), adminAuthModuleMock };
 });
 
 // The notifications route uses sql.unsafe() for dynamic queries — the shared
@@ -39,11 +58,18 @@ vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 // which still import the singleton (composition roots).
 const sql = mockSql as unknown as Sql;
 
-vi.mock('@/lib/db/auth', () => ({
-  requireRole: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'admin' }),
-  AuthError: class AuthError extends Error {
-    constructor(message: string, public readonly statusCode: number) { super(message); }
-  },
+vi.mock('@/lib/db/auth', () => adminAuthModuleMock(mockRequireRole, mockLoadAppUser));
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
+}));
+
+vi.mock('@/lib/auth/verified-identity', () => ({
+  resolveDualModeIdentity: mockResolveDualModeIdentity,
 }));
 
 vi.mock('@/lib/shared/churn-score', () => ({
@@ -56,6 +82,14 @@ describe('Admin denormalized account_id queries', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetMockSql();
+    // A live aal2 admin: this suite is about query shapes, so the gate must pass.
+    mockRequireRole.mockResolvedValue({
+      id: 'admin-1',
+      role: 'admin',
+      accountId: null,
+      locationId: null,
+    });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     vi.stubEnv('DAILY_COST_LIMIT_CENTS_COPILOT', '1000');
     vi.stubEnv('DAILY_COST_LIMIT_CENTS_AUTOPILOT', '2000');
   });

@@ -15,7 +15,11 @@ export default async function AdminBusinessesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireAdminPage(sql, { from: '/admin/businesses' });
+  // Gate parity with GET /api/admin/businesses, which uses requireAdminWithAal2
+  // since #1184 — the summaries below are the same cross-tenant rows that route
+  // returns, read here directly via `sql`, so a plain admin gate would be a
+  // parallel read path around the route's step-up.
+  await requireAdminPage(sql, { from: '/admin/businesses', aal2: true });
 
   // The first page honours the same `q` / `status` / `health` params the API
   // does (single owner: parseBusinessListFilters), so a deep link such as

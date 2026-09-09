@@ -356,12 +356,46 @@ describe('strict schema', () => {
     expect(result.stderr).toContain('duplicates');
   });
 
-  it('rejects a round beyond the two-round cap', () => {
+  // #1184 raised the cap from 2 to 3, but ONLY for a round the owner granted in
+  // writing. All three directions are pinned, because the whole value of the
+  // exception is its condition: an UNAUTHORIZED round 3 must still be refused, or
+  // the cap has merely moved rather than acquired a gate.
+  it('rejects an UNAUTHORIZED third round', () => {
     const { reportDir } = seedRepo();
     rewriteSidecar(reportDir, (sidecar) => {
       sidecar.round = 3;
     });
-    expect(check().stderr).toContain('round must be 1 or 2');
+    expect(check().stderr).toContain('requires an authorizations entry');
+  });
+
+  it('accepts a third round the sidecar records an owner authorization for', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.round = 3;
+      sidecar.authorizations.push({
+        id: 'AUTH-THIRD-ROUND',
+        date: '2026-09-08',
+        finding_ids: sidecar.findings.map((finding) => String(finding.id)),
+        text: 'owner 2026-09-08: third round authorized, journal reset by owner',
+      });
+    });
+    const result = check();
+    expect(result.stderr).not.toContain('round must be');
+    expect(result.stderr).not.toContain('requires an authorizations entry');
+  });
+
+  it('rejects a fourth round even when an authorization is present', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.round = 4;
+      sidecar.authorizations.push({
+        id: 'AUTH-THIRD-ROUND',
+        date: '2026-09-08',
+        finding_ids: sidecar.findings.map((finding) => String(finding.id)),
+        text: 'owner 2026-09-08: third round authorized, journal reset by owner',
+      });
+    });
+    expect(check().stderr).toContain('round must be 1, 2, or an authorized 3');
   });
 
   it('requires an excluded row to record why it is out of scope', () => {

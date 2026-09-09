@@ -1,0 +1,349 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1184-admin-get-fold-e01d50",
+  "branch": "feat/1184-admin-get-fold",
+  "fork_sha": "e8893544204888d6b1639de4f2612cf84517954f",
+  "merge_base_sha": "e8893544204888d6b1639de4f2612cf84517954f",
+  "head_sha": "4624f469fdaaac62788a4ac714c5154985add3c0",
+  "intake_sha256": "b1b81d508d6377f33a96ad3518a371117c2c29f35d02e5075594f2f612c7ffa2",
+  "risk": "high",
+  "round": 3,
+  "generated_at": "2026-09-08T22:15:00Z",
+  "inventory": [
+    {
+      "id": "INV-R3-M1",
+      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
+      "test": "'/admin/overview' steps up to aal2 before reading anything",
+      "outcome": "killed",
+      "reason": "src/app/admin/overview/page.tsx: `{ from: '/admin/overview', aal2: true }` → `{ from: '/admin/overview' }`. Baseline green, mutant RED, assert-one-test confirmed exactly one executed test. `pnpm ci:admin-aal2` ALSO failed under this mutation with the P2 message naming the page and its sibling route, so both halves of the six-page flip's evidence bite."
+    },
+    {
+      "id": "INV-R3-M2",
+      "file": "scripts/ci/admin-aal2-audit.ts",
+      "test": "ci:admin-aal2 rule P2 — the dynamic-sibling parity anchor",
+      "outcome": "killed",
+      "reason": "src/app/admin/businesses/[id]/page.tsx: `aal2: true` dropped. `npx tsx scripts/ci/admin-aal2-audit.ts` FAILED, naming src/app/api/admin/businesses/[id]/route.ts as the anchor — which proves `siblingRouteCandidates` resolves a DYNAMIC segment page onto its dynamic sibling route, the one page shape where the mapping could plausibly have missed. Detector is the CI audit rather than a Vitest case, recorded as such."
+    },
+    {
+      "id": "INV-R3-M3",
+      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
+      "test": "'/admin/businesses/[id]' steps up to aal2 before reading anything",
+      "outcome": "killed",
+      "reason": "src/app/admin/businesses/[id]/page.tsx: `from: '/admin/businesses'` → `from: '/admin/businesses/[id]'` — a plausible \"correction\" that would break page-gate's static-internal-path contract and send a stepped-up admin to the wrong page. Baseline green, mutant RED, exactly one test executed. `pnpm ci:admin-aal2` PASSED under the same mutation: the audit reads only the `aal2` property, so the parity suite is the SOLE detector of a wrong `from`. This is the row that establishes the suite is not redundant with the audit."
+    },
+    {
+      "id": "INV-R3-M4",
+      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
+      "test": "GET /api/admin/costs — an aal1 admin is refused 403 mfa_required",
+      "outcome": "killed",
+      "reason": "src/app/api/admin/costs/route.ts: `if (!gate.ok) return gate.response;` → `void gate;` — the gate still runs, its verdict is discarded. Baseline green, mutant RED, exactly one test executed. `pnpm ci:admin-aal2` PASSED, which is the designed limit of the ROUTES contract (it credits a CALL, not an honoured verdict) and makes the nine per-handler suites the sole enforcement of the second half."
+    },
+    {
+      "id": "INV-R3-M5",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "every verb Next.js routes is bound, and each is reported by name",
+      "outcome": "killed",
+      "reason": "scripts/ci/admin-aal2-audit.ts: `'GET'` removed from HANDLER_VERBS — the branch's central widening reverted for the verb it exists for. Baseline green, mutant RED, exactly one test executed. The fixture's verb list is a hardcoded literal rather than an import of HANDLER_VERBS, so the assertion is non-tautological. Note recorded: the audit STILL passed against the real tree under this mutation (every admin GET is gated anyway), so the real-tree run is not evidence for the widening — the unit fixtures are."
+    },
+    {
+      "id": "INV-R3-M6",
+      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id]/channels — an aal1 admin is refused 403 mfa_required",
+      "outcome": "killed",
+      "reason": "src/app/api/admin/businesses/[id]/channels/route.ts: the gate moved BELOW `getBusinessChannelEnrollments(sql, businessId)`, falsifying the route's own \"the gate is the FIRST statement\" comment. Baseline green, mutant RED (the suite's `expect(mockSql).not.toHaveBeenCalled()` arm), exactly one test executed. `pnpm ci:admin-aal2` PASSED — the audit sees a gate call anywhere in the handler, so ordering is a test-only property. This covers the ordering class for a handler whose pre-gate work is a REAL query, which round 2's INV-R2-M11 (businesses/[id], where the pre-gate work is an erased cast) could not."
+    },
+    {
+      "id": "INV-R3-M7",
+      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
+      "test": "maps the three AAL answers apart — aal2, unreadable, and everything else",
+      "outcome": "killed",
+      "reason": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts: the `if (answer?.reason === 'mfa_check_failed') return null;` arm of `aalFrom` deleted, collapsing \"I could not read the step-up\" into \"aal1\". Baseline green, mutant RED, exactly one test executed. This is the collapse the helper's own comment says would make every mfa_check_failed assertion in the repo vacuous."
+    },
+    {
+      "id": "INV-R3-M8",
+      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
+      "test": "GET /api/admin/nav-counts — a non-admin is refused 403 Forbidden",
+      "outcome": "killed",
+      "reason": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts: `mockLoadAppUser` replaced with an unconditional `{ id: 'admin-1', role: 'admin' }`, breaking the shim's 403 arm (\"authenticated but not an admin\"). Baseline green, mutant RED, exactly one test executed. Measured through a CONSUMER suite rather than the helper's own, which is what proves the folded suites exercise real authorization code rather than asserting invented values."
+    },
+    {
+      "id": "INV-R3-M9",
+      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
+      "test": "GET /api/admin/costs — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "src/app/api/admin/costs/route.ts: `requireAdminWithAal2(request)` → `requireAdminWithAal2(new NextRequest(request.nextUrl))`, a plausible refactor that silently drops every header including Authorization. Baseline green, mutant RED with `AssertionError: expected null to be 'Bearer test-admin-access-token'`, exactly one test executed. `pnpm ci:admin-aal2` PASSED — the audit does not inspect the gate's ARGUMENT — so the route-level half of the bearer guarantee is owned entirely by these suites. Complements round 2's shim-level bearer rows."
+    },
+    {
+      "id": "INV-R3-M10",
+      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
+      "test": "'/admin/costs' steps up to aal2 before reading anything",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "R3-F1",
+      "reason": "src/app/admin/costs/page.tsx: `await requireAdminPage(...)` → `void requireAdminPage(...)`. Baseline green; mutant PASSES; exactly one test executed. ci:admin-aal2 passes. Arbiter confirmation recorded in full on R3-F1: semantically meaningful, non-equivalent (the refusal's thrown redirect can no longer stop the page), and on the path the test executes."
+    },
+    {
+      "id": "INV-R3-M11",
+      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
+      "test": "'/admin/costs' steps up to aal2 before reading anything",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "R3-F1",
+      "reason": "Second mutation on the same test (the cap is 2), and the realistic regression shape rather than the explicit-void one: `await` simply dropped, leaving a plain floating promise. Mutant PASSES the test; `pnpm ci:admin-aal2` passes; `npx eslint src/app/admin/costs/page.tsx` is CLEAN (no-floating-promises is not configured in eslint.config.mjs); `npx tsc --noEmit` is clean for the file. No gate in the repository detects it."
+    },
+    {
+      "id": "INV-R3-M12",
+      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
+      "test": "a refused step-up stops the page before any data read",
+      "outcome": "killed",
+      "reason": "CONTROL for R3-F1. The identical dropped-`await` mutation applied to src/app/admin/overview/page.tsx instead. Baseline green, mutant RED, exactly one test executed — because this test, and only this test, asserts the page REJECTS when the gate refuses, and it imports only `../overview/page` (line 177). The kill and the two survivals together establish that the gap is structural (one of six pages covered), not incidental."
+    },
+    {
+      "id": "INV-R3-E1",
+      "file": "src/app/api/admin/overview/route.ts",
+      "test": "the five folded handlers not individually mutated",
+      "outcome": "excluded",
+      "reason": "The five folded handlers not individually mutated — src/app/api/admin/{overview,jobs,notifications,demos}/route.ts and businesses/route.ts (businesses/[id]/route.ts is INV-R3-E4). This is the round's one judgement call and it is stated rather than hidden. Their executable lines are byte-identical to the three that WERE mutated (`const gate = await requireAdminWithAal2(request); if (!gate.ok) return gate.response;` as the first two statements), and each carries a byte-identical five-test gate block (aal2 served / aal1 403 mfa_required / non-admin 403 Forbidden / unauthenticated 401 / bearer-transport served) whose refusal arms all assert the service or `sql` was NOT called. The three mutation CLASSES that could break that shape were each executed against a different handler and all killed: verdict discarded (INV-R3-M4, costs), gate moved below the read (INV-R3-M6, channels), gate called on a rebuilt request that drops headers (INV-R3-M9, costs). Round 2 additionally carries per-suite bearer and cookie rows for all nine by name. Budget was NOT the constraint — 22 of 30 runs were used and the finalizer had already run when this call was made; the root can override it."
+    },
+    {
+      "id": "INV-R3-E2",
+      "file": "scripts/ci/admin-aal2-audit.ts",
+      "test": "handler-form detectors, multi-extension discovery, the coverage floor",
+      "outcome": "excluded",
+      "reason": "Executed and killed in round 2, and the round-3 brief forbids re-litigating them: the handler-form detectors (INV-R2-M2 wildcard re-export, M3 binding-pattern export, M4 fail-closed ordering), multi-extension discovery (INV-R2-M5 route extensions, M6 sibling candidates, M7 page extensions, M8 page suffix) and the pure coverage floor (INV-R2-M1). Round 3 did mutate a DIFFERENT property of the same file — INV-R3-M5 removed 'GET' from HANDLER_VERBS, which is the branch's central widening and which round 2 did not cover (its HANDLER_VERBS row was the `export` keyword only)."
+    },
+    {
+      "id": "INV-R3-E3",
+      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
+      "test": "bearer / cookie transport across the nine folded suites",
+      "outcome": "excluded",
+      "reason": "The 18 bearer/cookie transport rows round 2 executed across all nine folded suites, plus INV-R2-shim-derive-transport and INV-R2-shim-malformed-header. Round 3 mutated the transport property from a new angle instead — INV-R3-M9 calls the gate on a rebuilt request so the Authorization header is dropped at the ROUTE rather than in the shim, and it was killed."
+    },
+    {
+      "id": "INV-R3-E4",
+      "file": "src/app/api/admin/businesses/[id]/route.ts",
+      "test": "gate-first ordering",
+      "outcome": "excluded",
+      "reason": "Gate-first ordering on src/app/api/admin/businesses/[id]/route.ts — round 2's INV-R2-M11, dispositioned `equivalent` with a proof. Round 3 executed the same mutation class against a handler round 2 did not cover (INV-R3-M6, businesses/[id]/channels, where the read is a real `sql` call rather than an erased cast) and it was KILLED."
+    },
+    {
+      "id": "INV-R3-E5",
+      "file": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts",
+      "test": "adminAuthModuleMock inertness",
+      "outcome": "excluded",
+      "reason": "`adminAuthModuleMock` inertness — round 2's INV-R2-M12, dispositioned `equivalent` with a proof. Round 3 mutated a different member of the same helper instead (INV-R3-M7 aalFrom, INV-R3-M8 mockLoadAppUser); both were killed."
+    },
+    {
+      "id": "INV-R3-E6",
+      "file": "scripts/ci/admin-aal2-audit.ts",
+      "test": "main() print-and-exit wiring",
+      "outcome": "excluded",
+      "reason": "`main()`'s print-and-exit wiring in scripts/ci/admin-aal2-audit.ts. Round 2 excluded it for the same reason and recorded the residual as R2-F6 (P2, open): nothing imports `main` and nothing spawns the script from a test, so deleting `process.exit(1)` leaves every suite green, but its coverage posture is UNCHANGED by this branch and round 1's F2, whose subject this is, was dispositioned FIXED. Carried forward, not re-opened."
+    },
+    {
+      "id": "INV-R3-E7",
+      "file": ".claude/reference/arch-review-log.md",
+      "test": "the branch's changed Markdown",
+      "outcome": "excluded",
+      "reason": "The branch's 11 changed Markdown files under docs/ and .claude/. Documentation is Duty-3 territory: it was re-resolved against HEAD with prevalidate-plan.py plus hand-checks rather than mutated. Mutating prose measures nothing about a test oracle. The result is recorded in the Duty 3 section and produced R3-F2."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P0",
+      "title": "The branch's own architecture-review entry states a FALSE production flag state, and that false state is the stated safety premise for the aal1 refusal ADR 0025 makes a hard prerequisite",
+      "at": ".claude/reference/arch-review-log.md:47",
+      "duty": 3,
+      "disposition": "rejected",
+      "reason": "REJECTED (round 1, carried forward unchanged) — the claim is true; every source the finding cites is stale. Verified live rather than from a document: `vercel env ls production` (project rep-worth) shows MFA_ENFORCEMENT_ENABLED on the Production environment, created 2026-09-08, alongside the staging row. #1182's resolution comment (2026-09-08T23:35Z) records the owner running the production half DIRECTLY from a production-scoped shell after PR #1216 merged, with end-to-end proof (password + TOTP sign-in rendering /admin/overview on production). env-vars.md:653, the log's own #1182 entry, and commit cca34475 all predate that. Stated limit: the Production value is stored Encrypted, so the listing proves presence and creation time, not the literal string; the value is attested by the owner's sign-in."
+    },
+    {
+      "id": "F2",
+      "severity": "P1",
+      "title": "The audit's new anti-vacuity floor (claim 2) has no covering test — neutering it leaves all 91 audit tests green",
+      "at": "scripts/ci/admin-aal2-audit.ts:1016",
+      "duty": 1,
+      "disposition": "fixed",
+      "reason": "FIXED (round 1) and RE-PROVEN in round 2. `auditCoverageFailures` is now an exported pure function and M1 — the same neutering mutation — is KILLED by `zero route files is fatal`, with six sibling tests asserting message CONTENT for all three conditions plus the healthy case. Round 1's inconclusive/oracle row is resolved. Residual: main()'s print-and-exit wiring is still uncovered; recorded separately as R2-F6 (P2) rather than re-opened here. The `at` line is re-resolved to HEAD."
+    },
+    {
+      "id": "F3",
+      "severity": "P1",
+      "title": "The shim's stated bearer guarantee is false: hardcoding `transport` leaves every \"bearer ok\" route case passing — the header is forced by nine per-suite assertions, not by the shim",
+      "at": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts:176",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "FIXED (round 1) and INDEPENDENTLY VERIFIED in round 2. Re-running the original mutation (M9, hardcoded `transport: 'cookie'`) against HEAD fails exactly 11 tests across 10 files — the nine per-route bearer arms plus two shim tests — which is the claim the fix made, measured here from the vitest JSON report rather than taken on trust. The opposite mutation (M10, hardcoded `'bearer'`) fails 10 tests across 10 files, so the new cookie assertions are not tautologies either. The `at` line is re-resolved to HEAD."
+    },
+    {
+      "id": "F4",
+      "severity": "P2",
+      "title": "The sidebar's 60-second nav-counts poll now 403s forever on the two admin pages that stay plain, including /admin/security — the MFA enrollment surface",
+      "at": "src/components/admin/nav-counts-query.ts:17",
+      "duty": 5,
+      "disposition": "open",
+      "reason": "RECORDED (round 1), carried forward unchanged as follow-up FU-2. Not re-examined in round 2 — the brief scopes it out as a recorded follow-up. P2 is recorded and never blocks."
+    },
+    {
+      "id": "F5",
+      "severity": "P2",
+      "title": "A path:line citation this branch invalidated was not updated",
+      "at": "docs/runbooks/evidence/2026-09-01-phase-h-beta-launch-evidence.md:157",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "RECORDED (round 1), carried forward unchanged as follow-up FU-3. Not re-examined in round 2 — the brief scopes it out as a recorded follow-up."
+    },
+    {
+      "id": "F6",
+      "severity": "P2",
+      "title": "The anti-vacuity pin is a source-text scan and names only two spellings of the hole",
+      "at": "src/lib/auth/__tests__/admin-gate-mocks.test.ts:190",
+      "duty": 2,
+      "disposition": "fixed",
+      "reason": "FIXED (round 1) and VERIFIED in round 2 by two mutations on the pin's own subject suite: E1 (a real `vi.doMock` of `@/lib/auth/admin-mfa-gate` inserted into the overview suite) and E2 (the shim's literal import specifier replaced by a computed one while the header comment that satisfied the old substring check stayed). Both are KILLED. The residual the comment now STATES (an alias or an imported setup file still evades a text scan) is confirmed real and correctly disclosed rather than overclaimed. The `at` line is re-resolved to HEAD."
+    },
+    {
+      "id": "F7",
+      "severity": "P2",
+      "title": "Claimed shim consumer count (27) is wrong; the branch's own docs say 29 and the tree says 30 files",
+      "at": "src/lib/auth/__tests__/admin-gate-mocks.test.ts:5",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "FIXED (round 1) and verified in round 2: no numeric consumer count survives in either file (`grep` for a digit-bearing consumer claim in admin-gate-mocks.ts and admin-gate-mocks.test.ts finds none); both now name the grep instead. The count derived at HEAD is 30 files, which nothing in the tree contradicts."
+    },
+    {
+      "id": "R2-F1",
+      "severity": "P1",
+      "title": "The corrected anchorless-page paragraph miscounts its own list: \"five step up via requireAdminPage\" is false under every reading (four step up; six call the gate), and 5+1+2 = 8 over a list of SEVEN",
+      "at": "scripts/ci/admin-aal2-audit.ts:189",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "FIXED — comment only, no behavioural surface. The paragraph now states the partition explicitly (4 + 1 + 2 = 7): FOUR pages pass `aal2: true` to requireAdminPage (/admin/autonomy, /admin/impersonate, /admin/businesses/new, /admin/solicitation), the impersonation VIEW steps up via requireCurrentAal2FromSupabase, and /admin/security and /admin/runbook are deliberately plain. Verified by reading all seven pages, not by re-counting the prose. The 'DERIVE THIS LIST' recipe (round 2's adjacent P2) is corrected in the same edit: it now says NON-PRE-AUTH page, without which the walk yields ten."
+    },
+    {
+      "id": "R2-F2",
+      "severity": "P2",
+      "title": "The paragraph's own \"DERIVE THIS LIST\" recipe yields TEN pages, not the seven it enumerates — it omits the pre-auth exemption that removes three of them",
+      "at": "scripts/ci/admin-aal2-audit.ts:195",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The recipe reads \"it is every page under src/app/admin whose `siblingRouteCandidates()` all miss\". Executed literally at HEAD that yields TEN: the seven listed plus /admin/login, /admin/forgot-password and /admin/reset-password, which have no sibling route either. Those three are removed one step earlier by `scanAdminPageFile`'s `preAuthPaths` check (admin-aal2-audit.ts:802), so they are not \"checked by P1 only\" — they are not checked at all. A reader who follows the instruction the paragraph gives in capitals gets a different number from the one it states, which is precisely the disagreement the instruction was added to prevent. Fix: intersect the recipe with the non-pre-auth set (\"every page … that src/proxy.ts does NOT serve pre-auth and whose siblingRouteCandidates() all miss\")."
+    },
+    {
+      "id": "R2-F3",
+      "severity": "P2",
+      "title": "The new type-only exemption is applied to the wildcard path only: a type-only NAMED re-export of a handler verb is still reported as an ungated handler, and the namespace form's message asserts a reachability that cannot exist",
+      "at": "scripts/ci/admin-aal2-audit.ts:399",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Measured by calling the shipped `scanRouteFile` directly at HEAD (no mutation): `export type { GET } from './types'` and `export { type GET } from './types'` in an otherwise-clean admin route each produce \"GET is re-exported from another module, so this audit cannot see its gate\" — a FALSE POSITIVE in a fail-closed CI control, since a type-only re-export creates no runtime binding and Next.js routes nothing. The fix hunk states that principle itself (\"`export type * from` is exempt: a type-only re-export creates no runtime binding for Next.js to route\") and `export type * from` is correctly CLEAN, so the exemption is inconsistent within one commit; `readNamedExportAliases` (:424) has no `isTypeOnly` check on either the declaration or the element. Second, smaller half: `export * as ns from './handlers'` and `export * as GET from './handlers'` are reported with \"Next.js routes whatever it exports, so an ungated handler would be reachable\" — a namespace re-export binds exactly one name to a module-namespace OBJECT, which Next cannot route as a handler, so the finding fires correctly-conservatively but its stated consequence is not true for that form. Both are cheap to close (an isTypeOnly guard; a form-specific message). Neither is exploitable — the direction is toward a finding, never toward silence."
+    },
+    {
+      "id": "R2-F4",
+      "severity": "P2",
+      "title": "Twenty of the thirty shim consumers still paste the identical four-member @/lib/db/auth factory the fix retired in ten — and the header sentence that justified the retirement reads as if ten were the population",
+      "at": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts:49",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Duty-4 sibling search, recorded in full: scope `rg -l admin-gate-mocks src` (30 files), exclusions none; for each, the `vi.mock('@/lib/db/auth', …)` call was extracted by paren-matching and its top-level member set compared against {requireRole, loadAppUser, cookieBackedServerClient, AuthError}. Result: 10 now call `adminAuthModuleMock`; the other 20 spell EXACTLY those four members verbatim, `AuthError` re-declared in each — src/app/api/admin/{autonomy/__tests__/routes,billing/grant-extension/__tests__/route,businesses/[id]/keywords/__tests__/route,businesses/[id]/ranking/__tests__/route,businesses/[id]/resend-invite/__tests__/route,businesses/[id]/zernio-queue/__tests__/route,channels/telegram/__tests__/{start,cancel,disable},channels/whatsapp/__tests__/{start,cancel,disable},demos/generate/__tests__/route,flagged/__tests__/route,impersonation/end/__tests__/route,impersonation/start/__tests__/route,locations/csv-import/__tests__/route,offboardings/__tests__/route,solicitation/batch/__tests__/routes,solicitation/breaker/__tests__/reset-route}.test.ts. ZERO of the 30 has a superset. The comment says \"the standards review measured it and found ten suites spelling the identical four members\" — literally true but read naturally as the population, when the population is thirty. Why it matters rather than being tidiness: this shim exists to retire the #1183 drift debt, and the 20 uncollapsed copies are exactly the drift surface it claims to own — if `adminAuthModuleMock`'s AuthError shape ever changes, ten suites move and twenty silently do not. No correctness impact today: the baseline is green and M12 proves the only measured delta (the `name` property) is inert."
+    },
+    {
+      "id": "R2-F5",
+      "severity": "P2",
+      "title": "The P2 finding message always names `route.ts` even when the anchor was resolved from another extension, so the message can name a file that does not exist",
+      "at": "scripts/ci/admin-aal2-audit.ts:770",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "`scanAdminPageFile` builds its P2 message from `siblingRouteFile(normalized)` (:817), which hard-codes `.ts`, while the LOOKUP now walks `siblingRouteCandidates`. M6 proves the lookup resolves a route.js sibling; the resulting message then reads \"its sibling route src/app/api/admin/<x>/route.ts gates GET with requireAdminWithAal2\" about a path that is absent. This is DELIBERATE and disclosed — the doc comment at :763-769 says the canonical spelling is what the message names, and admin-aal2-audit.test.ts:941 pins it — and it is unreachable today (verified: `find src/app -path '*__tests__*' -prune -o \\( -name 'route.*' -o -name 'page.*' \\) -print` yields only route.ts and page.tsx, so the header's \"route.ts is the extension every route in this repo uses\" is TRUE at HEAD). Recorded as the residual it is: the message would be strictly better naming the resolved path and the canonical one."
+    },
+    {
+      "id": "R2-F6",
+      "severity": "P2",
+      "title": "main()'s print-and-exit wiring for the coverage floor has no covering test — the residual of round 1's F2",
+      "at": "scripts/ci/admin-aal2-audit.ts:1056",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "RECORDED, not re-opened. F2's fix made the DECISION testable and M1 proves it is tested; what remains untested is the five lines in main() that print the failures and call `process.exit(1)`. Reverse search: nothing imports main and nothing spawns `tsx scripts/ci/admin-aal2-audit.ts` from a test, so deleting the exit would leave the suite green. Its coverage posture is UNCHANGED by this fix — pre-fix the exit lived inside the equally uncovered non-exported assertAuditCoverage — and round 1's F2, whose subject this is, was dispositioned FIXED by the root; the round-2 protocol forbids re-opening a disposed finding, so this is filed as P2 (never blocks) rather than as a new inconclusive row. If the root wants it closed, the covering shape is a child-process test asserting exit code 1 against a fixture root with zero route files."
+    },
+    {
+      "id": "R3-F1",
+      "severity": "P0",
+      "title": "A dropped `await` on the page gate survives on five of the six flipped pages — the suite's own header claims it pins that, and no other gate (ci:admin-aal2, eslint, tsc) detects it",
+      "at": "src/app/admin/__tests__/page-aal2-parity.test.tsx:166",
+      "duty": 1,
+      "arbiter_reasoning": "The mutation is semantically meaningful and NOT equivalent: `requireAdminPage` refuses by calling `redirect()`, which signals by throwing. Awaited, the throw stops the page; un-awaited, it lands in a discarded promise and the page continues into its service reads and renders data to a caller the gate refused — the parallel read path rule P2 exists to close. It is not on an unexecuted branch either: the test invokes the page's default export directly, so the mutated statement is on the path the test runs. The claim is therefore about the ORACLE, not about coverage. Control: the suite's refusal-propagation test imports only ../overview/page, and the identical mutation applied to overview WAS killed (INV-R3-M12), which is exactly why five of the six pages survived and one did not. Recorded here in its own field because the schema requires it; the round-3 agent wrote this reasoning into `reason`, where the checker could not see it.",
+      "disposition": "fixed",
+      "reason": "FIXED at 4a588cdd, in the MOCK rather than the assertion: `mockRequireAdminPage` now awaits a `setTimeout(0)` BEFORE `callOrder.push('gate')`, so an un-awaited gate lets a service record first and `callOrder[0]` is 'read'. The FIRST attempt was itself vacuous — it added the yield to the hoisted implementation while `beforeEach` reinstalled the synchronous body before every test, and re-running the sweep still showed five survivors; the body now has one owner (`gateImplementation`) that both sites use. RE-MEASURED BY THE ROOT at 4a588cdd (root evidence gathered OUTSIDE a red-team round, and marked as such rather than presented as a mutation-runner result), dropping `await` on each of the six pages in turn and restoring after each: /admin/overview 2 failed, /admin/businesses 1 failed, /admin/businesses/[id] 1 failed, /admin/costs 1 failed, /admin/jobs 1 failed, /admin/notifications 1 failed — dead on all six, where round 3 measured five survivors. The finding's own FIX SHAPE suggestion (make the refusal test `it.each`) was not taken: fixing the mock kills the mutation on all six through the step-up test itself, rather than adding a second test that depends on the same synchronous-recording flaw. ORIGINAL FINDING: MEASURED (INV-R3-M10 / M11). `src/app/admin/costs/page.tsx`: `await requireAdminPage(...)` → `requireAdminPage(...)` (plain floating promise) and, separately, `void requireAdminPage(...)`. Under BOTH, the test `'/admin/costs' steps up to aal2 before reading anything` PASSES (baseline green, exactly one test executed each run); `pnpm ci:admin-aal2` passes (35 route files, 21 pages) because `readAdminPageGate` requires only a CallExpression; `npx eslint src/app/admin/costs/page.tsx` is clean (`@typescript-eslint/no-floating-promises` is not configured in eslint.config.mjs); `npx tsc --noEmit` is clean for that file. Line 166 pins `callOrder[0] === 'gate'`, which an un-awaited gate satisfies — the async mock's body runs synchronously to its first await, so 'gate' is pushed first while the promise is discarded. ARBITER CONFIRMATION: the mutation is semantically meaningful and NOT equivalent — `requireAdminPage` refuses by calling `redirect()`, which signals by throwing; awaited, the throw stops the page; un-awaited, it lands in a discarded promise and the page continues into getCostReport/getMarginReport and renders cross-account spend and margin to a caller the gate refused, which is exactly the parallel read path rule P2 exists to close. The mutated statement is on the path the test executes (the test invokes the page's default export directly), so it is not an unexecuted branch. This is a claim about the ORACLE. CONTROL: the suite's refusal-propagation test `a refused step-up stops the page before any data read` (line 169) imports only `../overview/page` (line 177); INV-R3-M12 applied the identical mutation to src/app/admin/overview/page.tsx and that test KILLED it — so /admin/overview is covered and /admin/{businesses,businesses/[id],costs,jobs,notifications} are not. FIX SHAPE: make the refusal test `it.each(PAGES)` the way the step-up test already is."
+    },
+    {
+      "id": "R3-F2",
+      "severity": "P1",
+      "title": "The security control's own census, in the paragraph that derives rule P2, is false at HEAD — and this branch's six page flips are what made it further false",
+      "at": "scripts/ci/admin-aal2-audit.ts:124",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "FIXED at 4a588cdd. The sentence is restated from a live recount rather than adjusted by arithmetic: of the 18 non-pre-auth admin pages, 17 gate through `requireAdminPage` and 15 of those pass `aal2: true`; the 18th (impersonate/[sessionId]/view) steps up through `requireCurrentAal2FromSupabase`; /admin/security and /admin/runbook stay plain. The stale `page-gate.ts:41` line-number citation is dropped rather than re-pinned, and the paragraph now instructs a future editor to recount from the tree. The finding is exactly right that the branch audited a neighbouring sentence for this failure and missed this one — the same header has now been corrected four times in one branch, which is recorded there as the argument for deriving these lists instead of maintaining them. ORIGINAL FINDING: The line reads \"`requireAdminPage`'s `aal2` parameter (src/lib/auth/page-gate.ts:41) DEFAULTS TO FALSE and 8 of 16 gated admin pages opt in.\" Re-resolved at HEAD by walking the tree: 21 page.tsx files under src/app/admin (matching the audit's own \"21 admin pages scanned\"); 17 call requireAdminPage and 15 of those pass `aal2: true`; adding impersonate/[sessionId]/view, which steps up through requireCurrentAal2FromSupabase, gives 16 of 18 gated pages opting into a step-up. Under no reading is it 8 of 16. At the merge-base it was 9 of 17 — already off by one — and this branch moved the numerator from 9 to 15 without touching the sentence. P1 rather than cosmetic because the sentence is the empirical premise for the P2 rule three lines below (\"The rule below is DERIVED from what the tree actually does, not imposed\") and because the branch explicitly audited its NEIGHBOURS for exactly this failure: it rewrote the /admin/businesses/[id] worked example because #1184 falsified it, writing \"A security audit that teaches its rule with a citation that is no longer true is worse than one that teaches it with none.\" A sibling sentence in the same header, falsified by the same change, was missed. The two path:line citations in the same paragraph re-resolve TRUE: page-gate.ts:41 is `{ from, aal2 = false }` and page-gate.ts:27-37 is the impersonation-view doc comment."
+    },
+    {
+      "id": "R3-F3",
+      "severity": "P2",
+      "title": "Both of the branch's completeness pins are hand-maintained literals with no derivation, so neither notices a tenth member",
+      "at": "src/lib/auth/__tests__/admin-gate-mocks.test.ts:161",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "`FOLDED_SUITES` (nine suite paths, admin-gate-mocks.test.ts:161) and `PAGES` (six page entries, page-aal2-parity.test.tsx:102) are literals. Nothing walks src/app/api/admin for handlers calling requireAdminWithAal2, and nothing walks src/app/admin for pages passing `aal2: true`. A tenth folded GET, or a seventh page flipped under P2, ships with no anti-vacuity pin and no runtime parity proof while every gate stays green — the enumerated-scope guard class this repo already named for itself (arch-review-log, 2026-08-26 pass, \"Class S\"). Bounded today: ci:admin-aal2 still binds every handler and every page, so the GATE half cannot regress silently; what the lists own is the EVIDENCE half — that the gate is real rather than stubbed, and that a page's `from` and `aal2` are what the route requires. INV-R3-M3 is the proof this matters: mutating `from` on /admin/businesses/[id] was killed ONLY by the parity suite while ci:admin-aal2 passed, so a page absent from PAGES has no such detector. P2 never blocks."
+    },
+    {
+      "id": "R3-F4",
+      "severity": "P2",
+      "title": "Duty-4 sibling: an admin-capable handler outside the widened ROUTES contract’s path scope, which the audit cannot see by construction",
+      "at": "src/app/api/zernio/disconnect/route.ts:69",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "`scanRouteFile` is path-scoped — `if (!normalized.includes('src/app/api/admin/')) return [];` (admin-aal2-audit.ts:622). src/app/api/zernio/disconnect/route.ts:69 calls `requireRole(req, 'owner', 'admin')`, so an admin acts there at plain role with no AAL2 step-up and the ROUTES contract cannot bind it. This QUALIFIES the arch-review-log's phrasing that the widening makes \"every Admin API handler calls a gate this audit has vetted\" a CI-enforced fact: it is a fact about src/app/api/admin/**, the correct scope for this ticket and for ADR 0025, but not the same as every handler an admin can reach. Pre-existing and unchanged by this branch; recorded as the Duty-4 result rather than raised as a new front against unchanged code. Any change belongs to its own ticket. P2 never blocks."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "AUTH-1184-THIRD-ROUND",
+      "date": "2026-09-08",
+      "finding_ids": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "R2-F1",
+        "R2-F2",
+        "R2-F3",
+        "R2-F4",
+        "R2-F5",
+        "R2-F6",
+        "R3-F1",
+        "R3-F2",
+        "R3-F3",
+        "R3-F4"
+      ],
+      "text": "owner 2026-09-08: third round authorized, journal reset by owner"
+    }
+  ],
+  "counts": {
+    "inventory_total": 19,
+    "killed": 10,
+    "survived_confirmed_p0": 2,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 7,
+    "findings_total": 17,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 9,
+    "accepted_risk": 0,
+    "fixed": 7,
+    "rejected": 1
+  },
+  "status": "CLEAR"
+}

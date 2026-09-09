@@ -1,8 +1,9 @@
 // src/app/api/admin/businesses/[id]/channels/route.ts
 //
-// Uses the existing auth helper at src/lib/db/auth.ts — `requireRole(request, ...roles)`
-// throws AuthError on unauthenticated (401) or non-matching role (403).
-// Mirrors the auth + dynamic-route pattern in src/app/api/admin/businesses/[id]/route.ts:74
+// Gated by the admin control-plane gate `requireAdminWithAal2` (@/lib/auth/admin-mfa-gate),
+// which owns the whole refusal contract: 401 Unauthorized / 403 Forbidden /
+// 403 mfa_required / 500 internal_error, all no-store.
+// Mirrors the auth + dynamic-route pattern in src/app/api/admin/businesses/[id]/route.ts
 // (Next.js 15: params is a Promise that must be awaited).
 //
 // The read itself lives in src/lib/admin/business-channels-service.ts so the
@@ -11,7 +12,7 @@
 // it imports the `sql` singleton and passes it down (invariant #15).
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRoleOr401 } from '@/lib/auth/route-helpers';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { getBusinessChannelEnrollments } from '@/lib/admin/business-channels-service';
@@ -20,15 +21,17 @@ import { getBusinessChannelEnrollments } from '@/lib/admin/business-channels-ser
 // admin business detail API at src/app/api/admin/businesses/[id]/route.ts:7.
 export const dynamic = 'force-dynamic';
 
+// Convention: the gate is the FIRST statement, so the handler does no work at all —
+// not even reading `params` — before the caller is authorized.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
+
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
-
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
 
   const data = await getBusinessChannelEnrollments(sql, businessId);
   return NextResponse.json(data);

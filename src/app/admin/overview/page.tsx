@@ -9,7 +9,11 @@ import { OverviewClient } from './OverviewClient';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminOverviewPage() {
-  await requireAdminPage(sql, { from: '/admin/overview' });
+  // Gate parity with GET /api/admin/overview, which uses requireAdminWithAal2
+  // since #1184 — this page reads the same cross-tenant health and at-risk
+  // rows directly via `sql`, so a plain admin gate here would serve what the
+  // API refuses.
+  await requireAdminPage(sql, { from: '/admin/overview', aal2: true });
 
   // SEQUENTIAL — do NOT re-introduce a Promise.all here (#505). Both callees
   // share the SAME `sql` client (pool = DB_POOL_MAX = 3 on Vercel), and

@@ -18,7 +18,10 @@ export const dynamic = 'force-dynamic';
 const INITIAL_QUERY: CostQuery = { days: 30, limit: PAGE_SIZE, offset: 0, accountId: '' };
 
 export default async function AdminCostsPage() {
-  await requireAdminPage(sql, { from: '/admin/costs' });
+  // Gate parity with GET /api/admin/costs, which uses requireAdminWithAal2
+  // since #1184 — spend and margin across every account, read here directly
+  // via `sql`, so a plain admin gate would serve what the API refuses.
+  await requireAdminPage(sql, { from: '/admin/costs', aal2: true });
 
   // SEQUENTIAL — do NOT re-introduce a Promise.all here (#505). Both callees
   // share the SAME `sql` client (pool = DB_POOL_MAX = 3 on Vercel) and

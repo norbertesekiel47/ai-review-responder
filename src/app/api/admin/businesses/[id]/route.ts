@@ -9,7 +9,7 @@ import {
   getBusinessDetail,
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -17,17 +17,19 @@ export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/businesses/[id] — business detail + reviews + latest responses
+//
+// #1184: GET and PATCH now end on the same gate.
 // ---------------------------------------------------------------------------
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
+
   const { id: rawBusinessId } = await params;
   const businessId: LocationId = asLocationId(rawBusinessId);
-
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
 
   try {
     const detail = await getBusinessDetail(sql, businessId);

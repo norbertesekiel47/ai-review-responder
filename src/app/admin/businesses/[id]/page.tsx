@@ -30,9 +30,12 @@ export default async function AdminBusinessDetailPage({
   const businessId = asLocationId(id);
   const invited = (await searchParams).invited === INVITED_FLAG;
 
-  // Gate parity with GET /api/admin/businesses/[id] — plain admin role, no AAL2.
+  // Gate parity with GET /api/admin/businesses/[id], which uses
+  // requireAdminWithAal2 — this page was deliberately plain admin until #1184
+  // folded that GET onto the step-up gate, so the AAL2 here is the parity
+  // following its anchor, not drift.
   // `from` is the static route shape, not raw input (page-gate contract).
-  await requireAdminPage(sql, { from: '/admin/businesses' });
+  await requireAdminPage(sql, { from: '/admin/businesses', aal2: true });
 
   // SEQUENTIAL — do NOT re-introduce a Promise.all here. `getBusinessDetail` is
   // itself a 13-query chain that sequences deliberately (see

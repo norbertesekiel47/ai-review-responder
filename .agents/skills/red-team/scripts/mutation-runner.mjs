@@ -49,6 +49,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -366,6 +367,56 @@ function commandEnv(root, parsed) {
 }
 
 /**
+ * TRUE when this branch's sidecar already records an owner authorization naming a
+ * third round.
+ *
+ * It reads the sidecar rather than a flag or an env var on purpose: the
+ * authorization has to survive in the committed evidence, where a reviewer sees it
+ * beside the findings, and it has to exist BEFORE the round opens. Matching on
+ * `branch` rather than re-deriving the slug keeps this from needing a second copy
+ * of the checker's path logic — two derivations of one path can disagree, and a
+ * disagreement here would either block a granted round or open an ungranted one.
+ *
+ * Fails CLOSED on anything it cannot read: no directory, no matching sidecar,
+ * unparseable JSON, or no matching text all mean "not authorized".
+ */
+function hasThirdRoundAuthorization(root) {
+  const reviewsDir = join(root, 'docs', 'reviews', 'red-team');
+  if (!existsSync(reviewsDir)) return false;
+
+  let branch;
+  try {
+    branch = git(root, ['branch', '--show-current']);
+  } catch {
+    return false;
+  }
+  if (!branch) return false;
+
+  let entries;
+  try {
+    entries = readdirSync(reviewsDir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const sidecarPath = join(reviewsDir, entry.name, 'findings.json');
+    if (!existsSync(sidecarPath)) continue;
+    let sidecar;
+    try {
+      sidecar = JSON.parse(readFileSync(sidecarPath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (sidecar?.branch !== branch) continue;
+    const authorizations = Array.isArray(sidecar.authorizations) ? sidecar.authorizations : [];
+    if (authorizations.some((a) => /third round/i.test(String(a?.text ?? '')))) return true;
+  }
+  return false;
+}
+
+/**
  * Open a round: verify the journal is closed, then reset the run budget.
  *
  * The budget is "30 runs per ROUND", and the journal outlives a round — so
@@ -395,8 +446,25 @@ function cmdRoundStart(root) {
     return 1;
   }
   const round = (journal.round ?? 0) + 1;
-  if (round > 2) {
-    console.error(`round-start: REFUSED — round ${round} exceeds the hard cap of 2`);
+  // Two rounds is still what a run reaches on its own. A THIRD opens only on an
+  // owner authorization already recorded in the sidecar, and nothing past three
+  // opens at all.
+  //
+  // Why the exception exists (#1184, after the same wall on #1178 and #1186): a
+  // round-2 finding whose fix touches the tree makes the sidecar stale by
+  // construction, and with no third round the only ways out were to leave a known
+  // defect unfixed or to hand-edit `head_sha` — an evidence file rewriting its own
+  // provenance. The escape is deliberately not free: the authorization must ALREADY
+  // be in the sidecar before the round opens, so a third round is something the
+  // owner granted rather than something a stuck agent decided for itself.
+  if (round > 3) {
+    console.error(`round-start: REFUSED — round ${round} exceeds the hard cap of 3`);
+    return 1;
+  }
+  if (round === 3 && !hasThirdRoundAuthorization(root)) {
+    console.error('round-start: REFUSED — a third round needs a recorded owner authorization');
+    console.error("  Add an entry to the sidecar's `authorizations` array whose text names the");
+    console.error('  third round (e.g. "third round authorized"), then re-run round-start.');
     return 1;
   }
   writeJournal(root, emptyJournal(round));

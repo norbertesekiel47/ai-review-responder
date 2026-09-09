@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRoleOr401 } from '@/lib/auth/route-helpers';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getAdminNavCounts } from '@/lib/admin/nav-counts-service';
 
@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
 // Thin orchestrator (auth → call service → return; invariant #12). Polled every
 // 60s by the admin sidebar for badge counts.
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   try {
     const data = await getAdminNavCounts(sql);

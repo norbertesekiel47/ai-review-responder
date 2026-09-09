@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { requireRole, AuthError } from '@/lib/db/auth';
+import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { parseCostQuery, getCostReport } from '@/lib/admin/cost-report-service';
 import { getMarginReport } from '@/lib/admin/margin-service';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
 
+// #1184: the hand-written auth catch deleted here answered 401 for ANY non-`AuthError`,
+// masking a server fault as a credential problem; the gate now owns that refusal.
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    await requireRole(request, 'admin');
-  } catch (err) {
-    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.statusCode });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
+
   const parsed = parseCostQuery(request.nextUrl.searchParams);
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
   try {

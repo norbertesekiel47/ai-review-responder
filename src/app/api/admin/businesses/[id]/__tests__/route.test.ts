@@ -3,49 +3,42 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 
+// #1184: GET folded from `requireRoleOr401` onto `requireAdminWithAal2`, so the REAL
+// gate runs here for BOTH verbs and only its dependencies are mocked — through the
+// shared shim, the single owner of that mock triple
+// (src/lib/auth/__tests__/helpers/admin-gate-mocks.ts). It replaces the inline #1183
+// copy this suite used to carry. `mockRequireRole` still says whether there is a live
+// admin and `mockRequireCurrentAal2FromSupabase` still says whether the AAL2 step-up
+// passed, so every pre-existing assertion below keeps its meaning.
 const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
+  mockLoadAppUser,
+  mockResolveDualModeIdentity,
+  adminAuthModuleMock,
   mockTxCalls,
   mockTxReturns,
   mockInvalidateChannelCache,
-} = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-  mockRequireCurrentAal2FromSupabase: vi.fn(),
-  mockTxCalls: [] as unknown[][],
-  mockTxReturns: [] as unknown[],
-  mockInvalidateChannelCache: vi.fn(),
-}));
+  mockGetBusinessDetail,
+} = await vi.hoisted(async () => {
+  const { makeAdminGateMocks, adminAuthModuleMock } =
+    await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
+  return {
+    ...makeAdminGateMocks(),
+    adminAuthModuleMock,
+    mockTxCalls: [] as unknown[][],
+    mockTxReturns: [] as unknown[],
+    mockInvalidateChannelCache: vi.fn(),
+    // GET delegates the whole read to the detail service, which has its own suite.
+    // Only `getBusinessDetail` is stubbed — PATCH still runs the REAL `updateBusiness`
+    // + `FIELD_TO_COLUMN`, which the tx-shape assertions below depend on.
+    mockGetBusinessDetail: vi.fn(),
+  };
+});
 
 // ── Mock auth ───────────────────────────────────────────────────────
 
-vi.mock('@/lib/db/auth', () => {
-  class AuthError extends Error {
-    constructor(message: string, public readonly statusCode: number) {
-      super(message);
-      this.name = 'AuthError';
-    }
-  }
-  return {
-    requireRole: (...args: unknown[]) => mockRequireRole(...args),
-    // #1183: the admin gate maps a resolved identity to its users row instead of
-    // calling requireRole. Reuse the outcome resolveDualModeIdentity already
-    // produced rather than invoking mockRequireRole a second time — a `...Once`
-    // control would be consumed by the seam, and the second call would fall through
-    // to the beforeEach default, silently turning a 403 case into a success.
-    loadAppUser: async () => {
-      const last = mockRequireRole.mock.results.at(-1);
-      if (!last) return null;
-      try {
-        return await last.value;
-      } catch {
-        return null;
-      }
-    },
-    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
-    AuthError,
-  };
-});
+vi.mock('@/lib/db/auth', () => adminAuthModuleMock(mockRequireRole, mockLoadAppUser));
 
 // ── Mock DB ─────────────────────────────────────────────────────────
 
@@ -97,31 +90,18 @@ vi.mock('@/lib/auth/mfa', () => ({
   requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
 }));
 
-// #1183: the admin gate reads its identity through the Admin transport seam. This
-// shim keeps the suite's existing controls meaningful — mockRequireRole still says
-// whether there is a live admin, and mockRequireCurrentAal2FromSupabase still says
-// whether the AAL2 step-up passed.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: async (request: unknown) => {
-    try {
-      await mockRequireRole(request, 'admin');
-    } catch (err) {
-      const status = (err as { statusCode?: number } | null)?.statusCode;
-      if (status === 401) return null; // no live credential → the gate's 401
-      if (status !== 403) throw err; // a real fault → the gate's 500
-      // 403 is "authenticated but not an admin"; loadAppUser reports that.
-    }
-    const aal = await mockRequireCurrentAal2FromSupabase();
-    return {
-      authUserId: 'auth-1',
-      aal: aal?.ok ? 'aal2' : aal?.reason === 'mfa_check_failed' ? null : 'aal1',
-      transport: 'cookie',
-    };
-  },
+  resolveDualModeIdentity: mockResolveDualModeIdentity,
 }));
 
+// Only the GET read is stubbed; PATCH's `updateBusiness` + `FIELD_TO_COLUMN` stay REAL.
+vi.mock('@/lib/admin/business-detail-service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/admin/business-detail-service')>();
+  return { ...actual, getBusinessDetail: mockGetBusinessDetail };
+});
+
 // Import AFTER mocks
-import { PATCH } from '../route';
+import { GET, PATCH } from '../route';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -239,5 +219,92 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
     });
     expect(enrollmentCall).toBeUndefined();
     expect(mockInvalidateChannelCache).not.toHaveBeenCalled();
+  });
+});
+
+// ── The admin MFA gate on GET (#1184) ───────────────────────────────
+//
+// The five cases every folded Admin API read owes. Each refusal also asserts the
+// no-store header — that is what catches a fold which REWRAPS `gate.response`
+// instead of returning it: the status and body would still look right while the
+// cache semantics of an admin refusal silently changed.
+describe('GET /api/admin/businesses/[id] — the admin MFA gate (#1184)', () => {
+  const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null };
+  const DETAIL = { business: { id: 'biz-1', name: 'Test Cafe' } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireRole.mockResolvedValue(ADMIN);
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
+    mockGetBusinessDetail.mockResolvedValue(DETAIL);
+  });
+
+  function makeGetRequest(): NextRequest {
+    return new NextRequest('http://localhost/api/admin/businesses/biz-1');
+  }
+
+  it('GET /api/admin/businesses/[id] — an aal2 admin is served', async () => {
+    const res = await GET(makeGetRequest(), paramsFor('biz-1'));
+
+    expect(res.status).toBe(200);
+    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
+    // The negative half of the bearer case: no Authorization header, so the shim
+    // must resolve cookie transport rather than a value it invented.
+    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
+    expect(resolved?.transport).toBe('cookie');
+  });
+
+  it('GET /api/admin/businesses/[id] — an aal1 admin is refused 403 mfa_required', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: false, reason: 'mfa_required' });
+
+    const res = await GET(makeGetRequest(), paramsFor('biz-1'));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'mfa_required' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockGetBusinessDetail).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/businesses/[id] — a non-admin is refused 403 Forbidden', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+
+    const res = await GET(makeGetRequest(), paramsFor('biz-1'));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'Forbidden' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockGetBusinessDetail).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/businesses/[id] — an unauthenticated caller is refused 401 Unauthorized', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthenticated', 401));
+
+    const res = await GET(makeGetRequest(), paramsFor('biz-1'));
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Unauthorized' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(mockGetBusinessDetail).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/admin/businesses/[id] — a bearer-transport aal2 admin is served', async () => {
+    const req = new NextRequest('http://localhost/api/admin/businesses/biz-1', {
+      headers: { authorization: 'Bearer test-admin-access-token' },
+    });
+
+    const res = await GET(req, paramsFor('biz-1'));
+
+    expect(res.status).toBe(200);
+    // The seam saw the real header, so this is a transport test rather than a
+    // second spelling of the cookie case.
+    const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
+    expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
+    // …and the transport the shim RESOLVED from it. Asserting only the header
+    // above leaves a hardcoded `transport` in the shim passing every one of the
+    // nine bearer cases, which is exactly the mutation this line kills.
+    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
+    expect(resolved?.transport).toBe('bearer');
   });
 });

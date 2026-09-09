@@ -5,7 +5,7 @@ import {
   onboardBusinessAsAdmin,
   AdminOnboardingError,
 } from '@/lib/onboarding/admin-onboarding-service';
-import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getBusinessSummaries, parseBusinessListFilters } from '@/lib/admin/business-summary';
@@ -25,11 +25,13 @@ export const dynamic = 'force-dynamic';
 // `parseBusinessListFilters` (shared with the server page, which reads the same
 // params off `searchParams`). Only PRESENT filters reach the service, so an
 // unfiltered call is byte-identical to the pre-filter contract.
+//
+// #1184: GET and POST now end on the same gate.
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = await requireRoleOr401(request, 'admin');
-  if (!auth.ok) return auth.response;
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return gate.response;
 
   try {
     const limit = Math.min(
