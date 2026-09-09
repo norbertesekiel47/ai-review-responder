@@ -1066,3 +1066,33 @@ sidecar carried its arbiter reasoning for R3-F1 inside `reason` rather than the
 `arbiter_reasoning` field the schema requires, so the checker could not see it —
 it now lives in that field, wording unchanged. And `intake_sha256` was re-stamped
 for amendment #4's intake. Neither changes a finding, an outcome, or a count.
+
+### Re-stamp to `9a150e51`, under the owner's standing instruction
+
+Applying the fixes moved HEAD past `4a588cdd`, and the checker objected on
+staleness and on the amended intake. The owner's standing instruction for exactly
+this case was: do NOT open round 4 — re-run the surviving mutations directly at
+HEAD, record them dead as ROOT evidence marked as such, and report the checker's
+output if it still refuses.
+
+**The delta being re-stamped over**, `git diff 4a588cdd..9a150e51`, three
+non-report files, none of them production code and none reachable by the six
+pages or the audit's executable paths:
+
+| file | what changed |
+|---|---|
+| `scripts/ci/__tests__/red-team-status.test.ts` | a `finding_ids` callback annotation, TS2345 under `next build`'s stricter check |
+| `.claude/skills/red-team/SKILL.md` | the canonical mirror of the cap paragraph, which `ci:agent-config` requires to be byte-identical |
+| `docs/superpowers/plans/…-intake.json` | that mirror added to `allowed_edit_surface`, which is what moved `intake_sha256` |
+
+**Re-run at `9a150e51`** (root evidence, gathered outside a red-team round):
+the dropped-`await` mutation applied to each of the six pages in turn, restoring
+after each — `/admin/overview` 2 failed, and `/admin/{businesses,businesses/[id],
+costs,jobs,notifications}` 1 failed each. Dead on all six, unchanged from
+`4a588cdd`. `git status --porcelain` empty afterwards.
+
+The mutation evidence in the inventory above was gathered by the round-3 agent at
+`8d734808`; this re-stamp does not claim otherwise. What it claims is narrower and
+checkable: the executable surface those mutations exercised is unchanged between
+`8d734808`, `4a588cdd` and `9a150e51` except for the R3-F1/R3-F2 fixes, whose
+effect was re-measured directly and is recorded above.
