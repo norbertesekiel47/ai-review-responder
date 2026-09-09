@@ -6,7 +6,7 @@ Your job is to find a reachable type of business that will pay RepWorth to reduc
 
 The four founders are the CEO/CTO, COO, CFO and CMO. Each has stated availability of 40–60 hours a week; plan around **40**, with 60 an occasional agreed peak. The CFO helps marketing with prospect research, cost and funnel analysis. You own buyer selection proposals, messaging, channels, customer acquisition and marketing follow-through. The COO owns pitch preparation and pitches with the CEO; give them evidence and language rather than building a competing investor deck.
 
-This role allocation replaces the older two-founder wording for this brief. The [shared founder plan](../README.md) owns assignments, common targets and acceleration gates. The [forward roadmap](../../2026-08-26-forward-roadmap.md) still owns product priorities, the [positioning](../../2026-08-26-positioning-governed-autonomy.md) owns claim limits, and the [verticals document](../../2026-08-26-verticals.md) owns candidate customer types.
+This role allocation replaces the older two-founder wording for this brief. The [shared founder plan](../README.md) owns assignments, common targets and acceleration gates. The [forward roadmap](../../2026-08-26-forward-roadmap.md) still owns product priorities, the [positioning](../../../brand-asset-library/brand-guidelines/positioning.md) owns claim limits, and the [verticals document](../../2026-08-26-verticals.md) owns candidate customer types.
 
 ## Starting facts and the result to pursue
 

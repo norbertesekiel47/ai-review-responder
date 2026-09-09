@@ -1,5 +1,7 @@
 # Design system docs & tokens — three-tier arrangement
 
+> **2026-09-08:** every `docs/design/*` path below moved to `docs/brand-asset-library/design-systems/*`, and `docs/design/brand-story.md` to `docs/brand-asset-library/archive/legacy-brand-story.md`. The paths here stay as the record of what this spec created.
+
 _Status: **ACCEPTED 2026-08-16** (all §6 recommendations taken: D1 delete + tag,
 D2 option A, D3 option A, D4 deferred then **taken in PR 3a**, D5 subdirs) · Owner: Norbert + Claude_
 _Supersedes the ad-hoc layout of `docs/design/`, root `DESIGN.md`, and the

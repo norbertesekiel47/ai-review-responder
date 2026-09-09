@@ -33,5 +33,5 @@ round 2 · standards-maintainability · REVISE
   M12 low ACCEPT · A host-component class is defined 800 lines from its siblings and reads as the BEM parent of an unrelated class (src/app/(authenticated)/_styles/console.css:3060)
   M13 low ACCEPT · Four different structural mechanisms for the same job, with no stated rule for which to use (docs/directory.md:516)
   M14 low REJECT · A Console-only primitive lives in the folder that otherwise holds the public-site shell and fails silently outside .rw-console (src/components/ui/InfoTip.tsx)
-  M15 low REJECT · The Console design of record gains no entry for the Console's newest primitive (docs/design/console/DESIGN.md)
+  M15 low REJECT · The Console design of record gains no entry for the Console's newest primitive (docs/brand-asset-library/design-systems/console/DESIGN.md)
 ```

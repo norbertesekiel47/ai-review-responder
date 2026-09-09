@@ -29,8 +29,8 @@ assignments; its numeric targets are proposed, not achieved results.
 | [Current state](2026-08-26-current-state.md) | Implementation inventory, dated evidence, and remaining uncertainty about deployment |
 | [Forward roadmap](2026-08-26-forward-roadmap.md) | Immediate priorities, dependencies, and longer-term feature options |
 | [Verticals](2026-08-26-verticals.md) | Candidate industries, how to choose the first customer type, and later integration/topic options |
-| [Positioning](2026-08-26-positioning-governed-autonomy.md) | Customer promise, supporting controls, and limits on public claims |
-| [Brand story](2026-08-26-brand-story.md) | Plain-language story and evidence requirements for marketing |
+| [Positioning](../brand-asset-library/brand-guidelines/positioning.md) | Customer promise, supporting controls, and limits on public claims |
+| [Brand story](../brand-asset-library/brand-guidelines/brand-story.md) | Plain-language story and evidence requirements for marketing |
 | [Agentic architecture](2026-08-26-agentic-architecture.md) | Existing foundation, future dependencies, and conditions for external agent access |
 | [Investor theses](2026-08-29-investor-theses-overlay.md) | Ideas to test with buyers and investors; pricing and funding decisions |
 | [Launch explainer](2026-08-29-launch-explainer-script.md) | A short demonstration first, with a longer film concept for later |

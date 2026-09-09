@@ -181,7 +181,7 @@ Check the implementation and intended environment for current trigger coverage.
 Use the selected customer type's own language and observed problem in the
 first demonstration and sales draft. Additional industry pages are optional
 later work. Before building any, follow the standing rule: list existing marketing routes
-and what each covers (see `docs/help/marketing/` and the 2026-07-22
+and what each covers (see `docs/brand-asset-library/brand-kit/` and the 2026-07-22
 marketing-pages-agentic-refresh spec); extend, don't duplicate. Vertical
 proof points should use that vertical's ontology vocabulary once Phase 3
 ships. A claim such as "arrival-time complaints down 40%" needs an actual

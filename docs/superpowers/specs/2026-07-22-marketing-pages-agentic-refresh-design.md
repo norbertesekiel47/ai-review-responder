@@ -9,7 +9,7 @@ flags, API surface, or `selfServeEnabled` plumbing changes.
 
 Both pages still tell the pre-agentic story (email-only approval loop, flat
 6-feature list). The pricing page, the brand-story doc
-(`docs/design/brand-story.md`), and the shipped platform (design of record
+(`docs/brand-asset-library/archive/legacy-brand-story.md`), and the shipped platform (design of record
 §8, WS1–WS8) have all moved to the two-tier agent narrative: Copilot/Autopilot
 tiers, Reply/Guardian/Insights personas, Judge + Governor watchdogs, trust
 dial, veto window. The stale pages undersell the differentiator and in places

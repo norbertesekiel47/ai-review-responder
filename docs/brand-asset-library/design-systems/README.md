@@ -6,10 +6,10 @@ and no component recipes so it can never drift from them.
 
 | System | Scope | Style Reference | Token file (the "CSS variables" export) | `@theme` block (the "Tailwind v4" export) | Guard |
 |---|---|---|---|---|---|
-| **Landing** | `.rw-lp` | [`landing/DESIGN.md`](./landing/DESIGN.md) + [`landing/measurements.md`](./landing/measurements.md) | `src/components/sections/landing/landing-experience.css` (+ `hero/hero.css`) | none — Landing is plain CSS | [`design-scope-purity.test.ts`](../../src/__tests__/design-scope-purity.test.ts) — only `--rw-lp-*` may be declared |
-| **Island** | `:root` | [`island/DESIGN.md`](./island/DESIGN.md) | `src/app/globals.css` `:root`; page CSS: [`src/app/(public)/_styles/*.css`](../../src/app/(public)/_styles), `@import`ed from `globals.css` in a fixed order | `globals.css` `@theme inline` — Island entries | [`design-token-single-source.test.ts`](../../src/__tests__/design-token-single-source.test.ts) + [`design-scope-purity.test.ts`](../../src/__tests__/design-scope-purity.test.ts) — the `@theme` block may name no Console token |
-| **Console** ("Harbor") | `.rw-console` | [`console/DESIGN.md`](./console/DESIGN.md) | `src/app/(authenticated)/_styles/tokens.css` (the `.rw-console` block) | [`_styles/theme.css`](../../src/app/(authenticated)/_styles/theme.css), `@import`ed from `globals.css` | the same single-source test (colors **and** font families) + `console-admin-palette` / `no-yellow-star-colors` / `save-bar-sidebar-width` |
-| _Brand (shared)_ | — | this file + root [`DESIGN.md`](../../DESIGN.md) + [`brand-story.md`](./brand-story.md) | `--rw-font-*` families in `globals.css` | — | — |
+| **Landing** | `.rw-lp` | [`landing/DESIGN.md`](landing/DESIGN.md) + [`landing/measurements.md`](landing/measurements.md) | `src/components/sections/landing/landing-experience.css` (+ `hero/hero.css`) | none — Landing is plain CSS | [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts) — only `--rw-lp-*` may be declared |
+| **Island** | `:root` | [`island/DESIGN.md`](island/DESIGN.md) | `src/app/globals.css` `:root`; page CSS: [`src/app/(public)/_styles/*.css`](../../../src/app/(public)/_styles), `@import`ed from `globals.css` in a fixed order | `globals.css` `@theme inline` — Island entries | [`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts) + [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts) — the `@theme` block may name no Console token |
+| **Console** ("Harbor") | `.rw-console` | [`console/DESIGN.md`](console/DESIGN.md) | `src/app/(authenticated)/_styles/tokens.css` (the `.rw-console` block) | [`_styles/theme.css`](../../../src/app/(authenticated)/_styles/theme.css), `@import`ed from `globals.css` | the same single-source test (colors **and** font families) + `console-admin-palette` / `no-yellow-star-colors` / `save-bar-sidebar-width` |
+| _Brand (shared)_ | — | this file + [`DESIGN.md`](../../../DESIGN.md) + [`brand-story.md`](../brand-guidelines/brand-story.md) | `--rw-font-*` families in `globals.css` | — | — |
 
 ## Which system am I in?
 
@@ -20,7 +20,7 @@ and no component recipes so it can never drift from them.
 | everything else public / marketing / auth / approval / legal / **admin** | **Island** |
 
 `/` is **deliberately unlocked** from the Island system (agreed 2026-08-03, recorded in
-[`PRODUCT.md`](../../PRODUCT.md)). It establishes its own world; the rest of the site does
+[`PRODUCT.md`](../../../PRODUCT.md)). It establishes its own world; the rest of the site does
 **not** follow it. Do not "restore" sage/teal/peach there.
 
 Admin (`src/app/admin/**`) renders **outside** `.rw-console` and consumes **no** Console
@@ -31,7 +31,7 @@ the amber/orange/stone ban locked by `console-admin-palette.test.ts`.
 
 1. **Tokens live in code, not in a doc.** Each system's token file *is* its export. A
    Style Reference's Tokens tables restate the values for readability and are pinned to the
-   token file by [`design-doc-token-pin.test.ts`](../../src/__tests__/design-doc-token-pin.test.ts)
+   token file by [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts)
    — every `` `--rw-*` `` a table names must exist in that system's token file, and where the
    table has both a **Value** and a **Token** column the value must match the declaration.
    Everything else — recipes, prose — points at the file.
@@ -54,7 +54,7 @@ the amber/orange/stone ban locked by `console-admin-palette.test.ts`.
 3. **The two teals.** The decorative Island teal fails WCAG AA for text. For links, button
    fills, and any text use the actionable teal token, which passes AA on white and cream
    (and neither on sage or teal — use ink there). Rationale:
-   [`docs/adr/0004-accessible-teal-token-split.md`](../adr/0004-accessible-teal-token-split.md).
+   [`docs/adr/0004-accessible-teal-token-split.md`](../../adr/0004-accessible-teal-token-split.md).
 
 ## How to overhaul one system
 
@@ -72,10 +72,10 @@ under one selector; CI proves the other two were not touched.
 
 ## The impeccable skill
 
-Root [`DESIGN.md`](../../DESIGN.md) is a **thin brand-level index** — the one file
-`impeccable`'s context loader resolves at the project root. It carries only brand-wide
-facts and routes to these three. It is hand-curated: `/impeccable document` output goes
-into the matching `docs/design/<system>/DESIGN.md`, never into the root file.
+Root [`DESIGN.md`](../../../DESIGN.md) is a compatibility pointer for design-tool
+discovery. Brand-wide facts live in [visual identity](../../../DESIGN.md).
+Both route here for surface-specific guidance. `/impeccable document` output goes
+into the matching `docs/brand-asset-library/design-systems/<system>/DESIGN.md`.
 
 `brand-story.md` is the **narrative** layer (positioning, story arc, messaging
 guardrails) — not a visual system. The `repworth-brand-design` skill is the agent-facing

@@ -1,9 +1,11 @@
+> **Historical reference.** Superseded by the [Brand Asset Library](../README.md). Do not use this file as a current brief or source of availability claims. Original content is retained below.
+
 # RepWorth brand story & messaging
 
 Owner of the **narrative** layer of the brand: positioning, story arc, and
 messaging guardrails for anything customer-facing (landing pages, ads, video,
 social, decks). Visual identity is owned elsewhere — tokens by
-`src/app/globals.css`, layout/components by [`island/DESIGN.md`](./island/DESIGN.md).
+`src/app/globals.css`, layout/components by [`island/DESIGN.md`](../design-systems/island/DESIGN.md).
 
 ## Positioning
 

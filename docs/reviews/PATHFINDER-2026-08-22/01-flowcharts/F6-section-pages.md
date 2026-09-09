@@ -15,7 +15,7 @@ Phase 1 flowchart. Window: `54e4d374..74aee92a`. Weight: heavy (29 files).
 > `HowItWorksContent.tsx`, `PricingContent.tsx`, ten `Feat*.tsx`,
 > `RoadmapBand.tsx`, `FeaturesContent.tsx`, `FeaturesContent.test.tsx`,
 > `focus-visible-marketing.test.ts`, `features.css`, `pricing.css`,
-> `docs/design/island/DESIGN.md`.
+> `docs/brand-asset-library/design-systems/island/DESIGN.md`.
 >
 > **That rename is D1's consolidation** — the reveal primitive moving to a shared
 > owner. So the finding below was, apparently independently, already being acted

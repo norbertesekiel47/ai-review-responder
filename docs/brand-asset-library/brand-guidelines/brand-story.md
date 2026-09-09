@@ -1,6 +1,6 @@
 # RepWorth brand story (source of truth for marketing narrative)
 
-Refreshed 2026-09-07 after the roadmap review; original filename retained.
+Refreshed 2026-09-07 after the roadmap review; consolidated into this library on 2026-09-08.
 The immediate story is owner time returned in one beta customer type,
 which has not yet been selected. Production availability and customer
 results were not verified during this documentation refresh.
@@ -8,7 +8,7 @@ results were not verified during this documentation refresh.
 This file is the single source for the RepWorth story across marketing
 campaigns, social media, videos, landing pages, and the website. Copy teams
 and future sessions pull from here; they do not invent a parallel narrative.
-It is consistent with `2026-08-26-positioning-governed-autonomy.md` (the
+It is consistent with [positioning and claims](positioning.md) (the
 claims discipline lives there) and with the current-state doc (what is true
 today vs vision).
 
@@ -214,7 +214,7 @@ or live journey was verified in this refresh.
 
 | Bucket | Elements | Usable |
 |---|---|---|
-| **Implemented in code** | Copilot, voice examples after five posted+edited replies, TL;DR, triage/escalation, approval controls, Judge/Governor, consent/suppression, requests and [Review QR](../context/review-qr.md) | Describe implemented design; source presence alone is not a customer-availability claim. QR is no longer a pre-launch build item. |
+| **Implemented in code** | Copilot, voice examples after five posted+edited replies, TL;DR, triage/escalation, approval controls, Judge/Governor, consent/suppression, requests and [Review QR](../../context/review-qr.md) | Describe implemented design; source presence alone is not a customer-availability claim. QR is no longer a pre-launch build item. |
 | **Verified in staging** | Only the specific journey covered by a dated build/environment/test record | Say exactly what was demonstrated. Do not carry an old "live-tested" label across unverified changes. |
 | **Verified in production** | Only features confirmed in the deployed version, flags, account configuration and actual completed journey | Present-tense availability claims with linked evidence. Checked-in context reports autonomy flags off; live state must be checked. A flip alone is insufficient. |
 | **Vision (P1–P8 topics)** | Job-completion integrations, recovery, topic intelligence, Business Truth, finer autonomy controls, expanded impact evidence, multi-platform and external-agent access | Future-framed until delivered and verified. Topic IDs preserve references, not mandatory order; minimum approved business facts must precede any recovery action. |

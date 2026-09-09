@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Staged, StagedLine } from '../staged';
 
-// The staged-beat contract (docs/design/landing/DESIGN.md → Motion): both
+// The staged-beat contract (docs/brand-asset-library/design-systems/landing/DESIGN.md → Motion): both
 // elements share ONE motion-prop builder, reduced motion renders the final
 // frame on the SAME element type, and rise={0} writes no transform at all
 // (the future-glow rule). These tests execute every branch of that builder.

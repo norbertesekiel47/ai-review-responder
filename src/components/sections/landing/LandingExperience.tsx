@@ -77,7 +77,7 @@ import './landing-experience.css';
  * rail and the vertical chapter markers were removed together — the reader
  * owns the wheel, sections are as tall as their content, and the only motion
  * on arrival is `Reveal`'s single opacity fade. Rationale and the measurements
- * that changed: docs/design/landing/measurements.md §2.
+ * that changed: docs/brand-asset-library/design-systems/landing/measurements.md §2.
  *
  * 2026-08-24, owner override of part of that pass: the two film bookends now
  * carry a scroll-linked push-in/settle on their internal zoom layers, the hero

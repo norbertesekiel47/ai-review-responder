@@ -23,7 +23,7 @@
   display: flex;
   flex-direction: column;
   /* Content-height plus the shared rhythm — never viewport-bound
-     (docs/design/landing/measurements.md §2). */
+     (docs/brand-asset-library/design-systems/landing/measurements.md §2). */
   padding: var(--rw-lp-section-gap, 6rem) 0;
   background: var(--rw-lp-ink, #14201c);
 }

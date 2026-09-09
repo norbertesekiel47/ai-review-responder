@@ -33,7 +33,7 @@
   flex-direction: column;
   /* As tall as its content plus the page's section rhythm — never bound to
      the viewport (the `100svh` bind and the snap that needed it were removed
-     2026-08-16; docs/design/landing/measurements.md §2). */
+     2026-08-16; docs/brand-asset-library/design-systems/landing/measurements.md §2). */
   padding: var(--rw-lp-section-gap, 6rem) 0;
   background: var(--rw-lp-ink, #14201c);
   overflow: hidden;

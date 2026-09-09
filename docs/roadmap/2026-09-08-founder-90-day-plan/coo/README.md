@@ -42,7 +42,7 @@ prerequisite for a sales or investor conversation.
 
 Use the [forward roadmap](../../2026-08-26-forward-roadmap.md),
 [current-state inventory](../../2026-08-26-current-state.md) and
-[claims discipline](../../2026-08-26-positioning-governed-autonomy.md).
+[claims discipline](../../../brand-asset-library/brand-guidelines/positioning.md).
 Historical implementation or staging evidence does not prove today's live
 availability. A simulated demo is labeled; seven minutes per handled reply
 is an estimate, not measured savings.

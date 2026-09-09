@@ -32,7 +32,7 @@
   display: flex;
   flex-direction: column;
   /* As tall as its content plus the page's section rhythm — never bound to
-     the viewport (2026-08-16; docs/design/landing/measurements.md §2).
+     the viewport (2026-08-16; docs/brand-asset-library/design-systems/landing/measurements.md §2).
      No bottom padding: the chart is full-bleed and ends the section, and its
      own bottom fade is the hand-off to the closing band. A gap of ink
      between the two read as a hole (owner, 2026-09-06). */

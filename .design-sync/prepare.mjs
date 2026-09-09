@@ -35,11 +35,11 @@ const EXCLUDE = new Set([
 // Design docs shipped as guidelines. The converter flattens to basename, so a
 // distinct name per file is required — two DESIGN.md would silently drop one.
 const GUIDELINES = {
-  'brand-story.md': 'docs/design/brand-story.md',
-  'design-systems-overview.md': 'docs/design/README.md',
-  'island-system.md': 'docs/design/island/DESIGN.md',
-  'landing-system.md': 'docs/design/landing/DESIGN.md',
-  'landing-measurements.md': 'docs/design/landing/measurements.md',
+  'brand-story.md': 'docs/brand-asset-library/brand-guidelines/brand-story.md',
+  'design-systems-overview.md': 'docs/brand-asset-library/design-systems/README.md',
+  'island-system.md': 'docs/brand-asset-library/design-systems/island/DESIGN.md',
+  'landing-system.md': 'docs/brand-asset-library/design-systems/landing/DESIGN.md',
+  'landing-measurements.md': 'docs/brand-asset-library/design-systems/landing/measurements.md',
 };
 
 // public/ assets reached through `next/image`. They cannot resolve from a

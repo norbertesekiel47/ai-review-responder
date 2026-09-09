@@ -1,0 +1,2601 @@
+{
+  "schema_version": 1,
+  "inventory_date": "2026-09-08",
+  "source_revision": "6e14c8a23333de61bbe0cf1f68b78acbf874ef47",
+  "path_base": "repository-root",
+  "scope": "Tracked brand/media assets in public/, fonts in src/app/fonts/, and Daylight II/dashboard design references. Excludes CSV templates, local untracked output/ and tmp/, runtime code, and historical production scripts (see archive index).",
+  "assets": [
+    {
+      "id": "docs--design--dashboard-redesign--direction-board.html",
+      "path": "docs/design/dashboard-redesign/direction-board.html",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 41072,
+      "sha256": "cfa242131a2dfcd67561e2291327d812fd0b261050c8e0d780584ef99e92441a",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1230057,
+      "sha256": "0d91080c2c2c476028a00f5ab52a0b21151f59faa246c21c91f42c4623d8229f",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 439701,
+      "sha256": "d6d2cc01cc12e497ac38f92fa4c4e9d74af41700f197740dddac9a43f87b9d77",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--analytics-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/analytics-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1139453,
+      "sha256": "df9872e60d468e8d6300beee1d1cb81309eab27934fd6695de8b31022c6043b5",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--analytics-after-hover-rating.png",
+      "path": "docs/design/dashboard-redesign/evidence/analytics-after-hover-rating.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 62003,
+      "sha256": "bd986ce211445c8d8ca9911c80a8b5a70950f0bf78cd599a58dfe275f85e83e6",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--analytics-after-hover-trend.png",
+      "path": "docs/design/dashboard-redesign/evidence/analytics-after-hover-trend.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 102658,
+      "sha256": "b1f29c0c271987f1a73814bc61825c0e49323d38706f47f227eab9db5466c799",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--analytics-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/analytics-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 405988,
+      "sha256": "3e91acc88cace8ef5f06b3abd0a79c386e95d01837a36c7161421c7eaca44d0e",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--analytics-before-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/analytics-before-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1140999,
+      "sha256": "675be870183bcabe30ceb3acfff64663891c8132d5983d1256aae4f0d3520ad5",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--analytics-before-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/analytics-before-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 406275,
+      "sha256": "493069d4e64b8b727fa6ce876fb43848a81f76cbbeedcd794fcc380ee9335a22",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--before-desktop-1440.jpg",
+      "path": "docs/design/dashboard-redesign/evidence/before-desktop-1440.jpg",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 58063,
+      "sha256": "2f80350cf94c89797f5771c428a112bc6d1993206aa723fd90c5bcd24ceadcf3",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--before-local-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/before-local-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 778429,
+      "sha256": "e1cbf209f5d3fd89e8f1cf444db0d2668d8b3d5028cc0484de8b547a3edc9d2e",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--before-local-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/before-local-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 358724,
+      "sha256": "c3ac1cff208556761b204d7502c8440191c3f280568352fa66f5f8bf85f971c3",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1273847,
+      "sha256": "7d3f2cffd77327d864a94cc3071004ddfe7fa0be98cfd4513f805f58299c7320",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 468415,
+      "sha256": "545e9503372d4ae097dcc9390d4a5df1dfc4658bf283cc9954da97ecbf942db7",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-before-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-before-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1230304,
+      "sha256": "42a87d2501730ee5b755d23a5bbdbe554d6829a542221cf46e261ae3b1cdb28e",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-before-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-before-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 439940,
+      "sha256": "9ded48291268996ed64ca2de4e58052b9df8b5966f02ace5cb43c1f3ae58805c",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1223595,
+      "sha256": "3448b9d9570b3953ee9fd2e5ac552301de86ce4944a1fa4167462af4cbbd494c",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 458554,
+      "sha256": "14618b07bfebb170398ec216c43a2c42f7b8a8b70c6ba1033d347f7c7a025395",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-w1024.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-w1024.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1010991,
+      "sha256": "6fdb3ee4235160811d7f88f5ef1a7fc67e65151b3bdb61f5e8948ca0616715d3",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-w1199.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-w1199.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1053118,
+      "sha256": "a8a041645ac8dd17df6dd0fb0152a210c2abac3ecb37228f5ee82733f80652ec",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-w1200.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-w1200.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1048916,
+      "sha256": "dccda2662b953b9f5971321b9937681e1972129098717c7287d9c3bb16741942",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-w1280.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-w1280.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1113961,
+      "sha256": "47dc0f432edb6bb32c8bbd737048f3e624dd348033e1fe545fc4a42d7f0538d7",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-w899.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-w899.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 952155,
+      "sha256": "238d3c5b14df059761250ffd39fc9b67ed0e9595f01ba5cca67f0294be0f11ef",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-after-w900.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-after-w900.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 949561,
+      "sha256": "9f9804d084a14fb2af5704068bbaa3334671bf050928b288ca115160ca92bee3",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-before-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-before-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1273322,
+      "sha256": "b61322ac6097df9ae8389a9de5771e2e654ca79f0edb339aeaa2fb46889a2e90",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-density-before-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-density-before-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 468415,
+      "sha256": "545e9503372d4ae097dcc9390d4a5df1dfc4658bf283cc9954da97ecbf942db7",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-notices-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-notices-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1123449,
+      "sha256": "3fc4f59f2def5d4511301e38f2b3b5a9edab51ba237005f79937e2741bb001b7",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--dashboard-notices-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/dashboard-notices-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 427417,
+      "sha256": "d8266e804ec2e4502b6dcddb1f47ac6d8083d68e9c30765644b16bf847c06426",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--pulse-scored-synthetic-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/pulse-scored-synthetic-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1265275,
+      "sha256": "d1348456989358b5e3bc81d75d5446ff3de56f9bff3bb07ae7a47de4c0d68d8c",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--pulse-scored-synthetic-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/pulse-scored-synthetic-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 332261,
+      "sha256": "671cb085fb8e0f5b5a083ad191ee9dee930b3090eb6075a41c94a5563e1796bd",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1159045,
+      "sha256": "66676a5ee750aa79a62937c2c3765d796ddca9270ba5993aef506a4c45a4c806",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 299281,
+      "sha256": "a1a988eba6f23176ad87ba9a4b1d902c2e8449fc430b63918ca9e9d325ec4d7b",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-before-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-before-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1098806,
+      "sha256": "e6714e6f1cb8bf53a6f9181ef95b5b3155d5bbd42b8a25aaefb215d197fc9972",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-before-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-before-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 277408,
+      "sha256": "0f35237423cfa93b84a3756def197092c788df602c05bdaf393dc0624bbf9da0",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-history-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-history-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 2603415,
+      "sha256": "9af65233bb50fc313f695fe7c315f7a2439a94862153ed480ed7a518e12f4bba",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-history-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-history-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1323725,
+      "sha256": "9a324b2472eebdd60823af26fbffa397ccd48137242bef97294b696755f9e3ec",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-history-before-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-history-before-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 2839211,
+      "sha256": "3b17f9857b43f0ab2437f85a03ee7080eaf9de742d2c8c6e2ebc9a1ac3b567f9",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--reviews-history-before-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/reviews-history-before-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1489194,
+      "sha256": "b2c83593b08790a8403bcd2baa93a6ec208a5587ba34718512dcf186e08ce4b2",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-billing-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-billing-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 927980,
+      "sha256": "24a7d09ddac4de0be268d14476af8051ee3285dbc2d1cb5760fd6d071632ec58",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-billing-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-billing-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 227457,
+      "sha256": "5ba8d6fc88d6af0a8c5de50db887e14d354f2397291c3d45608bf1ec2b278ec5",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-billing-before-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-billing-before-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1016112,
+      "sha256": "2dbf6b8787ec70b7d2889b6b69c2c8e95e5ebb0155a11b5f4bdae853bb7a08bc",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-billing-before-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-billing-before-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 252500,
+      "sha256": "85ba171510151e586b9fad9bacece036ff86cb3df201b01b80e534e55f6d98aa",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-billing-notices-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-billing-notices-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 960902,
+      "sha256": "b32c56acf48730ba162a1b0d9e3bb3255f5b7084f71660bbec267250ffc2890a",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-billing-notices-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-billing-notices-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 262185,
+      "sha256": "f47667bd8353d1ccc3d940008bcec4454c0d99383432eae3fd72de54639b2a49",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-voice-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-voice-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1088133,
+      "sha256": "742bad255ba5da9a55987dabdb44b84e9dbb57944dc5eebd9f887efb8749f7f4",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-voice-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-voice-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 301721,
+      "sha256": "8ebcd835c9600a3ff40d5b35c1516a09e69335d3dcf1e98fca7f5005e815511e",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-voice-before-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-voice-before-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1076190,
+      "sha256": "f7b832b9d3c16ffd56b8be212b0a201dd77948140a5a0d728f3e3c28b6c15940",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--settings-voice-before-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/settings-voice-before-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 299656,
+      "sha256": "638422398e6ce903ee9c3522371c9a59740b743beb56df5a62be40ae4fa8dec1",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--shell-account-menu-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/shell-account-menu-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1135624,
+      "sha256": "3dbc72103ceb4c4a62dce61120e6cc153c6a37ce1cd9609711aab8cf5a63a163",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--shell-account-menu-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/shell-account-menu-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 298876,
+      "sha256": "fdb435759a5fad5f05bada436d36f126437e1119292d69f38c4167173e069c21",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--shell-settings-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/shell-settings-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1015524,
+      "sha256": "a99a70c62d26104815b4e4be695f2fe1981165bb5080e4ecea6bc982ff1d9639",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--shell-settings-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/shell-settings-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 245318,
+      "sha256": "d8de7d31bbed9bf4e25e913605a6f10e88e1f52e0af5023ffffa83ac4037d171",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--shell-toasts-after-desktop-1440.png",
+      "path": "docs/design/dashboard-redesign/evidence/shell-toasts-after-desktop-1440.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 1194002,
+      "sha256": "c334ba4937bfe8ebc72edcef14fc64d391d863a21e6b9442ea701a60de8321a6",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--dashboard-redesign--evidence--shell-toasts-after-mobile-390.png",
+      "path": "docs/design/dashboard-redesign/evidence/shell-toasts-after-mobile-390.png",
+      "category": "design-evidence",
+      "system": "console",
+      "role": "Historical design reference; review and sanitize before external reuse.",
+      "storage": "repository",
+      "status": "evidence",
+      "bytes": 302070,
+      "sha256": "3807782f8b3216a8882b7bef95741dc28d02dcd501eb7fcdadf075a513353635",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--daylight-ii--demo4-daylight-v2.src.html",
+      "path": "docs/design/daylight-ii/demo4-daylight-v2.src.html",
+      "category": "design-source",
+      "system": "island",
+      "role": "Daylight II approved design inputs; current Island Style Reference governs.",
+      "storage": "repository",
+      "status": "reference",
+      "bytes": 64359,
+      "sha256": "d546d70c03aa35dde2e019ac547c0c8255deede182cba9f69a2ea3d4311324ba",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--daylight-ii--media--wash_c.png",
+      "path": "docs/design/daylight-ii/media/wash_c.png",
+      "category": "design-source",
+      "system": "island",
+      "role": "Daylight II approved design inputs; current Island Style Reference governs.",
+      "storage": "repository",
+      "status": "reference",
+      "bytes": 5871907,
+      "sha256": "bbd195ec5eae6190e76134f40ebe10b034dbf88ca5944bbc94d74f761537c77f",
+      "provenance": {
+        "source": "docs/design/daylight-ii/README.md identifies Higgsfield paid wash inputs and locally assembled derivatives; retain existing assets."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--daylight-ii--media--wash_d.png",
+      "path": "docs/design/daylight-ii/media/wash_d.png",
+      "category": "design-source",
+      "system": "island",
+      "role": "Daylight II approved design inputs; current Island Style Reference governs.",
+      "storage": "repository",
+      "status": "reference",
+      "bytes": 5977807,
+      "sha256": "fffe5a17a0bfbc85b64f2865022794d7a75cd9862d57148d11b1322212d4a498",
+      "provenance": {
+        "source": "docs/design/daylight-ii/README.md identifies Higgsfield paid wash inputs and locally assembled derivatives; retain existing assets."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--daylight-ii--media--wash_loop.mp4",
+      "path": "docs/design/daylight-ii/media/wash_loop.mp4",
+      "category": "design-source",
+      "system": "island",
+      "role": "Daylight II approved design inputs; current Island Style Reference governs.",
+      "storage": "repository",
+      "status": "reference",
+      "bytes": 73358,
+      "sha256": "4b79f7020966f7aa4bc2458f637bd0e607393b300cec52509962b86bde901138",
+      "provenance": {
+        "source": "docs/design/daylight-ii/README.md identifies Higgsfield paid wash inputs and locally assembled derivatives; retain existing assets."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "docs--design--daylight-ii--media--wash_poster.jpg",
+      "path": "docs/design/daylight-ii/media/wash_poster.jpg",
+      "category": "design-source",
+      "system": "island",
+      "role": "Daylight II approved design inputs; current Island Style Reference governs.",
+      "storage": "repository",
+      "status": "reference",
+      "bytes": 34787,
+      "sha256": "b8ced41886e1d3610c141ae579b7078dc78baef3cf2221bfd47fb226cb9dfca6",
+      "provenance": {
+        "source": "docs/design/daylight-ii/README.md identifies Higgsfield paid wash inputs and locally assembled derivatives; retain existing assets."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--logo---pdf.pdf",
+      "path": "public/Logo - PDF.pdf",
+      "category": "logo",
+      "system": "shared",
+      "role": "Existing logo export; equivalence to SVG not verified.",
+      "storage": "repository",
+      "status": "existing-export",
+      "bytes": 17619,
+      "sha256": "f965c0fe6fd6c6d88746cd7bf5d5cea5c9df3a32484a6594f2049bd58ec9362e",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--logo---png.png",
+      "path": "public/Logo - PNG.png",
+      "category": "logo",
+      "system": "shared",
+      "role": "Existing logo export; equivalence to SVG not verified.",
+      "storage": "repository",
+      "status": "existing-export",
+      "bytes": 54174,
+      "sha256": "90ef89cd9c736e58dcb762b332d0ef280d0900efb0c28f2fca0f49729cb59a8f",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--governor.jpg",
+      "path": "public/agents/governor.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 8129,
+      "sha256": "d7c01e7f53a783d628c7b2fa4f31f987be4fa87375fe0cbabbe24160c8b0072c",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--governor.mp4",
+      "path": "public/agents/governor.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 62105,
+      "sha256": "7d1da36100d296fcf31233251f4609db454a96c1a82cf3d2f41048d8113e04e9",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--guardian.jpg",
+      "path": "public/agents/guardian.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 9733,
+      "sha256": "0957d567944e4a282c11a377d21001f01544d13a598342222433a0d879137a9a",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--guardian.mp4",
+      "path": "public/agents/guardian.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 163342,
+      "sha256": "6dc79a2ef0179995318195c87091da2497c143e3f10022ea078f917d267457f8",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--insights.jpg",
+      "path": "public/agents/insights.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 9990,
+      "sha256": "412f4487e2af69c3eacda29f22b22d0752b893503b7fe3dac50fdb76a2172472",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--insights.mp4",
+      "path": "public/agents/insights.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 18702,
+      "sha256": "7292dc63b7f24a978b98f8f5aec617577720565d48fbb1630125f041a35d57db",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--judge.jpg",
+      "path": "public/agents/judge.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 8448,
+      "sha256": "57755becfd1e475b4872832cd58a452c1b0bd914b981e598021d775b88740c82",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--judge.mp4",
+      "path": "public/agents/judge.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 18421,
+      "sha256": "a73b32479dcb92d9c74f5c367e2f53ced625ae0cd3356944968fea224398e3df",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--reply.jpg",
+      "path": "public/agents/reply.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 9843,
+      "sha256": "fc0964542a6e8ba1860a3c8ff2ce5f00832dea70dcba5bd5e427ebe7509f2e02",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--reply.mp4",
+      "path": "public/agents/reply.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 116924,
+      "sha256": "efdb324f680f9ca28ee33b45be2f1a8f22083d0dc0f6883ab5fb64aab9e9bc71",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--solicitor.jpg",
+      "path": "public/agents/solicitor.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 9934,
+      "sha256": "838b8803841c263b7add442736908f3a4d09e32a0826adc613a9c7c881cb27fd",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--agents--solicitor.mp4",
+      "path": "public/agents/solicitor.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 109509,
+      "sha256": "585618d3c5043828ddba26a6402e5713dfa049f95ab6a43a8dd20d627b22d790",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--clouds-a.jpg",
+      "path": "public/future/clouds-a.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 51627,
+      "sha256": "25893ac71f13ed34bd0a3cb98d0a4460030fbc41ab8679b4f2c15b275b026c90",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--clouds-b.jpg",
+      "path": "public/future/clouds-b.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 52410,
+      "sha256": "19aee099cf6b3c8211a31b82b3b680ba937cc07bf2d833fec0bc14d9095ffdb9",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--roadmap-ground.jpg",
+      "path": "public/future/roadmap-ground.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 1005143,
+      "sha256": "0662286ca6b2737a24e4fb99f5e19975327484f655d2430daa58aadb0363d4d4",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--autonomy.webp",
+      "path": "public/future/stops/autonomy.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 21838,
+      "sha256": "36190a0ced49b3b2aadc8d679c05cd1514f6c19fc1e91b42ee6aec42ee0289f9",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--connectors.webp",
+      "path": "public/future/stops/connectors.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 52460,
+      "sha256": "b5fa833c27adcec1251a01727ddf04e48287928650f5abdd5b7c3df1712b2c9b",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--qr.webp",
+      "path": "public/future/stops/qr.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 18540,
+      "sha256": "8cabe249379fb5e655697dac425622f910cee31aa30056a940ba468e63c7a355",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--recovery.webp",
+      "path": "public/future/stops/recovery.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 27656,
+      "sha256": "9b75cd7f2dd2bb7afece788bc4b742574b65d31b78da09f67147dedaa725b8f7",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--reply.webp",
+      "path": "public/future/stops/reply.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 7046,
+      "sha256": "c86036e311e38f2c1eed5f445450320d2da85cfc06f2a7a6364973005ca55fff",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--restraint.webp",
+      "path": "public/future/stops/restraint.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 31532,
+      "sha256": "213b99f802de7ae39bc6b623a086958fbb0f222be431415a78f2e731a4a7cdb7",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--solicitor.webp",
+      "path": "public/future/stops/solicitor.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 8020,
+      "sha256": "13d8b5335095af3cd8b5ea2815f473d4e23ae55298ecf1951eebf3e3875b0d96",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--spine.webp",
+      "path": "public/future/stops/spine.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 16222,
+      "sha256": "d7aa65f1f12512c5da403a37a7c352510a45551750d55d35ccdd665c3d05acf8",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--topics.webp",
+      "path": "public/future/stops/topics.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 40248,
+      "sha256": "e6a3db3a46812f3b4f890548db0be3a7065d46891636b7d1c7852a19f094fa72",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--future--stops--truth.webp",
+      "path": "public/future/stops/truth.webp",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 29312,
+      "sha256": "50db91b9a374ff4fed7286d2ac76e6ad41bc43ce9f36b36f3561259362948861",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--images--hero-wash-poster.jpg",
+      "path": "public/images/hero-wash-poster.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 34787,
+      "sha256": "b8ced41886e1d3610c141ae579b7078dc78baef3cf2221bfd47fb226cb9dfca6",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--images--hero2background.png",
+      "path": "public/images/hero2background.png",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 17545634,
+      "sha256": "cccb2fc09b40a5ce7bc45ed31b29df0aacf9092991b2d7bcb27206d7a0a659f1",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--logo.svg",
+      "path": "public/logo.svg",
+      "category": "logo",
+      "system": "shared",
+      "role": "App logo mark.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 31808,
+      "sha256": "4e98bd09219ae7b6d55289d926a1f729b4012ec109ff588d4bc921a60af8c81f",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--problem--problem-diagram.jpg",
+      "path": "public/problem/problem-diagram.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 23745,
+      "sha256": "6ef52c5938dcce6478a7e3db514989813b4d773fb11952798edcecf3ee3ed08c",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--problem--problem-diagram.mp4",
+      "path": "public/problem/problem-diagram.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 107514,
+      "sha256": "c87eac119798c774ef70e044cd26bab12fc82ec595271e6b06a567974b893339",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--ctavideo-1600.mp4",
+      "path": "public/video/ctaVideo-1600.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 527315,
+      "sha256": "0e2545fca58b30a40ca0e00591b5301bcc2a2c7aa843fc0b08c1a944a950c58c",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--ctavideo-960.mp4",
+      "path": "public/video/ctaVideo-960.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 208408,
+      "sha256": "69f33af3770e716d728f744d259cb07386241a2b3de288a33e38b2e6ab0ce3f1",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--ctavideo-poster.jpg",
+      "path": "public/video/ctaVideo-poster.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 117939,
+      "sha256": "9a7677e610625e7ad53e1cff4b6bedffa0ea73b1afb952e11c9d6d196613245e",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--hero-wash-loop.mp4",
+      "path": "public/video/hero-wash-loop.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 73358,
+      "sha256": "4b79f7020966f7aa4bc2458f637bd0e607393b300cec52509962b86bde901138",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--herovideo-1600.mp4",
+      "path": "public/video/heroVideo-1600.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 1000647,
+      "sha256": "8052c991c88ffe502682910def9d1a1b499a749b523b57f8ba6540d26cb81847",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--herovideo-960.mp4",
+      "path": "public/video/heroVideo-960.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 323112,
+      "sha256": "3b54db8acaf68a6ea9ba11067f15d83cf90646abe3075bb4e3c36afada0330b7",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--herovideo-poster.jpg",
+      "path": "public/video/heroVideo-poster.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 122420,
+      "sha256": "4d28086c4b9cf53c9ebb336fc1a3e08e93120c9e12eeaf5cc831df318e1871fa",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--repworth-explainer-poster.jpg",
+      "path": "public/video/repworth-explainer-poster.jpg",
+      "category": "image",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 54079,
+      "sha256": "c0ea3a224f6b3eb6f40daad7e3a3e21e2b54288ab108f3fe9333a536e0e42cdf",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "public--video--repworth-explainer.mp4",
+      "path": "public/video/repworth-explainer.mp4",
+      "category": "video",
+      "system": "unassigned",
+      "role": "Tracked public media; inspect current consumer and brief before reuse.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 26254008,
+      "sha256": "965fc4b51085793fe5d6c071422496758fe1770bacaf60095f3a49765c7c5d03",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--dm-sans-latin.woff2",
+      "path": "src/app/fonts/dm-sans-latin.woff2",
+      "category": "font",
+      "system": "shared",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 36980,
+      "sha256": "468d56b6b25b05b70190b6c233d773f6f1770e8579827ce022a57f03fa8002fb",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--figtree-latin.woff2",
+      "path": "src/app/fonts/figtree-latin.woff2",
+      "category": "font",
+      "system": "console",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 20184,
+      "sha256": "8330490a01c60c196eae00b823de8102275aaa5862e7b76a7af21b8745338928",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--fraunces-italic-latin.woff2",
+      "path": "src/app/fonts/fraunces-italic-latin.woff2",
+      "category": "font",
+      "system": "shared",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 45624,
+      "sha256": "c9745ee907c02cdd46cc41a65bb711cd861432f679a76c18e3de204a18723040",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--fraunces-latin.woff2",
+      "path": "src/app/fonts/fraunces-latin.woff2",
+      "category": "font",
+      "system": "shared",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 36560,
+      "sha256": "88e17be075f1be50ab67b057b99e3701b828f44ed28f9452df6c02645bb0cba9",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--gabarito-latin.woff2",
+      "path": "src/app/fonts/gabarito-latin.woff2",
+      "category": "font",
+      "system": "console",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 34320,
+      "sha256": "3f5e6ec227ca614c873d8e0b2502c64d99e96fe3d1bb9f996ab46d2769ad9a2c",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--inter-latin.woff2",
+      "path": "src/app/fonts/inter-latin.woff2",
+      "category": "font",
+      "system": "shared",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 48432,
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--jetbrains-mono-latin.woff2",
+      "path": "src/app/fonts/jetbrains-mono-latin.woff2",
+      "category": "font",
+      "system": "shared",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 31340,
+      "sha256": "2c32b9b3ee358c119e210f6f5195f9bd34894d78a785ff2e95d60e718e400af4",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "src--app--fonts--plus-jakarta-sans-latin.woff2",
+      "path": "src/app/fonts/plus-jakarta-sans-latin.woff2",
+      "category": "font",
+      "system": "shared",
+      "role": "Self-hosted font; consult current layout imports for actual usage.",
+      "storage": "repository",
+      "status": "runtime",
+      "bytes": 27272,
+      "sha256": "cd8db90cd950e26bc8761f65d323588bd5cd112d326d6d322bc7c8ea86771215",
+      "provenance": {
+        "source": "Tracked repository asset; original creator/generation record not established by inventory."
+      },
+      "rights": {
+        "status": "unrecorded",
+        "evidence": null
+      },
+      "review": {
+        "status": "not-recorded",
+        "reviewer": null,
+        "date": null
+      },
+      "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    }
+  ]
+}

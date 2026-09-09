@@ -51,7 +51,7 @@
      brightest pixel under the hero headline's first glyphs the same gold
      measured 2.89:1, under the 3:1 large-text floor. That was fixed by
      deepening the hero scrim, not by changing this token — one gold across the
-     page is load-bearing (docs/design/landing/DESIGN.md). See hero.css. */
+     page is load-bearing (docs/brand-asset-library/design-systems/landing/DESIGN.md). See hero.css. */
   --rw-lp-accent: rgb(var(--rw-lp-accent-rgb));
   /* Content gutter — used by contained blocks (the footer's inner row). */
   --rw-lp-gutter: clamp(1.5rem, 4vw, 4rem);

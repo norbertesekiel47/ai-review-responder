@@ -129,9 +129,8 @@ verdict. Four of those seven steps are safety steps; that ratio is itself a
 message.
 
 **Naming to keep straight:** Guardian is a *persona*, not a tier. The tiers are
-Copilot and Autopilot only. (`docs/design/brand-story.md` describes an autonomy
-ladder "Copilot → Guardian → Autopilot"; the shipped system is two tiers. Treat
-the codebase as authoritative and fix the doc rather than the code.)
+Copilot and Autopilot only. The older three-step autonomy ladder is historical;
+current narrative and vocabulary live in the Brand Asset Library.
 
 **Launch posture:** self-serve signup is flag-gated
 (`SELF_SERVE_SIGNUP_ENABLED`, on in local dev). As of 2026-08-03 the owner's
@@ -139,6 +138,11 @@ stated public posture is **early access / waitlist**, not open self-serve.
 Confirm the production flag state before any surface promises instant signup.
 
 ## Brand Commitments
+
+Start with the [Brand Asset Library](docs/brand-asset-library/README.md) for
+brand documents, reusable assets, and content-generation references. Current
+marketing positioning and claim limits are owned by its
+[positioning guide](docs/brand-asset-library/brand-guidelines/positioning.md).
 
 - Name **RepWorth**; wordmark set uppercase with tracking.
 - **Voice:** plain, warm, specific. No hype vocabulary — "unlock",
@@ -152,22 +156,23 @@ Confirm the production flag state before any surface promises instant signup.
   items appear as text, use two-word verb phrases — "Get reviews · Flag fakes ·
   Watch everywhere" — because verbs read as agency while icon grids read as a
   pricing page.
-- **Visual system:** the Island system (`docs/design/island/DESIGN.md` —
+- **Visual system:** the Island system (`docs/brand-asset-library/design-systems/island/DESIGN.md` —
   sage/teal/peach tokens, white `rounded-[3rem]` island on sage) is
   authoritative for every public surface, and the Warm Editorial Console
-  (`docs/design/console/DESIGN.md`) for the authenticated owner app; which
-  system a file belongs to is routed by `docs/design/README.md`. **Exception
+  (`docs/brand-asset-library/design-systems/console/DESIGN.md`) for the authenticated owner app; which
+  system a file belongs to is routed by `docs/brand-asset-library/design-systems/README.md`. **Exception
   agreed 2026-08-03: the landing page (`/`) is deliberately unlocked** and may
   establish its own world; the rest of the site does not follow it unless the
   owner later says so.
-- **Anti-slop guardrails** in `docs/design/island/DESIGN.md` apply everywhere: no fabricated
+- **Anti-slop guardrails** in `docs/brand-asset-library/design-systems/island/DESIGN.md` apply everywhere: no fabricated
   metrics, testimonials, logos, avatars, or customer names; no external icon
   libraries (inline SVG only); no purple/blue AI gradients, orb/blob
   backgrounds, or black-glass dashboards.
 
-**Story arc of record** (`docs/design/brand-story.md`): chaos → the agent steps
-in → **care and control (the gate — the signature beat; give it stillness)** →
-public reply → compounding → widening → logo lock.
+**Story of record:** the September 7 owner-effort narrative, channel playbooks,
+and evidence requirements now live in the
+[brand story](docs/brand-asset-library/brand-guidelines/brand-story.md).
+The earlier agent-first arc remains archived for historical creative references.
 
 ## Evidence on Hand
 

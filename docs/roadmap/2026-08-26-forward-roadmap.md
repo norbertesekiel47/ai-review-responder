@@ -519,7 +519,7 @@ surface, A2A) is sequenced with rationale in
 - **Cadence jitter** (design §8.2 open item) — pre-scale, before any account
   posts at volume.
 - **Positioning rollout** (revised 2026-09-07) — see
-  `2026-08-26-positioning-governed-autonomy.md`; copy changes are gated on
+  `docs/brand-asset-library/brand-guidelines/positioning.md`; copy changes are gated on
   the prod autonomy flips for any "live autonomy" claim.
 
 ## Sequencing picture

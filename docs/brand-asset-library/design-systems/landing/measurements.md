@@ -6,7 +6,7 @@ commented at its call site with the measurement that produced it. §4 is how to 
 them — including the two ways contrast measurement on this page silently lies.
 
 The page's design system — palette, type, components, copy contracts — is
-[`DESIGN.md`](./DESIGN.md) beside this file. This document is its engineering companion.
+[`DESIGN.md`](DESIGN.md) beside this file. This document is its engineering companion.
 
 **Status as of 2026-08-04:** sections 1–5 + 9 + footer built; 6–8 unbuilt. Audited
 **19/20** across three `/impeccable audit` passes (16 → 17 → 19), with the remaining point
@@ -107,7 +107,7 @@ scroll-experience.css — was deleted 2026-08-16. See §2, "Scroll".)
 ```
 
 Every section keeps its copy in a `*-copy.ts`. That is deliberate: those files carry the
-accuracy contracts (see [`DESIGN.md`](./DESIGN.md) → **Copy accuracy contracts**), and
+accuracy contracts (see [`DESIGN.md`](DESIGN.md) → **Copy accuracy contracts**), and
 keeping prose out of JSX makes them reviewable as prose.
 
 ---
@@ -125,7 +125,7 @@ darker, so the same ground buys it less, and it was never checked separately: sa
 against the brightest pixel under its own glyphs it measured **2.89:1** against a 3:1
 floor while the white line above it measured 4.23 and passed. Deepening the ramp took it
 to **3.38:1**. The fix went here rather than on the gold because ONE gold across the page
-is load-bearing (see [`DESIGN.md`](./DESIGN.md) → **Overview**) — lifting the token would
+is load-bearing (see [`DESIGN.md`](DESIGN.md) → **Overview**) — lifting the token would
 have split the headline's gold from the CTA pill's in the same viewport. The 50% stop must
 stay at zero.
 

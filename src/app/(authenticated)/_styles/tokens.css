@@ -49,8 +49,8 @@
 
    Guards: src/__tests__/design-token-single-source.test.ts
            src/__tests__/design-scope-purity.test.ts
-   Which palette when: docs/design/README.md
-   Console Style Reference: docs/design/console/DESIGN.md
+   Which palette when: docs/brand-asset-library/design-systems/README.md
+   Console Style Reference: docs/brand-asset-library/design-systems/console/DESIGN.md
    ========================================================================== */
 
 .rw-console {
@@ -64,7 +64,7 @@
 
   /* ---------- Console palette (Harbor) ----------
      Gabarito display + Figtree body. Full Style Reference:
-     docs/design/console/DESIGN.md */
+     docs/brand-asset-library/design-systems/console/DESIGN.md */
   --rw-app-bg:          #FBFAF7;  /* warm-white canvas the console floats as */
   --rw-app-field:       radial-gradient(120% 100% at 15% -10%, #ffffff 0%, #fbfaf7 48%, #f3f2ec 100%);
   --rw-app-surface:     #FFFFFF;  /* card surface */
@@ -218,7 +218,7 @@
          is what swaps display to Gabarito and body to Figtree inside the
          Console only;
        · mono → a scoped `.rw-console` override in console.css.
-     Style Reference: docs/design/console/DESIGN.md → Tokens — Typography.
+     Style Reference: docs/brand-asset-library/design-systems/console/DESIGN.md → Tokens — Typography.
 
      WHY THE COMPOSITES RESOLVE CORRECTLY. A var() inside a custom property is
      substituted where that property is DECLARED, not where it is used. The

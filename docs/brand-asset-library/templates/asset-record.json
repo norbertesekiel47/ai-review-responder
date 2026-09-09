@@ -1,0 +1,21 @@
+{
+  "id": "replace-with-stable-asset-id",
+  "path": null,
+  "external_url": null,
+  "category": null,
+  "system": null,
+  "role": null,
+  "storage": null,
+  "status": "draft",
+  "version": null,
+  "derived_from": [],
+  "bytes": null,
+  "sha256": null,
+  "width": null,
+  "height": null,
+  "duration_seconds": null,
+  "provenance": { "source": null, "creator_or_tool": null, "created_at": null, "prompt_or_project": null },
+  "rights": { "status": "unrecorded", "evidence": null },
+  "review": { "status": "not-recorded", "reviewer": null, "date": null, "scope": null },
+  "notes": "Template only. Fill in known facts; retain null for unknown values."
+}

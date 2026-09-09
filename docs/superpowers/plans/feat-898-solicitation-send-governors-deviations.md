@@ -572,7 +572,7 @@ checked by P1 only (and passes `aal2: true` regardless).
 **Found:** Both the plan's Task 7 step 1 and the task brief say "This is a **Console**-
 system surface". The `repworth-brand-design` router says the opposite, in a dedicated
 sentence: "Admin renders **outside** `.rw-console` and consumes **no** Console tokens —
-it is an Island-palette surface, just more utilitarian" (`docs/design/README.md:26-28`
+it is an Island-palette surface, just more utilitarian" (`docs/brand-asset-library/design-systems/README.md:26-28`
 says the same). `console-admin-palette.test.ts` enforces that split, and the cited
 precedent `AutonomySuspensionsClient.tsx` uses the admin console's neutral vocabulary,
 not `--rw-app-*`.
@@ -623,7 +623,7 @@ belong in `allowed_edit_surface` from the start. Promote to lab-notes at step 8.
 ## T7 (orchestrator) — my brief said Console; the design docs say Island
 
 **Found:** My T7 brief called `/admin/solicitation` a **Console**-system surface. The
-`repworth-brand-design` router and `docs/design/README.md` route admin to **Island**
+`repworth-brand-design` router and `docs/brand-asset-library/design-systems/README.md` route admin to **Island**
 ("consumes no Console tokens"), and `console-admin-palette.test.ts` ENFORCES it. The
 subagent followed the design docs over my brief, built on the admin primitives with no
 Console token, and flagged the contradiction instead of silently picking one.

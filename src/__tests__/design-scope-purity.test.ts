@@ -12,7 +12,7 @@ import {
 
 // Three-tier design system — scope purity guards.
 // Spec: docs/superpowers/specs/2026-08-16-design-system-three-tier-design.md §2.7
-// Router: docs/design/README.md
+// Router: docs/brand-asset-library/design-systems/README.md
 //
 // RepWorth ships three visual systems, one per surface family, and the whole
 // point of the arrangement is that redesigning one touches exactly one doc +
@@ -72,7 +72,7 @@ describe('design scope purity: Landing declares only --rw-lp-* custom properties
     expect(
       foreign,
       `${file} declares ${foreign.join(', ')}. Landing is scoped to \`.rw-lp\` and owns the ` +
-        `--rw-lp-* namespace only (docs/design/landing/DESIGN.md). A non-prefixed declaration ` +
+        `--rw-lp-* namespace only (docs/brand-asset-library/design-systems/landing/DESIGN.md). A non-prefixed declaration ` +
         `here either shadows an Island token or starts a fourth palette.`,
     ).toEqual([]);
   });
@@ -103,7 +103,7 @@ describe('design scope purity: the Island @theme block holds Island entries only
       `The @theme inline block in ${GLOBALS} references ${foreign.join(', ')}, which ${GLOBALS} ` +
         `does not declare. Console utilities belong in ` +
         `src/app/(authenticated)/_styles/theme.css, beside the tokens.css values they name ` +
-        `(docs/design/README.md rule 2).`,
+        `(docs/brand-asset-library/design-systems/README.md rule 2).`,
     ).toEqual([]);
   });
 

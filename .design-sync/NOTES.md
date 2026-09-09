@@ -101,8 +101,8 @@ any other duplicate export name rather than shipping a silently-shadowed one.
 ## Guidelines flatten by PKG_DIR-relative path
 
 `emitGuidelines` keeps the path relative to `PKG_DIR` for in-package files and
-collapses to basename for anything outside it — so `docs/design/island/DESIGN.md`
-and `docs/design/landing/DESIGN.md` would collide on `guidelines/DESIGN.md`.
+collapses to basename for anything outside it — so `docs/brand-asset-library/design-systems/island/DESIGN.md`
+and `docs/brand-asset-library/design-systems/landing/DESIGN.md` would collide on `guidelines/DESIGN.md`.
 `prepare.mjs` stages renamed copies into `.design-sync/design-docs/` and the
 glob is `design-docs/*.md` (no `./` prefix — the glob is regex-matched against
 a path that carries none, so `./x/*.md` matches nothing).
