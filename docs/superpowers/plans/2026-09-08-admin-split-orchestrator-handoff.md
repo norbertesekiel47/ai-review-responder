@@ -48,6 +48,19 @@ Read the referenced files, not this summary, before any edit.
    only). Re-mint them right after #1178 lands, before #1197 runs.
 3. **Cookie mode survives for `/api/admin/impersonation/**`** (ADR 0024 D4
    amendment, ADR 0031 D6, ticket #1203).
+4. **The legacy pages are PORTED into `admin-app`, not rebuilt by the
+   developer.** Port tickets #1224 (T1 pages), #1225 (overview), #1226 (the
+   three businesses pages), #1227 (the remaining ten). Each port: copy
+   `src/app/admin/<page>/**` + its client components into `admin-app`,
+   replace every direct `lib/admin`/`sql` read and every raw `/api/admin`
+   fetch with the **Admin app fetch seam**, type against the **Admin API
+   contract**, keep the exported kit, reach **Page parity** (ADR 0031 D2)
+   with 390/1440 screenshots and owner sign-off. Each retirement ticket is
+   now blocked by its port ticket. The developer maintains the ported app
+   from there.
+5. **Status 2026-09-08**: L1, L1-owner and L2 are MERGED — #1178, #1183,
+   #1186, #1187, #1196 (admin-app PR #2), #1182 (both environments, flag on),
+   #1184. Next is L3.
 
 ## 3. The build, as ticket layers
 
@@ -63,7 +76,7 @@ for the owner's merge approval (CLAUDE.md § Environments; `/feature` step 8).
 | L2 | #1184 fold the nine GETs, widen `ci:admin-aal2` | #1182, #1183 | |
 | L3 | #1185 bearer through proxy + CSRF split; #1189 read gaps; #1190 contract + `ci:admin-contract` | #1184 | #1185/#1190/#1189 share `src/proxy.ts` or `scripts/ci/admin-aal2-audit.ts` → SERIAL in that order. |
 | L4 | #1191 contract push to `admin-app`; #1197 Gate B handshake proof | #1190; #1184+#1185+#1186 | Gate B needs the two re-minted admins (§2.2). |
-| Dev | The developer builds pages in `admin-app` against staging | Gate A + Gate B | Owner signs off **Page parity** per page (ADR 0031 D2). Not an orchestrator step. |
+| Port | #1224 T1 pages (now); #1225 overview; #1226 businesses ×3; #1227 remaining ten | #1224: nothing; #1225: #1197, #1190; #1226: #1189, #1190, #1197; #1227: #1190, #1197 | Work happens in a worktree of `RepWorth/admin-app` (its own CI; no `/feature` scripts there). Owner signs off **Page parity** per page on the port ticket. |
 | L5 | #1200 tranche 1 (security, runbook); #1202 tranche 3 (three business pages) | #1190 + parity sign-off; #1189 too for #1202 | Share `nav-config.ts`, `console-admin-palette.test.ts`, `directory-map-audit.ts` → SERIAL. |
 | L6 | #1192 `ADMIN_APP_URL` + eleven redirects; #1193 shrink the shell; #1201 tranche 2 (overview) | overview parity; #1192; #1192+#1193+#1190 | ADR 0029 D3: all eleven redirects switch in ONE change at overview parity. |
 | L7 | Tranche 4 (ten pages) | owner sets priority → tickets cut per ADR 0031 D7 | Not cut yet. Ask the owner when tranche 3 closes. |
