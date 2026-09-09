@@ -375,7 +375,7 @@ describe('strict schema', () => {
       sidecar.authorizations.push({
         id: 'AUTH-THIRD-ROUND',
         date: '2026-09-08',
-        finding_ids: sidecar.findings.map((finding: { id: string }) => finding.id),
+        finding_ids: sidecar.findings.map((finding) => String(finding.id)),
         text: 'owner 2026-09-08: third round authorized, journal reset by owner',
       });
     });
@@ -391,7 +391,7 @@ describe('strict schema', () => {
       sidecar.authorizations.push({
         id: 'AUTH-THIRD-ROUND',
         date: '2026-09-08',
-        finding_ids: sidecar.findings.map((finding: { id: string }) => finding.id),
+        finding_ids: sidecar.findings.map((finding) => String(finding.id)),
         text: 'owner 2026-09-08: third round authorized, journal reset by owner',
       });
     });
