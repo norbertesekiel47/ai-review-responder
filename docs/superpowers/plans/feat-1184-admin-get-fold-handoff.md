@@ -31,23 +31,31 @@ the run stops.
 `.feature/state.json` is authoritative. `surfaceAmendments=1`,
 `planReviewRounds=3`.
 
-**Plain gate GREEN at `0024a3a0`** (`phase=gate_green`). D4 was owner-approved,
-applied, and the whole tree passes: lint, typecheck, test, all 22 `ci:*` audits,
-build, `promised-tests` 48/48, all three `verification_commands`.
+**BLOCKED at step 7.5 by the red-team round cap.** HEAD `c0d71f1c`.
 
-**BLOCKED at the REVIEW gate.** `scripts/verify-gate.sh --review` adds a
-`diff-coverage` row and it is the only FAIL: 18/24 added instrumented lines
-(75%, min 80%), the six uncovered lines being each flipped page's
-`requireAdminPage(sql, { …, aal2: true })` call. Closing it needs one new test
-file, and the edit-surface guard refused it as surface amendment **#3**. The
-file is already written and staged in the scratchpad; deviations **D5** carries
-the path, what it asserts, and why no zero-amendment path exists.
+- **Gate: GREEN** at HEAD, review mode — lint, typecheck, test, all 22 `ci:*`
+  audits, build, `promised-tests` 48/48, `diff-coverage`. Amendments 1–3 all
+  owner-approved and applied; deviations D1–D6 all verdict ACCEPT.
+- **Review wave: complete.** Four axes, 18 findings, all triaged in
+  `docs/reviews/feat-1184-admin-get-fold/triage.md` (2 rejected with argument).
+- **Red team: 2 rounds, the maximum.** Sidecar status **CLEAR** — `p0_open` 0,
+  `p1_open` 0, `p2_open` 7 recorded as follow-ups, 5 fixed, 1 rejected.
+- **`red-team-status.mjs` REFUSES the `reviewed` transition**: "the tree moved
+  since 083faf8d outside this run's own two artifacts — the red-team evidence is
+  stale". The entire delta it objects to is ONE commit, `c0d71f1c`, whose only
+  non-report file is a **comment-only** edit to
+  `scripts/ci/admin-aal2-audit.ts` fixing round 2's own P1 (a miscount, 5+1+2
+  over a list of seven). No executable line moved; `git diff 083faf8d..HEAD --
+  scripts/ci/admin-aal2-audit.ts` is entirely inside a `//` block.
+- **A third round is barred**: `.agents/skills/red-team/SKILL.md:70` — round-start
+  "refuses a third round outright". The journal was NOT reset.
 
-**On approval the remaining sequence is:** copy the staged file to
-`src/app/admin/__tests__/page-aal2-parity.test.tsx` → `--review` gate →
-`gate-fingerprint.mjs check` → step 6 read-back → step 7 wave with red team →
-7.5 → step 8 (staging ride, smoke, draft PR, checker, ready, CI, comment on
-#1184; no merge). Nothing else is outstanding.
+Both available paths needed the owner: leaving the P1 open fails the checker on a
+high-risk open P1, and fixing it fails the checker on staleness. The fix was taken
+so the code is correct; the staleness is the residue.
+
+**Step 8 has NOT started** — no staging ride, no PR — because
+`red-team-status.mjs` must pass before any external action.
 
 Codex plan-skeptic thread (resume ONLY for verification, never a new axis):
 `01a0836d-6da6-75f2-9388-f2eeaa16ef58`.
