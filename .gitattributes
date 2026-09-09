@@ -6,3 +6,8 @@
 *.bat       text eol=crlf
 *.cmd       text eol=crlf
 *.ps1       text eol=crlf
+
+# Brand asset library renders: Git LFS (pointers in git, blobs in LFS storage)
+docs/brand-asset-library/collections/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+docs/brand-asset-library/collections/**/*.png filter=lfs diff=lfs merge=lfs -text
+docs/brand-asset-library/collections/**/*.jpg filter=lfs diff=lfs merge=lfs -text

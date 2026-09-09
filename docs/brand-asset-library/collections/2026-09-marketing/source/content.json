@@ -1,0 +1,21 @@
+{
+  "site": "repworth.net",
+  "agents": [
+    { "id": "reply", "name": "Reply", "role": "The reply specialist", "line": "Review drafts. In your voice.", "detail": "Ready for your approval.", "kind": "agent" },
+    { "id": "guardian", "name": "Guardian", "role": "The exception spotter", "line": "Some things need a human.", "detail": "Bringing critical reviews to your attention.", "kind": "agent" },
+    { "id": "insights", "name": "Insights", "role": "The weekly perspective", "line": "A clearer view of the week.", "detail": "Your reputation work, brought together.", "kind": "agent" },
+    { "id": "solicitor", "name": "Solicitor", "role": "The request specialist", "line": "A thoughtful way to ask.", "detail": "Email review requests, prepared for your approval.", "kind": "agent" },
+    { "id": "judge", "name": "Judge", "role": "The independent audit", "line": "A separate check on automatic replies.", "detail": "Audits automatic replies after publication.", "kind": "watchdog" },
+    { "id": "governor", "name": "Governor", "role": "The autonomy safeguard", "line": "Knowing when to pause.", "detail": "Can pause automatic posting when quality thresholds are breached.", "kind": "watchdog" }
+  ],
+  "social": [
+    { "id": "statement", "kicker": "For the work only you can do", "headline": "Your business.\nYour attention.", "body": "Make room for the work that matters to you.", "footer": "See how RepWorth works" },
+    { "id": "feature", "kicker": "Meet the agents / 01", "headline": "Meet Reply.", "body": "Review drafts. In your voice.\nReady for your approval.", "footer": "Explore RepWorth", "agent": "reply" },
+    { "id": "workflow", "kicker": "How it works", "headline": "A clear path\nfrom review to reply.", "body": "A draft. Your decision. A reply.", "footer": "Illustrative Copilot workflow" },
+    { "id": "principle", "kicker": "What we believe", "headline": "Earn trust.\nNever manufacture it.", "body": "Real reputations start with real experiences.", "footer": "RepWorth" },
+    { "id": "update", "kicker": "A little more clarity", "headline": "What was handled.\nWhat needs you.", "body": "A clearer view of your reputation work.", "footer": "See how RepWorth works" }
+  ],
+  "workflow": ["Review arrives", "Draft prepared", "You approve", "Reply posted"],
+  "typography": ["The work.", "The rules.", "The record."],
+  "mapLabels": ["Replies", "Escalations", "Requests", "Weekly brief", "Your reputation", "Future concept"]
+}

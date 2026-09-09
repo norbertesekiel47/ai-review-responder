@@ -1,0 +1,39 @@
+{
+  "assets": 131,
+  "checksums": "all match",
+  "centralCatalogEntries": 239,
+  "videosDecoded": 37,
+  "links": "all README links resolve",
+  "filters": "light/dark/category/search pass",
+  "download": "lighthouse.png downloaded",
+  "videoResults": [
+    {
+      "src": "cinematic/parchment-5s.mp4",
+      "width": 1280,
+      "height": 720,
+      "duration": 5.041667,
+      "advanced": true
+    },
+    {
+      "src": "cinematic/reply-clean-5s.mp4",
+      "width": 1280,
+      "height": 720,
+      "duration": 5.041667,
+      "advanced": true
+    },
+    {
+      "src": "cinematic/valley-5s.mp4",
+      "width": 1280,
+      "height": 720,
+      "duration": 5.041667,
+      "advanced": true
+    }
+  ],
+  "desktop": "1440×1050",
+  "mobile": "390×844; no horizontal overflow",
+  "pageErrors": [],
+  "applicationTypecheck": "pass",
+  "mediaStrictTypecheck": "pass",
+  "applicationBuild": "pass",
+  "rendererTypecheckAndBundle": "pass"
+}

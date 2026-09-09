@@ -1,0 +1,66 @@
+import { readFile, access, writeFile, mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+const source = dirname(fileURLToPath(import.meta.url));
+const collection = resolve(source, '..');
+const repo = resolve(source, '../../../../..');
+const output = resolve(repo, 'output/repworth-marketing-2026-09-08/qa');
+await mkdir(output, { recursive: true });
+const { assets } = JSON.parse(await readFile(resolve(collection, 'manifest.json'), 'utf8'));
+if (assets.length !== 131) throw new Error(`Expected 131 approved-scope exports, found ${assets.length}`);
+const central = JSON.parse(await readFile(resolve(repo, 'docs/brand-asset-library/digital-asset-management/catalog.json'), 'utf8'));
+for (const asset of assets) {
+  const bytes = await readFile(resolve(repo, asset.path));
+  if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error(`Checksum mismatch: ${asset.path}`);
+  if (!central.assets.some((a) => a.id === asset.id && a.sha256 === asset.sha256)) throw new Error(`Central register mismatch: ${asset.id}`);
+  if (asset.duration_seconds) execFileSync('ffmpeg', ['-hide_banner','-v','error','-i',resolve(repo,asset.path),'-f','null','-'], { stdio: 'pipe' });
+}
+const readme = await readFile(resolve(collection, 'README.md'), 'utf8');
+for (const [, path] of readme.matchAll(/\]\(([^)]+)\)/g)) await access(resolve(collection, path));
+const { chromium } = createRequire(resolve(repo, 'package.json'))('@playwright/test');
+const browser = await chromium.launch({ headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('http://127.0.0.1:8768/gallery.html', { waitUntil: 'networkidle' });
+  if (await page.locator('article').count() !== 131) throw new Error('Gallery asset count is wrong');
+  await page.screenshot({ path: resolve(output,'gallery-desktop.png'), fullPage: false });
+  await page.selectOption('#category', 'social');
+  await page.selectOption('#system', 'island');
+  if (await page.locator('article:not([hidden])').count() !== 15) throw new Error('Light social filter failed');
+  await page.screenshot({ path: resolve(output,'social-light-grid.png'), fullPage: true });
+  await page.selectOption('#system', 'landing');
+  if (await page.locator('article:not([hidden])').count() !== 15) throw new Error('Dark social filter failed');
+  await page.screenshot({ path: resolve(output,'social-dark-grid.png'), fullPage: true });
+  await page.selectOption('#category', 'all');
+  await page.selectOption('#system', 'all');
+  await page.fill('#search', 'lighthouse');
+  if (await page.locator('article:not([hidden])').count() !== 1) throw new Error('Search filter failed');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('article:not([hidden]) .caption a').click()]);
+  if (download.suggestedFilename() !== 'lighthouse.png') throw new Error('Download target mismatch');
+  await page.fill('#search', '');
+  await page.selectOption('#category', 'cinematic');
+  const videoResults = await page.locator('article:not([hidden]) video').evaluateAll(async (videos) => Promise.all(videos.map(async (video) => {
+    video.load();
+    await new Promise((yes, no) => { video.onloadeddata = yes; video.onerror = no; });
+    await video.play();
+    await new Promise((done) => setTimeout(done, 500));
+    const result = { src: video.getAttribute('src'), width: video.videoWidth, height: video.videoHeight, duration: video.duration, advanced: video.currentTime > 0 };
+    video.pause();
+    return result;
+  })));
+  if (videoResults.some((v) => !v.advanced || !v.width)) throw new Error('Video playback failed');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.selectOption('#category', 'maps');
+  await page.screenshot({ path: resolve(output,'gallery-mobile.png'), fullPage: false });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+  if (overflow) throw new Error('Gallery overflows mobile viewport');
+  if (errors.length) throw new Error(errors.join('\n'));
+  const report = { assets: assets.length, checksums: 'all match', centralCatalogEntries: central.assets.length, videosDecoded: assets.filter((a) => a.duration_seconds).length, links: 'all README links resolve', filters: 'light/dark/category/search pass', download: 'lighthouse.png downloaded', videoResults, desktop: '1440×1050', mobile: '390×844; no horizontal overflow', pageErrors: errors };
+  await writeFile(resolve(output, 'verification.json'), JSON.stringify(report, null, 2) + '\n');
+  console.log(JSON.stringify(report, null, 2));
+} finally { await browser.close(); }

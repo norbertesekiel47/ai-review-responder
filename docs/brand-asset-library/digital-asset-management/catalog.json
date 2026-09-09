@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-08",
-  "source_revision": "6e14c8a23333de61bbe0cf1f68b78acbf874ef47",
+  "source_revision": "e8893544204888d6b1639de4f2612cf84517954f",
   "path_base": "repository-root",
   "scope": "Tracked brand/media assets in public/, fonts in src/app/fonts/, and Daylight II/dashboard design references. Excludes CSV templates, local untracked output/ and tmp/, runtime code, and historical production scripts (see archive index).",
   "assets": [
@@ -2596,6 +2596,3723 @@
         "date": null
       },
       "notes": "Cataloged existing bytes; no deployment, visual-equivalence, or publication approval inferred."
+    },
+    {
+      "id": "marketing-2026-09--agent-worlds--judge-lookout.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agent-worlds/judge-lookout.png",
+      "category": "agent-worlds",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1751383,
+      "sha256": "8dd346341e8b6edfcbbebe6c276702e2bc3f720b60b5c783bf62c223774fd0ef",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agent-worlds--reply-path.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agent-worlds/reply-path.png",
+      "category": "agent-worlds",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1679021,
+      "sha256": "319a46e45f8987cc55f11d29eff4fa5ee3b5dda7f6cf9f3baeaf52a354d98b01",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--dark--governor.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/dark/governor.png",
+      "category": "agents",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1175188,
+      "sha256": "ac379868c07b054778c890ec78cd0c8432383b8655082d8d9f211d52880ebb99",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--dark--guardian.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/dark/guardian.png",
+      "category": "agents",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1176970,
+      "sha256": "9e67c585524a31e3f010317b7d4313e4caaa0e380fca59d3a7520121ab81c457",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--dark--insights.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/dark/insights.png",
+      "category": "agents",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1185426,
+      "sha256": "03883a48a1551380e275732efb26af420bc3168f18da4d551ecb43896a8ec7c4",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--dark--judge.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/dark/judge.png",
+      "category": "agents",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1181899,
+      "sha256": "63efe555d88a814b30c8b224e574e82d0a6b886e4055265302f10ecf36ae50b1",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--dark--reply.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/dark/reply.png",
+      "category": "agents",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1176929,
+      "sha256": "b08af7ed84e7fa993d171c83e6fc57c544ef35594603c57c580cd2e717176528",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--dark--solicitor.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/dark/solicitor.png",
+      "category": "agents",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1196278,
+      "sha256": "186164181a14ee746c156f5951027c7e3e8e1d380a02bd2515b053ac76df2b93",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--light--governor.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/light/governor.png",
+      "category": "agents",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1040166,
+      "sha256": "c63cee6bbbdfa6815e0f8facac53ccf01b9cda07c0b47658745b716485337a73",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--light--guardian.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/light/guardian.png",
+      "category": "agents",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1043714,
+      "sha256": "9931511d03e0fd89c0bc262ea575c9cb49566ff8d9b6a8999c4a8e2e9d09ee44",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--light--insights.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/light/insights.png",
+      "category": "agents",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1053512,
+      "sha256": "f852f4fc7b02ccbb8aaf25ff53d7c62c8f86e51ec5c50cf65249f2ba2123ef5d",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--light--judge.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/light/judge.png",
+      "category": "agents",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1049303,
+      "sha256": "60268d36c78a1bf587983fbaa02337c5051d79190f6fd2ca6b5191747014a104",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--light--reply.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/light/reply.png",
+      "category": "agents",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1043297,
+      "sha256": "e5d050a58ffe47dafd6cda42caed75aea82a021a98a12efd98095a608ab9effc",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--agents--light--solicitor.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/agents/light/solicitor.png",
+      "category": "agents",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1064682,
+      "sha256": "23db5d6dfdd96dbddb45d3eab0f1cf6b922a443ddbf94176c6c85a3f9b6a19d8",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--backgrounds--dark-01-folded-paper.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/backgrounds/dark-01-folded-paper.png",
+      "category": "backgrounds",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1770250,
+      "sha256": "d90f8cc092aa0bdeeffaa066d958b710d516c28e0cf79eef745c7fc13fd3d25f",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--backgrounds--dark-02-window.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/backgrounds/dark-02-window.png",
+      "category": "backgrounds",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1840451,
+      "sha256": "a0232eca3b6f8a0ec0c5cf08a595e2304c2c8f75c0c76ea3a4b97a54e96866de",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--backgrounds--dark-03-ribbons.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/backgrounds/dark-03-ribbons.png",
+      "category": "backgrounds",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 2169587,
+      "sha256": "839601bc16db64f9e77474417042c95881f954530c45de92c058fae6b6583b44",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--backgrounds--light-01-architecture.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/backgrounds/light-01-architecture.png",
+      "category": "backgrounds",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 2007274,
+      "sha256": "2027f25da088a2e4a0bab27870fd04ccb68fcbcabe330cacdc562b3e5f72f623",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--backgrounds--light-02-paper.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/backgrounds/light-02-paper.png",
+      "category": "backgrounds",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1738893,
+      "sha256": "6bbe260d330a77f0fd665f66f866ea825af89c4f2842cb59b543308292c2b5d6",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--backgrounds--light-03-plinth.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/backgrounds/light-03-plinth.png",
+      "category": "backgrounds",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1717313,
+      "sha256": "f49096436757786f7f19ed67f872df36eca5138ac180d716a5b5b4ecb210ba90",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--cinematic--parchment-5s.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/cinematic/parchment-5s.mp4",
+      "category": "cinematic",
+      "system": "shared",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1138100,
+      "sha256": "f550860c83b5d2b95f3099d57968889f067c5300911a423b95901fe58cb6a241",
+      "width": 1280,
+      "height": 720,
+      "duration_seconds": 5.041667,
+      "audio": false,
+      "pixel_format": "yuv420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "Higgsfield",
+        "task_id": "d797b441-e349-41bd-80d5-a3dfd936e6f3"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 via the Higgsfield API on the account's paid credits; job ID and prompt in source/generation-journal.json. Output rights follow the Higgsfield Terms of Use for the plan in force. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--cinematic--reply-clean-5s.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/cinematic/reply-clean-5s.mp4",
+      "category": "cinematic",
+      "system": "shared",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 797808,
+      "sha256": "745f0d5f34360ea3fef56f729a84d5561d08b951ca9d55b898525e11a8198cd0",
+      "width": 1280,
+      "height": 720,
+      "duration_seconds": 5.041667,
+      "audio": false,
+      "pixel_format": "yuv420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "Runway",
+        "task_id": "078e35db-df4f-4b28-bc47-ecb407242438"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 via the Runway API on the account's paid credits; job ID and prompt in source/generation-journal.json. Output rights follow the Runway Terms of Use for the plan in force. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--cinematic--valley-5s.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/cinematic/valley-5s.mp4",
+      "category": "cinematic",
+      "system": "shared",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1671281,
+      "sha256": "270526ea39c26385b9aaa5d55f198490dd2360e1c82031b5043368f20fd1b526",
+      "width": 1280,
+      "height": 720,
+      "duration_seconds": 5.041667,
+      "audio": false,
+      "pixel_format": "yuv420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "Runway",
+        "task_id": "73b3fc97-2c18-4db7-b48d-f271f86b3491"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 via the Runway API on the account's paid credits; job ID and prompt in source/generation-journal.json. Output rights follow the Runway Terms of Use for the plan in force. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--assembled-day-12s.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/assembled-day-12s.mp4",
+      "category": "maps",
+      "system": "island",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 10406128,
+      "sha256": "df36d88ac75e552e417dd7e4e358e2a37498100ab5b881c73c84efcc5837d0d4",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 12,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--assembled-day.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/assembled-day.png",
+      "category": "maps",
+      "system": "island",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 3081165,
+      "sha256": "9b3ad426466cf4f47c500c8125f75533c8ae57621981e35bba7dbe90a2ad89b9",
+      "width": 1920,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--assembled-night-12s.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/assembled-night-12s.mp4",
+      "category": "maps",
+      "system": "landing",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 9899561,
+      "sha256": "276baa48deb279baa8ed8d44dab5c6197c183be58decc1cd7badcc76a63df071",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 12,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--assembled-night.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/assembled-night.png",
+      "category": "maps",
+      "system": "landing",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 2987847,
+      "sha256": "fb3deccce39e1de7ad012b7cdc7bd7b6829c7e250c42a411461cc0f16a4dbcfa",
+      "width": 1920,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--map-day-blank.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/map-day-blank.png",
+      "category": "maps",
+      "system": "island",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1994125,
+      "sha256": "82363c640cf2677582f8472aeb4ffa7fa71397e538ebab05abf3bc377f61eca5",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--map-night-blank.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/map-night-blank.png",
+      "category": "maps",
+      "system": "landing",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1926017,
+      "sha256": "2713a3c49df66239f76d9af53c4a7a7ae2f6de750e42c456eb2476b26aa6f81a",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--overlays--connected-route.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/overlays/connected-route.svg",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 403,
+      "sha256": "aa42485f049f5e30a39b4b49f5fb12ceb65306098340af857a44e9530866ba60",
+      "width": 1920,
+      "height": 1080,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--overlays--label-1.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/overlays/label-1.svg",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 291,
+      "sha256": "7aa2d6681027268fef018a709957da41c9772153f588d26636664649ae495b6f",
+      "width": 500,
+      "height": 100,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--overlays--label-2.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/overlays/label-2.svg",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 299,
+      "sha256": "1f3dc8949ebc3c37cf2c76e4ef150579ea18c2d6b496d37f4e5641ea4826cdba",
+      "width": 500,
+      "height": 100,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--overlays--label-3.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/overlays/label-3.svg",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 293,
+      "sha256": "76d30b8aded7eea50656a6d9cb2574089f127080a6a79fb1b707d635efdd2496",
+      "width": 500,
+      "height": 100,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--overlays--label-4.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/overlays/label-4.svg",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 301,
+      "sha256": "733404742c41f44633ae837ef6c5eb9fac6e6a0fd37d864476a5901fb2641c84",
+      "width": 500,
+      "height": 100,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--overlays--label-5.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/overlays/label-5.svg",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 307,
+      "sha256": "50f07a5808510f6dd3a8c87d9b41881e459e0889069ec7d3dbce97757804a4be",
+      "width": 500,
+      "height": 100,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--overlays--label-6.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/overlays/label-6.svg",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 305,
+      "sha256": "2af8b4758c33699554d330ce2b2d869ab2b96e095f301346b7fa97756cd9780b",
+      "width": 500,
+      "height": 100,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--props--airship.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/props/airship.png",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1221880,
+      "sha256": "4bc684e502c3fb4ed28f1abf4aa4d70a183324420523babdb3a26edb1cb9fbe8",
+      "width": 1254,
+      "height": 1254,
+      "pixel_format": "rgba",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--props--cloud.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/props/cloud.png",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 996528,
+      "sha256": "d7311c996ae50719b6808e1778da925e4ed26f9cb5486865a4e1121f1ac1aa2b",
+      "width": 1254,
+      "height": 1254,
+      "pixel_format": "rgba",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--props--cottage.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/props/cottage.png",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1301499,
+      "sha256": "131e59089884f4153ee65ffbecee8936994406f71f752958c595d1ee5da08bca",
+      "width": 1254,
+      "height": 1254,
+      "pixel_format": "rgba",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--props--lighthouse.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/props/lighthouse.png",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 955777,
+      "sha256": "acbae52ec7c9e5192c6c4f7f75bb02ad11e758400fd1e0cf4186c6d5dd263b11",
+      "width": 1254,
+      "height": 1254,
+      "pixel_format": "rgba",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--props--mailbox.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/props/mailbox.png",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 828032,
+      "sha256": "9bf04ad5b6705ef3e4284840cbc769ea47376a1943ae7d3c72bf401309c8ffa8",
+      "width": 1254,
+      "height": 1254,
+      "pixel_format": "rgba",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--props--newsstand.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/props/newsstand.png",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1307211,
+      "sha256": "f68d4796d6ce77fe012f74ee9f93da8cdae8a606ff983b1a1810fee9d7a3cdab",
+      "width": 1254,
+      "height": 1254,
+      "pixel_format": "rgba",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--maps--props--watchtower.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/maps/props/watchtower.png",
+      "category": "maps",
+      "system": "tabletop-map",
+      "role": "Reusable illustrative map element or composition",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1206580,
+      "sha256": "bd0763997681314199dc2e28e204069e2a23af30346a50d17dbbf42802cbe4d4",
+      "width": 1254,
+      "height": 1254,
+      "pixel_format": "rgba",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--abstract-orbit-loop.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/abstract-orbit-loop.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 838963,
+      "sha256": "bec4733194014d27ab238be1e723d985fc7f8e29c53712797673ff3a29b1c971",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--abstract-paper-flow-loop.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/abstract-paper-flow-loop.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 579125,
+      "sha256": "9d05a838df098981156c721d2a21a902673d1763c4407d93087d68aa09f423a9",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--abstract-signal-loop.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/abstract-signal-loop.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 529791,
+      "sha256": "8e8be4e4029b775527037dcebc205c25d82164af91d71c6a9b07e40d8e4faa12",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--agent-governor.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/agent-governor.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 344841,
+      "sha256": "80e0b702170c26c0804c79e94b184f1083dca61af2fee34b6a5f82ed931abf5e",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--agent-guardian.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/agent-guardian.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 415443,
+      "sha256": "73f8cf06f89baf3bff56a3d2ec5446fb223d5ee1cc414a0adf15377b85f2f12a",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--agent-insights.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/agent-insights.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 442888,
+      "sha256": "d54b637970cc5640482620614da54c5b556bbd807f5ac5970384bb50d95206a3",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--agent-judge.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/agent-judge.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 340182,
+      "sha256": "2395de25042390a081a5d6f8a30484839541137a59ab7a81bbb2797bbc6c51ac",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--agent-reply.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/agent-reply.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 442868,
+      "sha256": "ffd9009bb7b88cfad26031baa80e076849c8c4bd0ac51e740e165870db6a1c95",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--agent-solicitor.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/agent-solicitor.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 347621,
+      "sha256": "c4365739613ab6b3d08f716ff0d25d8a8c76cfeccfd7e7aed62473e80c631255",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--escalation.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/escalation.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 473969,
+      "sha256": "19ac19216a3b50f6a8eb287ead0975a3f5a8afa77a5e9426001d73a8fc5fd07b",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--logo-intro.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/logo-intro.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 183342,
+      "sha256": "47a93cbe5e5e516fbeb547ee8b1fbcf92d4925770c220d0a6f190a6fb1a5ada8",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--logo-outro.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/logo-outro.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 306592,
+      "sha256": "b658a7ed30bc485e4c289ca88eddb34d61474a9d671e72b08d256a53876d20c2",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--map-route.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/map-route.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 463102,
+      "sha256": "b9b4175194d5c98b7c52200e0533ecfd6720c3926f93a8faed59c4ba2436d9ce",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--report.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/report.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 795145,
+      "sha256": "bd0ca0bfc072a592f875bae779419d00cd1cb49df7373e1c54b4ef8153aaf0dc",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--typography.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/typography.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 573815,
+      "sha256": "3dc34575930192f5d26922e9fcdc24085f57f5f4c89c85eb08a5514a041eaa71",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--dark--workflow.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/dark/workflow.mp4",
+      "category": "motion",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 709539,
+      "sha256": "a0fa7e8c9597a0dc51c9e901efe8d6de20e17c780aa5e432fb490313b65a11e3",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--abstract-orbit-loop.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/abstract-orbit-loop.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 782905,
+      "sha256": "81b7f67a94ad62c8c1cfed0d9d19934c59e2ca2c3390aaa516dce4e3dd80464c",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--abstract-paper-flow-loop.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/abstract-paper-flow-loop.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 550406,
+      "sha256": "f10c0287c0ad58e2d08c9b0e2c8d119e9c31a075ade616df73b2b4d214db9d9a",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--abstract-signal-loop.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/abstract-signal-loop.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 490808,
+      "sha256": "6bed5d8e7210d27ff17e6ec15f1a1ee1caad283da79d6812b41343eb40a77dfd",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--agent-governor.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/agent-governor.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 353241,
+      "sha256": "4d2017c8d9f992de97a24118e9c33c482e0d3a97e7fac418e873646b5de19c7c",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--agent-guardian.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/agent-guardian.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 342491,
+      "sha256": "e1266cde7de0e8611cc3970e503d90b55a488b70158808660ec136c75eed50aa",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--agent-insights.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/agent-insights.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 348422,
+      "sha256": "3d8e913e86ba7ef98adc4c766f936fe22c9b7febaceb72c8f2b64ba16bc0eab4",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--agent-judge.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/agent-judge.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 358620,
+      "sha256": "2f975b1c132ff9acc06498bac007519d93c6b4aa9745c933d7c287956e5ebf79",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--agent-reply.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/agent-reply.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 320863,
+      "sha256": "f268c5b8308ea5c43bbc65026e05d9d2bbe2acd94944ceae3c72f0dc318c736b",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--agent-solicitor.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/agent-solicitor.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 350678,
+      "sha256": "37ceafa8c6fd31eb91ed06fd39d7b425a12f601eca93b7b33530ea0136de06d6",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--escalation.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/escalation.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 395316,
+      "sha256": "dd9d2486e9d593b7a2f6fc27791662cb009e7b9b528ca2c2ec4fc5ac4d249d3f",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--logo-intro.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/logo-intro.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 168378,
+      "sha256": "bf6b63eae3fec8a86a3353332c7e18761e27e8f2fa4d98db10e6880e27087a6b",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--logo-outro.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/logo-outro.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 188835,
+      "sha256": "210ad828a3cc0a803dbd6209f77437ea7666f6c6cbad695e9c35e59f9f2029e5",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--map-route.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/map-route.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 198213,
+      "sha256": "d82813d7552e3e6ecdb7435d9bafc9c2a751dd539f0197ae448b7fb090949f1a",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--report.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/report.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 489602,
+      "sha256": "2146cd1f29e80c0e595e5716777cfd18cc35ea419bfe3f37b0bc61c0f3bb898a",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--typography.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/typography.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 279556,
+      "sha256": "81d880df56cb7e9c55ab9cfb7ed67da6950ee294c780d30f401a3f06c56e1aac",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--motion--light--workflow.mp4",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/motion/light/workflow.mp4",
+      "category": "motion",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 309025,
+      "sha256": "ea8b0fec3b8f127e82829af1d035612a939b6002f8fa742b62d95bac6fc2ab6a",
+      "width": 1920,
+      "height": 1080,
+      "duration_seconds": 6,
+      "audio": false,
+      "pixel_format": "yuvj420p",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--approval-check.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/approval-check.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 335,
+      "sha256": "3f50e11493f9dda6d18a9e3bfa3b4c9a195336fc5a231c90848b36133c0d5ea3",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--attention-beacon.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/attention-beacon.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 403,
+      "sha256": "2a1095a65c651403441882e22ae16d3952ee9e1e9a51feb309d8883d7850e9fe",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--compass-rose.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/compass-rose.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 397,
+      "sha256": "bce6a6eb8119e1f54d1865ee2302dfe61fb2e57073c878fe9805e0ea420c5df5",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--connection-nodes.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/connection-nodes.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 460,
+      "sha256": "0ec62999d0d078d1d2c0aeacf693e94221bddfddf59bd65e06608e29c0e09fc1",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--envelope.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/envelope.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 384,
+      "sha256": "7411d79c759ac71cc654c90ea1c14df2e05f9b9b9a510c003e898d037799ff42",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--paper-stack.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/paper-stack.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 387,
+      "sha256": "c644b6332ba058401f89ebbe2479e0c24fc0eecad69b23af649206a0f99ffbd6",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--pause-gate.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/pause-gate.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 351,
+      "sha256": "c2b90b562f3efab1f7ccaf5486d6812a3b572d947bf49871326c46a359d72af5",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--radar-rings.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/radar-rings.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 420,
+      "sha256": "daedc2811ea3d4245b69793d1a6323c0c69ca07964fe2e8c1584db2e52257f8a",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--report-sheet.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/report-sheet.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 398,
+      "sha256": "e14f1b36b769275b5d9dfd5914627cdb17a63fc7cc3cf0126fdd9b89c4374216",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--route-arrow.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/route-arrow.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 319,
+      "sha256": "d3abb47127704bcd0c905f47fb5db71fb3fd70590a85b24fd52db57762ad95be",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--shield.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/shield.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 372,
+      "sha256": "64399e4355b2df3e97d41b4ee755ba1071f9b403d89043629658b2808dd9275c",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--dark--speech-bubble.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/dark/speech-bubble.svg",
+      "category": "objects",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 352,
+      "sha256": "06503e0885fdfce54aaba0713a58449448765c60b5ad8a406d19f7b8513c9699",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--approval-check.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/approval-check.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 322,
+      "sha256": "34308b2f6e90389419823c1d74edf0ff10e8ff2a941e1d3cf6ebe6a2f1f98257",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--attention-beacon.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/attention-beacon.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 390,
+      "sha256": "eac6b8718bf5b21978742a3153612334624270b8fbbbf8696debb9e51714b886",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--compass-rose.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/compass-rose.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 384,
+      "sha256": "f731d23c39aacc37a2bf27299241ede9ec690d7881d7eec43d6db924140cab09",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--connection-nodes.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/connection-nodes.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 447,
+      "sha256": "4a6893ac09404fdcd35f5755a4521af4c38486197c9628d51adf998ba59661aa",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--envelope.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/envelope.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 371,
+      "sha256": "af8ddf5ff52be81867fa5e78e6b314aada25085c159d7544f648799e3fa57252",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--paper-stack.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/paper-stack.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 374,
+      "sha256": "ac71a3db39a9ce3c064521b0fecf1cf34b89711528bd69bd8fb3d166e46f7e2f",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--pause-gate.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/pause-gate.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 338,
+      "sha256": "42d63d096902c8f56fcb415d2294e1868334f71409391ebe06243db8b1b551f5",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--radar-rings.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/radar-rings.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 407,
+      "sha256": "5be4e210ea6ee4573f6fd2ea33a72176b92856561031791d410cd3579d3f3b60",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--report-sheet.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/report-sheet.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 385,
+      "sha256": "aa0ae7b3a9a943971101c2dee26d9b315ef8e1f083876070f4dce30905a38ce8",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--route-arrow.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/route-arrow.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 306,
+      "sha256": "60902f65ebbbcc7f29555286fe5441fc9cd0ccd27277fc8bed7757ca21537bf4",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--shield.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/shield.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 359,
+      "sha256": "202fb32e0ddf0a811c4038bec279f1f00af25c476e5cf4420fa59d7b13290e13",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--objects--light--speech-bubble.svg",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/objects/light/speech-bubble.svg",
+      "category": "objects",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 339,
+      "sha256": "a36d70a60036a9ddc8467eedc86ecab2bfff3bdb5bdb60a54628c7972f3fc4e6",
+      "width": 512,
+      "height": 512,
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Authored SVG"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--panoramas--paper-valley-day.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/panoramas/paper-valley-day.png",
+      "category": "panoramas",
+      "system": "island",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1845634,
+      "sha256": "560e8f82463acf29f6bdd563a5a77371f13013f74b5cdb71fc9e82e6f8d4df69",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--panoramas--paper-valley-night.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/panoramas/paper-valley-night.png",
+      "category": "panoramas",
+      "system": "landing",
+      "role": "Reusable marketing visual or silent motion module",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 2022950,
+      "sha256": "310e27490e8f84569157f52d7544ad3aa7b1cd28ff8c180bface61dcf879df3d",
+      "width": 1672,
+      "height": 941,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/generation-journal.json",
+        "generator": "built-in image_gen"
+      },
+      "rights": {
+        "status": "provider-terms",
+        "evidence": "Generated 2026-09-08 with the assistant's built-in image generation (OpenAI); prompt in source/generation-journal.json. Output rights follow the OpenAI Terms of Use in force at generation. Verify before external publication."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--feature-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/feature-portrait.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1125757,
+      "sha256": "b5cc6640aed16beaa0268c864be061a9009e209dc443b027abb7755c801765eb",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--feature-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/feature-square.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1033736,
+      "sha256": "05b2884c079aa60ad70a0f75a0d7349859d8377b64b0b66e3c7a3123306032e3",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--feature-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/feature-story.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1375132,
+      "sha256": "bd2c5d439710295be54306414cbd2889f74db4dd20b875f459491b6553ecabc5",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--principle-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/principle-portrait.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1224751,
+      "sha256": "8addd5fb15c0afb704401d4f7e56e6ad3021a667d64ccf606d401d8b15c558cc",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--principle-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/principle-square.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1102864,
+      "sha256": "9bf243397dd31c4fdfb0c480939f0b280e9f85537f218873de6a5b8435b36ab5",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--principle-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/principle-story.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1418285,
+      "sha256": "16678f135f491d16ea9dfb634c9307e7a9fe6cade7bdb167113857b1c71b61e2",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--statement-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/statement-portrait.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1229222,
+      "sha256": "f11973bc6828c31b53fcf3b818087aeb3e1dffbdba22e69f5f7a5a85880a5719",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--statement-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/statement-square.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1107984,
+      "sha256": "9996ee55c2daf34a6470cd6f64ee393ffef9db734580b2194bce43caf91753de",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--statement-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/statement-story.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1422784,
+      "sha256": "13a23544ea9f1af971457b00d26d7d8fe4aca3a247cf0df0e53ba1abe428dc97",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--update-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/update-portrait.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1233268,
+      "sha256": "71085b240c16bb26846b63718c71bafa6215326af808273167ada2443656621f",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--update-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/update-square.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1111429,
+      "sha256": "54a374e09673ec56884f3a1f0be2ead86b50f1dfde740323bf67f2f3bd068f23",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--update-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/update-story.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1427958,
+      "sha256": "0afb8046717c54757e2bc796c9e753c972ec1fab3f4e90a99c3d7391a18b48d3",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--workflow-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/workflow-portrait.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1239349,
+      "sha256": "9ec49027306cda75dd6a57a25a4f02780723515c9eb4f144e296d6e145a5903c",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--workflow-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/workflow-square.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1117590,
+      "sha256": "6dc922bdfe7f52230253e11925d1c787c9420ba1fcf7e47938a72da6f9ab683a",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--dark--workflow-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/dark/workflow-story.png",
+      "category": "social",
+      "system": "landing",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1442568,
+      "sha256": "772ab2f3ec8f80a53399bd4c3d587afcacf7de27774755d0d1f394405d282870",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--feature-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/feature-portrait.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1101146,
+      "sha256": "b03c5b4cef97ec5908a657b4de79a6467be838aacc419cace0130cc9e5bcf770",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--feature-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/feature-square.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 984378,
+      "sha256": "3fbbdf1d297dd0917321da091fe1e0669cb1c7b7207582d64e5a5b3ed88f493d",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--feature-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/feature-story.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1356901,
+      "sha256": "7b14e27d5a67558199e93d318c8949d2137edf70c0baff56235b3925edd7349a",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens. Embeds an existing agent portrait from public/agents/, whose rights remain unrecorded in this catalog."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--principle-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/principle-portrait.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1144869,
+      "sha256": "0bbbdb1bdec063a6b85e1e64708f1802e3e37a7dbea1c1692d1d6fde780309fb",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--principle-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/principle-square.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1002093,
+      "sha256": "d08a408405eb0fca24dc56cb0b40ca9ed55d7cc51a856211a54ce2f5274aa1e4",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--principle-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/principle-story.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1385965,
+      "sha256": "e70db29a24b37084e63cf8439b2a97eb2aa22af20d2bf8b5145335525c3b953e",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--statement-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/statement-portrait.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1150490,
+      "sha256": "8fe3fb94daf10807b1d05454dddd1a56070a1fa789cd05804ea68143e5a2208f",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--statement-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/statement-square.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1007703,
+      "sha256": "3f358c36eb83bbbb83c4680130c44f26157d01d13b33690780629e17b3feaa48",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--statement-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/statement-story.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1392153,
+      "sha256": "05a34d442fc38a96583c725a82bc990bb31edfb7f50a608b94afd8311b8be48d",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--update-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/update-portrait.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1151148,
+      "sha256": "7b56ea5857aea3d5bdf80e369d4c884928894ac4b79945e2bc92859c5710a626",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--update-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/update-square.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1007196,
+      "sha256": "78418a90def1d3026253a7cfea37f2c5640b168e475168e6aa768deb6ee1a4f3",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--update-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/update-story.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1392651,
+      "sha256": "8ba44b203b7dd7a45ad4578f58369d4c0ad6db2403efe749f7e118e999854b95",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--workflow-portrait.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/workflow-portrait.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1078427,
+      "sha256": "646cda3e7850a9d3a953aa3c1b596e1b8e52bf12e82bf3d31576d1f2dd3abdb4",
+      "width": 1080,
+      "height": 1350,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--workflow-square.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/workflow-square.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 930055,
+      "sha256": "11b491a5a58259fc73d0567d1e6ba8154251e6311e099a473a64cd1cab52555c",
+      "width": 1080,
+      "height": 1080,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
+    },
+    {
+      "id": "marketing-2026-09--social--light--workflow-story.png",
+      "path": "docs/brand-asset-library/collections/2026-09-marketing/social/light/workflow-story.png",
+      "category": "social",
+      "system": "island",
+      "role": "Editable-source social post export",
+      "storage": "repository",
+      "status": "draft-export",
+      "bytes": 1236688,
+      "sha256": "3aecdc445302543a75f10b231f84d02d5794756c7536c21e70498bc16831c47a",
+      "width": 1080,
+      "height": 1920,
+      "pixel_format": "rgb24",
+      "provenance": {
+        "source": "docs/brand-asset-library/collections/2026-09-marketing/source/",
+        "generator": "Remotion"
+      },
+      "rights": {
+        "status": "first-party",
+        "evidence": "Authored 2026-09-08 from editable source in collections/2026-09-marketing/source/ using the repository logo, fonts, and palette tokens."
+      },
+      "review": {
+        "status": "production-qc",
+        "reviewer": "Codex",
+        "date": "2026-09-08"
+      },
+      "notes": "Generated for user review. No publication approval implied. Product workflows are illustrative; no current product capture."
     }
+  ],
+  "collection_manifests": [
+    "docs/brand-asset-library/collections/2026-09-marketing/manifest.json"
   ]
 }
