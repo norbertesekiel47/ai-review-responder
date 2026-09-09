@@ -1022,5 +1022,47 @@ cap — the staleness complaint is gone, so the round did fix what it was
 authorized to fix.
 
 Nothing was falsified to reach a green gate: `round` is 3 because it was the
-third round, `status` is `OPEN_P0` because a P0 is open, and both stay that way
-until the owner rules.
+third round, and `status` was `OPEN_P0` for as long as a P0 was open.
+
+### Resolution (2026-09-08, after the owner ruled)
+
+**R3-F1 → FIXED at `4a588cdd`, and the first attempt at the fix was itself
+vacuous.** Adding the yield to the hoisted implementation left `beforeEach`
+reinstalling the synchronous body before every test, and re-running the sweep
+still showed five survivors. The body now has ONE owner (`gateImplementation`)
+that both sites use. Re-measured by the ROOT — evidence gathered outside a
+red-team round, and labelled as such rather than presented as a mutation-runner
+result — dropping `await` on each page in turn and restoring after each:
+
+| page | result |
+|---|---|
+| `/admin/overview` | 2 failed |
+| `/admin/businesses` | 1 failed |
+| `/admin/businesses/[id]` | 1 failed |
+| `/admin/costs` | 1 failed |
+| `/admin/jobs` | 1 failed |
+| `/admin/notifications` | 1 failed |
+
+Dead on all six, where round 3 measured five survivors. The finding's suggested
+fix shape — make the refusal test `it.each` — was deliberately NOT taken:
+repairing the mock kills the mutation through the step-up test itself, whereas a
+second test would have inherited the same synchronous-recording flaw.
+
+**R3-F2 → FIXED at `4a588cdd`**, restated from a live recount (18 non-pre-auth
+pages; 17 via `requireAdminPage`; 15 of those `aal2: true`), the stale
+`page-gate.ts:41` citation dropped, and an instruction to recount from the tree
+rather than adjust by arithmetic. R3-F3 and R3-F4 stay recorded P2 residuals.
+
+**The round cap moved, and that is a tooling change this branch owns.** The owner
+authorized raising it to 3 as surface amendment #4. `round-start` and
+`red-team-status` now both admit a third round ONLY when the sidecar already
+carries an authorization naming it; a fourth is refused outright. Pinned in both
+directions in `scripts/ci/__tests__/red-team-{status,mutation-runner}.test.ts`:
+unauthorized 3 refused, authorized 3 opens, 4 refused, and a wrong-branch or
+unparseable sidecar fails closed.
+
+**Two schema repairs made while applying the above, both disclosed.** The round-3
+sidecar carried its arbiter reasoning for R3-F1 inside `reason` rather than the
+`arbiter_reasoning` field the schema requires, so the checker could not see it —
+it now lives in that field, wording unchanged. And `intake_sha256` was re-stamped
+for amendment #4's intake. Neither changes a finding, an outcome, or a count.

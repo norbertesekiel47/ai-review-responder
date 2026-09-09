@@ -5,8 +5,8 @@
   "branch": "feat/1184-admin-get-fold",
   "fork_sha": "e8893544204888d6b1639de4f2612cf84517954f",
   "merge_base_sha": "e8893544204888d6b1639de4f2612cf84517954f",
-  "head_sha": "8d7348086dfc020349f432d7743e5c0e805c158c",
-  "intake_sha256": "2f1740d0f3f53091426337eeb4c25f3e238434f1b7dfc0c76b775a2ab2781030",
+  "head_sha": "4a588cdd61be747d3cbe9aab7fc2cab9065131ad",
+  "intake_sha256": "32f2e40d023865e578c1e5c0bf7d237e21878b1cb57fc252f879a2d0f558b640",
   "risk": "high",
   "round": 3,
   "generated_at": "2026-09-08T22:15:00Z",
@@ -271,8 +271,9 @@
       "title": "A dropped `await` on the page gate survives on five of the six flipped pages — the suite's own header claims it pins that, and no other gate (ci:admin-aal2, eslint, tsc) detects it",
       "at": "src/app/admin/__tests__/page-aal2-parity.test.tsx:166",
       "duty": 1,
-      "disposition": "open",
-      "reason": "MEASURED (INV-R3-M10 / M11). `src/app/admin/costs/page.tsx`: `await requireAdminPage(...)` → `requireAdminPage(...)` (plain floating promise) and, separately, `void requireAdminPage(...)`. Under BOTH, the test `'/admin/costs' steps up to aal2 before reading anything` PASSES (baseline green, exactly one test executed each run); `pnpm ci:admin-aal2` passes (35 route files, 21 pages) because `readAdminPageGate` requires only a CallExpression; `npx eslint src/app/admin/costs/page.tsx` is clean (`@typescript-eslint/no-floating-promises` is not configured in eslint.config.mjs); `npx tsc --noEmit` is clean for that file. Line 166 pins `callOrder[0] === 'gate'`, which an un-awaited gate satisfies — the async mock's body runs synchronously to its first await, so 'gate' is pushed first while the promise is discarded. ARBITER CONFIRMATION: the mutation is semantically meaningful and NOT equivalent — `requireAdminPage` refuses by calling `redirect()`, which signals by throwing; awaited, the throw stops the page; un-awaited, it lands in a discarded promise and the page continues into getCostReport/getMarginReport and renders cross-account spend and margin to a caller the gate refused, which is exactly the parallel read path rule P2 exists to close. The mutated statement is on the path the test executes (the test invokes the page's default export directly), so it is not an unexecuted branch. This is a claim about the ORACLE. CONTROL: the suite's refusal-propagation test `a refused step-up stops the page before any data read` (line 169) imports only `../overview/page` (line 177); INV-R3-M12 applied the identical mutation to src/app/admin/overview/page.tsx and that test KILLED it — so /admin/overview is covered and /admin/{businesses,businesses/[id],costs,jobs,notifications} are not. FIX SHAPE: make the refusal test `it.each(PAGES)` the way the step-up test already is."
+      "arbiter_reasoning": "The mutation is semantically meaningful and NOT equivalent: `requireAdminPage` refuses by calling `redirect()`, which signals by throwing. Awaited, the throw stops the page; un-awaited, it lands in a discarded promise and the page continues into its service reads and renders data to a caller the gate refused — the parallel read path rule P2 exists to close. It is not on an unexecuted branch either: the test invokes the page's default export directly, so the mutated statement is on the path the test runs. The claim is therefore about the ORACLE, not about coverage. Control: the suite's refusal-propagation test imports only ../overview/page, and the identical mutation applied to overview WAS killed (INV-R3-M12), which is exactly why five of the six pages survived and one did not. Recorded here in its own field because the schema requires it; the round-3 agent wrote this reasoning into `reason`, where the checker could not see it.",
+      "disposition": "fixed",
+      "reason": "FIXED at 4a588cdd, in the MOCK rather than the assertion: `mockRequireAdminPage` now awaits a `setTimeout(0)` BEFORE `callOrder.push('gate')`, so an un-awaited gate lets a service record first and `callOrder[0]` is 'read'. The FIRST attempt was itself vacuous — it added the yield to the hoisted implementation while `beforeEach` reinstalled the synchronous body before every test, and re-running the sweep still showed five survivors; the body now has one owner (`gateImplementation`) that both sites use. RE-MEASURED BY THE ROOT at 4a588cdd (root evidence gathered OUTSIDE a red-team round, and marked as such rather than presented as a mutation-runner result), dropping `await` on each of the six pages in turn and restoring after each: /admin/overview 2 failed, /admin/businesses 1 failed, /admin/businesses/[id] 1 failed, /admin/costs 1 failed, /admin/jobs 1 failed, /admin/notifications 1 failed — dead on all six, where round 3 measured five survivors. The finding's own FIX SHAPE suggestion (make the refusal test `it.each`) was not taken: fixing the mock kills the mutation on all six through the step-up test itself, rather than adding a second test that depends on the same synchronous-recording flaw. ORIGINAL FINDING: MEASURED (INV-R3-M10 / M11). `src/app/admin/costs/page.tsx`: `await requireAdminPage(...)` → `requireAdminPage(...)` (plain floating promise) and, separately, `void requireAdminPage(...)`. Under BOTH, the test `'/admin/costs' steps up to aal2 before reading anything` PASSES (baseline green, exactly one test executed each run); `pnpm ci:admin-aal2` passes (35 route files, 21 pages) because `readAdminPageGate` requires only a CallExpression; `npx eslint src/app/admin/costs/page.tsx` is clean (`@typescript-eslint/no-floating-promises` is not configured in eslint.config.mjs); `npx tsc --noEmit` is clean for that file. Line 166 pins `callOrder[0] === 'gate'`, which an un-awaited gate satisfies — the async mock's body runs synchronously to its first await, so 'gate' is pushed first while the promise is discarded. ARBITER CONFIRMATION: the mutation is semantically meaningful and NOT equivalent — `requireAdminPage` refuses by calling `redirect()`, which signals by throwing; awaited, the throw stops the page; un-awaited, it lands in a discarded promise and the page continues into getCostReport/getMarginReport and renders cross-account spend and margin to a caller the gate refused, which is exactly the parallel read path rule P2 exists to close. The mutated statement is on the path the test executes (the test invokes the page's default export directly), so it is not an unexecuted branch. This is a claim about the ORACLE. CONTROL: the suite's refusal-propagation test `a refused step-up stops the page before any data read` (line 169) imports only `../overview/page` (line 177); INV-R3-M12 applied the identical mutation to src/app/admin/overview/page.tsx and that test KILLED it — so /admin/overview is covered and /admin/{businesses,businesses/[id],costs,jobs,notifications} are not. FIX SHAPE: make the refusal test `it.each(PAGES)` the way the step-up test already is."
     },
     {
       "id": "R3-F2",
@@ -280,8 +281,8 @@
       "title": "The security control's own census, in the paragraph that derives rule P2, is false at HEAD — and this branch's six page flips are what made it further false",
       "at": "scripts/ci/admin-aal2-audit.ts:124",
       "duty": 3,
-      "disposition": "open",
-      "reason": "The line reads \"`requireAdminPage`'s `aal2` parameter (src/lib/auth/page-gate.ts:41) DEFAULTS TO FALSE and 8 of 16 gated admin pages opt in.\" Re-resolved at HEAD by walking the tree: 21 page.tsx files under src/app/admin (matching the audit's own \"21 admin pages scanned\"); 17 call requireAdminPage and 15 of those pass `aal2: true`; adding impersonate/[sessionId]/view, which steps up through requireCurrentAal2FromSupabase, gives 16 of 18 gated pages opting into a step-up. Under no reading is it 8 of 16. At the merge-base it was 9 of 17 — already off by one — and this branch moved the numerator from 9 to 15 without touching the sentence. P1 rather than cosmetic because the sentence is the empirical premise for the P2 rule three lines below (\"The rule below is DERIVED from what the tree actually does, not imposed\") and because the branch explicitly audited its NEIGHBOURS for exactly this failure: it rewrote the /admin/businesses/[id] worked example because #1184 falsified it, writing \"A security audit that teaches its rule with a citation that is no longer true is worse than one that teaches it with none.\" A sibling sentence in the same header, falsified by the same change, was missed. The two path:line citations in the same paragraph re-resolve TRUE: page-gate.ts:41 is `{ from, aal2 = false }` and page-gate.ts:27-37 is the impersonation-view doc comment."
+      "disposition": "fixed",
+      "reason": "FIXED at 4a588cdd. The sentence is restated from a live recount rather than adjusted by arithmetic: of the 18 non-pre-auth admin pages, 17 gate through `requireAdminPage` and 15 of those pass `aal2: true`; the 18th (impersonate/[sessionId]/view) steps up through `requireCurrentAal2FromSupabase`; /admin/security and /admin/runbook stay plain. The stale `page-gate.ts:41` line-number citation is dropped rather than re-pinned, and the paragraph now instructs a future editor to recount from the tree. The finding is exactly right that the branch audited a neighbouring sentence for this failure and missed this one — the same header has now been corrected four times in one branch, which is recorded there as the argument for deriving these lists instead of maintaining them. ORIGINAL FINDING: The line reads \"`requireAdminPage`'s `aal2` parameter (src/lib/auth/page-gate.ts:41) DEFAULTS TO FALSE and 8 of 16 gated admin pages opt in.\" Re-resolved at HEAD by walking the tree: 21 page.tsx files under src/app/admin (matching the audit's own \"21 admin pages scanned\"); 17 call requireAdminPage and 15 of those pass `aal2: true`; adding impersonate/[sessionId]/view, which steps up through requireCurrentAal2FromSupabase, gives 16 of 18 gated pages opting into a step-up. Under no reading is it 8 of 16. At the merge-base it was 9 of 17 — already off by one — and this branch moved the numerator from 9 to 15 without touching the sentence. P1 rather than cosmetic because the sentence is the empirical premise for the P2 rule three lines below (\"The rule below is DERIVED from what the tree actually does, not imposed\") and because the branch explicitly audited its NEIGHBOURS for exactly this failure: it rewrote the /admin/businesses/[id] worked example because #1184 falsified it, writing \"A security audit that teaches its rule with a citation that is no longer true is worse than one that teaches it with none.\" A sibling sentence in the same header, falsified by the same change, was missed. The two path:line citations in the same paragraph re-resolve TRUE: page-gate.ts:41 is `{ from, aal2 = false }` and page-gate.ts:27-37 is the impersonation-view doc comment."
     },
     {
       "id": "R3-F3",
@@ -302,7 +303,32 @@
       "reason": "`scanRouteFile` is path-scoped — `if (!normalized.includes('src/app/api/admin/')) return [];` (admin-aal2-audit.ts:622). src/app/api/zernio/disconnect/route.ts:69 calls `requireRole(req, 'owner', 'admin')`, so an admin acts there at plain role with no AAL2 step-up and the ROUTES contract cannot bind it. This QUALIFIES the arch-review-log's phrasing that the widening makes \"every Admin API handler calls a gate this audit has vetted\" a CI-enforced fact: it is a fact about src/app/api/admin/**, the correct scope for this ticket and for ADR 0025, but not the same as every handler an admin can reach. Pre-existing and unchanged by this branch; recorded as the Duty-4 result rather than raised as a new front against unchanged code. Any change belongs to its own ticket. P2 never blocks."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "AUTH-1184-THIRD-ROUND",
+      "date": "2026-09-08",
+      "finding_ids": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "R2-F1",
+        "R2-F2",
+        "R2-F3",
+        "R2-F4",
+        "R2-F5",
+        "R2-F6",
+        "R3-F1",
+        "R3-F2",
+        "R3-F3",
+        "R3-F4"
+      ],
+      "text": "owner 2026-09-08: third round authorized, journal reset by owner"
+    }
+  ],
   "counts": {
     "inventory_total": 19,
     "killed": 10,
@@ -312,12 +338,12 @@
     "skipped_budget": 0,
     "excluded": 7,
     "findings_total": 17,
-    "p0_open": 1,
-    "p1_open": 1,
+    "p0_open": 0,
+    "p1_open": 0,
     "p2_open": 9,
     "accepted_risk": 0,
-    "fixed": 5,
+    "fixed": 7,
     "rejected": 1
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }
