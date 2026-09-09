@@ -1048,44 +1048,99 @@ export function auditCoverageFailures(routes: AuditPass, pages: AuditPass): stri
   return failures;
 }
 
-async function main(): Promise<void> {
-  const root = process.cwd();
+/** What `main()` should print, and the code it should exit with. */
+export interface AuditReport {
+  exitCode: 0 | 1;
+  /** Lines for stderr, in the order a reader needs them. */
+  errors: string[];
+  /** The single stdout line, present only on a pass. */
+  output: string | null;
+}
 
-  const preAuthPaths = readPreAuthAdminPaths(await readFile(resolve(root, 'src', 'proxy.ts'), 'utf8'));
-  if (preAuthPaths.size === 0) {
-    // Deriving zero exemptions would flag every pre-auth page — a loud failure
-    // rather than a silent one, but still a broken derivation worth naming.
-    console.error('admin-aal2-audit: fatal — derived 0 pre-auth admin paths from src/proxy.ts');
-    process.exit(1);
-  }
-
-  const routes = await auditRoutes(root);
-  const pages = await auditPages(root, preAuthPaths);
-
+/**
+ * The whole reporting DECISION, as a pure function of the two passes.
+ *
+ * `main()` is a CLI entry point: it reads the filesystem and calls
+ * `process.exit`, so it cannot be unit-tested and every branch inside it is a
+ * branch nothing covers. That was tolerable while it held two `if`s. #1184 gave
+ * it three failure modes — a derivation that yielded nothing, a tree it could not
+ * read, and the findings themselves — at which point `ci:fallow` flagged it as
+ * high-CRAP untested complexity, and red team had already recorded the same gap
+ * from the other side (R2-F6: the coverage floor's wiring has no covering test).
+ * Moving the decision here answers both; `main()` keeps only the I/O.
+ *
+ * PRECEDENCE IS THE PART WORTH TESTING. A coverage failure OUTRANKS findings: if
+ * the walk could not read the tree then "no findings" is not a result, and
+ * reporting findings first would let a vacuous pass read like a real one. The
+ * unreadable directories are echoed individually as well, because the summary
+ * says how many and a reader needs to know which.
+ */
+export function buildAuditReport(routes: AuditPass, pages: AuditPass): AuditReport {
+  const errors: string[] = [];
   for (const { dir, error } of [...routes.traversalErrors, ...pages.traversalErrors]) {
-    console.error(`admin-aal2-audit: could not read ${dir}`, error);
+    errors.push(`admin-aal2-audit: could not read ${dir}: ${String(error)}`);
   }
+
   const coverageFailures = auditCoverageFailures(routes, pages);
   if (coverageFailures.length > 0) {
-    for (const failure of coverageFailures) {
-      console.error(`admin-aal2-audit: fatal — ${failure}`);
-    }
-    process.exit(1);
+    for (const failure of coverageFailures) errors.push(`admin-aal2-audit: fatal — ${failure}`);
+    return { exitCode: 1, errors, output: null };
   }
 
   const findings = [...routes.findings, ...pages.findings];
-
   if (findings.length > 0) {
-    console.error('admin-aal2-audit: FAILED');
-    for (const finding of findings) {
-      console.error(`  ${finding}`);
-    }
-    process.exit(1);
+    errors.push('admin-aal2-audit: FAILED');
+    for (const finding of findings) errors.push(`  ${finding}`);
+    return { exitCode: 1, errors, output: null };
   }
 
-  console.log(
-    `admin-aal2-audit: passed (${routes.files.length} admin route files, ` +
+  return {
+    exitCode: 0,
+    errors,
+    output:
+      `admin-aal2-audit: passed (${routes.files.length} admin route files, ` +
       `${pages.files.length} admin pages scanned)`,
+  };
+}
+
+/**
+ * The report for a pre-auth derivation that yielded nothing.
+ *
+ * Deriving zero exemptions would flag every pre-auth page — loud rather than
+ * silent, but still a broken derivation, and it must not be reported as if the
+ * pages were genuinely ungated. It short-circuits BEFORE the passes run, so it is
+ * its own report rather than a branch inside `buildAuditReport`.
+ */
+export function preAuthDerivationFailure(): AuditReport {
+  return {
+    exitCode: 1,
+    errors: ['admin-aal2-audit: fatal — derived 0 pre-auth admin paths from src/proxy.ts'],
+    output: null,
+  };
+}
+
+/** The only I/O in the reporting path: print, then exit. */
+function emitReport(report: AuditReport): void {
+  for (const line of report.errors) console.error(line);
+  if (report.output !== null) console.log(report.output);
+  if (report.exitCode !== 0) process.exit(report.exitCode);
+}
+
+/**
+ * The CLI entry point, deliberately kept to I/O and one decision.
+ *
+ * Everything it used to decide inline now lives in a pure function that tests
+ * exercise directly — `main` cannot be unit-tested (it reads `process.cwd()` and
+ * calls `process.exit`), so any branch left here is a branch nothing covers.
+ */
+async function main(): Promise<void> {
+  const root = process.cwd();
+  const preAuthPaths = readPreAuthAdminPaths(await readFile(resolve(root, 'src', 'proxy.ts'), 'utf8'));
+
+  emitReport(
+    preAuthPaths.size === 0
+      ? preAuthDerivationFailure()
+      : buildAuditReport(await auditRoutes(root), await auditPages(root, preAuthPaths)),
   );
 }
 

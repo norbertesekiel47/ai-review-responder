@@ -17,6 +17,8 @@ import {
   auditRoutes,
   auditPages,
   auditCoverageFailures,
+  buildAuditReport,
+  preAuthDerivationFailure,
   type AuditPass,
   type PageScanContext,
 } from '../admin-aal2-audit';
@@ -1590,5 +1592,73 @@ describe('auditCoverageFailures — the audit may only report clean about a tree
       pass({ files: [] }),
     );
     expect(failures).toHaveLength(3);
+  });
+});
+
+// The reporting decision `main()` used to hold inline. Extracted in #1184 so it is
+// exercised at all: `main()` reads the filesystem and calls `process.exit`, so
+// every branch inside it was a branch nothing covered — which `ci:fallow` flagged
+// as high-CRAP untested complexity and red team recorded as R2-F6.
+describe('buildAuditReport — what main() prints and exits with', () => {
+  const pass = (over: Partial<AuditPass> = {}): AuditPass => ({
+    files: ['src/app/api/admin/flagged/route.ts'],
+    findings: [],
+    traversalErrors: [],
+    ...over,
+  });
+
+  it('a clean pass exits 0 and prints the scanned counts', () => {
+    const report = buildAuditReport(pass(), pass());
+    expect(report.exitCode).toBe(0);
+    expect(report.errors).toEqual([]);
+    expect(report.output).toContain('passed (1 admin route files, 1 admin pages scanned)');
+  });
+
+  it('findings exit 1, are listed, and print nothing on stdout', () => {
+    const report = buildAuditReport(pass({ findings: ['route.ts [admin-aal2] handler GET …'] }), pass());
+    expect(report.exitCode).toBe(1);
+    expect(report.output).toBeNull();
+    expect(report.errors[0]).toBe('admin-aal2-audit: FAILED');
+    expect(report.errors[1]).toContain('handler GET');
+  });
+
+  it('a coverage failure OUTRANKS findings — a vacuous pass must not read like a real one', () => {
+    // The precedence is the whole point. If the walk could not read the tree,
+    // printing "here are the findings" implies those findings are the complete
+    // set, which is exactly the false impression the floor exists to prevent.
+    const report = buildAuditReport(
+      pass({
+        files: [],
+        findings: ['route.ts [admin-aal2] handler GET …'],
+        traversalErrors: [{ dir: '/repo/src/app/api/admin/locked', error: new Error('EACCES') }],
+      }),
+      pass(),
+    );
+    expect(report.exitCode).toBe(1);
+    expect(report.output).toBeNull();
+    expect(report.errors.join('\n')).toContain('could not read /repo/src/app/api/admin/locked');
+    expect(report.errors.join('\n')).toContain('fatal —');
+    expect(report.errors.join('\n')).not.toContain('admin-aal2-audit: FAILED');
+  });
+
+  it('a pre-auth derivation that yielded nothing is its own fatal report', () => {
+    // It short-circuits BEFORE the passes run, so it is a separate report rather
+    // than a branch inside buildAuditReport — and it must never look like a clean
+    // scan of a tree whose exemptions could not be derived.
+    const report = preAuthDerivationFailure();
+    expect(report.exitCode).toBe(1);
+    expect(report.output).toBeNull();
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toContain('derived 0 pre-auth admin paths from src/proxy.ts');
+  });
+
+  it('names every unreadable directory, not merely how many', () => {
+    const report = buildAuditReport(
+      pass({ traversalErrors: [{ dir: '/repo/a', error: new Error('EACCES') }] }),
+      pass({ traversalErrors: [{ dir: '/repo/b', error: new Error('ELOOP') }] }),
+    );
+    const text = report.errors.join('\n');
+    expect(text).toContain('/repo/a');
+    expect(text).toContain('/repo/b');
   });
 });
