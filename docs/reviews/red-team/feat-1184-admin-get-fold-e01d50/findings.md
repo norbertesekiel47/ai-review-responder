@@ -366,3 +366,242 @@ FIXED, partially and honestly. The pin now refuses `vi.doMock` as well as `vi.mo
 FIXED — the stale number is gone from both files. The count is no longer written down at all: the shim's header and the pin's comment now say how to count it (`rg -l admin-gate-mocks src`), because every figure of that kind in this file's short history has already gone stale once.
 
 **Recomputed:** p0_open 0 · p1_open 0 · p2_open 2 (both recorded as follow-ups) · fixed 4 · rejected 1 → status CLEAR.
+
+---
+---
+
+# Red team — feat/1184-admin-get-fold, round 2
+
+Everything above this line is round 1's record and the root's triage of it,
+preserved verbatim. Round 2 re-derives the pass at the new HEAD: round 1 ran at
+`fa2e6e34`, its fixes moved HEAD, so that sidecar was stale by construction
+(`red-team-status.mjs` at the start of this round reported "the tree moved since
+fa2e6e34b3dc" and "intake_sha256 does not match" — the intake was amended too).
+`findings.json` is now round 2's; round 1's seven findings are carried into it
+with their dispositions unchanged.
+
+| | |
+|---|---|
+| mode | `feature` |
+| run_id | `feature-feat-1184-admin-get-fold-e01d50` |
+| branch | `feat/1184-admin-get-fold` |
+| fork_sha | `e8893544204888d6b1639de4f2612cf84517954f` |
+| merge_base_sha | `e8893544204888d6b1639de4f2612cf84517954f` |
+| head_sha | `083faf8deb9d6959b378ab79c3f10bb4f1298887` |
+| intake_sha256 | `2f1740d0f3f53091426337eeb4c25f3e238434f1b7dfc0c76b775a2ab2781030` |
+| risk | `high` |
+| round | 2 |
+| **status** | **`OPEN_P1`** |
+
+**Mutations run 16 (2 baselines + 14 mutants) of a 30-run budget · killed 12 ·
+survived 2, both reclassified `equivalent` with proof · 0 inconclusive · 0
+skipped-budget.** Inventory rows 36 — 30 `killed`, 2 `equivalent`, 4 `excluded`.
+
+Preconditions all passed before any mutation: `git status --porcelain` empty at
+`083faf8d`; `watchers` reported none; `round-start` opened round 2 and reset the
+budget (it refuses a third round, so this is the cap). Environment isolated with
+`mutation-runner.mjs env --tmp-home` (no local test DB, so
+`REPWORTH_DISABLE_LIVE_DB_SUITES=1`; none of the 13 target suites is live-DB) plus
+`dotenv-swap`, re-swapped after every intermediate `finalize`. The finalizer ran
+before this file was written: 0 mutated files outstanding, dotenv closed,
+`git status --porcelain` empty.
+
+## Scope
+
+Round 2 targets the fix hunks and their direct callers only —
+`git diff 2ce6196d~2..HEAD -- src scripts`, 24 files. Round 1's F4 and F5 are
+recorded follow-ups and were not re-examined. No new front was opened against
+code this branch did not change.
+
+## Deviation from the mutation protocol, recorded
+
+Two runs (M9, M10) applied ONE mutation and executed the ELEVEN affected test
+files together rather than a single `-t`-filtered test, so `assert-one-test` does
+not apply to them. The reason is that the claim under test is inherently
+multi-file — "the bearer guarantee is enforced in all nine suites" — and a
+per-test loop would have cost 18 runs to measure what one run measures with
+strictly more information: the vitest JSON report names every failing test, so
+each inventory row's kill is read off the report by full test name against a
+baseline where the identical file set was 151/151 green. Every other mutation
+(M1–M8, E1, E2) used the single-test protocol and `assert-one-test` confirmed
+exactly one executed test each. M11 and M12 are equivalents, judged from a
+whole-file run plus a written proof.
+
+## Findings
+
+| # | Severity | file:line | Finding |
+|---|---|---|---|
+| R2-F1 | **P1** | `scripts/ci/admin-aal2-audit.ts:189` | The corrected anchorless-page paragraph miscounts its own list — "five step up via `requireAdminPage`" is false under either reading (four step up; six call the gate), and its parts sum to 8 over a list of 7 |
+| R2-F2 | P2 | `scripts/ci/admin-aal2-audit.ts:195` | The paragraph's own "DERIVE THIS LIST" recipe yields TEN pages, not seven — it omits the pre-auth exemption |
+| R2-F3 | P2 | `scripts/ci/admin-aal2-audit.ts:399` | The new type-only exemption is applied to the wildcard path only: `export type { GET } from …` is still reported as an ungated handler (false positive in a fail-closed control) |
+| R2-F4 | P2 | `src/lib/auth/__tests__/helpers/admin-gate-mocks.ts:49` | 20 of the 30 shim consumers still paste the identical four-member `@/lib/db/auth` factory the fix retired in ten; the justifying sentence reads as if ten were the population |
+| R2-F5 | P2 | `scripts/ci/admin-aal2-audit.ts:770` | The P2 message always names `route.ts` even when the anchor resolved from another extension — deliberate and disclosed, recorded as a residual |
+| R2-F6 | P2 | `scripts/ci/admin-aal2-audit.ts:1056` | `main()`'s print-and-exit wiring for the coverage floor has no covering test — the residual of round 1's F2, recorded rather than re-opened |
+
+Round 1's F1–F7 are carried into `findings.json` unchanged: F1 `rejected`,
+F2/F3/F6/F7 `fixed` (all four re-verified below), F4/F5 `open` follow-ups.
+
+## Did the fixes close what they claim?
+
+**Claim: handler discovery is now exhaustive — YES for every routable form, with
+two false-positive directions recorded.** M2 (`unsupportedWildcardExport` forced
+to `null`), M3 (`unsupportedBindingPatterns` forced to `[]`) and M4 (the
+unreadable-form block moved BEHIND the handler filter and made zero-handler-only)
+are all killed, so both new detectors and the fail-closed ORDERING are genuinely
+pinned. Searching for a routable form still invisible, by calling the shipped
+`scanRouteFile` directly: `export * from` → finding; `export * as ns from` →
+finding; `export const { GET } = …` and `export const [GET] = …` → finding;
+`export { GET } from './handlers'` → finding (re-export arm); `export default`
+→ clean, and correctly so — Next.js routes named verb exports, never a default.
+No routable-and-invisible form was found. In the other direction two false
+positives exist and are R2-F3: a type-only NAMED re-export of a verb name is
+flagged though it creates no runtime binding (the commit states that exact
+principle for `export type * from`, which IS correctly clean), and the namespace
+form's message asserts a reachable ungated handler that a module-namespace object
+cannot be.
+
+**Claim: file discovery covers every routable extension — YES.** M5
+(`ROUTE_FILENAMES` → `route.ts` only), M7 (`PAGE_FILENAMES` → `page.tsx` only),
+M8 (`PAGE_FILE_SUFFIX` → `/page.tsx$`) and M6 (`siblingRouteCandidates` → `['ts']`)
+are each killed by a named test, so the P2 anchor really does resolve for a
+non-`.ts` sibling rather than the extension sweep being decorative.
+`siblingRouteFile()`'s message is TRUE at HEAD — `find src/app -path '*__tests__*'
+-prune -o \( -name 'route.*' -o -name 'page.*' \) -print` yields only `route.ts`
+and `page.tsx` — but it hard-codes `.ts` while the lookup no longer does, so it
+can name an absent file the day a `.js` sibling exists (R2-F5). The header's
+`pageExtensions` claim is re-resolved TRUE: `next.config.mjs` sets no override
+(grep over the repo finds the string only in this audit, its test, and the
+triage doc).
+
+**Claim: the anti-vacuity floor is now tested — YES for the decision.** M1
+re-runs round 1's neutering mutation against `auditCoverageFailures` and it is
+KILLED; the seven new tests assert message CONTENT (the unreadable directory is
+named, the two zero-collection strings are matched, the healthy case returns
+`[]`, and all three fire together), not lengths. Round 1's inconclusive/oracle
+row is resolved. What is still uncovered is `main()`'s five lines of printing and
+`process.exit(1)` — R2-F6, recorded not re-opened.
+
+**Claim: the bearer guarantee is enforced in all nine suites — YES, verified
+independently.** M9 re-applies round 1's exact mutation (the shim's
+`isBearerRequest(...)` ternary replaced by a hardcoded `'cookie'`): 11 tests fail
+across 10 files — the nine per-route bearer arms plus the shim's own derivation
+and malformed-header tests. Round 1 measured 0 for the nine. M10, the opposite
+hardcode (`'bearer'`), fails 10 across 10 files, so the new cookie assertions are
+not tautologies. Both numbers are read from the vitest JSON report, not from the
+fix's claim.
+
+**Claim: `adminAuthModuleMock` changed no behaviour in ten suites — TRUE, and the
+one real difference is proven inert.** The ten pre-fix factories were compared
+member by member: nine set `this.name = 'AuthError'`; `denorm-queries.test.ts`
+did not (pre-fix lines 63-65), so the collapse GIVES that suite a `name` it
+lacked. M12 deletes `this.name` from the shared class and all 171 tests across
+the eleven files still pass; production discriminates only with
+`err instanceof AuthError` (8 sites, none reading `.name`) and no test asserts on
+an error's `name`. The nine suites' `requireRole: (...args) => mockRequireRole(...args)`
+wrapper collapsing to a direct reference is safe because every consumer
+destructures the mocks from a `vi.hoisted` const and none reassigns them.
+
+**Claim: the `businesses/[id]` GET ordering change cannot alter a response —
+PROVEN.** M11 reverts the move (params + `asLocationId` back above the gate): the
+suite stays green, and that survivor is `equivalent`, not `inconclusive`, because
+the proof is about the MUTANT: `asLocationId` is `return value as LocationId`
+(`src/lib/shared/ids.ts:54-56`) — a cast fully erased at runtime with no
+validation and no throw path — and `params`' resolved value is not read by the
+gate. The one input class where the two orderings could diverge (`await params`
+rejecting) is unreachable for a matched route and, if it ever were, the fix's
+order is strictly better: the gate's 401/403 instead of an unhandled 500 to an
+unauthenticated caller.
+
+**Claim: the pin refuses `vi.doMock` and matches the real specifier — YES.** E1
+inserts a genuine `vi.doMock('@/lib/auth/admin-mfa-gate', …)` into the overview
+suite and E2 replaces that suite's literal shim specifier with a computed one
+while leaving the header prose that satisfied the old substring check. Both are
+killed. The residual the comment now STATES (an alias or an imported setup file
+still evades a text scan) is real and correctly disclosed.
+
+**Doc claims added by the fix hunks, re-resolved at HEAD.**
+`prevalidate-plan.py` was not used — the changed docs here are source comments,
+not a plan file — so every citation was hand-checked and that is stated as the
+method. True: the `pageExtensions` claim; the `HANDLER_VERBS` un-export rationale
+(no importer exists in the tree; `IdentityTransportError` is indeed unexported at
+`src/lib/auth/verified-identity.ts:69`); the three seam suites the shim's new
+header names all exist; the `CONSUMER_SPECIFIER` rationale (all nine folded
+suites do mention the shim by name in a comment, so the old bare-substring check
+really was satisfiable by prose); the enumerated seven anchorless pages; the
+`route.ts`-is-universal claim; `auditCoverageFailures`' "proven by mutation"
+claim. False or imprecise: R2-F1 (the "five" count) and R2-F2 (the derivation
+recipe).
+
+## Duty 4 — sibling search, recorded in full
+
+Pattern 1, the collapsed `@/lib/db/auth` factory. Scope `rg -l admin-gate-mocks src`
+(30 files), no exclusions; each file's `vi.mock('@/lib/db/auth', …)` call
+extracted by paren-matching and its top-level member set compared against
+`{requireRole, loadAppUser, cookieBackedServerClient, AuthError}`. Result: 10
+collapsed, 20 still verbatim, 0 supersets → R2-F4.
+
+Pattern 2, other admin route suites that stub the real gate. Scope: the
+`GATE_STUB`/`RELATIVE_GATE_STUB` regexes applied to all of `src`, not just the
+nine. Result: zero matches outside the pin's own file — no suite anywhere stubs
+`@/lib/auth/admin-mfa-gate`. A sound search that found nothing.
+
+Pattern 3, routable-but-invisible export forms — the probe described above.
+Zero found.
+
+## Duty 5 — operational completeness
+
+Nothing to report, and the search is recorded rather than assumed. The fix hunks
+add no new terminal or swallowed failure path: eight of the nine `route.ts`
+changes are comment-only (`git diff` shows no executable line), the ninth is a
+statement reorder, the audit script's new arms all funnel into the existing
+`console.error` + `process.exit(1)` CI failure path, and the shim and its pin are
+test-only. No new Sentry signal and no new runbook rule row, so the six-facet
+comparison in `docs/runbooks/beta-launch-alerting.md` has nothing to compare.
+
+## Authorizations
+
+None. No finding on this run is `accepted-risk`.
+
+## Restoration
+
+Every mutation was applied through `mutation-runner.mjs mutate` and undone with
+`finalize` before the next one (with `dotenv-swap` re-run after each, since
+`finalize` closes the dotenv half too) — deliberately NOT by re-invoking `mutate`
+with the pristine file, which is the trap round 1 recorded. The journal's 12
+entries are all `state: "restored"`, `dotenv.open` is `false`, all 16 process
+groups reaped, and `git status --porcelain` is empty — the tree is unmoved from
+`083faf8deb9d6959b378ab79c3f10bb4f1298887` outside this run's two report
+artifacts.
+
+---
+
+## Round 2 triage — applied by the orchestrating root (2026-09-08)
+
+Round 2's single P1 was a factual miscount in a comment this branch had already
+corrected twice. It is **FIXED**, comment-only, with no behavioural surface and no
+test to move: the paragraph now states the partition explicitly (4 + 1 + 2 = 7) and
+was verified by reading all seven pages rather than by re-counting the prose. The
+adjacent P2 about the "DERIVE THIS LIST" recipe yielding ten is corrected in the
+same edit — the recipe now says NON-PRE-AUTH page.
+
+The remaining P2s are **recorded, not fixed**, and that is deliberate: round 2 is
+the last round the protocol allows, so a behavioural change made after it would
+ship unverified. Each is listed here and in the PR description.
+
+- The type-only exemption reaches the wildcard path but not `export type { GET }
+  from …`. A FALSE POSITIVE in a fail-closed control — it over-reports, never
+  under-reports — and no admin route uses the form. Follow-up.
+- The P2 finding message hard-codes `route.ts` while the lookup walks four
+  extensions, so it can name an absent file. Disclosed and pinned by a test.
+- `main()`'s print-and-exit wiring around `auditCoverageFailures` has no covering
+  test; the DECISION it wraps is now pure and fully tested (round 1's F2).
+- Twenty of the thirty shim consumers still paste the four-member
+  `@/lib/db/auth` factory that `adminAuthModuleMock` retired in ten. Zero
+  supersets, so the remaining twenty are a mechanical follow-up.
+
+**Verified by round 2, independently of the implementer's claims:** the
+handler-discovery detectors and their fail-closed ordering (M2–M4), every routable
+extension (M5–M8), the anti-vacuity decision (M1, resolving round 1's inconclusive
+row), the bearer guarantee at 11 failures across 10 files (M9) and 10 across 10 in
+the opposite direction (M10), `adminAuthModuleMock`'s one real delta proven inert
+(M12), and the `businesses/[id]` ordering proven behaviour-identical (M11).

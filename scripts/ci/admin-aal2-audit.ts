@@ -186,18 +186,26 @@
 // /admin/businesses/new, and /admin/solicitation (its reads live under
 // solicitation/batch/ and solicitation/breaker/).
 //
-// All seven are correct today: five step up via `requireAdminPage`, the
-// impersonation view steps up through its own `requireCurrentAal2FromSupabase`
-// shape, and /admin/security and /admin/runbook are deliberately plain —
-// /admin/security IS the MFA enrollment surface, so requiring a step-up to
-// reach it is the same bootstrap paradox the pre-auth exemption exists for.
+// All seven are correct today, and they partition 4 + 1 + 2: FOUR pass
+// `aal2: true` to `requireAdminPage` (/admin/autonomy, /admin/impersonate,
+// /admin/businesses/new, /admin/solicitation); the impersonation VIEW steps up
+// through its own `requireCurrentAal2FromSupabase` shape; and /admin/security
+// and /admin/runbook are deliberately plain — /admin/security IS the MFA
+// enrollment surface, so requiring a step-up to reach it is the same bootstrap
+// paradox the pre-auth exemption exists for.
 //
-// DERIVE THIS LIST, never trust the prose: it is every page under
-// src/app/admin whose `siblingRouteCandidates()` all miss. #1184 found it
-// saying "five", corrected it to "six", and had to correct it again to seven —
-// a hand-maintained inventory inside a security control decays exactly this
-// way, which is also why P1's pre-auth exemption is derived from src/proxy.ts
-// rather than listed here.
+// DERIVE THIS LIST, never trust the prose: it is every NON-PRE-AUTH page under
+// src/app/admin whose `siblingRouteCandidates()` all miss. That clause is
+// load-bearing — without it the same walk yields TEN, because
+// /admin/{login,forgot-password,reset-password} have no sibling either and are
+// exempted by `readPreAuthAdminPaths` instead.
+//
+// #1184 found this paragraph saying "five", corrected it to "six", corrected
+// that to "seven", and had its own replacement sentence caught miscounting the
+// seven as 5 + 1 + 2. Four errors in one branch is the argument, not an
+// anecdote: a hand-maintained inventory inside a security control decays this
+// way, which is why P1's pre-auth exemption is DERIVED from src/proxy.ts and
+// never listed here.
 //
 // The alternative — mapping page → service module → route — was rejected as a
 // heuristic that fails silently in the passing direction.

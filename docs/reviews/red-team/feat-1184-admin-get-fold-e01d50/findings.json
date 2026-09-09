@@ -5,720 +5,263 @@
   "branch": "feat/1184-admin-get-fold",
   "fork_sha": "e8893544204888d6b1639de4f2612cf84517954f",
   "merge_base_sha": "e8893544204888d6b1639de4f2612cf84517954f",
-  "head_sha": "fa2e6e34b3dccb34f02ceb8d85ff0f44b78bd522",
-  "intake_sha256": "48019da698791749fcf5673e533afc78eec73f797d1414da8c5f51db92109c60",
+  "head_sha": "083faf8deb9d6959b378ab79c3f10bb4f1298887",
+  "intake_sha256": "2f1740d0f3f53091426337eeb4c25f3e238434f1b7dfc0c76b775a2ab2781030",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-09T01:41:55.174Z",
+  "round": 2,
+  "generated_at": "2026-09-09T02:26:36.893933Z",
   "inventory": [
     {
-      "id": "INV-route-costs-aal2-200",
-      "test": "GET /api/admin/costs — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-costs-aal1-403",
-      "test": "GET /api/admin/costs — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-costs-nonadmin-403",
-      "test": "GET /api/admin/costs — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-costs-unauth-401",
-      "test": "GET /api/admin/costs — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-costs-bearer-200",
-      "test": "GET /api/admin/costs — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-aal2-200",
-      "test": "GET /api/admin/businesses — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/businesses/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-aal1-403",
-      "test": "GET /api/admin/businesses — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/businesses/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-nonadmin-403",
-      "test": "GET /api/admin/businesses — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/businesses/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-unauth-401",
-      "test": "GET /api/admin/businesses — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/businesses/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-bearer-200",
-      "test": "GET /api/admin/businesses — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/businesses/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id--aal2-200",
-      "test": "GET /api/admin/businesses/[id] — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id--aal1-403",
-      "test": "GET /api/admin/businesses/[id] — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id--nonadmin-403",
-      "test": "GET /api/admin/businesses/[id] — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id--unauth-401",
-      "test": "GET /api/admin/businesses/[id] — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id--bearer-200",
-      "test": "GET /api/admin/businesses/[id] — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id-channels-aal2-200",
-      "test": "GET /api/admin/businesses/[id]/channels — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id-channels-aal1-403",
-      "test": "GET /api/admin/businesses/[id]/channels — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id-channels-nonadmin-403",
-      "test": "GET /api/admin/businesses/[id]/channels — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id-channels-unauth-401",
-      "test": "GET /api/admin/businesses/[id]/channels — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-businesses-id-channels-bearer-200",
-      "test": "GET /api/admin/businesses/[id]/channels — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-demos-aal2-200",
-      "test": "GET /api/admin/demos — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/demos/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-demos-aal1-403",
-      "test": "GET /api/admin/demos — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/demos/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-demos-nonadmin-403",
-      "test": "GET /api/admin/demos — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/demos/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-demos-unauth-401",
-      "test": "GET /api/admin/demos — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/demos/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-demos-bearer-200",
-      "test": "GET /api/admin/demos — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/demos/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-jobs-aal2-200",
-      "test": "GET /api/admin/jobs — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-jobs-aal1-403",
-      "test": "GET /api/admin/jobs — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-jobs-nonadmin-403",
-      "test": "GET /api/admin/jobs — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-jobs-unauth-401",
-      "test": "GET /api/admin/jobs — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-jobs-bearer-200",
-      "test": "GET /api/admin/jobs — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-nav-counts-aal2-200",
-      "test": "GET /api/admin/nav-counts — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-nav-counts-aal1-403",
-      "test": "GET /api/admin/nav-counts — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
+      "id": "INV-R2-M1-coverage-floor",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "auditCoverageFailures — zero route files is fatal",
       "outcome": "killed",
-      "reason": "B1: route rewraps gate.response, dropping NO_STORE_HEADERS (nav-counts/route.ts:19). B2: `if (!gate.ok) return gate.response` deleted outright. Baseline green, both mutants red."
+      "reason": "M1: an early `if (routes || pages) return [];` at the top of auditCoverageFailures (admin-aal2-audit.ts:1016) — the whole anti-vacuity floor removed, the same semantic mutation round 1 ran against assertAuditCoverage. Baseline green (139/139 over this file + the pin at HEAD), mutant RED, assert-one-test confirmed exactly one executed test. Round 1's INV-audit-coverage-floor row (inconclusive/oracle, raising F2) is RESOLVED by this run: the floor's decision is now genuinely covered."
     },
     {
-      "id": "INV-route-nav-counts-nonadmin-403",
-      "test": "GET /api/admin/nav-counts — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-nav-counts-unauth-401",
-      "test": "GET /api/admin/nav-counts — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-nav-counts-bearer-200",
-      "test": "GET /api/admin/nav-counts — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-notifications-aal2-200",
-      "test": "GET /api/admin/notifications — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/notifications/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-notifications-aal1-403",
-      "test": "GET /api/admin/notifications — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/notifications/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-notifications-nonadmin-403",
-      "test": "GET /api/admin/notifications — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/notifications/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-notifications-unauth-401",
-      "test": "GET /api/admin/notifications — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/notifications/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-notifications-bearer-200",
-      "test": "GET /api/admin/notifications — a bearer-transport aal2 admin is served (200)",
-      "file": "src/app/api/admin/notifications/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-overview-aal2-200",
-      "test": "GET /api/admin/overview — an aal2 admin is served (200)",
-      "file": "src/app/api/admin/overview/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed: the 30-run round budget was spent on the representative arms in overview + nav-counts and on the shared shim, whose mutations A1-A3 cover the identical mapping every one of these arms consumes. Static cross-check: all nine suites carry all five arms with the no-store assertion (grep of the four refusal literals + \"no-store, private\" per file)."
-    },
-    {
-      "id": "INV-route-overview-aal1-403",
-      "test": "GET /api/admin/overview — an aal1 admin is refused 403 mfa_required + no-store",
-      "file": "src/app/api/admin/overview/__tests__/route.test.ts",
+      "id": "INV-R2-M2-wildcard-export",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "scanRouteFile — a wildcard re-export ALONE is a FINDING",
       "outcome": "killed",
-      "reason": "A1: shim aalFrom() forced to always return \"aal2\" (admin-gate-mocks.ts:89). Baseline green, mutant red."
+      "reason": "M2: `unsupportedWildcardExport` forced to `return null` for every statement (admin-aal2-audit.ts:402). Baseline green, mutant RED, exactly one test executed."
     },
     {
-      "id": "INV-route-overview-nonadmin-403",
-      "test": "GET /api/admin/overview — a non-admin is refused 403 Forbidden + no-store",
-      "file": "src/app/api/admin/overview/__tests__/route.test.ts",
+      "id": "INV-R2-M3-binding-pattern-export",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "scanRouteFile — `export const { GET } = handlers` is a FINDING (object destructuring)",
       "outcome": "killed",
-      "reason": "A3: shim mockLoadAppUser forced to always return an admin (admin-gate-mocks.ts:128-136). Baseline green, mutant red."
+      "reason": "M3: `unsupportedBindingPatterns` forced to `return []` (admin-aal2-audit.ts:385). Baseline green, mutant RED, exactly one test executed."
     },
     {
-      "id": "INV-route-overview-unauth-401",
-      "test": "GET /api/admin/overview — an unauthenticated caller is refused 401 Unauthorized + no-store",
-      "file": "src/app/api/admin/overview/__tests__/route.test.ts",
+      "id": "INV-R2-M4-fail-closed-ordering",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "scanRouteFile — a wildcard re-export BESIDE a correctly gated POST is STILL a FINDING",
       "outcome": "killed",
-      "reason": "A2: shim 401 arm neutered (admin-gate-mocks.ts:143, `status === 401` -> `status === 999`). Baseline green, mutant red."
+      "reason": "M4: the unreadable-form block MOVED to after the handler filter and guarded on `!HANDLER_VERBS.some(...)`, i.e. it fires only for a zero-handler file (admin-aal2-audit.ts:625-640). This is the precise claim 'all failing CLOSED before the handler filter'. Baseline green, mutant RED, exactly one test executed — the ordering is load-bearing and pinned."
     },
     {
-      "id": "INV-route-overview-bearer-200",
-      "test": "GET /api/admin/overview — a bearer-transport aal2 admin is served (200)",
+      "id": "INV-R2-M5-route-extensions",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "routable extensions — auditRoutes scans a route.js and reports its ungated GET",
+      "outcome": "killed",
+      "reason": "M5: ROUTE_FILENAMES narrowed back to `new Set(['route.ts'])` (admin-aal2-audit.ts:872). Baseline green, mutant RED, exactly one test executed."
+    },
+    {
+      "id": "INV-R2-M6-sibling-candidates",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "routable extensions — auditPages anchors P2 on a route.js sibling",
+      "outcome": "killed",
+      "reason": "M6: `siblingRouteCandidates` narrowed to `['ts']` (admin-aal2-audit.ts:775), so `readSiblingRoute` misses a .js sibling and the P2 anchor comes back null. Baseline green, mutant RED, exactly one test executed — the P2 anchor genuinely resolves for a non-.ts sibling."
+    },
+    {
+      "id": "INV-R2-M7-page-extensions",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "collectRouteFiles / collectAdminPageFiles — collects every routable page file — not layout.tsx, not __tests__ fixtures",
+      "outcome": "killed",
+      "reason": "M7: PAGE_FILENAMES narrowed to `new Set(['page.tsx'])` (admin-aal2-audit.ts:880). Baseline green, mutant RED, exactly one test executed."
+    },
+    {
+      "id": "INV-R2-M8-page-suffix",
+      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
+      "test": "routable extensions — scanAdminPageFile and pageRoutePath read a page.js the collector now hands them",
+      "outcome": "killed",
+      "reason": "M8: PAGE_FILE_SUFFIX narrowed to /\\/page\\.tsx$/ (admin-aal2-audit.ts:883), which would let the widened collector hand scanAdminPageFile a page.js it then silently ignores. Baseline green, mutant RED, exactly one test executed."
+    },
+    {
+      "id": "INV-R2-E1-pin-refuses-domock",
+      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
+      "test": "the nine folded admin read suites exercise the REAL gate — src/app/api/admin/overview/__tests__/route.test.ts does not stub the admin MFA gate",
+      "outcome": "killed",
+      "reason": "E1: a real `vi.doMock('@/lib/auth/admin-mfa-gate', () => ({ requireAdminWithAal2: vi.fn() }))` inserted into the overview suite — the lazy spelling of the vacuity hole that the pre-fix pin (vi.mock only) would have read as clean. Baseline green, mutant RED, exactly one test executed. F6's fix holds."
+    },
+    {
+      "id": "INV-R2-E2-pin-real-specifier",
+      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
+      "test": "the nine folded admin read suites exercise the REAL gate — src/app/api/admin/overview/__tests__/route.test.ts drives the gate through the shared shim",
+      "outcome": "killed",
+      "reason": "E2: the overview suite's literal `'@/lib/auth/__tests__/helpers/admin-gate-mocks'` specifier replaced by a COMPUTED one, leaving the suite's header comment (which names the shim in prose) untouched — the exact shape that satisfied the old bare-substring check. Baseline green, mutant RED, exactly one test executed. F6's second half holds."
+    },
+    {
+      "id": "INV-R2-bearer-overview",
       "file": "src/app/api/admin/overview/__tests__/route.test.ts",
+      "test": "GET /api/admin/overview — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-overview",
+      "file": "src/app/api/admin/overview/__tests__/route.test.ts",
+      "test": "GET /api/admin/overview — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-costs",
+      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
+      "test": "GET /api/admin/costs — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-costs",
+      "file": "src/app/api/admin/costs/__tests__/route.test.ts",
+      "test": "GET /api/admin/costs — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-jobs",
+      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
+      "test": "GET /api/admin/jobs — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-jobs",
+      "file": "src/app/api/admin/jobs/__tests__/route.test.ts",
+      "test": "GET /api/admin/jobs — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-demos",
+      "file": "src/app/api/admin/demos/__tests__/route.test.ts",
+      "test": "GET /api/admin/demos — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-demos",
+      "file": "src/app/api/admin/demos/__tests__/route.test.ts",
+      "test": "GET /api/admin/demos — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-notifications",
+      "file": "src/app/api/admin/notifications/__tests__/route.test.ts",
+      "test": "GET /api/admin/notifications — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-notifications",
+      "file": "src/app/api/admin/notifications/__tests__/route.test.ts",
+      "test": "GET /api/admin/notifications — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-nav-counts",
+      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
+      "test": "GET /api/admin/nav-counts — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-nav-counts",
+      "file": "src/app/api/admin/nav-counts/__tests__/route.test.ts",
+      "test": "GET /api/admin/nav-counts — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-businesses",
+      "file": "src/app/api/admin/businesses/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-businesses",
+      "file": "src/app/api/admin/businesses/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-businesses-id",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-businesses-id",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-bearer-businesses-id-channels",
+      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id]/channels — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "M9: `isBearerRequest(...) ? 'bearer' : 'cookie'` in the shim replaced by a hardcoded `transport: 'cookie'` (admin-gate-mocks.ts:176-178) — the identical mutation round 1 ran, which then killed NONE of the nine. Under the fix it fails 11 tests across 10 files; this arm is one of them, by name, in the JSON report. Batched execution (see the Deviations note): one mutation, one run over the 11 files, per-test outcomes read from the vitest JSON report; baseline for the identical file set was 151/151 green."
+    },
+    {
+      "id": "INV-R2-cookie-businesses-id-channels",
+      "file": "src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id]/channels — an aal2 admin is served (cookie transport)",
+      "outcome": "killed",
+      "reason": "M10: the same expression hardcoded to `transport: 'bearer'` — the opposite direction, which proves the new cookie assertion is not a tautology. Fails 10 tests across 10 files; this arm is one of them, by name. Same batched protocol and same green baseline as M9."
+    },
+    {
+      "id": "INV-R2-shim-derive-transport",
+      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
+      "test": "makeAdminGateMocks — derives transport from the request through the production predicate, not a knob",
+      "outcome": "killed",
+      "reason": "Killed by BOTH M9 (hardcoded 'cookie') and M10 (hardcoded 'bearer'), so the shim's own derivation test is bidirectional. Batched run; named in both JSON reports."
+    },
+    {
+      "id": "INV-R2-shim-malformed-header",
+      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
+      "test": "makeAdminGateMocks — a malformed Authorization header is still bearer transport — presence wins",
+      "outcome": "killed",
+      "reason": "Killed by M9. Batched run; named in the JSON report."
+    },
+    {
+      "id": "INV-R2-M11-gate-ordering",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — the full suite (gate-first ordering)",
       "outcome": "equivalent",
-      "reason": "A4: the isBearerRequest call in the shim (admin-gate-mocks.ts:149-151) replaced by a hardcoded `transport: 'cookie'`. Test still PASSES. PROOF the mutant preserves this test's behaviour: requireAdminWithAal2 reads only identity.authUserId and identity.aal (src/lib/auth/admin-mfa-gate.ts:105-108) and never reads `transport`; the string \"transport\" occurs in none of the nine folded suites (rg over src/app/api/admin/**/__tests__); and the test asserts only res.status===200 plus the recorded request header. A second mutation on the same test (A5: the Authorization header deleted from the request) was KILLED, so the case is not vacuous — but the killer is the suite's own header assertion, not the shim. See finding F3."
+      "reason": "M11: the fix's ordering change REVERTED — `await params` + `asLocationId` moved back above the gate in src/app/api/admin/businesses/[id]/route.ts:28-33. Run over that suite plus denorm-queries: 16/16 still pass. PROOF the mutant preserves behaviour: `asLocationId` is `return value as LocationId` (src/lib/shared/ids.ts:54-56) — a TypeScript cast fully erased at runtime, with no validation, no allocation and no throw path; `params` is the framework-supplied promise for a MATCHED dynamic route and its resolved value is not read by `requireAdminWithAal2` (src/lib/auth/admin-mfa-gate.ts reads only the request). So for every input the two orderings emit byte-identical responses. The one input class where they could differ — `await params` rejecting — is strictly IMPROVED by the fix (an unhandled 500 to an unauthenticated caller becomes the gate's 401/403), and no such input is reachable for a matched route. This is a claim about the MUTANT, not the oracle: nothing SHOULD have killed it."
     },
     {
-      "id": "INV-migrated-src-app-api-admin-autonomy-tests-routes-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/autonomy/__tests__/routes.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-billing-grant-extension-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/billing/grant-extension/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-businesses-id-keywords-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/businesses/[id]/keywords/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-businesses-id-ranking-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/businesses/[id]/ranking/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-businesses-id-resend-invite-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/businesses/[id]/resend-invite/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-businesses-id-zernio-queue-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/businesses/[id]/zernio-queue/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-channels-telegram-tests-cancel-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/channels/telegram/__tests__/cancel.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-channels-telegram-tests-disable-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/channels/telegram/__tests__/disable.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-channels-telegram-tests-start-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/channels/telegram/__tests__/start.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-channels-whatsapp-tests-cancel-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/channels/whatsapp/__tests__/cancel.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-channels-whatsapp-tests-disable-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/channels/whatsapp/__tests__/disable.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-channels-whatsapp-tests-start-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/channels/whatsapp/__tests__/start.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-demos-generate-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/demos/generate/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-flagged-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/flagged/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-impersonation-end-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/impersonation/end/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-impersonation-start-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/impersonation/start/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-locations-csv-import-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/locations/csv-import/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-offboardings-tests-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/offboardings/__tests__/route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-solicitation-batch-tests-routes-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/solicitation/batch/__tests__/routes.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-app-api-admin-solicitation-breaker-tests-reset-route-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/app/api/admin/solicitation/breaker/__tests__/reset-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-migrated-src-lib-admin-tests-denorm-queries-test-ts",
-      "test": "the suite's admin-gate block, after migration from the pasted #1183 shim onto makeAdminGateMocks",
-      "file": "src/lib/admin/__tests__/denorm-queries.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Direction A (test importing a changed helper). Not executed: the shared-shim mutations A1-A3 target the exact lines these suites now consume and were killed in the representative suite; per-suite execution would need 21 baselines + 21 mutants, far past the 30-run round budget. Static cross-check: zero test cases were deleted anywhere in the migration (it/test counts compared base vs head across every changed suite)."
-    },
-    {
-      "id": "INV-page--admin-overview",
-      "test": "'/admin/overview' steps up to aal2 before reading anything",
-      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
-      "outcome": "killed",
-      "reason": "D1: `aal2: true` removed from src/app/admin/overview/page.tsx:16. Baseline green, mutant red. The static audit ALSO catches it: `npx tsx scripts/ci/admin-aal2-audit.ts` under the same mutation failed with the P2 parity message. Both halves of claim 3 hold."
-    },
-    {
-      "id": "INV-page--admin-businesses",
-      "test": "'/admin/businesses' steps up to aal2 before reading anything",
-      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Same it.each body and the same production shape as the overview row, which was killed; the static P2 rule covers all six identically."
-    },
-    {
-      "id": "INV-page--admin-businesses-id-",
-      "test": "'/admin/businesses/[id]' steps up to aal2 before reading anything",
-      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Same it.each body and the same production shape as the overview row, which was killed; the static P2 rule covers all six identically."
-    },
-    {
-      "id": "INV-page--admin-costs",
-      "test": "'/admin/costs' steps up to aal2 before reading anything",
-      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Same it.each body and the same production shape as the overview row, which was killed; the static P2 rule covers all six identically."
-    },
-    {
-      "id": "INV-page--admin-jobs",
-      "test": "'/admin/jobs' steps up to aal2 before reading anything",
-      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Same it.each body and the same production shape as the overview row, which was killed; the static P2 rule covers all six identically."
-    },
-    {
-      "id": "INV-page--admin-notifications",
-      "test": "'/admin/notifications' steps up to aal2 before reading anything",
-      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Same it.each body and the same production shape as the overview row, which was killed; the static P2 rule covers all six identically."
-    },
-    {
-      "id": "INV-page-refused-stepup",
-      "test": "a refused step-up stops the page before any data read",
-      "file": "src/app/admin/__tests__/page-aal2-parity.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Asserts the redirect throw propagates; no production line in this diff is uniquely covered by it."
-    },
-    {
-      "id": "INV-audit-verbs",
-      "test": "every verb Next.js routes is bound, and each is reported by name",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "killed",
-      "reason": "C1: HEAD removed from HANDLER_VERBS (admin-aal2-audit.ts:204-212). C4: GET removed. Baseline green, both mutants red — the #1184 widening is genuinely pinned in both directions."
-    },
-    {
-      "id": "INV-audit-coverage-floor",
-      "test": "assertAuditCoverage / main() — the anti-vacuity floor (no covering test found)",
-      "file": "scripts/ci/admin-aal2-audit.ts:860-877",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "C2: an early `if (routes || pages) return;` inserted at the top of assertAuditCoverage (admin-aal2-audit.ts:860) — the whole claimed floor removed. The ENTIRE suite scripts/ci/__tests__/admin-aal2-audit.test.ts still passes 91/91. Reverse import search found no test that imports assertAuditCoverage (it is not exported) or invokes main(); the only new test in this area asserts the traversal SINK (admin-aal2-audit.test.ts:936) and never the fatal. The survivor sits on a branch no candidate test executes, so per the arbiter rule it is inconclusive/oracle rather than a confirmed P0. Raises F2.",
-      "finding_id": "F2"
-    },
-    {
-      "id": "INV-audit-traversal-sink",
-      "test": "auditRoutes reports the directories it could not read, so a clean pass is never vacuous",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Inspected instead: it asserts pass.traversalErrors is populated, which is the sink, not main()'s fatal — recorded in F2."
-    },
-    {
-      "id": "INV-audit-widened-walk",
-      "test": "auditRoutes walks and scans every admin route, GET included (#1184)",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). Same HANDLER_VERBS line as INV-audit-verbs, which was killed twice."
-    },
-    {
-      "id": "INV-audit--a-GET-only-admin-route-WITH-a-gate-no-finding",
-      "test": "(a) GET-only admin route WITH a gate -> no finding",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit--a2-GET-only-admin-route-on-requireRoleOr401-FINDI",
-      "test": "(a2) GET-only admin route on requireRoleOr401 -> FINDING (#1184)",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-a-GET-with-a-recognized-gate-passes",
-      "test": "a GET with a recognized gate passes",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-a-GET-with-requireRoleOr401-is-a-finding",
-      "test": "a GET with requireRoleOr401 is a finding",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-a-GET-with-an-unrecognized-imported-wrapper-is-a-f",
-      "test": "a GET with an unrecognized imported wrapper is a finding",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-a-HEAD-with-requireRoleOr401-is-a-finding",
-      "test": "a HEAD with requireRoleOr401 is a finding",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-an-OPTIONS-with-requireRoleOr401-is-a-finding",
-      "test": "an OPTIONS with requireRoleOr401 is a finding",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-a-route-exporting-only-config-is-still-not-a-findi",
-      "test": "a route exporting only config is still not a finding",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-a-gated-GET-still-does-NOT-clear-an-ungated-siblin",
-      "test": "a gated GET still does NOT clear an ungated sibling mutation",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-audit-the-deny-rule-message-no-longer-calls-an-admin-rou",
-      "test": "the deny rule message no longer calls an admin route a mutation route",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). All target the same HANDLER_VERBS / message-text lines already killed twice by C1 and C4."
-    },
-    {
-      "id": "INV-shim-transport-derive",
-      "test": "derives transport from the request through the production predicate, not a knob",
+      "id": "INV-R2-M12-autherror-name",
       "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "killed",
-      "reason": "A4 (hardcoded transport) applied against THIS test: baseline green, mutant red. So the derivation is covered here — and only here (see F3)."
+      "test": "the ten collapsed @/lib/db/auth factories (adminAuthModuleMock behaviour parity)",
+      "outcome": "equivalent",
+      "reason": "M12: `this.name = 'AuthError'` deleted from the shared AuthError class (admin-gate-mocks.ts:73). Run over all 11 affected files: 171/171 still pass. This is the one measured DIFFERENCE between the ten collapsed local factories — nine set `this.name`, `src/lib/admin/__tests__/denorm-queries.test.ts` (pre-fix line 63-65) did NOT — so the collapse gives denorm-queries a `name` it lacked. PROOF the delta is inert: every production discrimination on this error is `err instanceof AuthError` (8 sites: src/lib/auth/route-helpers.ts:94, src/lib/auth/resolve-owner-scope.ts:103, src/lib/approval/http-routes.ts:148, src/lib/locations/owner-route.ts:60, src/app/api/zernio/connect/_shared/finalize/authorize.ts:69, src/app/api/zernio/connect/cancel/route.ts:76, src/app/api/zernio/disconnect/route.ts:71, src/app/api/zernio/connect/start/route.ts:68) and no site reads `.name`; no test in the eleven files asserts on an error's `name` (the only `.name` matches are payload assertions on `locations[i].name`). The other three members are spelled identically in all ten. Claim about the MUTANT."
     },
     {
-      "id": "INV-shim-antivacuity-overview",
-      "test": "src/app/api/admin/overview/__tests__/route.test.ts does not stub the admin MFA gate",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "killed",
-      "reason": "E1: a real `vi.mock('@/lib/auth/admin-mfa-gate', ...)` added to the overview suite. Baseline green, mutant red — the pin refuses the vacuity shape it names."
-    },
-    {
-      "id": "INV-shim-a-401-rejection-resolves-to-no-identity-which-is-t",
-      "test": "a 401 rejection resolves to no identity, which is the gate 401 arm",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-a-403-rejection-still-yields-an-identity-and-loadA",
-      "test": "a 403 rejection still yields an identity, and loadAppUser reports the missing admin",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-any-other-throw-propagates-so-the-gate-answers-int",
-      "test": "any other throw propagates, so the gate answers internal_error rather than a refusal",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-loadAppUser-reuses-the-outcome-requireRole-already",
-      "test": "loadAppUser reuses the outcome requireRole already produced, never a second call",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-maps-the-three-AAL-answers-apart-aal2-unreadable-a",
-      "test": "maps the three AAL answers apart — aal2, unreadable, and everything else",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-a-malformed-Authorization-header-is-still-bearer-t",
-      "test": "a malformed Authorization header is still bearer transport — presence wins",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-each-call-builds-independent-mocks-so-one-suite-ca",
-      "test": "each call builds independent mocks, so one suite cannot leak into another",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-the-other-eight-FOLDED-SUITES-rows-of-does-not-stu",
-      "test": "the other eight FOLDED_SUITES rows of \"does not stub the admin MFA gate\"",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-the-nine-FOLDED-SUITES-rows-of-drives-the-gate-thr",
-      "test": "the nine FOLDED_SUITES rows of \"drives the gate through the shared shim\"",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-shim-no-suite-carries-a-hand-rolled-copy-of-the-resolve",
-      "test": "no suite carries a hand-rolled copy of the resolver the shim owns",
-      "file": "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "Not executed (budget). The shim lines they cover were mutated four times (A1-A4) against the representative cases; three killed, one equivalent-with-proof."
-    },
-    {
-      "id": "INV-e2e-14b",
-      "test": "Prompt 14b admin runtime guards — unauthenticated page/API 401 + login redirect",
-      "file": "e2e/admin-14b-runtime.spec.ts",
+      "id": "INV-R2-main-exit-wiring",
+      "file": "scripts/ci/admin-aal2-audit.ts",
+      "test": "main() — printing the coverage failures and exiting 1 (no covering test)",
       "outcome": "excluded",
-      "reason": "Playwright/E2E spec — out of mutation scope per the protocol (fragile-assertion review only). Reviewed by hand: it asserts the unauthenticated 401 arm, which the fold preserves byte-for-byte, so the fold does not break it."
+      "reason": "EXCLUDED, and the reason is stated so the root can override it. main() is the CI script's composition root and no test invokes it (reverse search: nothing imports main; nothing spawns `tsx scripts/ci/admin-aal2-audit.ts`; the only package.json/lefthook consumers are the CI command itself). Deleting `process.exit(1)` there would leave every test green. But its coverage posture is UNCHANGED by this fix — before the fix the exit lived inside the equally uncovered, non-exported assertAuditCoverage — and this five-line wiring is the residual of round 1's F2, which the root dispositioned FIXED; the round-2 protocol forbids re-opening a disposed finding. The testable half (the DECISION) is now covered and proven by M1. Recorded instead as R2-F6 (P2), which never blocks."
     },
     {
-      "id": "INV-e2e-14c",
-      "test": "Prompt 14c admin runtime guards — unauthenticated businesses page/API 401",
-      "file": "e2e/admin-14c-runtime.spec.ts",
+      "id": "INV-R2-handler-verbs-unexport",
+      "file": "scripts/ci/admin-aal2-audit.ts",
+      "test": "HANDLER_VERBS — `export` keyword removed",
       "outcome": "excluded",
-      "reason": "Playwright/E2E spec — out of mutation scope. Reviewed by hand: unauthenticated 401 only; unaffected by the fold."
+      "reason": "Not behaviour-affecting: a TypeScript export-modifier removal on a module-local const. Verified no importer exists anywhere in the tree (grep for HANDLER_VERBS over every .ts/.tsx outside node_modules returns exactly the two in-file sites, admin-aal2-audit.ts:223 and :635); the audit's runtime behaviour is byte-identical, which the whole 91-test suite passing at HEAD confirms. The hunk's own claim — that #1190 re-adds the export when it has a consumer, `ci:fallow` flags an export with none, and #1183 withheld IdentityTransportError for the same reason — is re-resolved TRUE at HEAD (src/lib/auth/verified-identity.ts:69 declares IdentityTransportError with no `export`)."
+    },
+    {
+      "id": "INV-R2-verified-identity-typing",
+      "file": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts",
+      "test": "mockResolveDualModeIdentity — return type annotated as VerifiedIdentity | null",
+      "outcome": "excluded",
+      "reason": "Type-only: a `Promise<VerifiedIdentity | null>` annotation plus an `import type`. Erased at runtime; it can only fail at typecheck, which is the gate's job, not a mutation candidate. The runtime body is byte-identical apart from indentation, and M9/M10 exercise that body in both directions."
+    },
+    {
+      "id": "INV-R2-route-comment-deletions",
+      "file": "src/app/api/admin/overview/route.ts",
+      "test": "the nine route.ts files — #1184 preamble comments cut",
+      "outcome": "excluded",
+      "reason": "Comment-only in eight of the nine (overview, costs, jobs, demos, notifications, nav-counts, businesses, businesses/[id]/channels): `git diff` over those files shows no executable line changed. The ninth, businesses/[id], carries the ordering move, which has its own row (INV-R2-M11)."
     }
   ],
   "findings": [
@@ -729,26 +272,25 @@
       "at": ".claude/reference/arch-review-log.md:47",
       "duty": 3,
       "disposition": "rejected",
-      "reason": "REJECTED — the claim is true; every source the finding cites is stale. Verified live rather than from a document: `vercel env ls production` (project rep-worth) shows MFA_ENFORCEMENT_ENABLED on the Production environment, created 2026-09-08, alongside the staging row. #1182's resolution comment (2026-09-08T23:35Z) records the owner running the production half DIRECTLY from a production-scoped shell after PR #1216 merged, with end-to-end proof (password + TOTP sign-in rendering /admin/overview on production). env-vars.md:653, the log's own #1182 entry, and commit cca34475 all predate that. Stated limit: the Production value is stored Encrypted, so the listing proves presence and creation time, not the literal string; the value is attested by the owner's sign-in. The branch's entry at .claude/reference/arch-review-log.md now cites the ticket and the live check instead of leaning on the stale files, and correcting env-vars.md:653 is cut as a follow-up (it is outside this branch's surface)."
+      "reason": "REJECTED (round 1, carried forward unchanged) — the claim is true; every source the finding cites is stale. Verified live rather than from a document: `vercel env ls production` (project rep-worth) shows MFA_ENFORCEMENT_ENABLED on the Production environment, created 2026-09-08, alongside the staging row. #1182's resolution comment (2026-09-08T23:35Z) records the owner running the production half DIRECTLY from a production-scoped shell after PR #1216 merged, with end-to-end proof (password + TOTP sign-in rendering /admin/overview on production). env-vars.md:653, the log's own #1182 entry, and commit cca34475 all predate that. Stated limit: the Production value is stored Encrypted, so the listing proves presence and creation time, not the literal string; the value is attested by the owner's sign-in."
     },
     {
       "id": "F2",
       "severity": "P1",
       "title": "The audit's new anti-vacuity floor (claim 2) has no covering test — neutering it leaves all 91 audit tests green",
-      "at": "scripts/ci/admin-aal2-audit.ts:860",
+      "at": "scripts/ci/admin-aal2-audit.ts:1016",
       "duty": 1,
       "disposition": "fixed",
-      "reason": "FIXED — assertAuditCoverage's process.exit was replaced by the exported pure `auditCoverageFailures(routes, pages): string[]`; main() prints and exits on a non-empty result. Seven tests now assert message CONTENT for all three conditions (traversal error, zero route files, zero pages) plus the healthy case, so the mutation that neutered the floor no longer passes.",
-      "arbiter_reasoning": "The mutation is semantically meaningful — it removes the whole control claim 2 asserts — but it sits on a branch (main()/assertAuditCoverage) that NO candidate test executes. Per the arbiter rule that is a claim about the ORACLE, not a proven-fake test, so the row is inconclusive/oracle rather than survived-confirmed-P0."
+      "reason": "FIXED (round 1) and RE-PROVEN in round 2. `auditCoverageFailures` is now an exported pure function and M1 — the same neutering mutation — is KILLED by `zero route files is fatal`, with six sibling tests asserting message CONTENT for all three conditions plus the healthy case. Round 1's inconclusive/oracle row is resolved. Residual: main()'s print-and-exit wiring is still uncovered; recorded separately as R2-F6 (P2) rather than re-opened here. The `at` line is re-resolved to HEAD."
     },
     {
       "id": "F3",
       "severity": "P1",
       "title": "The shim's stated bearer guarantee is false: hardcoding `transport` leaves every \"bearer ok\" route case passing — the header is forced by nine per-suite assertions, not by the shim",
-      "at": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts:110",
+      "at": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts:176",
       "duty": 3,
       "disposition": "fixed",
-      "reason": "FIXED, and re-proven by mutation. Each of the nine folded route suites' bearer case now asserts the transport the shim RESOLVED (`mockResolveDualModeIdentity.mock.results[0]`), and each cookie case asserts 'cookie'. Re-running the original mutation (hardcoding transport) after the fix fails 11 tests across 10 files; before the fix it failed none of the nine. The shim's header no longer claims more than it delivers and names the three suites that prove the real seam without it."
+      "reason": "FIXED (round 1) and INDEPENDENTLY VERIFIED in round 2. Re-running the original mutation (M9, hardcoded `transport: 'cookie'`) against HEAD fails exactly 11 tests across 10 files — the nine per-route bearer arms plus two shim tests — which is the claim the fix made, measured here from the vitest JSON report rather than taken on trust. The opposite mutation (M10, hardcoded `'bearer'`) fails 10 tests across 10 files, so the new cookie assertions are not tautologies either. The `at` line is re-resolved to HEAD."
     },
     {
       "id": "F4",
@@ -757,7 +299,7 @@
       "at": "src/components/admin/nav-counts-query.ts:17",
       "duty": 5,
       "disposition": "open",
-      "reason": "RECORDED, not fixed here — merged with the spec axis's MEDIUM into follow-up FU-2. The fix belongs in src/app/mfa/challenge/MfaChallengeForm.tsx and src/components/admin/, both outside this branch's already thrice-amended surface. No admin is affected today (production has one admin with verified TOTP; staging's two are enrolled, per #1182); it bites the first newly-minted admin under enforcement (#1178, #1179). P2 is recorded and never blocks."
+      "reason": "RECORDED (round 1), carried forward unchanged as follow-up FU-2. Not re-examined in round 2 — the brief scopes it out as a recorded follow-up. P2 is recorded and never blocks."
     },
     {
       "id": "F5",
@@ -766,16 +308,16 @@
       "at": "docs/runbooks/evidence/2026-09-01-phase-h-beta-launch-evidence.md:157",
       "duty": 3,
       "disposition": "open",
-      "reason": "RECORDED, not fixed here — follow-up FU-3. docs/runbooks/evidence/2026-09-01-phase-h-beta-launch-evidence.md is outside this branch's allowed_edit_surface, and a fourth surface amendment for a line-number citation in a dated evidence file is not a trade worth making."
+      "reason": "RECORDED (round 1), carried forward unchanged as follow-up FU-3. Not re-examined in round 2 — the brief scopes it out as a recorded follow-up."
     },
     {
       "id": "F6",
       "severity": "P2",
       "title": "The anti-vacuity pin is a source-text scan and names only two spellings of the hole",
-      "at": "src/lib/auth/__tests__/admin-gate-mocks.test.ts:179",
+      "at": "src/lib/auth/__tests__/admin-gate-mocks.test.ts:190",
       "duty": 2,
       "disposition": "fixed",
-      "reason": "FIXED, partially and honestly. The pin now refuses `vi.doMock` as well as `vi.mock`, for both absolute and relative specifiers, and matches the real import specifier rather than a substring that a suite's own header prose satisfied. The residual limit — a computed specifier, an alias, or an imported setup file still evades a text scan — is now STATED in the comment rather than overclaimed."
+      "reason": "FIXED (round 1) and VERIFIED in round 2 by two mutations on the pin's own subject suite: E1 (a real `vi.doMock` of `@/lib/auth/admin-mfa-gate` inserted into the overview suite) and E2 (the shim's literal import specifier replaced by a computed one while the header comment that satisfied the old substring check stayed). Both are KILLED. The residual the comment now STATES (an alias or an imported setup file still evades a text scan) is confirmed real and correctly disclosed rather than overclaimed. The `at` line is re-resolved to HEAD."
     },
     {
       "id": "F7",
@@ -784,24 +326,78 @@
       "at": "src/lib/auth/__tests__/admin-gate-mocks.test.ts:5",
       "duty": 3,
       "disposition": "fixed",
-      "reason": "FIXED — the stale number is gone from both files. The count is no longer written down at all: the shim's header and the pin's comment now say how to count it (`rg -l admin-gate-mocks src`), because every figure of that kind in this file's short history has already gone stale once."
+      "reason": "FIXED (round 1) and verified in round 2: no numeric consumer count survives in either file (`grep` for a digit-bearing consumer claim in admin-gate-mocks.ts and admin-gate-mocks.test.ts finds none); both now name the grep instead. The count derived at HEAD is 30 files, which nothing in the tree contradicts."
+    },
+    {
+      "id": "R2-F1",
+      "severity": "P1",
+      "title": "The corrected anchorless-page paragraph miscounts its own list: \"five step up via requireAdminPage\" is false under every reading (four step up; six call the gate), and 5+1+2 = 8 over a list of SEVEN",
+      "at": "scripts/ci/admin-aal2-audit.ts:189",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "FIXED — comment only, no behavioural surface. The paragraph now states the partition explicitly (4 + 1 + 2 = 7): FOUR pages pass `aal2: true` to requireAdminPage (/admin/autonomy, /admin/impersonate, /admin/businesses/new, /admin/solicitation), the impersonation VIEW steps up via requireCurrentAal2FromSupabase, and /admin/security and /admin/runbook are deliberately plain. Verified by reading all seven pages, not by re-counting the prose. The 'DERIVE THIS LIST' recipe (round 2's adjacent P2) is corrected in the same edit: it now says NON-PRE-AUTH page, without which the walk yields ten."
+    },
+    {
+      "id": "R2-F2",
+      "severity": "P2",
+      "title": "The paragraph's own \"DERIVE THIS LIST\" recipe yields TEN pages, not the seven it enumerates — it omits the pre-auth exemption that removes three of them",
+      "at": "scripts/ci/admin-aal2-audit.ts:195",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The recipe reads \"it is every page under src/app/admin whose `siblingRouteCandidates()` all miss\". Executed literally at HEAD that yields TEN: the seven listed plus /admin/login, /admin/forgot-password and /admin/reset-password, which have no sibling route either. Those three are removed one step earlier by `scanAdminPageFile`'s `preAuthPaths` check (admin-aal2-audit.ts:802), so they are not \"checked by P1 only\" — they are not checked at all. A reader who follows the instruction the paragraph gives in capitals gets a different number from the one it states, which is precisely the disagreement the instruction was added to prevent. Fix: intersect the recipe with the non-pre-auth set (\"every page … that src/proxy.ts does NOT serve pre-auth and whose siblingRouteCandidates() all miss\")."
+    },
+    {
+      "id": "R2-F3",
+      "severity": "P2",
+      "title": "The new type-only exemption is applied to the wildcard path only: a type-only NAMED re-export of a handler verb is still reported as an ungated handler, and the namespace form's message asserts a reachability that cannot exist",
+      "at": "scripts/ci/admin-aal2-audit.ts:399",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Measured by calling the shipped `scanRouteFile` directly at HEAD (no mutation): `export type { GET } from './types'` and `export { type GET } from './types'` in an otherwise-clean admin route each produce \"GET is re-exported from another module, so this audit cannot see its gate\" — a FALSE POSITIVE in a fail-closed CI control, since a type-only re-export creates no runtime binding and Next.js routes nothing. The fix hunk states that principle itself (\"`export type * from` is exempt: a type-only re-export creates no runtime binding for Next.js to route\") and `export type * from` is correctly CLEAN, so the exemption is inconsistent within one commit; `readNamedExportAliases` (:424) has no `isTypeOnly` check on either the declaration or the element. Second, smaller half: `export * as ns from './handlers'` and `export * as GET from './handlers'` are reported with \"Next.js routes whatever it exports, so an ungated handler would be reachable\" — a namespace re-export binds exactly one name to a module-namespace OBJECT, which Next cannot route as a handler, so the finding fires correctly-conservatively but its stated consequence is not true for that form. Both are cheap to close (an isTypeOnly guard; a form-specific message). Neither is exploitable — the direction is toward a finding, never toward silence."
+    },
+    {
+      "id": "R2-F4",
+      "severity": "P2",
+      "title": "Twenty of the thirty shim consumers still paste the identical four-member @/lib/db/auth factory the fix retired in ten — and the header sentence that justified the retirement reads as if ten were the population",
+      "at": "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts:49",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Duty-4 sibling search, recorded in full: scope `rg -l admin-gate-mocks src` (30 files), exclusions none; for each, the `vi.mock('@/lib/db/auth', …)` call was extracted by paren-matching and its top-level member set compared against {requireRole, loadAppUser, cookieBackedServerClient, AuthError}. Result: 10 now call `adminAuthModuleMock`; the other 20 spell EXACTLY those four members verbatim, `AuthError` re-declared in each — src/app/api/admin/{autonomy/__tests__/routes,billing/grant-extension/__tests__/route,businesses/[id]/keywords/__tests__/route,businesses/[id]/ranking/__tests__/route,businesses/[id]/resend-invite/__tests__/route,businesses/[id]/zernio-queue/__tests__/route,channels/telegram/__tests__/{start,cancel,disable},channels/whatsapp/__tests__/{start,cancel,disable},demos/generate/__tests__/route,flagged/__tests__/route,impersonation/end/__tests__/route,impersonation/start/__tests__/route,locations/csv-import/__tests__/route,offboardings/__tests__/route,solicitation/batch/__tests__/routes,solicitation/breaker/__tests__/reset-route}.test.ts. ZERO of the 30 has a superset. The comment says \"the standards review measured it and found ten suites spelling the identical four members\" — literally true but read naturally as the population, when the population is thirty. Why it matters rather than being tidiness: this shim exists to retire the #1183 drift debt, and the 20 uncollapsed copies are exactly the drift surface it claims to own — if `adminAuthModuleMock`'s AuthError shape ever changes, ten suites move and twenty silently do not. No correctness impact today: the baseline is green and M12 proves the only measured delta (the `name` property) is inert."
+    },
+    {
+      "id": "R2-F5",
+      "severity": "P2",
+      "title": "The P2 finding message always names `route.ts` even when the anchor was resolved from another extension, so the message can name a file that does not exist",
+      "at": "scripts/ci/admin-aal2-audit.ts:770",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "`scanAdminPageFile` builds its P2 message from `siblingRouteFile(normalized)` (:817), which hard-codes `.ts`, while the LOOKUP now walks `siblingRouteCandidates`. M6 proves the lookup resolves a route.js sibling; the resulting message then reads \"its sibling route src/app/api/admin/<x>/route.ts gates GET with requireAdminWithAal2\" about a path that is absent. This is DELIBERATE and disclosed — the doc comment at :763-769 says the canonical spelling is what the message names, and admin-aal2-audit.test.ts:941 pins it — and it is unreachable today (verified: `find src/app -path '*__tests__*' -prune -o \\( -name 'route.*' -o -name 'page.*' \\) -print` yields only route.ts and page.tsx, so the header's \"route.ts is the extension every route in this repo uses\" is TRUE at HEAD). Recorded as the residual it is: the message would be strictly better naming the resolved path and the canonical one."
+    },
+    {
+      "id": "R2-F6",
+      "severity": "P2",
+      "title": "main()'s print-and-exit wiring for the coverage floor has no covering test — the residual of round 1's F2",
+      "at": "scripts/ci/admin-aal2-audit.ts:1056",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "RECORDED, not re-opened. F2's fix made the DECISION testable and M1 proves it is tested; what remains untested is the five lines in main() that print the failures and call `process.exit(1)`. Reverse search: nothing imports main and nothing spawns `tsx scripts/ci/admin-aal2-audit.ts` from a test, so deleting the exit would leave the suite green. Its coverage posture is UNCHANGED by this fix — pre-fix the exit lived inside the equally uncovered non-exported assertAuditCoverage — and round 1's F2, whose subject this is, was dispositioned FIXED by the root; the round-2 protocol forbids re-opening a disposed finding, so this is filed as P2 (never blocks) rather than as a new inconclusive row. If the root wants it closed, the covering shape is a child-process test asserting exit code 1 against a fixture root with zero route files."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 101,
-    "killed": 8,
+    "inventory_total": 36,
+    "killed": 30,
     "survived_confirmed_p0": 0,
-    "equivalent": 1,
-    "inconclusive": 1,
-    "skipped_budget": 89,
-    "excluded": 2,
-    "findings_total": 7,
+    "equivalent": 2,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 4,
+    "findings_total": 13,
     "p0_open": 0,
     "p1_open": 0,
-    "p2_open": 2,
+    "p2_open": 7,
     "accepted_risk": 0,
-    "fixed": 4,
+    "fixed": 5,
     "rejected": 1
   },
   "status": "CLEAR"
