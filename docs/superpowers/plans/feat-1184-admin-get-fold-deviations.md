@@ -57,3 +57,48 @@ case a genuine transport test and keeps the predicate single-owner (ADR 0025 D6)
 **Verdict:** ACCEPT
 
 ---
+
+## D4 — BLOCKING: one collateral suite outside the surface, and it is amendment #2
+
+**What.** `src/lib/admin/__tests__/denorm-queries.test.ts` imports the `costs` and
+`notifications` GET handlers directly and mocks `@/lib/db/auth` with `requireRole`
+and `AuthError` only. After the fold those handlers reach `requireAdminWithAal2` →
+`resolveDualModeIdentity` → `cookieBackedServerClient`, which that mock does not
+export, so three of its cases now fail:
+
+```
+[admin-mfa-gate] unexpected failure: Error: [vitest] No "cookieBackedServerClient"
+export is defined on the "@/lib/db/auth" mock.
+```
+
+- `GET /api/admin/costs with account_id filter > queries api_costs WHERE account_id when account_id param is provided` — expected 200, got 500
+- `GET /api/admin/costs with account_id filter > aggregates costs across all locations under an account`
+- `GET /api/admin/notifications with account_id filter > queries notification_deliveries WHERE account_id when account_id param is provided` — expected 200, got 500
+
+It is the ONLY red row in the tree. The gate at `8818cd33` reports
+`Test Files 1 failed | 1063 passed | 99 skipped`, and every other row — lint,
+typecheck, all 22 `ci:*` audits including `ci:admin-aal2`, build, `promised-tests`
+(48/48) and all three `verification_commands` — is PASS.
+
+**Why this is a stop and not a fix.** The file lives under `src/lib/admin/`, which
+no `allowed_edit_surface` entry reaches, so it is not the auto-approved "≤2 files
+inside a tree the surface already covers". It is surface amendment **#2**, and the
+orchestrator's brief names a second amendment as a hard stop. The runner does not
+self-authorize it.
+
+**The fix, if approved — one file, ~15 lines, zero assertion changes.** Exactly the
+migration the other 26 suites already took: spread `makeAdminGateMocks()` into the
+existing `await vi.hoisted(async () => …)` block; add `loadAppUser: mockLoadAppUser`
+and `cookieBackedServerClient: () => ({ auth: { mfa: {} } })` to the `@/lib/db/auth`
+factory; add `vi.mock('@/lib/auth/mfa', …)` and
+`vi.mock('@/lib/auth/verified-identity', …)`; set a passing `mockRequireRole` and
+`mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true })` in `beforeEach`.
+The three cases then assert the same SQL shapes they assert today.
+
+**No production change can avoid it.** The suite does not mock
+`@/lib/auth/verified-identity` at all, so the only alternatives are editing it or
+weakening the gate, and the second is not on the table.
+
+**Verdict:** _pending owner decision_
+
+---

@@ -28,9 +28,20 @@ the run stops.
 
 ## State
 
-`.feature/state.json` is authoritative. At the step 3→4 boundary:
-`phase=plan_approved`, `head=6e14c8a2`, `surfaceAmendments=1`,
+`.feature/state.json` is authoritative. `surfaceAmendments=1`,
 `planReviewRounds=3`.
+
+**BLOCKED at step 5 (verify gate), HEAD `8818cd33`.** Tracers T1–T6 are all
+committed and the gate is one row from green: every check passes except the
+`test` row, which fails only in `src/lib/admin/__tests__/denorm-queries.test.ts`
+(3 cases). That file is outside `allowed_edit_surface`, so fixing it is surface
+amendment **#2** — a hard stop the orchestrator declared. The exact failure, the
+exact fix, and why no production change avoids it are in deviations **D4**.
+
+**On approval the remaining sequence is:** apply D4's fix (one file, ~15 lines,
+no assertion changes) → `bash scripts/verify-gate.sh` → `--review` → step 6
+read-back → step 7 wave with red team → 7.5 → step 8. Nothing else is
+outstanding.
 
 Codex plan-skeptic thread (resume ONLY for verification, never a new axis):
 `01a0836d-6da6-75f2-9388-f2eeaa16ef58`.
