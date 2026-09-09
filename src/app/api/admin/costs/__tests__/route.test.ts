@@ -14,15 +14,32 @@ import { resetServerConfigForTests } from '@/lib/config/server';
 // fragment is a lazy thenable that only records + consumes the queue when
 // AWAITED, and inlines into the parent query's text otherwise.
 
-const { mockRequireRole, mockGetMarginReport, mockSql, sqlReturnQueue, sqlCalls, resetMockSql } =
-  await vi.hoisted(async () => {
-    const { createMockSql } = await import('../../../../../../worker/__tests__/helpers/mock-sql');
-    return {
-      mockRequireRole: vi.fn(),
-      mockGetMarginReport: vi.fn(),
-      ...createMockSql(),
-    };
-  });
+// #1184: this route folded from a bare `requireRole` + a hand-written catch onto
+// `requireAdminWithAal2`, so the REAL gate runs here and only its dependencies are
+// mocked — through the shared shim, the single owner of that mock triple
+// (src/lib/auth/__tests__/helpers/admin-gate-mocks.ts). `mockRequireRole` still says
+// whether there is a live admin and `mockRequireCurrentAal2FromSupabase` still says
+// whether the AAL2 step-up passed, so every pre-existing assertion below keeps its
+// meaning.
+const {
+  mockRequireRole,
+  mockRequireCurrentAal2FromSupabase,
+  mockLoadAppUser,
+  mockResolveDualModeIdentity,
+  mockGetMarginReport,
+  mockSql,
+  sqlReturnQueue,
+  sqlCalls,
+  resetMockSql,
+} = await vi.hoisted(async () => {
+  const { createMockSql } = await import('../../../../../../worker/__tests__/helpers/mock-sql');
+  const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
+  return {
+    ...makeAdminGateMocks(),
+    mockGetMarginReport: vi.fn(),
+    ...createMockSql(),
+  };
+});
 
 vi.mock('@/lib/db/auth', () => {
   class AuthError extends Error {
@@ -33,9 +50,23 @@ vi.mock('@/lib/db/auth', () => {
   }
   return {
     requireRole: (...args: unknown[]) => mockRequireRole(...args),
+    loadAppUser: mockLoadAppUser,
+    cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
     AuthError,
   };
 });
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
+}));
+
+vi.mock('@/lib/auth/verified-identity', () => ({
+  resolveDualModeIdentity: mockResolveDualModeIdentity,
+}));
 
 vi.mock('@/lib/admin/margin-service', () => ({
   getMarginReport: (...args: unknown[]) => mockGetMarginReport(...args),
@@ -171,6 +202,7 @@ describe('GET /api/admin/costs', () => {
       accountId: null,
       locationId: null,
     });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     mockGetMarginReport.mockResolvedValue(STUB_MARGIN);
     // Arbitrary positive fixtures: operator values are required configuration,
     // not product defaults, so route tests must provide them explicitly.
@@ -621,5 +653,115 @@ describe('GET /api/admin/costs', () => {
         );
       }
     }
+  });
+});
+
+// ── #1184: the fold onto requireAdminWithAal2 ───────────────────────
+//
+// The five cases every folded Admin API read owes, plus the one this route owes
+// alone: it used to catch ANY non-AuthError from `requireRole` and answer 401,
+// which masked a genuine server fault as a credential problem. The gate replaces
+// both arms, so that mask must be gone.
+//
+// Each refusal also asserts the no-store header. That is what catches a fold that
+// REWRAPS `gate.response` instead of returning it — the status and the body would
+// still look right, and the cache semantics of an admin refusal would silently
+// change.
+describe('GET /api/admin/costs — the admin MFA gate (#1184)', () => {
+  const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null };
+  const savedLimits = {
+    copilot: process.env.DAILY_COST_LIMIT_CENTS_COPILOT,
+    autopilot: process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMockSql();
+    mockRequireRole.mockResolvedValue(ADMIN);
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
+    mockGetMarginReport.mockResolvedValue(null);
+    process.env.DAILY_COST_LIMIT_CENTS_COPILOT = '12345';
+    process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT = '23456';
+    resetServerConfigForTests();
+  });
+
+  afterEach(() => {
+    if (savedLimits.copilot === undefined) delete process.env.DAILY_COST_LIMIT_CENTS_COPILOT;
+    else process.env.DAILY_COST_LIMIT_CENTS_COPILOT = savedLimits.copilot;
+    if (savedLimits.autopilot === undefined) delete process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT;
+    else process.env.DAILY_COST_LIMIT_CENTS_AUTOPILOT = savedLimits.autopilot;
+    resetServerConfigForTests();
+  });
+
+  function bearerRequest(): NextRequest {
+    return new NextRequest('http://localhost:3000/api/admin/costs?days=7', {
+      headers: { authorization: 'Bearer test-admin-access-token' },
+    });
+  }
+
+  it('GET /api/admin/costs — an aal2 admin is served', async () => {
+    queueDetailOnlyResults();
+    const { GET } = await import('../route');
+    const res = await GET(makeRequest('/api/admin/costs?days=7'));
+
+    expect(res.status).toBe(200);
+    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
+  });
+
+  it('GET /api/admin/costs — an aal1 admin is refused 403 mfa_required', async () => {
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: false, reason: 'mfa_required' });
+    const { GET } = await import('../route');
+    const res = await GET(makeRequest('/api/admin/costs?days=7'));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'mfa_required' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(sqlCalls).toHaveLength(0);
+  });
+
+  it('GET /api/admin/costs — a non-admin is refused 403 Forbidden', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Forbidden', 403));
+    const { GET } = await import('../route');
+    const res = await GET(makeRequest('/api/admin/costs?days=7'));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'Forbidden' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(sqlCalls).toHaveLength(0);
+  });
+
+  it('GET /api/admin/costs — an unauthenticated caller is refused 401 Unauthorized', async () => {
+    const { AuthError } = await import('@/lib/db/auth');
+    mockRequireRole.mockRejectedValue(new AuthError('Unauthenticated', 401));
+    const { GET } = await import('../route');
+    const res = await GET(makeRequest('/api/admin/costs?days=7'));
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Unauthorized' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
+    expect(sqlCalls).toHaveLength(0);
+  });
+
+  it('GET /api/admin/costs — a bearer-transport aal2 admin is served', async () => {
+    queueDetailOnlyResults();
+    const { GET } = await import('../route');
+    const res = await GET(bearerRequest());
+
+    expect(res.status).toBe(200);
+    // The seam saw the real header, so this is a transport test rather than a
+    // second spelling of the cookie case.
+    const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
+    expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
+  });
+
+  it('GET /api/admin/costs — a non-AuthError gate failure is internal_error, not a 401 mask', async () => {
+    mockRequireRole.mockRejectedValue(new Error('supabase unreachable'));
+    const { GET } = await import('../route');
+    const res = await GET(makeRequest('/api/admin/costs?days=7'));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'internal_error' });
+    expect(res.headers.get('Cache-Control')).toBe('no-store, private');
   });
 });
