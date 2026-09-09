@@ -12,6 +12,7 @@ Start here for RepWorth design, brand references, and content generation. This l
 | [Digital asset management](digital-asset-management/README.md) | Searchable asset inventory, source locations, variants, provenance, status, and reuse rules |
 | [Content generation](content-generation/README.md) | Context packs and a repeatable workflow for copy, images, video, and product demonstrations |
 | [Templates](templates/README.md) | Creative briefs and asset records to copy into a project |
+| [September marketing collection](collections/2026-09-marketing/README.md) | Reusable social posts, agent worlds, silent motion, panoramic backgrounds, and parchment-map assets |
 | [Archive](archive/README.md) | Superseded guidance, earlier design explorations, and production history |
 
 ## Which source wins?

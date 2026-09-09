@@ -1,0 +1,13 @@
+{
+  "name": "repworth-marketing-production",
+  "private": true,
+  "type": "module",
+  "description": "Isolated production dependencies. Install a copy in ignored output/repworth-marketing-2026-09-08/runtime/.",
+  "dependencies": {
+    "@remotion/bundler": "4.0.522",
+    "@remotion/renderer": "4.0.522",
+    "remotion": "4.0.522",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  }
+}
