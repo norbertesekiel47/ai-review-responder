@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -70,4 +70,4 @@ async function reset(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-export const POST = withSameOrigin()(reset);
+export const POST = withSameOriginUnlessBearer()(reset);

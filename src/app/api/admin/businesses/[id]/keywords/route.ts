@@ -4,7 +4,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -63,4 +63,4 @@ async function updateKeywords(
   }
 }
 
-export const PUT = withSameOrigin()(updateKeywords);
+export const PUT = withSameOriginUnlessBearer()(updateKeywords);

@@ -9,6 +9,8 @@ import {
 } from '@/lib/shared/protected-routes';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 import { mfaEnforcementEnabled } from '@/lib/auth/flags';
+import { isBearerRequest, readBearerToken } from '@/lib/auth/admin-transport';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import {
   AdminOriginConfigError,
   isAllowedAdminOrigin,
@@ -194,6 +196,18 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!isProtectedRoute(routePath)) {
+    return NextResponse.next({ request: createDownstreamRequest() });
+  }
+
+  // Branch 4's bearer arm precedes cookie work. CORS has already run; the
+  // canonical route gate owns signature, liveness, role and AAL2 verification.
+  // Impersonation keeps its cookie path permanently (ADR 0024 D4 amendment).
+  const isImpersonation = routePath === '/api/admin/impersonation' ||
+    routePath.startsWith('/api/admin/impersonation/');
+  if (isAdminApiRoute(routePath) && !isImpersonation && isBearerRequest(request)) {
+    if (readBearerToken(request) === null) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
+    }
     return NextResponse.next({ request: createDownstreamRequest() });
   }
 

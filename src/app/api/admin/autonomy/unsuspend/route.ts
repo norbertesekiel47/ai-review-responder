@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AutonomyAccountNotFoundError } from '@/lib/auto-approval/account-lock';
 import { unsuspendAccountAutonomy } from '@/lib/auto-approval/suspension';
 import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
@@ -42,4 +42,4 @@ async function unsuspend(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-export const POST = withSameOrigin()(unsuspend);
+export const POST = withSameOriginUnlessBearer()(unsuspend);

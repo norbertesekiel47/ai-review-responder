@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { jsonb, sql } from '@/lib/db/server';
 
 export const dynamic = 'force-dynamic';
@@ -142,4 +142,4 @@ async function grantExtension(request: NextRequest): Promise<NextResponse> {
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOrigin()(grantExtension);
+export const POST = withSameOriginUnlessBearer()(grantExtension);

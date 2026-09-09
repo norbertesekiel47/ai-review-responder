@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import {
   ProviderDispositionError,
@@ -67,4 +67,4 @@ async function postProviderDisposition(
   }
 }
 
-export const POST = withSameOrigin()(postProviderDisposition);
+export const POST = withSameOriginUnlessBearer()(postProviderDisposition);

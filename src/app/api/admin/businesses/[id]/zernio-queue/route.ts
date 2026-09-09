@@ -5,7 +5,7 @@ import { sql, jsonb } from '@/lib/db/server';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 
 export const dynamic = 'force-dynamic';
@@ -170,4 +170,4 @@ async function dismiss(businessId: string, responseId: string, adminId: string):
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOrigin()(handleZernioQueueAction);
+export const POST = withSameOriginUnlessBearer()(handleZernioQueueAction);
