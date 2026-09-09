@@ -31,17 +31,23 @@ the run stops.
 `.feature/state.json` is authoritative. `surfaceAmendments=1`,
 `planReviewRounds=3`.
 
-**BLOCKED at step 5 (verify gate), HEAD `8818cd33`.** Tracers T1–T6 are all
-committed and the gate is one row from green: every check passes except the
-`test` row, which fails only in `src/lib/admin/__tests__/denorm-queries.test.ts`
-(3 cases). That file is outside `allowed_edit_surface`, so fixing it is surface
-amendment **#2** — a hard stop the orchestrator declared. The exact failure, the
-exact fix, and why no production change avoids it are in deviations **D4**.
+**Plain gate GREEN at `0024a3a0`** (`phase=gate_green`). D4 was owner-approved,
+applied, and the whole tree passes: lint, typecheck, test, all 22 `ci:*` audits,
+build, `promised-tests` 48/48, all three `verification_commands`.
 
-**On approval the remaining sequence is:** apply D4's fix (one file, ~15 lines,
-no assertion changes) → `bash scripts/verify-gate.sh` → `--review` → step 6
-read-back → step 7 wave with red team → 7.5 → step 8. Nothing else is
-outstanding.
+**BLOCKED at the REVIEW gate.** `scripts/verify-gate.sh --review` adds a
+`diff-coverage` row and it is the only FAIL: 18/24 added instrumented lines
+(75%, min 80%), the six uncovered lines being each flipped page's
+`requireAdminPage(sql, { …, aal2: true })` call. Closing it needs one new test
+file, and the edit-surface guard refused it as surface amendment **#3**. The
+file is already written and staged in the scratchpad; deviations **D5** carries
+the path, what it asserts, and why no zero-amendment path exists.
+
+**On approval the remaining sequence is:** copy the staged file to
+`src/app/admin/__tests__/page-aal2-parity.test.tsx` → `--review` gate →
+`gate-fingerprint.mjs check` → step 6 read-back → step 7 wave with red team →
+7.5 → step 8 (staging ride, smoke, draft PR, checker, ready, CI, comment on
+#1184; no merge). Nothing else is outstanding.
 
 Codex plan-skeptic thread (resume ONLY for verification, never a new axis):
 `01a0836d-6da6-75f2-9388-f2eeaa16ef58`.
