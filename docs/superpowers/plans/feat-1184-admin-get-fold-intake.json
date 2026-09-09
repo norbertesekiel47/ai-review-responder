@@ -98,6 +98,7 @@
     "scripts/ci/__tests__/admin-aal2-audit.test.ts",
     "src/lib/auth/__tests__/helpers/admin-gate-mocks.ts",
     "src/lib/auth/__tests__/admin-gate-mocks.test.ts",
+    "src/lib/admin/__tests__/denorm-queries.test.ts",
     "src/app/api/admin/autonomy/__tests__/routes.test.ts",
     "src/app/api/admin/billing/grant-extension/__tests__/route.test.ts",
     "src/app/api/admin/businesses/__tests__/route.test.ts",

@@ -99,6 +99,11 @@ The three cases then assert the same SQL shapes they assert today.
 `@/lib/auth/verified-identity` at all, so the only alternatives are editing it or
 weakening the gate, and the second is not on the table.
 
-**Verdict:** _pending owner decision_
+**Owner decision 2026-09-08: APPROVED.** Recorded as `surfaceAmendments=2` with the
+reason "owner-approved 2026-09-08: migrate denorm-queries.test.ts onto the shared
+gate shim (test-only)". Applied exactly as described — the six cases pass and every
+assertion is unchanged.
+
+**Verdict:** ACCEPT
 
 ---
