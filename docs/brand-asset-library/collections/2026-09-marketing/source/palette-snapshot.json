@@ -1,0 +1,26 @@
+{
+  "source": [
+    "src/app/globals.css",
+    "src/components/sections/landing/landing-experience.css"
+  ],
+  "palettes": {
+    "light": {
+      "ground": "#f6f6f2",
+      "paper": "#ffffff",
+      "ink": "#15191a",
+      "accent": "#2e5b4f",
+      "watch": "#2e5b4f",
+      "line": "rgba(21,25,26,.16)",
+      "muted": "rgba(21, 25, 26, 0.74)"
+    },
+    "dark": {
+      "ground": "rgb(20 32 28 / 1)",
+      "paper": "rgb(244 242 236 / 0.055)",
+      "ink": "rgb(244 242 236 / 1)",
+      "accent": "rgb(220 196 137 / 1)",
+      "watch": "#a9c6c0",
+      "line": "rgb(244 242 236 / 0.17)",
+      "muted": "rgb(244 242 236 / 0.76)"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Production verification
+
+Media verification was performed on local exported media and the collection gallery, not on a RepWorth product journey. No application behavior was changed. The application typecheck and a separate strict media-project typecheck both pass. Each renderer now runs the media check before bundling; this catches source errors without requiring Remotion in the application's dependency tree. The root compiler excludes only this separately checked media source folder.
+
+The full application `pnpm build` also passes after the compiler boundary change. A renderer smoke invocation passed the new preflight and composition bundling. The source fixes add explicit empty-content errors, preserve map coordinates as fixed tuples, and type the easing parameter. They do not change the rendered asset bytes; the download was refreshed with the corrected source and compiler configuration.
+
+Completed results: all 131 file checksums match and all are registered in the central catalog (239 total entries including the original 108). All 37 videos fully decode and contain no audio. All 63 PNGs decode; the seven landmark PNGs have genuine RGBA transparency. Gallery filtering and search returned the expected counts, the lighthouse download succeeded, and all three generated clips played. The gallery passed at 1440×1050 and 390×844 with no page errors or horizontal overflow. Machine-readable evidence is [verification-results.json](source/verification-results.json).
+
+The manifest records dimensions, durations, byte counts, and SHA-256 for every deliverable. Video export validation rejects audio streams. The repeatable local audit is [source/verify.mjs](source/verify.mjs); it verifies file hashes, central registration, full video decoding, gallery filters, a real download, playback of the three generated clips, and desktop/mobile layout. Run it while the gallery is served at `http://127.0.0.1:8768/`.
+
+Visual review covers generated stills, transparent landmark cutouts, representative social sizes and agent cards, assembled map plates, and sampled frames of cinematic and native motion. Exact existing agent portraits and logo were retained in the native templates. The new Reply/Judge cinematic environments are generated interpretations anchored to the original portraits.
+
+Known limits: generated footage may contain subtle texture changes; it is not product evidence. Native agent clips animate the original still compositions. Source portrait detail is 512×512. The map is illustrative and does not establish availability of features. The selected cinematic footage is 1280×720; native video is 1920×1080. No new product capture or narration was performed. Larger copy edits need a fresh layout check.
+
+Rejected attempts are listed in the generation journal. The initial people-based café clip and a Reply clip with invented text are absent from the deliverable folders and catalog. The replacement Reply clip contains no invented titles in the reviewed frames. No video has an audio track.

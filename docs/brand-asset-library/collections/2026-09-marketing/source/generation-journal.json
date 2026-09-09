@@ -1,0 +1,205 @@
+{
+  "date": "2026-09-08",
+  "method": "Built-in image_gen image generation; native Remotion renders; Runway and Higgsfield cinematic generation",
+  "stills": [
+    {
+      "id": "light-01",
+      "path": "backgrounds/light-01-architecture.png",
+      "prompt": "Create ONE finished reusable brand background image for RepWorth, landscape 16:9, highest available resolution. Art direction: refined editorial architectural still life, almost-white bone plaster (#f6f6f2), white paper, faint desaturated sage reflected light (#d2e0d3). A large sunlit curved plaster wall sweeps softly along the RIGHT edge, a low horizontal ledge occupies only the bottom eighth, realistic soft oblique window shadows from upper right. Left 65 percent and middle upper area remain beautifully quiet, light, open negative space for headline overlays added later. Tactile fine plaster grain, natural morning light, subtle tonal depth, expensive architectural photography, precise composition, restrained believable materials. No text, no logo, no lettering, no objects, no plants, no icons, no cards, no frame border, no orange, no purple, no glow, no orb or blob. This is a background plate, not a mockup or contact sheet. Output a single standalone full-bleed image.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-206993a6-cb2d-433c-8dce-4ec03ac3b2ec.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "light-02",
+      "path": "backgrounds/light-02-paper.png",
+      "prompt": "Generate ONE text-free editorial brand background plate, landscape 16:9 high resolution. Top-down macro still-life photograph of three immaculate thick matte paper sheets on an almost-white bone #f6f6f2 tabletop. Sheets enter from RIGHT edge, staggered diagonally, beautifully subtle deckled fiber edges and barely-there cast shadows. White paper #ffffff, a very faint sage reflected tint at the extreme edge only. Keep LEFT TWO THIRDS and center completely quiet and nearly white for typography. Large simple forms, tactile paper grain, premium stationery art direction, soft broad studio daylight, no decorative objects. No text, logo, stationery branding, pens, plants, cards with writing, icons, gold, gradients, borders, collage. Single usable flat-lay background, the paper sheets feel real and physical.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-ebf7b810-0e19-46c4-87b3-3c33ae0e1dad.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "light-03",
+      "path": "backgrounds/light-03-plinth.png",
+      "prompt": "A text-free reusable RepWorth background: small handmade sage green cylindrical paper plinth and two subtle folded ivory card forms occupy only the far lower right corner, huge clean warm bone #f6f6f2 negative space, raking soft morning light and tactile fine paper grain. Minimal premium editorial craft, quiet and sparse. No plants needed. No people hands faces characters text symbols logos. 16:9 landscape.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-cb9449cc-c721-44c9-821f-0b99edf9627e.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "dark-01",
+      "path": "backgrounds/dark-01-folded-paper.png",
+      "prompt": "Create ONE reusable RepWorth brand background, landscape 16:9 high resolution. Cinematic editorial material photograph: green-black (#14201c) broad folded sheets of finely grained matte paper arranged like a low architectural terrain along the LOWER RIGHT edge. One thin warm muted gold (#dcc489) reflected light travels along the physical edge of the folded paper, subtle and realistic not emissive. Upper 70 percent and LEFT 60 percent are a clean dark green-black field with understated grain and extremely subtle falloff, perfect for warm-white headline overlays. Deep forest darkness, tactile soft dry paper, coherent side light, elegant deliberate geometry. No digital UI, no glass panels, no text, no logo, no icons, no stars, no spheres, no neon, no orange, no purple. Do not add gold broad fills; gold exists only as an edge reflection. Single finished photographic background plate, not a collage, no border.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-de91e1af-54da-4a99-a423-9592bbd2f89b.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "dark-02",
+      "path": "backgrounds/dark-02-window.png",
+      "prompt": "Generate ONE high-resolution landscape 16:9 atmospheric brand background for RepWorth dark editorial collection. Realistic quiet nighttime interior detail: a broad matte forest-black plaster wall #14201c with a soft oblique rectangle of cooler desaturated teal reflected window light near the far RIGHT edge (#a9c6c0 reflection very dim). A subtle horizontal architectural seam along bottom tenth, a soft shadow from a real window mullion cast on lower right. Left 65 percent and center top are empty green-black negative space, suitable for warm ivory type later. Restrained cinema lighting, tactile fine grain, deep nuanced green shadows, no teal glow or light beam, no glowing objects. No gold, orange, purple, blue, text, logo, props, screens, orb, sphere, chatbot, lens flare, frame, collage. Full-bleed background photograph only.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-f411c016-878b-493e-be24-39e5c7b73ae5.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "dark-03",
+      "path": "backgrounds/dark-03-ribbons.png",
+      "prompt": "A text-free reusable RepWorth dark abstract background: elegant thin curved brass filament arcs and translucent sage paper ribbons concentrated at bottom right against deep forest green-black #14201c. Soft gold #dcc489 edge light, tactile crafted paper rather than neon, restrained depth and subtle grain. Clean empty upper and left70percent for titles. No people hands faces characters text symbols logos. 16:9 landscape.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-6a865394-0367-4a44-aea1-458d34f4f28e.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "map-day",
+      "path": "maps/map-day-blank.png",
+      "prompt": "Create ONE reusable cinematic tabletop-map background image, landscape 16:9. Use the attached frame ONLY as the art-direction reference: preserve its tactile miniature-animation aesthetic, warm parchment on dark wood, antique brass desk-lamp light, muted forest-green shadows, fine pen-drawn imaginary coastlines, and oblique overhead macro camera angle. Make a NEW CLEAN EMPTY map plate. Remove all buildings, landmarks, route lights, labels, words, numbers, logos, airships, envelopes and clouds. The central 80 percent should be empty pale parchment with subtle fibers, a few thin coastline outlines near the margins, tiny understated cartographic border, gently curled edges. A brass compass partially cropped at bottom-left and the base of a dark brass lamp cropped at upper-left may frame the scene; nothing obstructs the map. Daylight/warm desk-light version. This plate will accept separate objects and editable text later. No people, hands, humanoids, animals, modern UI, logos, writing or watermark. A polished finished background, not a storyboard or collage.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-b754aac9-7da8-4672-9491-f3b592693757.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "map-night",
+      "path": "maps/map-night-blank.png",
+      "prompt": "Create one alternate NIGHT version of this exact blank tabletop parchment map plate for a reusable RepWorth explainer asset. Preserve same paper outline coastline diagram and overhead camera framing so compositing matches. Deep muted teal ambient darkness, warm brass desk lamp pool at upper left, quiet amber compass reflection, aged ivory parchment still clearly visible and empty for overlay routes/buildings. Tactile crafted cinematic style. Entire middle 75% blank parchment. No buildings, no text or labels, no people, no hands, no faces, no characters. 16:9 landscape.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-7bb43101-9003-42af-b659-502ed7b53e92.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "panorama-day",
+      "path": "panoramas/paper-valley-day.png",
+      "prompt": "Create ONE wide panoramic environment for RepWorth's miniature animated world, 16:9 landscape. A handcrafted stop-motion-style landscape built from softly curved bone-white paper hills, pale sage miniature moss, a small winding paper path leading from lower-left into distant hazy forest-green ridges, a miniature arched stone footbridge at far right. Wide establishing composition, low cinematic camera, beautifully tactile fine paper/clay/plaster surfaces, natural diffuse morning light, macro-lens gentle depth of field. Horizon at bottom third with a broad quiet pale ivory sky for future headline overlays. A small flat empty platform in lower right can later hold a brand agent object. Palette almost white #f6f6f2, soft sage #d2e0d3, restrained forest #2e5b4f, neutral stone; calm, crafted, wondrous but believable as a tabletop miniature. Absolutely NO people, hands, human faces, humanoids, animals, creatures, robots, screens, logos, lettering, numbers, review stars, neon, orange or purple. No collage. A standalone finished text-free landscape plate.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-1c9c198b-f81c-4d22-8bb5-14c6e0bf3cf2.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "panorama-night",
+      "path": "panoramas/paper-valley-night.png",
+      "prompt": "Create NIGHT sister panorama of this miniature crafted valley, preserve beautiful small scale and calm composition but taller layered paper hills and winding pale path, muted sage foliage. Deep green black #14201c sky fills upper half, tiny warm gold lamps illuminate an empty miniature bridge at lower right, moonlit teal mist, tactile fiber paper and clay surfaces, miniature cinematic world for RepWorth nonhuman agents. A clean left upper half for future typesetting. No people or animals or figures, no characters, no text, no logos. Entire scene stylized handcrafted miniature, not a real landscape photo. 16:9.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-4cd156d2-c268-4acc-af75-be5b79e71f37.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "reply-world",
+      "path": "agent-worlds/reply-path.png",
+      "prompt": "Create ONE cinematic 16:9 still of the EXACT supplied RepWorth Reply agent object in a miniature paper-world setting. The reference image is the identity anchor: retain this same softly weathered sage-green retro CRT box, two slender metal antennae, exact proportions, pale mint speech-bubble emblem on dark glass, side knob and sticker-like marks. Do not redesign the agent or add limbs, eyes, faces, hands or humanoid features. Place this single agent on the RIGHT THIRD on a small matte stone platform beside a winding pale paper path. Handcrafted miniature ridges and muted sage moss lie along the bottom; far background deep forest-green #14201c. Soft warm gold #dcc489 rim light from upper right, calm pale mist, carefully tactile clay/paper materials and macro cinematography. Left half and upper center remain clean dark green negative space for later editable titles. The agent occupies about 35 percent of frame height, fully visible including antennae. No other agents, no people, no animals, no lettering, numbers, logos or invented UI. A beautiful small tangible world; not a sci-fi city or generic robot illustration.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-d1b6a638-488a-4b3c-acc6-1928fbc97246.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "judge-world",
+      "path": "agent-worlds/judge-lookout.png",
+      "prompt": "Create a people-free miniature cinematic world with the EXACT nonhuman Judge object in attached portrait: tall rounded rectangular pale sage stone/clay body, one centered pale circular lens with small octagonal center aperture, no arms legs mouths or faces. Preserve silhouette and proportions exactly. Place object at rightthird on a small crafted ivory island lookout with sage paper hills and delicate bridge in distant haze. Daylight ivory backdrop filling upperhalf and left for text, cool silver sage light communicating independent supervision, no gold agentglow. Tactile clay and fiberpaper diorama matches source. NO people hands humanoids or animals. No text labels logos. Landscape16:9.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-a45bf854-42bb-44b8-800a-9c5941539dff.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "prop-cottage",
+      "path": "maps/props/cottage.png",
+      "prompt": "Create ONE isolated miniature cottage landmark for compositing on the referenced parchment map. Match the reference's handmade miniature cinematic old-world paper/clay craft style: warm ivory stone cottage, sage green pitched roof, one glowing amber square window, tiny moss clump on its individual irregular parchment foundation. Camera 35-degree elevated three-quarter view. Full single object centered with generous margin. TRANSPARENT alpha background, no surrounding scene, no tabletop or paper filling the canvas, no cast shadow beyond tiny contact shadow at base. No writing, letters, sign, logo. No people, hands, faces, animals, humanoids. High-quality reusable cutout PNG 1024 square.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-05e112b0-f166-4711-968e-451179262239.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "prop-watchtower",
+      "path": "maps/props/watchtower.png",
+      "prompt": "Generate ONE isolated a tall compact square ivory watchtower, sage slate roof, tiny arched windows, brass lookout beacon at the top; clearly a watchtower not a lighthouse. Match the attached cottage exactly in miniature handmade paper/clay texture, warm amber light, muted sage and aged ivory palette. Same 35 degree elevated three-quarter camera, individual little parchment base with moss. Transparent alpha background, single whole object centered and fully visible, generous margin. No tabletop or full scene. No text or labels, no people, no hands, faces or animals. Reusable separate cutout PNG, square canvas.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-c0a26d02-2a0b-46cb-a173-db622d8c96e8.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "prop-mailbox",
+      "path": "maps/props/mailbox.png",
+      "prompt": "Generate ONE isolated an elegant freestanding dark sage vintage postal mailbox with warm brass trim, one blank envelope protruding slightly; no writing anywhere. Match the attached cottage exactly in miniature handmade paper/clay texture, warm amber light, muted sage and aged ivory palette. Same 35 degree elevated three-quarter camera, individual little parchment base with moss. Transparent alpha background, single whole object centered and fully visible, generous margin. No tabletop or full scene. No text or labels, no people, no hands, faces or animals. Reusable separate cutout PNG, square canvas.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-2e59d6af-9c18-45ec-ab51-09a98024de64.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "prop-newsstand",
+      "path": "maps/props/newsstand.png",
+      "prompt": "Generate ONE isolated a small open-front miniature newsstand kiosk with sage pitched awning and neatly stacked blank ivory folded newspapers, tiny brass lamp. Match the attached miniature cottage in tactile handmade paper/clay/fiber texture, warm amber lighting, muted sage and aged ivory palette. Same elevated three-quarter camera. Transparent alpha background, single whole object centered and fully visible, generous margin. No tabletop or full scene or floor. No text or symbols or logos, no people, no hands, faces or animals. Reusable separate cutout PNG, square canvas.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-9086c8a2-2c17-4577-ace8-8951e2f96e1f.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "prop-lighthouse",
+      "path": "maps/props/lighthouse.png",
+      "prompt": "Generate ONE isolated a small tapered ivory lighthouse with sage green bands, brass glowing lantern cap, three rocks at its foot. Match the attached cottage exactly in miniature handmade paper/clay texture, warm amber light, muted sage and aged ivory palette. Same 35 degree elevated three-quarter camera, individual little parchment base with moss. Transparent alpha background, single whole object centered and fully visible, generous margin. No tabletop or full scene. No text or labels, no people, no hands, faces or animals. Reusable separate cutout PNG, square canvas.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-44b0edcb-9c20-4b4e-8e50-f0996af0e061.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "prop-airship",
+      "path": "maps/props/airship.png",
+      "prompt": "Generate ONE isolated an elegant miniature ivory paper zeppelin airship with sage seams and warm brass fins, small empty wooden gondola with no occupants, no ground base. Match the attached miniature cottage in tactile handmade paper/clay/fiber texture, warm amber lighting, muted sage and aged ivory palette. Same elevated three-quarter camera. Transparent alpha background, single whole object centered and fully visible, generous margin. No tabletop or full scene or floor. No text or symbols or logos, no people, no hands, faces or animals. Reusable separate cutout PNG, square canvas.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-e47dc1e0-f304-423d-af97-6a1dd7d450f7.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    },
+    {
+      "id": "prop-cloud",
+      "path": "maps/props/cloud.png",
+      "prompt": "Generate ONE isolated one soft stylized fluffy ivory cotton-wool cloud, warm highlight and faint sage shadow, rounded handmade miniature diorama prop, no ground base. Match the attached miniature cottage in tactile handmade paper/clay/fiber texture, warm amber lighting, muted sage and aged ivory palette. Same elevated three-quarter camera. Transparent alpha background, single whole object centered and fully visible, generous margin. No tabletop or full scene or floor. No text or symbols or logos, no people, no hands, faces or animals. Reusable separate cutout PNG, square canvas.",
+      "generator": "built-in image_gen",
+      "originalFilename": "exec-6a139480-c12e-4ba7-85a0-71ebed888b58.png",
+      "review": "Inspected for requested subject and style; generated draft for user review."
+    }
+  ],
+  "videos": [
+    {
+      "taskId": "73b3fc97-2c18-4db7-b48d-f271f86b3491",
+      "path": "cinematic/valley-5s.mp4",
+      "provider": "Runway",
+      "model": "gen-4-turbo",
+      "credits": 25,
+      "durationRequested": 5,
+      "prompt": "A gentle slow lateral camera glide across this people-free miniature valley, tiny foliage stirs almost imperceptibly, thin mist drifts across distant paper hills, the lake shimmers softly. Preserve the pale empty sky, winding path, exact miniature scale and stone bridge on right. Soft daylight, handmade sage paper and clay textures, calm cinematic establishing shot, no cuts. No people, hands, faces, animals, figures, writing or new objects. Silent five-second shot.",
+      "audio": false
+    },
+    {
+      "taskId": "078e35db-df4f-4b28-bc47-ecb407242438",
+      "path": "cinematic/reply-clean-5s.mp4",
+      "provider": "Runway",
+      "model": "gen-4-turbo",
+      "credits": 25,
+      "durationRequested": 5,
+      "prompt": "Locked camera, one continuous shot. The sage television stays completely still on its miniature platform. Only its mint speech-bubble emblem gently brightens and dims, while thin haze drifts along the ground. The upper-left area remains a smooth featureless green-black field exactly as in the starting image throughout all frames. Preserve every object, surface and blank area in the starting frame unchanged. Calm tactile paper-and-clay miniature scene, subtle golden rim lighting.",
+      "audio": false
+    },
+    {
+      "taskId": "d797b441-e349-41bd-80d5-a3dfd936e6f3",
+      "path": "cinematic/parchment-5s.mp4",
+      "provider": "Higgsfield",
+      "model": "seedance_2_5",
+      "credits": 32.5,
+      "durationRequested": 5,
+      "prompt": "Single continuous five-second cinematic plate of this empty aged parchment map on dark wood under a brass desk lamp. Extremely subtle slow push-in less than 3 percent, steady overhead framing. The lamp glow softly breathes; a few fine floating dust specks pass at the far edges. Keep the paper center entirely empty and steady for later editable route and miniature building compositing. Preserve coastline linework without changing it. Warm amber light with quiet deep teal surrounding shadows, tactile cinematic miniature-world style. No writing, labels, buildings, people, hands, faces, creatures, additional objects or cuts. Silent.",
+      "audio": false
+    }
+  ],
+  "excluded": [
+    {
+      "provider": "Runway",
+      "taskId": "7186c289-d0cb-448c-8965-94a23fa18d07",
+      "credits": 25,
+      "reason": "Incorrect people-based cafe direction; excluded after user correction."
+    },
+    {
+      "provider": "Runway",
+      "taskId": "b1229ec4-4276-464b-952c-0765d4df563a",
+      "credits": 25,
+      "reason": "Generated unwanted text. Excluded after frame review; replaced by reply-clean.",
+      "prompt": "A slow restrained cinematic push-in through the crafted miniature valley toward the sage retro television object on the right. Preserve the television exactly: rectangular sage casing, two thin antennae, one glowing mint speech bubble screen, existing small stickers. Screen glow gently breathes, light haze drifts and miniature foliage subtly stirs. The object remains stationary. Preserve empty dark space on the left for titles. Tactile clay and paper miniatures, warm golden edge light. No humans, hands, faces, limbs, animals, additional characters, or writing. A single continuous silent five-second shot, no cuts."
+    }
+  ]
+}

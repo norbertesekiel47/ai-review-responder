@@ -13,6 +13,10 @@ Each record has a stable ID, repository-relative path, category, intended role, 
 
 The initial catalog records provenance as unknown where the repo supplies no evidence. `rights.status = unrecorded` means rights were not established in this task; it does not assert that the asset is unlicensed. Attach the actual license/source record when known. Do not infer distribution rights from a filename or a font family.
 
+Two further `rights.status` values are in use. `first-party` means the asset was authored from editable source in this repository using repository brand assets; where it embeds a portrait whose own rights are unrecorded, the evidence says so. `provider-terms` means a generation provider produced the bytes and the output rights follow that provider's terms for the plan in force at generation; the evidence names the provider and the journal entry. Neither value is publication approval. Verify the provider terms before external publication.
+
+Raster and video renders under `collections/` are stored with Git LFS (`.gitattributes` at the repository root). A fresh clone without `git lfs` installed sees pointer files; run `git lfs install --skip-repo` once, then `git lfs pull`. Lefthook runs the LFS pre-push hook.
+
 ## Add or replace an asset
 
 1. Reuse an existing master if it meets the brief. Give new files descriptive lowercase names such as `repworth-copilot-demo-16x9-v01-poster.jpg`; retain current app filenames to preserve URLs.
