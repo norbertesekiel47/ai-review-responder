@@ -42,11 +42,13 @@ the run stops.
   `p1_open` 0, `p2_open` 7 recorded as follow-ups, 5 fixed, 1 rejected.
 - **`red-team-status.mjs` REFUSES the `reviewed` transition**: "the tree moved
   since 083faf8d outside this run's own two artifacts — the red-team evidence is
-  stale". The entire delta it objects to is ONE commit, `c0d71f1c`, whose only
-  non-report file is a **comment-only** edit to
-  `scripts/ci/admin-aal2-audit.ts` fixing round 2's own P1 (a miscount, 5+1+2
-  over a list of seven). No executable line moved; `git diff 083faf8d..HEAD --
-  scripts/ci/admin-aal2-audit.ts` is entirely inside a `//` block.
+  stale". The delta carries TWO non-report files, both without executable
+  content: a **comment-only** edit to `scripts/ci/admin-aal2-audit.ts` fixing
+  round 2's own P1 (a miscount, 5+1+2 over a list of seven), and this handoff
+  document. (An earlier draft of this bullet said "ONE commit, `c0d71f1c`" — and
+  writing that sentence created the second commit and falsified it. The gating
+  agent caught it; it is left recorded rather than quietly corrected, because a
+  handoff that hides its own drift is the thing this file exists to prevent.)
 - **A third round is barred**: `.agents/skills/red-team/SKILL.md:70` — round-start
   "refuses a third round outright". The journal was NOT reset.
 
