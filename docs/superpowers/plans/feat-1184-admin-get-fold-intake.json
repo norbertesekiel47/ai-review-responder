@@ -200,8 +200,8 @@
     "pnpm vitest run scripts/ci/__tests__/admin-aal2-audit.test.ts",
     "pnpm vitest run src/app/api/admin src/app/admin src/lib/auth"
   ],
-  "estimated_prod_lines": 220,
-  "estimated_test_lines": 2600,
+  "estimated_prod_lines": 640,
+  "estimated_test_lines": 3400,
   "dependencies_added": [],
   "rollback_plan": "Single PR, no migration and no flag. Revert the merge commit on main and redeploy: the nine GETs return to requireRole/requireRoleOr401, the six pages return to plain admin, and ci:admin-aal2's ROUTES contract narrows back to MUTATION_VERBS. Nothing outside this repo depends on the widened contract yet — #1185 and #1190 are not started. On staging, reset staging to origin/main per deployment-guide.md § Re-sync staging. No data is written, so there is nothing to unwind.",
   "observability": [

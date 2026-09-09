@@ -168,3 +168,33 @@ production file changed.
 **Verdict:** ACCEPT
 
 ---
+
+## D6 — Re-classification trigger fired; the lane does not change
+
+**What.** The review gate's `reclassify` row WARNed: production 621 changed lines
+against an `estimated_prod_lines` of 220, over the 2x threshold. (Measured over
+`src`/`worker`/`scripts` only, the code figure is 553 production and 3,700 test.)
+
+**Where it came from.** Not scope creep — the estimate was made before the review
+wave, and the wave's accepted findings are the overshoot: the audit gained
+exhaustive handler-form detection and multi-extension file discovery (adversarial
+P1 x2, ~247 lines), the anti-vacuity floor became a tested pure function
+(red-team P1), and the P2 anchorless-page paragraph was corrected twice. Every one
+of those is inside the locked `goal` and `allowed_edit_surface`; none of them
+opened a new front.
+
+**Verdict on the trigger.** Re-running step 0 with the real numbers returns the
+same lane: RISK = high (auth) is unchanged, SURFACE = mixed is unchanged, and
+SIZE stays `standard` — the surface is still a tight, enumerated file list, the
+work still decomposed into six tracers, and there are no open investigation
+questions. The full pipeline this lane mandates has already been run end to end.
+So the correct response is to make the intake TRUE rather than to re-plan: both
+estimates are corrected to the measured values in both intake copies.
+
+Per `/feature` step 2, only `allowed_edit_surface` changes count toward the
+amendment budget; other intake corrections are deviations entries. This is one.
+The amendment count stays at 3.
+
+**Verdict:** ACCEPT
+
+---
