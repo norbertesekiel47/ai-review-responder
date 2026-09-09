@@ -1,7 +1,6 @@
 # Positioning: owner time returned through governed autonomy
 
-Refreshed 2026-09-07 after the roadmap review; original filename retained for
-existing links. This updates the 2026-08-26 positioning decision.
+Refreshed 2026-09-07 after the roadmap review; consolidated into this library on 2026-09-08. This updates the 2026-08-26 positioning decision.
 
 Lead with the owner's work: fewer minutes spent drafting replies, preparing
 review requests, checking progress and handling exceptions. Governance
@@ -36,16 +35,16 @@ not establish that a feature is enabled or working for production accounts.
 | Claim (customer language) | What makes it true | Anchor |
 |---|---|---|
 | "Nothing posts without an approval — yours, or a policy you set" | `approval_method` = `owner` \| `auto_policy` is a hard posting precondition | invariant #3 |
-| "Automatic replies are audited after posting by a separate AI Judge" | The sweep schedules verdicts for posted automatic replies. Judge availability is checked **before** an automatic post; disabled/unavailable Judge downgrades the reply to owner review. This is not a pre-publication Judge verdict or a guarantee that no bad reply can publish. | [Judge sweep](../../worker/background/pollers/JudgeSweepPoller.ts); [posting gate](../../worker/jobs/publisher/judge-gate.ts) |
-| "You can stop an automatic reply during its veto window" | 15/30-minute window on auto-approved review replies. This duration does not describe every action or review-request workflow. | WS4; [reply policy settings](../../src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx) |
+| "Automatic replies are audited after posting by a separate AI Judge" | The sweep schedules verdicts for posted automatic replies. Judge availability is checked **before** an automatic post; disabled/unavailable Judge downgrades the reply to owner review. This is not a pre-publication Judge verdict or a guarantee that no bad reply can publish. | [Judge sweep](../../../worker/background/pollers/JudgeSweepPoller.ts); [posting gate](../../../worker/jobs/publisher/judge-gate.ts) |
+| "You can stop an automatic reply during its veto window" | 15/30-minute window on auto-approved review replies. This duration does not describe every action or review-request workflow. | WS4; [reply policy settings](../../../src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx) |
 | "A Governor can pause an account's automatic posting when its quality thresholds are breached" | Per-account suspension and owner notification; human approval remains available subject to normal checks. | WS6 |
 | "Drafts flagged as high severity are held for administrator review" | `flagged_responses` hold; notification to the owner is withheld until cleared for owner review. Do not claim perfect unsafe-content detection. | invariant #4 |
 | "Recorded workflow actions have an audit trail" | Run spine (`agent_runs`/`agent_run_steps`/`agent_outcomes`) and account audit log. Access and retention follow product policy; do not promise permanent storage or an owner screen for every internal event. | WS1 |
 | "Review requests withheld by policy have a reason you can inspect" | `evaluateAsk` withhold decisions with reasons, visible at batch approval | design §9.2 restraint policy |
 | "Review requests check consent and recorded opt-outs before sending" | Consent and suppression ledgers, global-wins unsubscribe; neither this claim nor automation replaces a business's consent obligations. | send-mode specs |
 | "Daily limits and rating rules keep the volume sane" | trust dial: rating bands + daily caps | WS4 |
-| "Reply drafts can use your previous edits" | Voice examples activate after **five posted, owner-edited replies** for the location. One edit does not activate voice learning. | [voice-learning.ts](../../src/lib/responses/voice-learning.ts) |
-| "Print a QR code that takes customers to your Google review form" | Implemented per-location QR download/print and direct redirect; scans do not establish reviews or sales. | [Review QR](../context/review-qr.md) |
+| "Reply drafts can use your previous edits" | Voice examples activate after **five posted, owner-edited replies** for the location. One edit does not activate voice learning. | [voice-learning.ts](../../../src/lib/responses/voice-learning.ts) |
+| "Print a QR code that takes customers to your Google review form" | Implemented per-location QR download/print and direct redirect; scans do not establish reviews or sales. | [Review QR](../../context/review-qr.md) |
 | "LLM safety evaluations form part of the applicable release checks" | Path-filtered `llm-eval` gate; a passing evaluation does not prove all real-world output is safe. | WS7 |
 
 ## 3. Message architecture

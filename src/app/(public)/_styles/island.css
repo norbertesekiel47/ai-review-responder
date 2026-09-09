@@ -18,7 +18,7 @@
    `--rw-marquee-speed` knob that `.rw-marquee-row` reads; that is inheritance,
    not source order, so the split cannot disturb it.
 
-   System: ISLAND (marketing / public). Style Reference: docs/design/island/DESIGN.md
+   System: ISLAND (marketing / public). Style Reference: docs/brand-asset-library/design-systems/island/DESIGN.md
    TOKENS LIVE IN src/app/globals.css — this file CONSUMES `var(--rw-*)` and must
    not DECLARE Island tokens. The one custom property it declares,
    `--rw-marquee-speed` on `.rw-landing`, is an element-scoped animation knob,

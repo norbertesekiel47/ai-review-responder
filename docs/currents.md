@@ -74,7 +74,7 @@ Honesty devices kept: on-chart "not available yet" legend, `Phase n` / `Later`
 markers beside every unbuilt name, future tense on every unbuilt body (pinned
 by `FutureSection.test.tsx`). Code: `src/components/sections/landing/future/`;
 assets: `public/future/roadmap-ground.jpg`, `public/future/stops/*.webp`;
-design contract: `docs/design/landing/DESIGN.md` § Future + `measurements.md`.
+design contract: `docs/brand-asset-library/design-systems/landing/DESIGN.md` § Future + `measurements.md`.
 ## Quick summary — Admin MFA events get an audit sink (#468, 2026-09-06; pre-merge)
 
 Admins have `role='admin'` and no `account_id`, and `account_audit_log` requires

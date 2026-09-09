@@ -6,7 +6,7 @@ creative direction for later; it is not a prerequisite for beta learning,
 investor conversations or public launch. This refresh verifies neither the
 running product nor the availability of its depicted UI states.
 
-Source of truth for narrative: `docs/roadmap/2026-08-26-brand-story.md`.
+Source of truth for narrative: `docs/brand-asset-library/brand-guidelines/brand-story.md`.
 This file adds nothing to that story. It sequences it for film.
 
 ## First deliverable: 60–90 seconds of the real product

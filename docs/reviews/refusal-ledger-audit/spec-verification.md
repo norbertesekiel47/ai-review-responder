@@ -7,7 +7,7 @@
 **Scope:** verify-and-report only. No file in the audited surface was modified.
 
 **Working-tree state at audit time (declared, per skill rule):** the tree is dirty, but only in docs unrelated to this audit —
-`D docs/marketing/BRAND-KIT.md`, `D docs/marketing/CLAUDE-PROJECT-SETUP.md`, `M docs/roadmap/2026-08-26-brand-story.md`,
+`D docs/marketing/BRAND-KIT.md`, `D docs/marketing/CLAUDE-PROJECT-SETUP.md`, `M docs/brand-asset-library/brand-guidelines/brand-story.md`,
 untracked `docs/help/marketing/`, `docs/roadmap/2026-08-29-launch-explainer-script.md`,
 `docs/superpowers/plans/2026-08-31-refusal-swarm-handoff.md`.
 No `src/`, `worker/`, `supabase/` or `scripts/` file is modified, so no finding below is affected by uncommitted work.

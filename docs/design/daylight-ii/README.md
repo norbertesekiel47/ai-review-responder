@@ -4,7 +4,7 @@ This folder is the design source of record for the "Daylight Gallery II"
 rebrand of the three marketing pages (`/how-it-works`, `/features`,
 `/pricing`) and the shared SiteNav/SiteFooter/SiteShell chrome. The founder
 approved demo 4 on 2026-08-21. The Island Style Reference
-(`docs/design/island/DESIGN.md`) is the system of record; this folder holds
+(`docs/brand-asset-library/design-systems/island/DESIGN.md`) is the system of record; this folder holds
 the approved demo and its inputs.
 
 ## Contents
@@ -27,5 +27,5 @@ the approved demo and its inputs.
 - The marquee field stays visible outside the island; the island is opaque bone.
 - Tokens live in `src/app/globals.css` `:root` only (guard:
   `design-scope-purity.test.ts`); the tables in
-  `docs/design/island/DESIGN.md` must match (guard:
+  `docs/brand-asset-library/design-systems/island/DESIGN.md` must match (guard:
   `design-doc-token-pin.test.ts`).

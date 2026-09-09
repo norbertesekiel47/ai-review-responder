@@ -1,8 +1,10 @@
+> **Historical reference.** Superseded by the [Brand Asset Library](../README.md). Do not use this file as a current brief or source of availability claims. Original content is retained below.
+
 # RepWorth Brand Kit — for marketing content generation
 
 > **What this file is.** The single reference an AI assistant needs to write
 > on-brand RepWorth marketing copy. Upload it to a Claude Project as knowledge.
-> It is condensed from `PRODUCT.md`, `docs/design/brand-story.md`,
+> It is condensed from `PRODUCT.md`, `docs/brand-asset-library/brand-guidelines/brand-story.md`,
 > `src/components/sections/landing/*/*-copy.ts`, and
 > `src/lib/accounts/tier-config.ts`.
 >

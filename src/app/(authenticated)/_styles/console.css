@@ -14,7 +14,7 @@
   font-synthesis-weight: none;
   /* Scoped override of the brand mono, kept so the Console keeps its system-mono
      rendering; an override inside `.rw-console` is the sanctioned mechanism (see
-     docs/design/README.md rule 2) — a `:root` re-declaration is not. The brand
+     docs/brand-asset-library/design-systems/README.md rule 2) — a `:root` re-declaration is not. The brand
      default is JetBrains Mono (--rw-font-mono, globals.css); the Console has
      always rendered its reference codes, chips and `.mono` runs in the system
      mono stack, and this is what keeps that true now that tokens.css no longer

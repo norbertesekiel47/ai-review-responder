@@ -10,7 +10,7 @@ interface Props {
  * and local-ranking grid at `/dashboard/analytics`) and `Restraint` (the
  * **Restraint tab** — what we chose not to do in the window, and why).
  *
- * A **route** tab bar, not a view switch (`docs/design/console/DESIGN.md`
+ * A **route** tab bar, not a view switch (`docs/brand-asset-library/design-systems/console/DESIGN.md`
  * § Tabs): a `<nav>` of plain `next/link` links carrying `aria-current="page"`,
  * never `role="tab"`. Not `useState` — each route keeps its own server-rendered
  * data model, exactly as `ReviewsTabs` does, and `active` is a literal at each

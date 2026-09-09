@@ -85,7 +85,7 @@ to their full existing content):
   from `globals.css` in that ORDER (cascade is pinned by `design-scope-purity.test.ts`). Tokens
   live ONLY in `globals.css` `:root` (guards: `design-token-single-source.test.ts`,
   `design-doc-token-pin.test.ts` — the Island DESIGN.md tables must match the CSS, so
-  `docs/design/island/DESIGN.md` must be updated with the new tokens in the same PR).
+  `docs/brand-asset-library/design-systems/island/DESIGN.md` must be updated with the new tokens in the same PR).
 - Existing tests to keep green: `HowItWorksContent.test.tsx` (+client), `FeaturesContent.test.tsx`,
   `PricingContent.test.tsx`, `pricing-view-model.test.ts`, `claude-md-shape.test.ts`, eslint
   boundary tests. A11y contract: one `<main id="main-content">` per page (SiteShell provides it);
@@ -97,7 +97,7 @@ to their full existing content):
 
 ## Suggested skills for the new session
 
-- `repworth-brand-design` — FIRST; then update `docs/design/island/DESIGN.md` to the new system
+- `repworth-brand-design` — FIRST; then update `docs/brand-asset-library/design-systems/island/DESIGN.md` to the new system
   (the doc-pin test forces this anyway).
 - `feature` or `writing-plans` + `subagent-driven-development` — this is a multi-file feature;
   plan as tracer bullets (tokens+chrome → how-it-works → features → pricing → docs).

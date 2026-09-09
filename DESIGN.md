@@ -13,9 +13,9 @@ typography:
 ---
 
 <!-- Hand-curated brand-level index. `/impeccable document` output goes into the matching
-     docs/design/<system>/DESIGN.md — never here. This file carries only what is true of
+     docs/brand-asset-library/design-systems/<system>/DESIGN.md — never here. This file carries only what is true of
      ALL THREE RepWorth visual systems; per-system tokens, components and rules live in
-     docs/design/{landing,island,console}/DESIGN.md, and their normative values live in
+     docs/brand-asset-library/design-systems/{landing,island,console}/DESIGN.md, and their normative values live in
      code. The frontmatter therefore carries only the brand-wide font families — the
      `colors` / `rounded` / `spacing` / `components` groups moved to the three per-system
      Style References, because there is no brand-wide value for them to hold. -->
@@ -32,9 +32,9 @@ stylesheet, not here.
 
 | Register | Scope | Authoritative Style Reference |
 |---|---|---|
-| **Landing** — the unlocked world of `/`: green-black ink, one gold, one cooler teal for the watchdog tier | `.rw-lp` | [`docs/design/landing/DESIGN.md`](docs/design/landing/DESIGN.md) (+ [`measurements.md`](docs/design/landing/measurements.md)) |
-| **Island** — generous white content fields floating on sage, with warm tactile accents | `:root` | [`docs/design/island/DESIGN.md`](docs/design/island/DESIGN.md) |
-| **Console** ("Harbor") — a warm-white canvas floating on a deep sea-teal field, flat cards, coral attention accent | `.rw-console` | [`docs/design/console/DESIGN.md`](docs/design/console/DESIGN.md) |
+| **Landing** — the unlocked world of `/`: green-black ink, one gold, one cooler teal for the watchdog tier | `.rw-lp` | [`docs/brand-asset-library/design-systems/landing/DESIGN.md`](docs/brand-asset-library/design-systems/landing/DESIGN.md) (+ [`measurements.md`](docs/brand-asset-library/design-systems/landing/measurements.md)) |
+| **Island** — generous white content fields floating on sage, with warm tactile accents | `:root` | [`docs/brand-asset-library/design-systems/island/DESIGN.md`](docs/brand-asset-library/design-systems/island/DESIGN.md) |
+| **Console** ("Harbor") — a warm-white canvas floating on a deep sea-teal field, flat cards, coral attention accent | `.rw-console` | [`docs/brand-asset-library/design-systems/console/DESIGN.md`](docs/brand-asset-library/design-systems/console/DESIGN.md) |
 
 **Which register am I in?** — by path:
 
@@ -46,9 +46,9 @@ Running `/impeccable` with a `--target` under one of those paths? Read the match
 Reference, and write any documentation output into it.
 
 Routing table, the cross-system rules, and how to overhaul one register without touching
-the other two: [`docs/design/README.md`](docs/design/README.md). The **narrative** layer —
+the other two: [`docs/brand-asset-library/design-systems/README.md`](docs/brand-asset-library/design-systems/README.md). The **narrative** layer —
 positioning, story arc, messaging guardrails — is
-[`docs/design/brand-story.md`](docs/design/brand-story.md).
+[`docs/brand-asset-library/brand-guidelines/brand-story.md`](docs/brand-asset-library/brand-guidelines/brand-story.md).
 
 ## Typography
 

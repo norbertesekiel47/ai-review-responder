@@ -199,3 +199,7 @@ ds-bundle/
 GATES.md
 gates/
 .unlazy-hook-state.json
+
+# Local generation output and scratch renders (see docs/brand-asset-library/README.md, "Adding material")
+output/
+tmp/

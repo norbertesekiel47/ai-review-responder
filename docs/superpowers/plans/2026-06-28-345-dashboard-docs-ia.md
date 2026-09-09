@@ -6,8 +6,8 @@
 > the superseded IA, which is exactly why they were deleted rather than re-bannered; they
 > remain one checkout away at annotated tag `design-mockups-2026-06`. The Warm Editorial
 > **visual** system that Task 1 was careful to preserve now lives in
-> `docs/design/console/DESIGN.md`, cited by `src/app/(authenticated)/_styles/tokens.css`
-> and `docs/design/README.md`. **Do not execute the unticked steps below** — Task 2
+> `docs/brand-asset-library/design-systems/console/DESIGN.md`, cited by `src/app/(authenticated)/_styles/tokens.css`
+> and `docs/brand-asset-library/design-systems/README.md`. **Do not execute the unticked steps below** — Task 2
 > (`index.html` banner) has no file to edit, and Tasks 1 and 4 Step 2 target a deleted
 > doc. Task 3 (root `PLAN.md` banner) is the only item whose target still exists.
 > Body retained as a historical record.
@@ -16,7 +16,7 @@
 
 **Goal:** Stop the older `docs/design/dashboard-redesign/` artifacts (and the root `PLAN.md` they reference) from presenting the superseded IA — a live `/dashboard/insights` route and the reviews/needs-action queue living on the dashboard.
 
-**Architecture:** Surgical supersede, not deletion. The FINAL/current IA source of truth is the **glance** spec `docs/superpowers/specs/2026-06-19-glance-dashboard-analytics-history-design.md`, which itself partly supersedes the intermediate "Overview / Reviews split" spec. The Warm Editorial *visual* system in `design-spec.md` is **still live** (referenced by `tokens.css` and `docs/design/README.md`), so we do **not** mark the whole doc dead — we add a scoped "IA superseded" banner pointing at the FINAL glance spec (chaining both supersession steps) and neutralize only the IA-specific lines. `index.html` (a static launcher mockup) and root `PLAN.md` get a banner + neutralized stale lines.
+**Architecture:** Surgical supersede, not deletion. The FINAL/current IA source of truth is the **glance** spec `docs/superpowers/specs/2026-06-19-glance-dashboard-analytics-history-design.md`, which itself partly supersedes the intermediate "Overview / Reviews split" spec. The Warm Editorial *visual* system in `design-spec.md` is **still live** (referenced by `tokens.css` and `docs/brand-asset-library/design-systems/README.md`), so we do **not** mark the whole doc dead — we add a scoped "IA superseded" banner pointing at the FINAL glance spec (chaining both supersession steps) and neutralize only the IA-specific lines. `index.html` (a static launcher mockup) and root `PLAN.md` get a banner + neutralized stale lines.
 
 **Tech Stack:** Markdown + a single static HTML file. Verify gate: `pnpm lint && pnpm typecheck && pnpm test`.
 
@@ -30,7 +30,7 @@
   1. `2026-06-19-dashboard-overview-reviews-split-design.md` (PR #347) removed `/dashboard/insights` (analytics folded into the dashboard) and moved reviews to `/dashboard/reviews`.
   2. `2026-06-19-glance-dashboard-analytics-history-design.md` (final) then made the dashboard a **glance** (reputation hero + intelligence brief + Reviews/Analytics doorways) and **moved trend/velocity/ranking analytics to a new `/dashboard/analytics` page** (confirmed live: `src/app/(authenticated)/dashboard/analytics/page.tsx`, `AnalyticsContent.tsx`, `AnalyticsLinkCard.tsx`).
   Banners therefore chain both steps and link the glance spec as authoritative; no copy may say analytics were "merged into the dashboard" as the current state.
-- `design-spec.md`'s **visual** half is NOT superseded (both 2026-06-19 specs say "No change to the Warm Editorial visual system"; `src/app/(authenticated)/_styles/tokens.css:18,32` and `docs/design/README.md:14` still cite it as the live Console visual spec). So the banner is explicitly scoped: **"IA superseded; visual system current."** A blanket "this doc is dead" banner would have wrongly invalidated the live token source-of-truth references.
+- `design-spec.md`'s **visual** half is NOT superseded (both 2026-06-19 specs say "No change to the Warm Editorial visual system"; `src/app/(authenticated)/_styles/tokens.css:18,32` and `docs/brand-asset-library/design-systems/README.md:14` still cite it as the live Console visual spec). So the banner is explicitly scoped: **"IA superseded; visual system current."** A blanket "this doc is dead" banner would have wrongly invalidated the live token source-of-truth references.
 - `README.md` and `tokens.css` references to `design-spec.md` are **intentionally kept** — they point at the still-authoritative visual content, and the new banner disambiguates. They do not mention `/dashboard/insights` or reviews-on-dashboard, so they are not stale.
 - Root `PLAN.md` is the original (PR2) plan that the 2026-06-19 specs supersede. It presents `/dashboard/insights` as the plan and is the "IA/behavior half" that `design-spec.md` links to. It gets a top banner recontextualizing its IA as superseded (chaining both steps), preserving the body as a historical record (no body rewrite).
 
@@ -54,7 +54,7 @@ These legitimately mention `/dashboard/insights` (describing its deletion). That
 
 **MOOT (2026-08-16) — CLOSED, do not execute.** `design-spec.md` was deleted with the rest
 of the folder; its **visual** half (the part this task was careful to preserve) was merged
-into `docs/design/console/DESIGN.md`, and its IA half is what the deletion retires. Steps
+into `docs/brand-asset-library/design-systems/console/DESIGN.md`, and its IA half is what the deletion retires. Steps
 below are void.
 
 **Files:**
@@ -94,7 +94,7 @@ steps below are void.
 ### Task 4: Verify gate + cross-ref sweep
 
 - [ ] **Step 1:** `rg -n "/dashboard/insights" .` — confirm every hit is either the 2026-06-19 source-of-truth files, or inside a superseded banner/annotation. No doc presents it as live.
-- [x] ~~**Step 2:** `rg -n "dashboard-redesign/design-spec.md" .` and `rg -n "dashboard-redesign/index.html" .` — confirm `README.md`/`tokens.css` references remain valid (point at the still-live visual spec) and no dangling/misleading refs.~~ — moot: both files were deleted 2026-08-16 and every reference was retargeted at `docs/design/console/DESIGN.md` in the same PR.
+- [x] ~~**Step 2:** `rg -n "dashboard-redesign/design-spec.md" .` and `rg -n "dashboard-redesign/index.html" .` — confirm `README.md`/`tokens.css` references remain valid (point at the still-live visual spec) and no dangling/misleading refs.~~ — moot: both files were deleted 2026-08-16 and every reference was retargeted at `docs/brand-asset-library/design-systems/console/DESIGN.md` in the same PR.
 - [ ] **Step 3:** From the worktree root run `pnpm lint && pnpm typecheck && pnpm test`. Expected: all green (docs change must not affect them).
 - [ ] **Step 4:** Commit on `docs/345-dashboard-ia` referencing #345.
 

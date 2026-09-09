@@ -1,6 +1,6 @@
-# System reference for the critic = docs/design/island/DESIGN.md AS AMENDED on 2026-08-19
+# System reference for the critic = docs/brand-asset-library/design-systems/island/DESIGN.md AS AMENDED on 2026-08-19
 
-The Island Style Reference (`/Users/norbertesekiel/Developer/startups/RepWorth/docs/design/island/DESIGN.md`)
+The Island Style Reference (`/Users/norbertesekiel/Developer/startups/RepWorth/docs/brand-asset-library/design-systems/island/DESIGN.md`)
 is the system of record, with these user-approved amendments for the marketing rebrand:
 
 1. Palette: a NEW palette is allowed. Ink `#15191a` (text, hairlines, the dark surface, the Judge

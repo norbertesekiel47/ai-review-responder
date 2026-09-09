@@ -1,9 +1,9 @@
 # RepWorth Console — Style Reference
 
-> **Scope:** `.rw-console` · **Tokens:** [`src/app/(authenticated)/_styles/tokens.css`](../../../src/app/(authenticated)/_styles/tokens.css) — declared on `.rw-console`, never `:root` ·
-> **Utilities:** [`src/app/(authenticated)/_styles/theme.css`](../../../src/app/(authenticated)/_styles/theme.css) ·
-> **Guards:** [`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts) (Console purity + contrast floors) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
-> Which system am I in? → [`docs/design/README.md`](../README.md)
+> **Scope:** `.rw-console` · **Tokens:** [`src/app/(authenticated)/_styles/tokens.css`](../../../../src/app/(authenticated)/_styles/tokens.css) — declared on `.rw-console`, never `:root` ·
+> **Utilities:** [`src/app/(authenticated)/_styles/theme.css`](../../../../src/app/(authenticated)/_styles/theme.css) ·
+> **Guards:** [`design-token-single-source.test.ts`](../../../../src/__tests__/design-token-single-source.test.ts) (Console purity + contrast floors) · [`design-doc-token-pin.test.ts`](../../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
+> Which system am I in? → [`docs/brand-asset-library/design-systems/README.md`](../README.md)
 
 ## Overview
 
@@ -171,7 +171,7 @@ cannot back.
 
 The font families are the one token group the Console does **not** own — they are
 brand-wide, `globals.css` is their single owner, and it loads on every route (see root
-[`DESIGN.md`](../../../DESIGN.md)). The Console's two overrides both live **inside its
+[`DESIGN.md`](../../../../DESIGN.md)). The Console's two overrides both live **inside its
 scope**, never as a second `:root` declaration: display and body are `localFont`
 variables bound on the element that carries `.rw-console`, and mono is a `.rw-console`
 rule in `console.css` that keeps the Console on the system mono stack.
@@ -659,7 +659,7 @@ frequency in a mature account suggests. Design them first, not last.
 - **Don't** use a colored side border as generic card decoration; borders may distinguish a real comparison or system state only when the structure requires it.
 - **Don't** animate layout-driving properties or leave broad `transition: all` declarations in production UI.
 - **Don't** use emoji or Unicode symbols as substitutes for the established inline SVG icon system.
-- **Don't** use amber, orange, or stone — locked by [`console-admin-palette.test.ts`](../../../src/__tests__/console-admin-palette.test.ts) (class-name level). The coral family is declared as hex tokens and stays inside the roles above. The only class-level exemption is the chart **series** rotation.
+- **Don't** use amber, orange, or stone — locked by [`console-admin-palette.test.ts`](../../../../src/__tests__/console-admin-palette.test.ts) (class-name level). The coral family is declared as hex tokens and stays inside the roles above. The only class-level exemption is the chart **series** rotation.
 - **Don't** write a literal hex in a component; use `var(--rw-*)` or the `rw-*` Tailwind utilities.
 - **Don't** re-declare an Island color or font token in the Console token file — that reintroduces the `--rw-sage` collision.
 
@@ -745,15 +745,15 @@ the old system's double-bezel, and it is gone.
 
 ## Exports
 
-- **CSS variables:** [`src/app/(authenticated)/_styles/tokens.css`](../../../src/app/(authenticated)/_styles/tokens.css)
+- **CSS variables:** [`src/app/(authenticated)/_styles/tokens.css`](../../../../src/app/(authenticated)/_styles/tokens.css)
   — the `.rw-console` block IS the export; do not copy it here. The file opens no
   `:root` block, so nothing it declares can reach a surface outside the Console even
   if the chunk survives a client navigation
-  ([`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts)
+  ([`design-token-single-source.test.ts`](../../../../src/__tests__/design-token-single-source.test.ts)
   fails if one comes back).
-- **Tailwind v4:** [`src/app/(authenticated)/_styles/theme.css`](../../../src/app/(authenticated)/_styles/theme.css)
+- **Tailwind v4:** [`src/app/(authenticated)/_styles/theme.css`](../../../../src/app/(authenticated)/_styles/theme.css)
   — the `@theme inline` block IS the export. It is `@import`ed from
-  [`src/app/globals.css`](../../../src/app/globals.css) (Tailwind v4 bundles local
+  [`src/app/globals.css`](../../../../src/app/globals.css) (Tailwind v4 bundles local
   `@import`s and reads `@theme` across them), so a Console overhaul never opens the
   Island file. `inline` means each utility emits `var(--rw-*)` — a reference, not a
   copied hex — so `tokens.css` stays the single source of values.

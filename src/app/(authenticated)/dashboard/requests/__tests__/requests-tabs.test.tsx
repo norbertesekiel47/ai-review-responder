@@ -31,7 +31,7 @@ describe('RequestsTabs', () => {
       'page',
     );
     expect(screen.getByRole('link', { name: 'Review QR' })).not.toHaveAttribute('aria-current');
-    // A routed bar is navigation, never a tablist (docs/design/console/DESIGN.md).
+    // A routed bar is navigation, never a tablist (docs/brand-asset-library/design-systems/console/DESIGN.md).
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
   });
 

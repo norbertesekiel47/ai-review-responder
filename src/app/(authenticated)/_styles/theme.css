@@ -22,8 +22,8 @@
    the token VALUES are scoped to the authenticated shell.
 
    Values: src/app/(authenticated)/_styles/tokens.css
-   Console Style Reference: docs/design/console/DESIGN.md
-   Which system when: docs/design/README.md
+   Console Style Reference: docs/brand-asset-library/design-systems/console/DESIGN.md
+   Which system when: docs/brand-asset-library/design-systems/README.md
    ========================================================================== */
 
 @theme inline {

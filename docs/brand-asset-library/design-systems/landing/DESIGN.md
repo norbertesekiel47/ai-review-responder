@@ -1,9 +1,9 @@
 # RepWorth Landing — Style Reference
 
-> **Scope:** `.rw-lp` · **Tokens:** [`src/components/sections/landing/landing-experience.css`](../../../src/components/sections/landing/landing-experience.css) (+ [`hero/hero.css`](../../../src/components/sections/landing/hero/hero.css)) ·
-> **Utilities:** none (plain CSS) · **Guards:** [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts) (every custom property under `sections/landing/**` must be `--rw-lp-*`) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
-> Which system am I in? → [`docs/design/README.md`](../README.md)
-> Before touching `src/components/sections/landing/**`, read [`measurements.md`](./measurements.md) — most of the numbers in that folder are measurements with a documented failure mode, not preferences.
+> **Scope:** `.rw-lp` · **Tokens:** [`src/components/sections/landing/landing-experience.css`](../../../../src/components/sections/landing/landing-experience.css) (+ [`hero/hero.css`](../../../../src/components/sections/landing/hero/hero.css)) ·
+> **Utilities:** none (plain CSS) · **Guards:** [`design-scope-purity.test.ts`](../../../../src/__tests__/design-scope-purity.test.ts) (every custom property under `sections/landing/**` must be `--rw-lp-*`) · [`design-doc-token-pin.test.ts`](../../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
+> Which system am I in? → [`docs/brand-asset-library/design-systems/README.md`](../README.md)
+> Before touching `src/components/sections/landing/**`, read [`measurements.md`](measurements.md) — most of the numbers in that folder are measurements with a documented failure mode, not preferences.
 
 ## Overview
 
@@ -140,7 +140,7 @@ site. One label style for the page, instead of 10–11px display-face caps at 0.
 
 **No negative letter spacing or viewport-scaled type** beyond what is already measured
 (the footer wordmark's `-0.02em` tracking is a measured value — see
-[`measurements.md`](./measurements.md)).
+[`measurements.md`](measurements.md)).
 
 ## Tokens — Spacing & Shape
 
@@ -159,7 +159,7 @@ fit-the-viewport ceiling of 102rem while sections were bound to `100svh`), and
 corners. Sections 2–5 are as tall as their content plus `--rw-lp-section-gap` — never as
 tall as the screen. Sections 1 and 9 keep `min-height: 100svh`: they are full-bleed film,
 the clip is the content, and their scrim geometry is measured against the full frame. The
-reasoning and the numbers are in [`measurements.md`](./measurements.md).
+reasoning and the numbers are in [`measurements.md`](measurements.md).
 
 ### Shape & surface
 
@@ -199,7 +199,7 @@ fixed` glow. The 2026-08-24 bookend cinema is scroll-LINKED, not scroll-hijackin
 push-in rides the reader's own scroll on a layer inside sections 1 and 9, which are
 siblings — not ancestors — of the future section. Zero layout-animating transitions remain on the page; zero `transition:
 all`; zero `will-change` at rest. The reasoning is in
-[`measurements.md`](./measurements.md).
+[`measurements.md`](measurements.md).
 
 ## Components
 
@@ -396,7 +396,7 @@ is covered without anyone remembering to.
 
 ### Do:
 
-- **Do** read [`measurements.md`](./measurements.md) before touching
+- **Do** read [`measurements.md`](measurements.md) before touching
   `src/components/sections/landing/**`. Many values in there look arbitrary and are not.
 - **Do** use `--rw-lp-*` tokens only. Any translucent shade of ink, text, or gold rides
   its channel token.
@@ -434,7 +434,7 @@ is covered without anyone remembering to.
 - **Don't** add a fourth gold-filled element. The nav pill, the hero CTA and the closing
   action are the whole set.
 - **Don't** "tidy" a load-bearing number. Every one of them is indexed in
-  [`measurements.md`](./measurements.md) and commented at its call site.
+  [`measurements.md`](measurements.md) and commented at its call site.
 
 ## Surfaces & Elevation
 
@@ -478,7 +478,7 @@ inside a section arrive with `Reveal` (opacity, ≤200ms) or as `Staged` beats (
 hero-entrance grammar, once, on first view — see the Motion table); both are
 viewport-triggered arrivals, never scroll-scrubbed. The Lenis + Snap layer, the CSS snap fallback, `SectionTransition`, the
 chapter rail and the chapter markers were removed together on 2026-08-16 — see
-[`measurements.md`](./measurements.md) §2 for what was measured and why it went.
+[`measurements.md`](measurements.md) §2 for what was measured and why it went.
 
 ### Generating new media
 
@@ -548,8 +548,8 @@ accuracy contracts, and keeping prose out of JSX makes them reviewable as prose.
 
 ## Exports
 
-- **CSS variables:** [`src/components/sections/landing/landing-experience.css`](../../../src/components/sections/landing/landing-experience.css)
-  (`.rw-lp` block) and [`hero/hero.css`](../../../src/components/sections/landing/hero/hero.css)
+- **CSS variables:** [`src/components/sections/landing/landing-experience.css`](../../../../src/components/sections/landing/landing-experience.css)
+  (`.rw-lp` block) and [`hero/hero.css`](../../../../src/components/sections/landing/hero/hero.css)
   (`.rw-lp-hero` block) — those blocks ARE the export; do not copy them here.
 - **Tailwind v4:** none. Landing is plain CSS. Add a `landing/theme.css` only if a
   `bg-rw-lp-*` utility is ever needed.

@@ -1,10 +1,10 @@
 # RepWorth Island — Style Reference
 
-> **Scope:** `:root` (loads on every route) · **Tokens:** [`src/app/globals.css`](../../../src/app/globals.css) `:root` ·
+> **Scope:** `:root` (loads on every route) · **Tokens:** [`src/app/globals.css`](../../../../src/app/globals.css) `:root` ·
 > **Utilities:** `src/app/globals.css` `@theme inline` (Island entries) ·
-> **Page CSS:** [`src/app/(public)/_styles/*.css`](../../../src/app/(public)/_styles) (`@import`ed from `globals.css`, order = cascade) ·
-> **Guards:** [`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts) · [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts) (the `@theme` block may name no Console token) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
-> Which system am I in? → [`docs/design/README.md`](../README.md)
+> **Page CSS:** [`src/app/(public)/_styles/*.css`](../../../../src/app/(public)/_styles) (`@import`ed from `globals.css`, order = cascade) ·
+> **Guards:** [`design-token-single-source.test.ts`](../../../../src/__tests__/design-token-single-source.test.ts) · [`design-scope-purity.test.ts`](../../../../src/__tests__/design-scope-purity.test.ts) (the `@theme` block may name no Console token) · [`design-doc-token-pin.test.ts`](../../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
+> Which system am I in? → [`docs/brand-asset-library/design-systems/README.md`](../README.md)
 
 ## Overview
 
@@ -18,7 +18,7 @@ Since the 2026-08 rebrand the Island carries **two registers**:
 
 1. **Daylight Gallery II** — the marketing pages (`/how-it-works`, `/features`,
    `/pricing`) and the site-wide SiteNav/SiteFooter chrome. Approved demo + token
-   spec: [`docs/design/daylight-ii/`](../daylight-ii). A bone island
+   spec: [`docs/design/daylight-ii/`](../../../design/daylight-ii). A bone island
    (`--rw-bone`) floats on the untouched sage marquee field; paper cards
    (`--rw-paper`) sit on the bone with hairline borders and **no drop shadows
    inside the island** (the island's own soft shadow is the container and
@@ -177,7 +177,7 @@ components:
 Eyebrows, captions, labels, and the wordmark are **text**, so they take the actionable
 teal (`text-rw-teal-strong`) on white/cream — never the decorative `text-rw-teal`
 (2.24:1, fails AA). Rationale and the per-background table:
-[`docs/adr/0004-accessible-teal-token-split.md`](../../adr/0004-accessible-teal-token-split.md).
+[`docs/adr/0004-accessible-teal-token-split.md`](../../../adr/0004-accessible-teal-token-split.md).
 
 ## Tokens — Spacing & Shape
 
@@ -470,7 +470,7 @@ Before designing or finalizing any page, section, or component, check:
 - **Decorative background elements** get `aria-hidden="true"` on their wrapper
 - **Never place page content directly on sage green** — always inside the island
 - **Tokens, never literals** — use `var(--rw-*)` or the `rw-*` Tailwind utilities, never a raw `bg-[#hex]`
-- **The two teals (classic register)** — `--rw-teal` is decoration only and fails WCAG AA for text; text, links, and button fills use `--rw-teal-strong`, which passes AA on white and cream but **not** on sage or teal (use `--rw-ink` there). Rationale: [`docs/adr/0004-accessible-teal-token-split.md`](../../adr/0004-accessible-teal-token-split.md)
+- **The two teals (classic register)** — `--rw-teal` is decoration only and fails WCAG AA for text; text, links, and button fills use `--rw-teal-strong`, which passes AA on white and cream but **not** on sage or teal (use `--rw-ink` there). Rationale: [`docs/adr/0004-accessible-teal-token-split.md`](../../../adr/0004-accessible-teal-token-split.md)
 - **A11y contract:** exactly one `<main id="main-content">` per page (SiteShell provides it on marketing pages); FAQ accordions keep `aria-expanded`/`aria-controls`; star glyphs carry an `aria-label`; every reveal/loop respects `prefers-reduced-motion`.
 
 ### Anti-slop final pass
@@ -542,18 +542,18 @@ CTA band per ADR 0004).
 
 ## Exports
 
-- **CSS variables:** [`src/app/globals.css`](../../../src/app/globals.css) — the `:root`
+- **CSS variables:** [`src/app/globals.css`](../../../../src/app/globals.css) — the `:root`
   block IS the export; do not copy it here.
-- **Tailwind v4:** [`src/app/globals.css`](../../../src/app/globals.css) `@theme inline`,
+- **Tailwind v4:** [`src/app/globals.css`](../../../../src/app/globals.css) `@theme inline`,
   Island entries — the block IS the export. `@theme inline` means each utility emits
   `var(--rw-*)` (a reference, not a copied hex), so the `:root` declarations stay the
   single source of truth.
-- **Page CSS:** [`src/app/(public)/_styles/`](../../../src/app/(public)/_styles) — four
+- **Page CSS:** [`src/app/(public)/_styles/`](../../../../src/app/(public)/_styles) — four
   files, `island.css` (the shared chrome: nav pill, pills, footer, the `.rw-dl-*`
   primitives, the marquee atmosphere), `features.css`, `how-it-works.css`,
   `pricing.css`. `globals.css` `@import`s them in that order, at the bottom of the
   file, and the order is the cascade. They consume `var(--rw-*)` and declare no tokens
   — `globals.css` owns those. Guard:
-  [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts).
-- **Approved demo + spec:** [`docs/design/daylight-ii/`](../daylight-ii) — the demo is
+  [`design-scope-purity.test.ts`](../../../../src/__tests__/design-scope-purity.test.ts).
+- **Approved demo + spec:** [`docs/design/daylight-ii/`](../../../design/daylight-ii) — the demo is
   the visual spec; `system-amendments.md` is the token spec.

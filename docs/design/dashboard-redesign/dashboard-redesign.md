@@ -4,7 +4,7 @@
 detail, so the decisions are reusable without re-watching.
 
 **What this is NOT.** It is not a RepWorth decision record. It states no RepWorth token,
-route, or component. It contradicts nothing in `docs/design/console/DESIGN.md`. Treat it
+route, or component. It contradicts nothing in `docs/brand-asset-library/design-systems/console/DESIGN.md`. Treat it
 as input to a Console redesign, not as the redesign.
 
 ## The two sources
@@ -774,7 +774,7 @@ anyone will remember it. Failing group A is a bug. Failing group B is a bland pr
 > (surface polish), **#989** (shell) and **#990** (glance dashboard). A box is ticked
 > only when the whole claim holds; a partial is left unticked with the gap named, so the
 > list stays a to-do rather than a trophy. The decisions themselves live in
-> `docs/design/console/DESIGN.md` and `.claude/reference/arch-review-log.md`.
+> `docs/brand-asset-library/design-systems/console/DESIGN.md` and `.claude/reference/arch-review-log.md`.
 
 ### A — Structure
 

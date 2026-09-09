@@ -16,7 +16,7 @@ import {
 // app) token file must NOT re-declare those names. Doing so reintroduced the
 // --rw-sage / --rw-sage-soft collision, where one token name meant #D2E0D3 on
 // public pages but #97B3AE inside the dashboard — decided only by CSS load order.
-// Background + "which palette when": docs/design/README.md
+// Background + "which palette when": docs/brand-asset-library/design-systems/README.md
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf-8');
 const GLOBALS = 'src/app/globals.css';
 const TOKENS = 'src/app/(authenticated)/_styles/tokens.css';
@@ -67,7 +67,7 @@ const contrastRatio = (foreground: string, background: string): number => {
 // are `localFont` variables bound on the `.rw-console` element itself
 // ((authenticated)/layout.tsx), and mono is a scoped `.rw-console` override in
 // console.css. An override inside the scope is the sanctioned mechanism; a
-// `:root` re-declaration is not (docs/design/README.md rule 2).
+// `:root` re-declaration is not (docs/brand-asset-library/design-systems/README.md rule 2).
 const BRAND_FONT_TOKENS = [
   '--rw-font-display',
   '--rw-font-body',
@@ -118,7 +118,7 @@ describe('design tokens: Island palette is single-sourced in globals.css', () =>
     expect(
       declares(tokens, token),
       `${token} is re-declared in ${TOKENS}. Island colors belong to ${GLOBALS} only — ` +
-        `re-declaring them reintroduces the cross-file collision (see docs/design/README.md).`,
+        `re-declaring them reintroduces the cross-file collision (see docs/brand-asset-library/design-systems/README.md).`,
     ).toBe(false);
   });
 
@@ -181,7 +181,7 @@ describe('design tokens: Island palette is single-sourced in globals.css', () =>
     expect(
       stripCssComments(tokens),
       `${TOKENS} still opens a \`:root { … }\` block. Console values declared on :root leak to ` +
-        `every surface if the chunk survives a client navigation (docs/design/README.md rule 2).`,
+        `every surface if the chunk survives a client navigation (docs/brand-asset-library/design-systems/README.md rule 2).`,
     ).not.toMatch(/:root\s*\{/);
 
     expect(consoleScoped, `${TOKENS} must declare its tokens in a \`${CONSOLE_SCOPE} { … }\` block`)
@@ -214,7 +214,7 @@ describe('design tokens: Island palette is single-sourced in globals.css', () =>
       foreign,
       `${THEME} references ${foreign.join(', ')}, which ${TOKENS} does not declare. The Console ` +
         `utility export may only name Console-owned tokens — an Island token belongs in the ` +
-        `${GLOBALS} @theme block (docs/design/README.md rule 2).`,
+        `${GLOBALS} @theme block (docs/brand-asset-library/design-systems/README.md rule 2).`,
     ).toEqual([]);
   });
 

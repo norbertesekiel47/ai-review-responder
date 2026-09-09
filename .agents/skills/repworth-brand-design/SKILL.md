@@ -12,9 +12,9 @@ never mix them on the same screen.
 
 | The file I am editing | System | Style Reference |
 |---|---|---|
-| `src/components/sections/landing/**` | **Landing** (`.rw-lp`) | [`docs/design/landing/DESIGN.md`](../../../docs/design/landing/DESIGN.md) + [`measurements.md`](../../../docs/design/landing/measurements.md) |
-| `src/app/(authenticated)/**`, `src/components/dashboard/**` | **Console** (`.rw-console`) | [`docs/design/console/DESIGN.md`](../../../docs/design/console/DESIGN.md) |
-| everything else public / marketing / auth / approval / legal / **admin** | **Island** (`:root`) | [`docs/design/island/DESIGN.md`](../../../docs/design/island/DESIGN.md) |
+| `src/components/sections/landing/**` | **Landing** (`.rw-lp`) | [`docs/brand-asset-library/design-systems/landing/DESIGN.md`](../../../docs/brand-asset-library/design-systems/landing/DESIGN.md) + [`measurements.md`](../../../docs/brand-asset-library/design-systems/landing/measurements.md) |
+| `src/app/(authenticated)/**`, `src/components/dashboard/**` | **Console** (`.rw-console`) | [`docs/brand-asset-library/design-systems/console/DESIGN.md`](../../../docs/brand-asset-library/design-systems/console/DESIGN.md) |
+| everything else public / marketing / auth / approval / legal / **admin** | **Island** (`:root`) | [`docs/brand-asset-library/design-systems/island/DESIGN.md`](../../../docs/brand-asset-library/design-systems/island/DESIGN.md) |
 
 Admin renders **outside** `.rw-console` and consumes no Console tokens — it is an
 Island-palette surface, just more utilitarian.
@@ -67,10 +67,10 @@ Island-palette surface, just more utilitarian.
 
 ## 3. Read the Style Reference before building or finalizing
 
-- **Landing:** [`docs/design/landing/DESIGN.md`](../../../docs/design/landing/DESIGN.md)
-- **Island:** [`docs/design/island/DESIGN.md`](../../../docs/design/island/DESIGN.md)
-- **Console:** [`docs/design/console/DESIGN.md`](../../../docs/design/console/DESIGN.md)
+- **Landing:** [`docs/brand-asset-library/design-systems/landing/DESIGN.md`](../../../docs/brand-asset-library/design-systems/landing/DESIGN.md)
+- **Island:** [`docs/brand-asset-library/design-systems/island/DESIGN.md`](../../../docs/brand-asset-library/design-systems/island/DESIGN.md)
+- **Console:** [`docs/brand-asset-library/design-systems/console/DESIGN.md`](../../../docs/brand-asset-library/design-systems/console/DESIGN.md)
 
 Each carries the full token tables, component anatomy, motion specs, do's/don'ts, and an
 agent prompt guide. Router + cross-system rules:
-[`docs/design/README.md`](../../../docs/design/README.md).
+[`docs/brand-asset-library/design-systems/README.md`](../../../docs/brand-asset-library/design-systems/README.md).

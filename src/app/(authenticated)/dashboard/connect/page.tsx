@@ -10,7 +10,7 @@ import type { DashboardDataActive } from '@/lib/dashboard/types';
 import type { LocationId } from '@/lib/shared/ids';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
-// Console text tokens reused across the connect views. HEADING restates the display family the way `.page-title` does (see docs/design/console/DESIGN.md).
+// Console text tokens reused across the connect views. HEADING restates the display family the way `.page-title` does (see docs/brand-asset-library/design-systems/console/DESIGN.md).
 const MUTED = { color: 'var(--rw-app-text-muted)' } as const;
 const FINE = { color: 'var(--rw-app-text-soft)', fontSize: 12 } as const;
 const HEADING = { font: 'var(--rw-app-h1)', fontFamily: 'var(--rw-font-display)', margin: '0 0 14px', letterSpacing: '-0.01em' } as const;

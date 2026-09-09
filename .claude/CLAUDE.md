@@ -101,6 +101,7 @@ Detailed inventories load on demand — read the matching file before the work:
 
 | Before you… | Read |
 |---|---|
+| find brand assets, design guidance, or generate marketing content | `docs/brand-asset-library/README.md` — brand kit, guidelines, visual systems, asset catalog, generation workflow, templates, and archive |
 | write or debug a migration / touch schema | rule `.claude/rules/migrations.md` + `.claude/reference/migrations-log.md` |
 | add an env var or flip a feature flag | rule `.claude/rules/env-flags.md` + `docs/eservices-variables.md` + `.claude/reference/env-vars.md` |
 | touch review ingestion / add a ReviewSource | rule `.claude/rules/reviews-import.md` + `.claude/reference/review-ingestion.md` |

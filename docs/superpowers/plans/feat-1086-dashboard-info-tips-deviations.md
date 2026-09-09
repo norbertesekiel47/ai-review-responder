@@ -10,7 +10,7 @@ Every departure from the plan or the intake, with the reason and who approved it
 **What the code does:** `src/components/ui/InfoTip.tsx` implements outside-click
 dismissal, `Escape` with focus restored, and Tab-to-close itself.
 
-**Why.** `docs/design/console/DESIGN.md` § Action surfaces names
+**Why.** `docs/brand-asset-library/design-systems/console/DESIGN.md` § Action surfaces names
 `useMenuPopover` the single owner of popover behavior. Three facts made reuse
 wrong here:
 
@@ -187,7 +187,7 @@ follow-up, not as silent dismissals.
   filed it as a next-time placement call, not a change request: the intake fixed
   that path, so the branch could not have chosen otherwise. Moving it now buys
   zero behaviour change for one more amendment.
-- **M15 — `docs/design/console/DESIGN.md` gains no entry for the new primitive.**
+- **M15 — `docs/brand-asset-library/design-systems/console/DESIGN.md` gains no entry for the new primitive.**
   Correct and owed. That file is **not** in `allowed_edit_surface`; editing it
   is a scope breach. Recorded here so it survives the merge.
 

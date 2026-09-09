@@ -79,8 +79,8 @@
    NOT re-declare these Island tokens in the Console token file
    (src/app/(authenticated)/_styles/tokens.css); that reintroduces the --rw-sage
    collision. Guard: src/__tests__/design-token-single-source.test.ts
-   Which palette when: docs/design/README.md
-   Island Style Reference: docs/design/island/DESIGN.md
+   Which palette when: docs/brand-asset-library/design-systems/README.md
+   Island Style Reference: docs/brand-asset-library/design-systems/island/DESIGN.md
    ======================================================================== */
 
 :root {

@@ -40,13 +40,13 @@ const BRAND_FONT_PREFIX = '--rw-font-';
 const SYSTEMS = [
   {
     name: 'landing',
-    doc: 'docs/design/landing/DESIGN.md',
+    doc: 'docs/brand-asset-library/design-systems/landing/DESIGN.md',
     tokenFiles: cssFilesUnder(LANDING_DIR),
   },
-  { name: 'island', doc: 'docs/design/island/DESIGN.md', tokenFiles: [GLOBALS] },
+  { name: 'island', doc: 'docs/brand-asset-library/design-systems/island/DESIGN.md', tokenFiles: [GLOBALS] },
   {
     name: 'console',
-    doc: 'docs/design/console/DESIGN.md',
+    doc: 'docs/brand-asset-library/design-systems/console/DESIGN.md',
     tokenFiles: [CONSOLE_TOKENS, CONSOLE_SCOPED],
   },
 ] as const;
