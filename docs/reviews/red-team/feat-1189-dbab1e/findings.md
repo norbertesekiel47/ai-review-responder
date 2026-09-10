@@ -333,9 +333,11 @@ repository hook/config file.
 
 ## Staging campaign evidence and teardown ledger
 
-**Campaign status: NOT STARTED.** This record was opened at
-2026-09-10T11:38:03Z before staging setup or helper authentication.
-Mutation verification is complete; live API and browser acceptance are pending.
+**Campaign status: BLOCKED — authenticated API proof remains open.** This record was opened at
+2026-09-10T11:38:03Z before staging setup or helper authentication. The candidate
+is READY on staging; desktop/mobile browser acceptance passed. The first
+isolated helper run expired without a login attempt, so API acceptance remains
+unproven. Teardown for that run is complete at 2026-09-10T12:19:23Z.
 No staging PASS is claimed by the preceding independent reports.
 
 Environment and fixed scope:
@@ -351,6 +353,12 @@ Environment and fixed scope:
 - Pre-campaign staging baseline: deployment dpl_J6UwBqrx3ZtpGHQAn7SkmKsPoirj,
   READY at c951bc2ebbafba310cc35f11f6e06fc5d8b57414. The candidate must be
   independently pinned after deployment.
+- Candidate deployment: dpl_Epjm5UxkSNSA4K7Qpkfrr3YF4GnU, READY at
+  2026-09-10T11:59:07.947Z, Git SHA
+  57af3d9786413d37f5ce531ca66e67d24528d0bb. Vercel metadata confirms the
+  staging branch and attached staging.repworth.net alias. Comparing this SHA
+  with the reviewed implementation pin yields only findings.md/findings.json;
+  all runtime source is identical.
 - Owner-designated account: 01a06dd3-1624-72b4-a4bf-22ab2f19fecb.
 - Its sole identified business: 01a06dd3-1622-70c7-9037-7dd9171aea17.
 - Fixed missing-business probe: 00000000-0000-4000-8000-000000000099.
@@ -359,10 +367,33 @@ Environment and fixed scope:
   operation, review post, or production write is included.
 
 The fixture IDs were resolved by an earlier narrow read-only lookup restricted
-to the owner's designated account; exact account match and one business were
-confirmed. No account email or unrelated customer fields are retained here.
-Their existence/account relationship and the missing probe must be rechecked
-before the authenticated GET campaign.
+to the owner's designated account. A staging-only recheck at
+2026-09-10T11:58:36Z confirmed account existence, the exact business/account
+relationship, one business for that account, and absence of the fixed missing
+probe. No account email or unrelated customer fields are retained here.
+
+Executed through the Supabase SQL tool with project kubdiqdhqbhwmqfditeg:
+
+```sql
+SELECT
+  EXISTS (SELECT 1 FROM public.accounts
+    WHERE id = '01a06dd3-1624-72b4-a4bf-22ab2f19fecb'::uuid)
+    AS designated_account_exists,
+  EXISTS (SELECT 1 FROM public.businesses
+    WHERE id = '01a06dd3-1622-70c7-9037-7dd9171aea17'::uuid
+      AND account_id = '01a06dd3-1624-72b4-a4bf-22ab2f19fecb'::uuid)
+    AS designated_business_account_match,
+  (SELECT count(*) FROM public.businesses
+    WHERE account_id = '01a06dd3-1624-72b4-a4bf-22ab2f19fecb'::uuid)
+    AS designated_account_business_count,
+  NOT EXISTS (SELECT 1 FROM public.businesses
+    WHERE id = '00000000-0000-4000-8000-000000000099'::uuid)
+    AS fixed_missing_business_absent;
+```
+
+Sanitized result: designated_account_exists=true,
+designated_business_account_match=true, designated_account_business_count=1,
+fixed_missing_business_absent=true.
 
 ### Preflight
 
@@ -371,10 +402,15 @@ before the authenticated GET campaign.
 | Implementation/full gate/independent axes | PASS | Frozen source and preceding reports; full gate fingerprint 3077f6f99e99770211e013c4a52060cdc39c7025c0534efebff1c3373bb473c1. |
 | Complete mutation inventory | PASS | Round 1, 32 launches, 16 killed; original finalizer complete. |
 | Temporary helper security and local checks | PASS | Exact preserved source and independent verification below; helper has not authenticated. |
-| Candidate report commit and fresh gate | PENDING | Required before staging delivery. |
-| Candidate Vercel deployment READY and runtime-source identity | PENDING | Record deployment ID, deployment SHA, and equality of runtime source with the reviewed pin. |
-| Designated fixture/account and missing-ID read-only recheck | PENDING | Fixed IDs above; no broader lookup or fixture creation. |
-| Browser/operator authentication | PENDING | Root operates the in-app browser; owner enters credentials/MFA directly when needed. |
+| Candidate report commit and fresh gate | PASS | Commit 57af3d9786413d37f5ce531ca66e67d24528d0bb; all 32 full-gate rows passed; 14,665 tests passed / 1,184 skipped; test runtime 374.75 seconds. Fingerprint 3789716147e025faa32fe4cc96111661606661afa996c0f214449093d4a16e95. |
+| Candidate Vercel deployment READY and runtime-source identity | PASS | dpl_Epjm5UxkSNSA4K7Qpkfrr3YF4GnU at the candidate SHA; READY 2026-09-10T11:59:07.947Z; only two report files differ from the reviewed runtime pin. |
+| Designated fixture/account and missing-ID read-only recheck | PASS | Fixed-ID SQL and boolean/count results above, 2026-09-10T11:58:36Z; no broader lookup or fixture creation. |
+| Browser/operator authentication | PARTIAL / BLOCKED | Existing cookie-AAL2 HTML regression passed. Root opened the isolated helper and handed credential/MFA entry to the owner; its eight-minute run ended without any session attempt. API proof awaits a fresh owner-ready handoff. |
+
+The candidate staging push completed normally after all 25 unchanged pre-push
+checks passed under the documented serial scheduling override (58.23 seconds).
+No hook was skipped. The existing hooksPath warning concerned automatic hook
+installation sync; the actual pre-push command summary contains all 25 passes.
 
 ### Teardown ledger
 
@@ -382,19 +418,19 @@ before the authenticated GET campaign.
 | --- | --- | --- | --- |
 | Mutation dotenv isolation and process groups | Round 1, feature worktree | Original lead-owned finalizer; all 16 entries restored, 32 process groups empty, dotenv closed. | COMPLETE before reports. |
 | Temporarily stopped parent previews | Original commands on 3100/3101 | Restarted exact commands after finalizer; both Ready and listeners verified. Source ledger preserved below. | COMPLETE. |
-| Helper-created auth session | NOT CREATED; future isolated helper run only | Before login, mark active here; afterward SDK signOut with explicit scope local and successful HTTP evidence. Preserve cleanup uncertainty if no confirmation. | NOT STARTED. |
-| Loopback GET helper process | NOT STARTED; future localhost port/session | Close or TTL shutdown after sanitized evidence capture; verify stopped. | NOT STARTED. |
+| Helper-created auth session | First isolated run only; cleanup obligation opened at 2026-09-10T12:10Z | Original TTL shutdown reported “no session attempted”; no session existed to sign out. | COMPLETE at approximately 2026-09-10T12:19:02Z; no auth session created. |
+| Loopback GET helper process | Reviewed source SHA-256 6d851b260755e45527eed807bd759246d4cef0b165bf0f9bc0981b1ddf356361; 127.0.0.1:60783, owned exec session 10913, PID 36642 | Original eight-minute TTL; owned session exited 0. Elevated lsof and ps returned no listener/process at 2026-09-10T12:19:23Z. | COMPLETE; process and listener absent. |
 | Designated staging records | Existing fixed account/business only | Read-only campaign; no fixture creation or data cleanup required. | No writes planned or performed. |
 
 ### Unproven paths
 
 | Acceptance path | Status |
 | --- | --- |
-| Authenticated options response contains exactly one boolean betaCompActive | PENDING live proof. |
-| Authenticated designated detail retains existing fields and includes a valid batchSummary/null | PENDING live proof. |
-| Fixed missing business returns 404 and exact route error JSON | PENDING live proof. |
-| Legacy business page remains usable at desktop and mobile layouts | PENDING in-app browser evidence. |
-| Helper session cleanup and process teardown | PENDING after actual authentication/run. |
+| Authenticated options response contains exactly one boolean betaCompActive | BLOCKED: first helper expired without a login attempt; live proof still required. |
+| Authenticated designated detail retains existing fields and includes a valid batchSummary/null | BLOCKED: first helper expired without a login attempt; live proof still required. |
+| Fixed missing business returns 404 and exact route error JSON | BLOCKED: first helper expired without a login attempt; live proof still required. |
+| Legacy business page remains usable at desktop and mobile layouts | PASS: root's in-app browser checks at 1440×900 and 390×844, persistent screenshots below. |
+| Helper session cleanup and process teardown | PASS for first run: no session attempted, exit 0, process/listener verified absent. A future run must open its own ledger obligation before authentication. |
 
 The deployed coupon's actual armed/unarmed value will be recorded without
 changing configuration. Unit tests cover both values and AAL1/non-admin/
@@ -404,10 +440,63 @@ summary. No claim of #1197 Gate B or ADR 0025 D9 completion is made here.
 
 ### Campaign deviations and final verdict
 
+Root reported the read-only legacy HTML regression PASS on staged 57af3d97
+using the existing cookie-authenticated AAL2 session. The exact designated
+business page loaded at desktop 1440×900 and mobile 390×844. Document width
+did not exceed the viewport, mobile navigation collapsed, and the send-batch
+section displayed “No send batch on file for this location.” No edit or action
+was submitted. This checks the existing SSR journey, not the new API shapes.
+
+Sanitized screenshots were inspected by the browser operator and contain no
+account emails, credentials, or customer records. Persistent artifact root:
+/Users/norbertesekiel/.codex/visualizations/2026/09/09/01a084d9-2ea0-7bd3-a71a-0fb8ef37c4f8.
+
+- [1189-business-desktop-main.png](/Users/norbertesekiel/.codex/visualizations/2026/09/09/01a084d9-2ea0-7bd3-a71a-0fb8ef37c4f8/1189-business-desktop-main.png) — desktop top crop 1192×750;
+  UTC 2026-09-10T12:03:37.575719Z;
+  SHA-256 5e709e6392a48c760f8cb159212849b6ba46ecfbcc677030c62f12d247c399c5.
+- [1189-business-mobile.png](/Users/norbertesekiel/.codex/visualizations/2026/09/09/01a084d9-2ea0-7bd3-a71a-0fb8ef37c4f8/1189-business-mobile.png) — UTC 2026-09-10T12:04:15.762Z;
+  SHA-256 2ad205b2d7d0f8e5ef898eaa970d127417cf23b17b19f6ecaa22962bd66ba2d5.
+- [1189-business-mobile-batch-verified.png](/Users/norbertesekiel/.codex/visualizations/2026/09/09/01a084d9-2ea0-7bd3-a71a-0fb8ef37c4f8/1189-business-mobile-batch-verified.png) — UTC 2026-09-10T12:06:40.875Z;
+  SHA-256 6110dec2daa5ba0f782f4f8651fb5d6e53b191614db04dd698329cd0dfd798f9.
+
+Screenshot deviation: inconsistent native clipped frames were discarded;
+the operator used visually verified accessibility screenshots and a verified
+crop for retained evidence. No application behavior failure was inferred.
+Root explicitly signaled readiness for the isolated local auth handoff after
+these checks. The helper and its embedded source hashes match, and installed
+supabase-js/auth-js versions are both 2.106.2. Configuration uses only the
+enabled modern publishable key returned for the fixed staging project;
+the disabled legacy anon key is not used. Key values are not retained here.
+The helper launch returned its owner-only URL at approximately 12:11 UTC.
+At 12:12 UTC root confirmed the empty sign-in form in a visible in-app browser
+tab and handed credential/MFA entry directly to the owner. The eight-minute
+TTL is unchanged; authentication and API outcomes are not yet observed.
+
+At approximately 2026-09-10T12:19:02Z the first run reached its original TTL.
+Owned exec session 10913 returned exit 0 and the exact sanitized output:
+
+```text
+Helper stopped. Session cleanup outcome: no session attempted.
+```
+
+At 2026-09-10T12:19:23Z an elevated read-only check of PID 36642 and the
+60783 listener returned no process or listener. No login/MFA or API request
+was attempted by this helper run. Root confirmed no owner auth reply at
+12:19:57Z and later confirmed the browser viewport reset succeeded. The
+existing authenticated admin browser sessions were not modified or signed out.
+
 The evidence-file path adaptation and watcher/tooling recovery are described
-above. Add timestamped campaign deviations here if actual staging execution
-departs from the fixed scope. Final staging verdict, observations, sanitized
-screenshots, helper cleanup, and end time remain PENDING.
+above. The additional campaign deviation is the unattended auth handoff
+expiring before login. No product defect was observed and no bug was filed.
+
+**Attempt verdict: FAIL / BLOCKED on missing authenticated API proof.**
+The three API acceptance paths remain explicitly open; no owner sign-off
+waives them. The implementation, staging deployment, independent reviews,
+mutation campaign, and desktop/mobile HTML observations retain their recorded
+PASS results. Teardown is complete for this attempt; verification ended at
+2026-09-10T12:19:23Z. Resume only after a fresh owner-ready handoff, open a
+new isolated-helper ledger obligation before login, and prove the three fixed
+GETs plus that run's cleanup before publishing the PR or claiming campaign PASS.
 
 <!-- END #1189 STAGING CAMPAIGN -->
 
