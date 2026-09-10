@@ -6,7 +6,7 @@
 // `src/app/api/admin/autonomy/unsuspend/route.ts` — `requireAdminJson(request,
 // schema)` (the gate + `request.json()` + `safeParse` + both 400 shapes, #909)
 // → one domain call → `internalError` on throw →
-// `export const POST = withSameOrigin()(handler)`. The `z.strictObject` below
+// `export const POST = withSameOriginUnlessBearer()(handler)`. The `z.strictObject` below
 // is still this route's own; what moved is the PARSING, not the schema. The
 // owner arm lives at
 // `src/app/api/dashboard/solicitation/batch/halt/route.ts` and shares nothing
@@ -38,7 +38,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -144,7 +144,7 @@ async function halt(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// `withSameOrigin` is applied AT THE EXPORT on purpose — the wrapper is visible
+// `withSameOriginUnlessBearer` is applied AT THE EXPORT on purpose — the wrapper is visible
 // at the route boundary, which is what stops a new admin POST from shipping
 // CSRF-open (route-helpers.ts records why the old opt-in flag was removed).
-export const POST = withSameOrigin()(halt);
+export const POST = withSameOriginUnlessBearer()(halt);

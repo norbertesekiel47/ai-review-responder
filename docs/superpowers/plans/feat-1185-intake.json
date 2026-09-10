@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "Authorization transport and CSRF request boundary"
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "The Admin app reaches the canonical Admin API gate with a bearer while cookie mutations retain CSRF protection.",
+  "non_goals": [
+    "L1/L2 identity seam changes",
+    "Owner auth expansion",
+    "Impersonation route changes",
+    "API shapes or feature changes",
+    "Flags, migrations and production writes"
+  ],
+  "user_visible_behavior": [
+    "Well-formed bearer reaches route gate after CORS",
+    "Malformed Authorization is refused 401/no-store without cookie fallback (owner-approved delta)",
+    "Admin mutation bearer bypasses CSRF; cookie retains CSRF"
+  ],
+  "invariants": [
+    "One shared transport predicate and token parser; no token verification in proxy",
+    "Canonical route gate verifies live identity, admin role and AAL2",
+    "CORS runs first and refuses unallowlisted Origin",
+    "Owner withSameOrigin and assertSameOrigin semantics unchanged",
+    "Impersonation proxy cookie path and wrappers unchanged"
+  ],
+  "edge_cases": [
+    "Malformed header beside valid cookie refuses",
+    "Bearer beside owner or aal1 cookie ignores cookie outside impersonation",
+    "Missing Origin on server bearer accepted; missing Origin on cookie mutation refused",
+    "Owner/impersonation bearer does not bypass cookie safeguards"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/auth/admin-transport.ts isBearerRequest and readBearerToken",
+    "src/lib/auth/route-helpers.ts withSameOrigin",
+    "src/proxy.ts createDownstreamRequest",
+    "src/app/api/admin/channels/__tests__/bindings.test.ts"
+  ],
+  "test_seams": [
+    "proxy()",
+    "withSameOriginUnlessBearer() and withSameOrigin()",
+    "Admin channel POST exports and canonical gate"
+  ],
+  "allowed_edit_surface": [
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    ".agents/skills/red-team/SKILL.md",
+    ".claude/skills/red-team/SKILL.md",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+    ".claude/reference/arch-review-log.md",
+    "docs/directory/lib-platform.md",
+    "src/proxy.ts",
+    "src/__tests__/proxy.test.ts",
+    "src/lib/auth/route-helpers.ts",
+    "src/lib/auth/__tests__/route-helpers.test.ts",
+    "src/app/api/admin/channels/__tests__/bindings.test.ts",
+    "src/app/api/admin/channels/whatsapp/start/route.ts",
+    "src/app/api/admin/suppressions/route.ts",
+    "src/app/api/admin/demos/generate/route.ts",
+    "src/app/api/admin/channels/telegram/start/route.ts",
+    "src/app/api/admin/locations/csv-import/route.ts",
+    "src/app/api/admin/flagged/route.ts",
+    "src/app/api/admin/channels/whatsapp/cancel/route.ts",
+    "src/app/api/admin/suppressions/lookup/route.ts",
+    "src/app/api/admin/billing/grant-extension/route.ts",
+    "src/app/api/admin/channels/whatsapp/disable/route.ts",
+    "src/app/api/admin/offboardings/[offboardingId]/provider-disposition/route.ts",
+    "src/app/api/admin/suppressions/correct/route.ts",
+    "src/app/api/admin/channels/telegram/disable/route.ts",
+    "src/app/api/admin/businesses/[id]/zernio-queue/route.ts",
+    "src/app/api/admin/businesses/[id]/ranking/route.ts",
+    "src/app/api/admin/businesses/[id]/resend-invite/route.ts",
+    "src/app/api/admin/channels/telegram/cancel/route.ts",
+    "src/app/api/admin/businesses/[id]/route.ts",
+    "src/app/api/admin/businesses/route.ts",
+    "src/app/api/admin/solicitation/breaker/reset/route.ts",
+    "src/app/api/admin/autonomy/unsuspend/route.ts",
+    "src/app/api/admin/solicitation/batch/halt/route.ts",
+    "src/app/api/admin/businesses/[id]/keywords/route.ts",
+    "docs/superpowers/plans/feat-1185-*.md",
+    "docs/superpowers/plans/feat-1185-intake.json",
+    "docs/reviews/feat-1185/*.md",
+    "docs/reviews/red-team/feat-1185/*",
+    "docs/reviews/red-team/feat-1185-67f43e/findings.md",
+    "docs/reviews/red-team/feat-1185-67f43e/findings.json",
+    "docs/reviews/finding-checklists/*.md"
+  ],
+  "tests_to_add": [
+    "passes a well-formed bearer without reading the cookie session",
+    "rejects malformed Authorization without cookie fallback",
+    "keeps impersonation on the cookie path",
+    "refuses a disallowed Origin before bearer pass-through",
+    "allows bearer with forged Origin at the wrapper seam",
+    "preserves cookie CSRF and owner wrapper behavior",
+    "forwards route arguments and propagates handler errors",
+    "admin mutation exports reach the canonical gate with a bearer"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run src/__tests__/proxy.test.ts src/lib/auth/__tests__/route-helpers.test.ts src/app/api/admin/channels/__tests__/bindings.test.ts",
+    "pnpm ci:admin-aal2",
+    "pnpm build"
+  ],
+  "estimated_prod_lines": 110,
+  "estimated_test_lines": 220,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the ticket via PR; restore staging to approved baseline using deployment runbook.",
+  "observability": [
+    "Canonical JSON responses without redirects for bearer requests",
+    "Cookie CSRF 403 and refused-Origin 403 remain distinct",
+    "No credential logging"
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

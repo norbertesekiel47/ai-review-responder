@@ -9,7 +9,7 @@ import {
   getBusinessDetail,
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -109,4 +109,4 @@ async function patchBusiness(
   }
 }
 
-export const PATCH = withSameOrigin()(patchBusiness);
+export const PATCH = withSameOriginUnlessBearer()(patchBusiness);

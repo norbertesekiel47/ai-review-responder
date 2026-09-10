@@ -68,6 +68,95 @@ function hasComingSoonProxyHeader(response: Response): boolean {
   });
 }
 
+describe('Admin API bearer transport', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('ADMIN_APP_ORIGINS', 'https://admin.example.com');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://repworth.net');
+    vi.stubEnv('MFA_ENFORCEMENT_ENABLED', 'true');
+    getUser.mockResolvedValue({ data: { user: null } });
+    getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal2', nextLevel: 'aal2' }, error: null,
+    });
+    selfRow.value = { role: 'owner', account_id: 'account-1' };
+    setSupabaseCookies.value = false;
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('passes a well-formed bearer without reading the cookie session', async () => {
+    const req = new NextRequest('https://repworth.net/api/admin/overview', {
+      headers: { authorization: 'Bearer test-token', origin: 'https://admin.example.com', cookie: 'sb-session=owner' },
+    });
+    const response = await proxy(req);
+    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(response.headers.get('x-middleware-request-authorization')).toBe('Bearer test-token');
+    expect(response.headers.get(`x-middleware-request-${REQUEST_PATHNAME_HEADER}`)).toBe('/api/admin/overview');
+    expect(response.headers.get('access-control-allow-origin')).toBe('https://admin.example.com');
+    expect(response.headers.get('vary')).toBe('Origin');
+    expect(response.headers.get('location')).toBeNull();
+    expect(createServerClient).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+
+    const serverResponse = await proxy(new NextRequest('https://repworth.net/api/admin/overview', {
+      headers: { authorization: 'bearer server-token' },
+    }));
+    expect(serverResponse.headers.get('x-middleware-next')).toBe('1');
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed Authorization without cookie fallback', async () => {
+    getUser.mockResolvedValue({ data: { user: { id: 'admin-auth' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    for (const authorization of ['', 'Basic abc', 'Bearer', 'Bearer a b']) {
+      const response = await proxy(new NextRequest('https://repworth.net/api/admin/overview', {
+        headers: { authorization, cookie: 'sb-session=valid-admin', origin: 'https://admin.example.com' },
+      }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'Unauthorized' });
+      expect(response.headers.get('cache-control')).toBe('no-store, private');
+      expect(response.headers.get('access-control-allow-origin')).toBe('https://admin.example.com');
+      expect(createServerClient).not.toHaveBeenCalled();
+    }
+  });
+
+  it('keeps impersonation on the cookie path', async () => {
+    for (const path of ['/api/admin/impersonation', '/api/admin/impersonation/start', '/api/admin/impersonation/end']) {
+      vi.clearAllMocks();
+      const response = await proxy(new NextRequest(`https://repworth.net${path}`, {
+        headers: { authorization: 'Bearer test-token' },
+      }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'Unauthorized' });
+      expect(getUser).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('refuses a disallowed Origin before bearer pass-through', async () => {
+    const response = await proxy(new NextRequest('https://repworth.net/api/admin/overview', {
+      headers: { authorization: 'Bearer test-token', origin: 'https://evil.example.com' },
+    }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'origin' });
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('retains cookie refusals and does not admit owner routes or admin pages by bearer', async () => {
+    expect((await proxy(request('https://repworth.net/api/admin/overview'))).status).toBe(401);
+    getUser.mockResolvedValueOnce({ data: { user: { id: 'owner-auth' } } });
+    expect((await proxy(request('https://repworth.net/api/admin/overview'))).status).toBe(403);
+    const owner = await proxy(new NextRequest('https://repworth.net/api/billing/checkout', {
+      headers: { authorization: 'Bearer test-token' },
+    }));
+    expect(owner.status).toBe(401);
+    const page = await proxy(new NextRequest('https://repworth.net/admin/overview', {
+      headers: { authorization: 'Bearer test-token' },
+    }));
+    expect(new URL(page.headers.get('location')!).pathname).toBe('/admin/login');
+  });
+});
+
 describe('proxy public launch host behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -21,7 +21,7 @@ import {
   type CsvImportReport,
 } from '@/lib/admin/csv-import';
 import { getAccountById } from '@/lib/accounts/repo';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
@@ -160,4 +160,4 @@ async function importLocationsCsv(req: NextRequest): Promise<NextResponse> {
   return NextResponse.json(report, { status: 200, headers: NO_STORE });
 }
 
-export const POST = withSameOrigin()(importLocationsCsv);
+export const POST = withSameOriginUnlessBearer()(importLocationsCsv);

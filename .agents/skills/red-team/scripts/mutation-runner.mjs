@@ -62,6 +62,36 @@ import { pathToFileURL } from 'node:url';
 export const MAX_RUNS_PER_ROUND = 30;
 export const RUN_TIMEOUT_MS = 120_000;
 
+// One owner-approved ticket continuation, not a general CLI/env override.
+// Original pin/inventory stay immutable until completion; see #1185 D3.
+const CONTINUATION_AUTHORIZATION = 'owner-1185-budget-continuation';
+const CONTINUATION_TEXT = 'Question: Approve the ticket-scoped verifier change needed to finish those 439 cases—at least 878 additional test runs? The red-team skill limits verification to “30 mutation runs per round,” which is the remaining blocker.\nOwner: I approve';
+
+function authorizedBudget(root, journal) {
+  if (journal.round !== 1) return null;
+  try {
+    if (git(root, ['branch', '--show-current']) !== 'feat/1185') return null;
+    const sidecar = JSON.parse(readFileSync(
+      join(root, 'docs/reviews/red-team/feat-1185-67f43e/findings.json'), 'utf8',
+    ));
+    if (sidecar.mode !== 'feature' || sidecar.branch !== 'feat/1185' || sidecar.round !== 1
+      || sidecar.head_sha !== '0b374b6a9b76ac4eee3222d84b47eae3e359bf4d'
+      || !Array.isArray(sidecar.inventory) || sidecar.inventory.length !== 453
+      || !Array.isArray(sidecar.authorizations)) return null;
+    const identities = sidecar.inventory.map(({ id, file, test }) => ({ id, file, test }));
+    if (sha256(JSON.stringify(identities)) !== '64929f4afa45ccdc52c8efc2da2e106729e569ed84863259d9bf990a5d9d9f1a') return null;
+    const authorization = sidecar.authorizations.find((entry) => (
+      entry?.id === CONTINUATION_AUTHORIZATION && entry.date === '2026-09-09'
+      && entry.text === CONTINUATION_TEXT
+    ));
+    if (!authorization) return null;
+    return { id: authorization.id, maxRuns: 1400, sha256: sha256(JSON.stringify(authorization)) };
+  } catch {
+    // Unreadable or malformed evidence never enlarges the cap.
+    return null;
+  }
+}
+
 /** The suffix that makes a stranded dotenv backup findable by the status checker. */
 export const DOTENV_BACKUP_SUFFIX = '.red-team-backup';
 
@@ -557,8 +587,10 @@ async function cmdRun(root, parsed) {
   const argv = parsed._;
   if (argv.length === 0) usage('run needs the command after `--`');
   const journal = readJournal(root);
-  if (journal.runs >= MAX_RUNS_PER_ROUND) {
-    console.error(`run: mutation budget exhausted (${MAX_RUNS_PER_ROUND} runs this round)`);
+  const authorization = authorizedBudget(root, journal);
+  const maxRuns = authorization?.maxRuns ?? MAX_RUNS_PER_ROUND;
+  if (journal.runs >= maxRuns) {
+    console.error(`run: mutation budget exhausted (${maxRuns} runs this round)`);
     console.error('  Mark the remaining candidates skipped-budget; the status becomes INCOMPLETE_BUDGET.');
     return 1;
   }
@@ -586,6 +618,9 @@ async function cmdRun(root, parsed) {
   const pid = supervisor.pid;
   const startedAt = processStartTime(pid);
   journal.runs += 1;
+  if (authorization && !journal.budgetAuthorization) {
+    journal.budgetAuthorization = { ...authorization, firstRun: journal.runs };
+  }
   journal.supervisors.push({
     pid,
     pgid: pid,

@@ -7,7 +7,7 @@ import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import type { DemoJobPayload } from '@/lib/demos/types';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getServerConfig } from '@/lib/config/server';
@@ -164,4 +164,4 @@ async function generateDemo(request: NextRequest): Promise<NextResponse> {
   );
 }
 
-export const POST = withSameOrigin()(generateDemo);
+export const POST = withSameOriginUnlessBearer()(generateDemo);

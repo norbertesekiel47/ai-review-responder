@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse, enqueueSendNotification } from '@/lib/shared/job-outbox-helpers';
 import { assertLocationNotArchived } from '@/lib/approval/locks';
@@ -188,4 +188,4 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOrigin()(dispositionFlaggedResponse);
+export const POST = withSameOriginUnlessBearer()(dispositionFlaggedResponse);

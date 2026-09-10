@@ -108,6 +108,38 @@ beforeEach(() => {
   resetServerConfigForTests();
 });
 
+describe('admin bearer mutation binding', () => {
+  it('admin mutation exports reach the canonical gate with a bearer', async () => {
+    const routes = [tgStart, tgCancel, tgDisable, waStart, waCancel, waDisable];
+    for (const handler of routes) {
+      vi.clearAllMocks();
+      const req = new Request('http://localhost/api/admin/channels/telegram/cancel', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test-token', origin: 'https://admin.example.com', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessId: 'biz-1' }),
+      });
+      const response = await handler(req as never);
+      expect(response.status).toBe(200);
+      expect(requireAdminMock).toHaveBeenCalledWith(req);
+      expect(startEnrollmentMock.mock.calls.length + cancelEnrollmentMock.mock.calls.length + disconnectMock.mock.calls.length).toBe(1);
+
+      vi.clearAllMocks();
+      requireAdminMock.mockResolvedValueOnce({
+        ok: false,
+        response: Response.json({ error: 'mfa_required' }, { status: 403, headers: { 'Cache-Control': 'no-store, private' } }),
+      });
+      const refused = await handler(new Request(req.url, {
+        method: 'POST', headers: req.headers, body: JSON.stringify({ businessId: 'biz-1' }),
+      }) as never);
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({ error: 'mfa_required' });
+      expect(startEnrollmentMock).not.toHaveBeenCalled();
+      expect(cancelEnrollmentMock).not.toHaveBeenCalled();
+      expect(disconnectMock).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe('admin start binds the strict subscription gate (§4.2)', () => {
   it.each([
     ['telegram', tgStart, 'telegram/start'],

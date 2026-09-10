@@ -5,13 +5,13 @@
 
 import { NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
 import { assertWhatsAppEnvReady } from '@/lib/notifications/channels/whatsapp-env';
 import { runChannelDisable } from '@/app/api/_shared/channels/action';
 import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';
 
-export const POST = withSameOrigin()((req: NextRequest) =>
+export const POST = withSameOriginUnlessBearer()((req: NextRequest) =>
   runChannelDisable(sql, req, {
     channel: 'whatsapp',
     isEnabled: channelsWhatsappEnabled,

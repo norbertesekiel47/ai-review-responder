@@ -5,7 +5,7 @@ import {
   onboardBusinessAsAdmin,
   AdminOnboardingError,
 } from '@/lib/onboarding/admin-onboarding-service';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { getBusinessSummaries, parseBusinessListFilters } from '@/lib/admin/business-summary';
@@ -113,4 +113,4 @@ async function createBusiness(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-export const POST = withSameOrigin()(createBusiness);
+export const POST = withSameOriginUnlessBearer()(createBusiness);

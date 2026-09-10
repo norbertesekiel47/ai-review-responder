@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
-import { withSameOrigin } from '@/lib/auth/route-helpers';
+import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import {
   lookupSuppressions,
@@ -83,4 +83,4 @@ async function lookup(request: NextRequest): Promise<NextResponse> {
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOrigin()(lookup);
+export const POST = withSameOriginUnlessBearer()(lookup);

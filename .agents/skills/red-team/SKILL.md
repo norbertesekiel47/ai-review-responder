@@ -205,6 +205,15 @@ would arrive already exhausted. Any in-scope candidate you did not execute gets
 outcome `skipped-budget`, which forces `INCOMPLETE_BUDGET`. A partial run can
 never report `CLEAR`.
 
+**Owner-approved #1185 continuation (2026-09-09).** The existing 453-case
+inventory exhausted round 1 after 30 launches. The runner recognizes only the
+exact recorded approval on `feat/1185`, original head `0b374b6a`, round 1,
+and that inventory. It permits at most 1,400 total supervised launches, without
+resetting the 30 already spent. See `feat-1185-deviations.md` D3. Every other
+branch/round keeps 30; timeouts, two mutations per test, restoration and
+incomplete-status rules remain unchanged. This grants neither another round
+nor acceptance of unmeasured coverage.
+
 Live-DB candidates use the existing lock protocol and are still bounded by the
 same budget.
 
