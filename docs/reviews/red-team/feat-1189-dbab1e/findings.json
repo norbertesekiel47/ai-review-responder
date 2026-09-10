@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1189-dbab1e",
+  "branch": "feat/1189",
+  "fork_sha": "c951bc2ebbafba310cc35f11f6e06fc5d8b57414",
+  "merge_base_sha": "c951bc2ebbafba310cc35f11f6e06fc5d8b57414",
+  "head_sha": "bf84c855b947f0cd4c8587b880968cacb7b7caa9",
+  "intake_sha256": "731b6032694768465173872dd79a5d9ab70593dcf8c84585c225cdc725f77d81",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-10T11:30:21.940Z",
+  "inventory": [
+    {
+      "id": "C01",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — an aal2 admin is served",
+      "outcome": "killed",
+      "reason": "Replace cookie transport with bearer transport. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C02",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — an aal1 admin is refused 403 mfa_required",
+      "outcome": "killed",
+      "reason": "Change refusal from 403 to 200. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C03",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — a non-admin is refused 403 Forbidden",
+      "outcome": "killed",
+      "reason": "Change non-admin refusal from 403 to 200. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C04",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — an unauthenticated caller is refused 401 Unauthorized",
+      "outcome": "killed",
+      "reason": "Change unauthenticated refusal from 401 to 200. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C05",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/route.test.ts",
+      "test": "GET /api/admin/businesses/[id] — a bearer-transport aal2 admin is served",
+      "outcome": "killed",
+      "reason": "Drop bearer header before gate resolution. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C06",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/read-gaps.test.ts",
+      "test": "waits for business detail before reading and returning the scoped batch summary",
+      "outcome": "killed",
+      "reason": "Start batch read before awaited detail completion. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C07",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/read-gaps.test.ts",
+      "test": "returns a null batch summary for the wrong account",
+      "outcome": "killed",
+      "reason": "Replace actual account scope with another fixture account. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C08",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/read-gaps.test.ts",
+      "test": "returns a null batch summary for the wrong business",
+      "outcome": "killed",
+      "reason": "Replace requested business scope with another fixture business. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C09",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/read-gaps.test.ts",
+      "test": "returns 404 without reading batches when the business is missing",
+      "outcome": "killed",
+      "reason": "Return 200 for missing business. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C10",
+      "file": "src/app/api/admin/businesses/[id]/__tests__/read-gaps.test.ts",
+      "test": "returns the existing generic failure when the batch read fails",
+      "outcome": "killed",
+      "reason": "Swallow batch read rejection into successful null projection. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C11",
+      "file": "src/app/api/admin/businesses/options/__tests__/route.test.ts",
+      "test": "returns only betaCompActive true when the coupon is armed",
+      "outcome": "killed",
+      "reason": "Invert coupon availability. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C12",
+      "file": "src/app/api/admin/businesses/options/__tests__/route.test.ts",
+      "test": "returns only betaCompActive false when the coupon is unarmed",
+      "outcome": "killed",
+      "reason": "Invert coupon availability. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C13",
+      "file": "src/app/api/admin/businesses/options/__tests__/route.test.ts",
+      "test": "serves options to a bearer-transport AAL2 admin",
+      "outcome": "killed",
+      "reason": "Drop bearer header before gate resolution. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C14",
+      "file": "src/app/api/admin/businesses/options/__tests__/route.test.ts",
+      "test": "refuses options to an AAL1 admin before reading the coupon",
+      "outcome": "killed",
+      "reason": "Return 200 instead of AAL1 refusal. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C15",
+      "file": "src/app/api/admin/businesses/options/__tests__/route.test.ts",
+      "test": "refuses options to a non-admin before reading the coupon",
+      "outcome": "killed",
+      "reason": "Return 200 instead of non-admin refusal. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "C16",
+      "file": "src/app/api/admin/businesses/options/__tests__/route.test.ts",
+      "test": "refuses options to an unauthenticated caller before reading the coupon",
+      "outcome": "killed",
+      "reason": "Return 200 instead of unauthenticated refusal. Green individual baseline; mutant failed a behavioral assertion; exactly one test executed in each run; original blob restored."
+    },
+    {
+      "id": "E01",
+      "file": "e2e/admin-14c-runtime.spec.ts",
+      "test": "unauthenticated GET /api/admin/businesses/00000000-0000-0000-0000-000000000000 returns 401",
+      "outcome": "excluded",
+      "reason": "Playwright E2E is excluded from mutation execution by the red-team protocol. Inspected its status, content-type, and JSON error assertions for fragility."
+    }
+  ],
+  "findings": [],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 17,
+    "killed": 16,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 0,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}

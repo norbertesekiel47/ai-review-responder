@@ -44,7 +44,8 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 |-------|--------------|
 | `overview/route.ts` | Admin overview stats; delegates to `getAdminOverview`. |
 | `businesses/route.ts` | GET list (auth → parse/clamp `limit`/`offset` → `getBusinessSummaries` (**§5.2**, replacing the deleted `getAdminBusinessesList`) → JSON, echoing `limit`/`offset` on top of the service payload) + POST create (calls `AdminOnboardingService`). |
-| `businesses/[id]/route.ts` | GET / PATCH / DELETE a business; delegates to `business-detail-service`. |
+| `businesses/[id]/route.ts` | GET business detail, then its tenant-scoped `batchSummary` sequentially via `readAdminBatchSummary` (ADR 0027); PATCH delegates to `business-detail-service`. Both require admin AAL2. Channels remains separate. |
+| `businesses/options/route.ts` | GET returns only `{ betaCompActive: boolean }` behind `requireAdminWithAal2`; the coupon identifier stays server-only. |
 | `businesses/[id]/resend-invite/route.ts` | **(2026-08-14)** POST: re-sends the Supabase invite email for an admin-created owner who has never signed in. Admin + AAL2 + same-origin, mirroring the create route's guards; delegates to `src/lib/onboarding/resend-invite.ts`. Eligibility is asked of the **provider** (`auth.admin.getUserById` → `last_sign_in_at IS NULL`), never of the local `auth_id`, which is populated at creation time and so cannot distinguish "invited" from "accepted". Capped at **3 per hour per business** — the one admin action that puts mail into a third party's inbox on a button press, so an accidental click-loop can't burn sender reputation; auth runs before the limit so an unauthenticated call spends no budget. |
 | `businesses/[id]/channels/route.ts` | GET (delegates to `getBusinessChannelEnrollments`) + POST channel enrollments. |
 | `businesses/[id]/keywords/route.ts` | GET + POST ranking keywords. |
