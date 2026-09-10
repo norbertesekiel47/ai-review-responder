@@ -474,6 +474,65 @@ describe('the mutation budget', () => {
     expect(result.stderr).toContain('INCOMPLETE_BUDGET');
   });
 
+  function authorize1185(): void {
+    git('branch', '-m', 'feat/1185');
+    write('docs/reviews/red-team/feat-1185-67f43e/findings.json', JSON.stringify({
+      mode: 'feature', branch: 'feat/1185', round: 1,
+      head_sha: '0b374b6a9b76ac4eee3222d84b47eae3e359bf4d',
+      // The committed report is the immutable candidate-identity fixture for
+      // this one-ticket exception; outcomes/evidence are deliberately ignored.
+      inventory: JSON.parse(readFileSync(resolve(process.cwd(),
+        'docs/reviews/red-team/feat-1185-67f43e/findings.json'), 'utf8')).inventory
+        .filter((row: { id: string }) => /^RT-\d+$/.test(row.id))
+        .map(({ id, file, test }: { id: string; file: string; test: string }) => ({ id, file, test })),
+      authorizations: [{
+        id: 'owner-1185-budget-continuation', date: '2026-09-09', finding_ids: [],
+        text: 'Question: Approve the ticket-scoped verifier change needed to finish those 439 cases—at least 878 additional test runs? The red-team skill limits verification to “30 mutation runs per round,” which is the remaining blocker.\nOwner: I approve',
+      }],
+    }));
+  }
+
+  it('continues the approved #1185 round without resetting spent launches', () => {
+    exhausted();
+    authorize1185();
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expect(journal().runs).toBe(31);
+    const recorded = JSON.parse(read('.feature/red-team-journal.json'));
+    expect(recorded.round).toBe(1);
+    expect(recorded.budgetAuthorization).toMatchObject({
+      id: 'owner-1185-budget-continuation', maxRuns: 1400, firstRun: 31,
+    });
+  });
+
+  it('refuses launch 1401 even with #1185 owner authorization', () => {
+    exhausted();
+    authorize1185();
+    writeJournal({ ...journal(), runs: 1400 });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').stderr).toContain('budget exhausted (1400');
+    expect(journal().runs).toBe(1400);
+  });
+
+  it.each(['branch', 'round', 'head', 'inventory', 'identity', 'text', 'missing', 'malformed']) (
+    'keeps the default cap when #1185 authorization has a %s mismatch', (mismatch) => {
+      exhausted();
+      authorize1185();
+      const path = 'docs/reviews/red-team/feat-1185-67f43e/findings.json';
+      const sidecar = JSON.parse(read(path));
+      if (mismatch === 'branch') git('branch', '-m', 'feat/other');
+      if (mismatch === 'round') write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 2 }));
+      if (mismatch === 'head') sidecar.head_sha = '1'.repeat(40);
+      if (mismatch === 'inventory') sidecar.inventory.pop();
+      if (mismatch === 'identity') sidecar.inventory[0].test = 'a different candidate';
+      if (mismatch === 'text') sidecar.authorizations[0].text = 'I approve a report amendment';
+      if (mismatch === 'missing') sidecar.authorizations = [];
+      write(path, mismatch === 'malformed' ? '{' : JSON.stringify(sidecar));
+      const result = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('budget exhausted (30');
+      expect(journal().runs).toBe(30);
+    },
+  );
+
   // The budget is per ROUND, and the journal outlives a round. Without a reset
   // the second round would open already exhausted, having executed nothing.
   it('resets the counter when a new round opens', () => {

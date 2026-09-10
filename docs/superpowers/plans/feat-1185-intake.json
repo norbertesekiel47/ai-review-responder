@@ -45,6 +45,10 @@
     "Admin channel POST exports and canonical gate"
   ],
   "allowed_edit_surface": [
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    ".agents/skills/red-team/SKILL.md",
+    ".claude/skills/red-team/SKILL.md",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
     ".claude/reference/arch-review-log.md",
     "docs/directory/lib-platform.md",
     "src/proxy.ts",
