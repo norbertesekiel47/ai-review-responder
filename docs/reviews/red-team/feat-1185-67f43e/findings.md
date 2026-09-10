@@ -99,7 +99,7 @@ Environment: staging UI `https://staging.repworth.net`; worker `https://repworth
 | Remote main and staging heads | Both `07aef7a73c80f4d28d091316270325d5a584dbb9`; feature branch not yet pushed | 2026-09-10 01:56 |
 | Vercel staging alias | READY, deployment `dpl_dZtpMkPVfBTYsCJtgpeH21d9eJ2Z`, same `07aef7a7` SHA, project `prj_wIMnzHKefoQRdzCeMZesg2mIgNc0` | 2026-09-10 01:56 |
 | Mutation isolation teardown | All 1,043 process groups empty; original source and dotenv restored; journal closed | 2026-09-10 01:56 |
-| Current report commit and full verification gate | Pending before staging push | 2026-09-10 01:56 |
+| Report commit and full verification gate before staging | `7442282b1a8d06fac8606784241e3759b8be29d7`: all 29 checks passed, 14,653 tests passed / 1,184 environmental skips; fingerprint `b670ef43c4ec78408ff47e0edabf6835832a17a5038eb52e5f44199fcf79075d` current; strict red-team CLEAR and reviewed transition passed | 2026-09-10 02:08 |
 | Required Computer Use and authenticated staging-admin session | Unavailable in this execution context; positive cookie/bearer AAL2 and desktop/mobile journeys remain unproven | 2026-09-10 01:56 |
 
 ### Teardown ledger
@@ -110,7 +110,33 @@ No data fixture or flag change is planned or created. The staging code deploymen
 
 - D-OPS-1: The existing authorized report hosts this operational section; no additional tracked evidence path is introduced.
 - D-OPS-2: Computer Use and a usable authenticated staging-admin session are unavailable. HTTP refusal/preflight probes cannot substitute for positive bearer identity/liveness/role/AAL2, cookie CSRF, MFA, or browser journey evidence. The two existing staging admins are not changed. These paths remain explicitly unproven for owner disposition.
-- Deployment, exact deployed SHA, sanitized HTTP observations and final campaign verdict are pending. No staging PASS or browser verification is claimed.
+- D-OPS-3: Initial Vercel CLI invocations exited 2 before an HTTP observation. An attempted ignored repository `.vercel/project.json` was refused by the feature surface hook and was not created. Ordinary CLI metadata was instead placed in `/private/tmp/rt1185-probe-context/.vercel/project.json` using the verified nonsecret project/team IDs. A subsequent direct diagnostic identified `curl: option --cwd: is unknown`: the installed Vercel CLI forwarded the global option to curl. Running the subprocess directly from the temporary context with only the documented deployment/curl arguments resolved setup. No hook was disabled and no remote configuration changed. The initial failure was at 2026-09-10T02:14:01.635Z; successful observations follow below.
+
+### Deployment and observed requests
+
+The normal pre-push checks passed, including 996 affected tests and 1,765 guard tests (7 environment skips). The atomic push fast-forwarded only `staging` and created `feat/1185` at `7442282b1a8d06fac8606784241e3759b8be29d7`. Main remained `07aef7a73c80f4d28d091316270325d5a584dbb9` at the immediate pre-push check.
+
+Vercel deployment `dpl_ACuYDLWuzkFXPjkSCTothcNF5vmY`, URL `https://rep-worth-lpipjkg53-norbert-esekiels-projects.vercel.app`, reached READY with Git ref `staging` and exact SHA `7442282b1a8d06fac8606784241e3759b8be29d7`. The `staging.repworth.net` alias was re-resolved to this same deployment and SHA after the probes at 2026-09-10 02:18:01 UTC.
+
+Requests used `vercel curl <path> --deployment <the exact URL> -- --silent --show-error --include --max-time 30 <case arguments>`, with CLI telemetry disabled and deployment protection retained. A scratch capture script retained only status, an allowlist of response headers, a known error enum and the boolean presence of Set-Cookie. It never printed or persisted cookies, protection credentials or arbitrary response content. Only fake `Basic invalid` and `Bearer invalid-test-token` Authorization values were sent.
+
+| UTC on 2026-09-10 | Request / expected | Observed | Result |
+|---|---|---|---|
+| 02:17:12.804 | GET `/api/admin/overview`, anonymous; 401 | 401, `{"error":"Unauthorized"}`, `Vary: Origin`; legacy anonymous response `Cache-Control: public, max-age=0, must-revalidate` | PASS for anonymous refusal only |
+| 02:17:13.789 | Same GET, malformed Authorization; 401 | 401, `{"error":"Unauthorized"}`, `Cache-Control: no-store, private`, `Vary: Origin` | PASS |
+| 02:17:15.379 | Same GET, syntactically formed invalid bearer; 401 | 401, `{"error":"Unauthorized"}`, `Cache-Control: no-store, private`, `Vary: Origin` | PASS |
+| 02:17:16.304 | Same GET, invalid bearer + allowed admin Origin; 401 with CORS | 401, no-store/private, `Access-Control-Allow-Origin: https://admin.staging.repworth.net`, `Vary: Origin`; no Allow-Credentials | PASS |
+| 02:17:17.180 | OPTIONS `/api/admin/suppressions/lookup`, allowed Origin, requested POST + authorization/content-type; 204 | 204; exact allowed Origin; methods `GET, POST, PUT, PATCH, OPTIONS`; headers `Authorization, Content-Type`; `Vary: Origin`; no Allow-Credentials | PASS |
+| 02:17:18.073 | GET overview, Origin `https://untrusted.example`; 403 | 403, `{"error":"origin"}`, `Vary: Origin`; no Allow-Origin or Allow-Credentials | PASS |
+| 02:17:19.208 | POST read-only suppression lookup, `{}`, invalid bearer + allowed Origin; 401 | 401, `{"error":"Unauthorized"}`, no-store/private, exact allowed Origin, `Vary: Origin`; no Allow-Credentials | PASS |
+
+All seven responses had no Set-Cookie. These are negative/preflight observations, not proof of successful bearer authorization, cookie fallback behavior, live AAL2 or MFA. Raw sanitized observations and the capture script remain at `/private/tmp/rt1185-staging-observations.json` and `/private/tmp/rt1185-staging-probes.mjs`.
+
+### Campaign verdict and teardown
+
+**Overall: FAIL — required authenticated/browser paths remain unproven.** Deployment identity and all seven refusal/preflight probes passed. D-OPS-2 remains an explicit environment blocker for owner disposition; no desktop/mobile screenshot or authenticated-admin journey is claimed. No product defect was established by these probes and no bug ticket was created. No staging account, data fixture, flag, provider setting or remote environment value was changed by the probes, so the data/flag teardown ledger is complete with zero fixture rows. The code deployment intentionally remains on staging for review. UTC end: 2026-09-10 02:18:01.
+
+The subsequent PR evidence commit changes only this report. The deployed/tested SHA remains `7442282b1a8d06fac8606784241e3759b8be29d7`; later report-only content is not described as having been deployed. The final local gate and PR record cover the later artifact commit separately, avoiding a self-referential deployment/evidence loop.
 
 ## Complete current-head inventory
 
