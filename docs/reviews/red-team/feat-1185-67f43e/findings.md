@@ -194,6 +194,12 @@ All files below are local operational artifacts, not new tracked repository path
 
 The verifier released session references after its one-shot checks. The lead then sent SIGTERM to the verified exact process (PID 51721), observed its owning execution session exit 0, and confirmed no listener remained on 127.0.0.1:63307 at 03:39:47 UTC. Shutdown aborted pending requests and ended the process; no claim of JavaScript RAM zeroization or revocation of the fresh Supabase session is made, and no global logout was performed. Browser tabs remain with the owner; viewport restored. The staging code deployment remains for merge review. Subsequent commits change only this report, preserving the actual deployed SHA and frozen mutation pin.
 
+### Final report gate retry provenance
+
+The full review gate at report commit `49fe4ffa5b34f1d468facc23b943b83ce688ae39` completed at approximately 03:56 UTC with 28/29 checks passing; the full-test row alone failed. It reported 14,649 passing tests, four failures and 1,184 environmental skips over 791.01 seconds. All four failures were explicit timeouts: `review-qr.test.ts` print-width encoding (15,000 ms), `PastRepliesClient.test.tsx` filtered denominator (5,000 ms), and two `SuppressionsClient.test.tsx` receipt/correction cases (5,000 ms each). The raw log was preserved at `/private/tmp/rt1185-final-gate-round-1-test.log`, and `gateFailRounds` was incremented to 1 before retry.
+
+The same three suites then passed unchanged, 53/53 tests in 17.47 seconds, using one worker at 03:57 UTC. Host contention is an inference supported by active-worker observations and the unchanged isolated pass, not an assertion that every timeout must be environmental. The required full gate will be rerun with supported `VITEST_WORKERS=1 VITEST_MAX_WORKERS=1` controls and Sentry upload authorization empty; its actual outcome/fingerprint and normal-hook push result are recorded in the PR rather than recursively changing this report after the final gate. No test, timeout, hook or required check was changed or bypassed.
+
 ## Complete current-head inventory
 
 Every row below has a green individual baseline and a caught individual semantic mutant at the measured HEAD. Exact from/to replacements, full evidence hashes, original/mutant OIDs and historical reasons are in the matching `findings.json` row. The actual assertion below is a concise sanitized excerpt, not a claim about untested properties.
