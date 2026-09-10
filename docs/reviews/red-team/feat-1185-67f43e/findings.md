@@ -90,6 +90,8 @@ These 14 kills belong to original HEAD `0b374b6a9b76ac4eee3222d84b47eae3e359bf4d
 
 ## Staging operational evidence — #1185
 
+**Current campaign verdict: PASS, completed 2026-09-10 03:39:47 UTC.** The authenticated continuation below closes the initial environment blocker. Historical observations and their original FAIL verdict remain intact; the precise browser/server-client verification boundaries are recorded separately.
+
 This section is separate from the mutation measurements above. It follows `docs/runbooks/deployment-guide.md` §II.5; the owner-authorized existing evidence path is used to preserve the frozen measured source. Campaign start: 2026-09-10 01:56:03 UTC. Initial local source HEAD: `ce82503b999cea01a2b658b8da1518a6b77e7ec5`.
 
 Environment: staging UI `https://staging.repworth.net`; worker `https://repworth-worker-staging.up.railway.app`. The documented staging Supabase project is `kubdiqdhqbhwmqfditeg`; production `udeyaqnvpojbwgoaxwdg` is NEVER a target of this campaign. Stripe operations are not exercised. Only deliberately invalid authorization literals and anonymous read-only requests are planned; no login credentials, admin creation/reset, fixtures, migrations, flag changes, provider calls or database writes are authorized by these probes.
@@ -132,11 +134,65 @@ Requests used `vercel curl <path> --deployment <the exact URL> -- --silent --sho
 
 All seven responses had no Set-Cookie. These are negative/preflight observations, not proof of successful bearer authorization, cookie fallback behavior, live AAL2 or MFA. Raw sanitized observations and the capture script remain at `/private/tmp/rt1185-staging-observations.json` and `/private/tmp/rt1185-staging-probes.mjs`.
 
-### Campaign verdict and teardown
+### Initial campaign verdict and teardown — superseded by authenticated continuation
 
 **Overall: FAIL — required authenticated/browser paths remain unproven.** Deployment identity and all seven refusal/preflight probes passed. D-OPS-2 remains an explicit environment blocker for owner disposition; no desktop/mobile screenshot or authenticated-admin journey is claimed. No product defect was established by these probes and no bug ticket was created. No staging account, data fixture, flag, provider setting or remote environment value was changed by the probes, so the data/flag teardown ledger is complete with zero fixture rows. The code deployment intentionally remains on staging for review. UTC end: 2026-09-10 02:18:01.
 
 The subsequent PR evidence commit changes only this report. The deployed/tested SHA remains `7442282b1a8d06fac8606784241e3759b8be29d7`; later report-only content is not described as having been deployed. The final local gate and PR record cover the later artifact commit separately, avoiding a self-referential deployment/evidence loop.
+
+### Authenticated continuation — 2026-09-10
+
+The owner subsequently signed in with an existing staging admin and its existing authenticator. Browser control was available through the orchestrator's in-app Browser connection; the feature lead's isolated browser runtime had no connection, so the orchestrator exclusively performed the UI actions and supplied sanitized observations/screenshots. No cookies, local storage, browser session stores, passwords, tokens or MFA codes were read by the agents. The feature lead owned the separate verifier, report and gates.
+
+The staging API remained deployment `dpl_ACuYDLWuzkFXPjkSCTothcNF5vmY` at exact SHA `7442282b1a8d06fac8606784241e3759b8be29d7`. The admin-app alias resolved through ordinary `vercel inspect admin.staging.repworth.net --format=json` to READY staging deployment `dpl_HkLGQ4AehVBiY5GZmCxgDeoJJR97`, URL `https://admin-dhkm4rp8c-norbert-esekiels-projects.vercel.app`. GitHub admin-app deployment `6321562926` reports success at that exact URL and SHA `500fabe44f018271d3b70eced12d4533b9ef2bf3`, matching the inspected local source. An earlier connector project lookup was denied; no permission/configuration changes were made. The documented CLI supplied the alias mapping.
+
+| Browser journey | Expected and observed | Result |
+|---|---|---|
+| Legacy `https://staging.repworth.net/admin/overview` after owner sign-in | Fully rendered admin sidebar, Overview, live health tiles, and `Step-up verified (AAL2)` | PASS |
+| Legacy suppressions lookup, `not-an-email` | Exact visible validation alert `That is not a valid email address`; read-only POST traverses the cookie arm and canonical AAL2 gate | PASS |
+| Same lookup, `codex-1185-no-match@example.test` | `Not suppressed` and `No corrections recorded`; no fixture rows created | PASS |
+| Legacy desktop 1440×900 and mobile 390×844 | Success/error layouts inspected, mobile navigation expanded/collapsed, AAL2 visible; viewport restored | PASS |
+| Separate `https://admin.staging.repworth.net/admin/overview`, desktop/mobile | AAL2 shell rendered without visible errors; overview explicitly remains a Gate B placeholder and no nonzero badge appeared | PASS for shell/layout only |
+
+The initial legacy `/admin` URL showed a marketing-shell 404 because `from=/admin` had been requested: source has no `/admin/page.tsx`, and the existing login default is `/admin/overview`. Navigating to that source-grounded route succeeded. This unchanged routing behavior is not an authentication failure or a #1185 regression.
+
+The pinned admin-app sidebar is the existing bearer browser client: `nav-counts-query.ts` polls `/api/admin/nav-counts` every 60 seconds through `adminApiBrowserFetch`, whose fetch seam sets Authorization and `credentials: 'omit'`. Narrow aggregate runtime logs for the exact API deployment/path during 03:15–03:20 UTC returned six HTTP 200 and one HTTP 204 entries. The tool reported three distinct values but displayed only two, so this is not a complete status distribution. Together with the deployed source and timed sign-in, these observations corroborate the browser bearer GET; transport attribution is an inference, not a captured request header. Zero/absent badges and the placeholder alone do not establish an API success.
+
+### Live bearer POST verifier and results
+
+The starter admin-app has no bearer POST UI. To verify #1185 without implementing #1197, the owner-authorized operational verifier was created outside the repository at `/private/tmp/1185-staging-post-verifier.mjs`, SHA-256 `672851c4f94b64f927eb7ee4bbeee92eaab26f6cab07cd85c2e7dc450a523423`. It used installed Supabase JS 2.106.2 and an enabled **publishable** staging key obtained through the publishable-keys tool; mismatched local environment configuration was detected and not used. No service key was used.
+
+The verifier bound only 127.0.0.1 on a random port, enforced exact Host/Origin plus random HttpOnly session/CSRF tokens, blocked redirects and all destinations except the exact staging auth endpoints and read-only lookup POST, and expired after 15 minutes. The owner entered fresh staging credentials and an existing TOTP directly into its page. SDK persistence/auto-refresh were disabled, input fields cleared on submission, and no credential/session data was logged or saved by the verifier. It performed no enrollment, reset, account creation, global logout or production request. Browser password-manager saving was discouraged explicitly, not claimed to be controllable by the verifier.
+
+Independent read-only security reviewer `/root/finish_1185/ephemeral_verifier_review` approved the final client after two P2 guard issues were fixed before execution: effective Request-method validation and non-ASCII timing-safe comparison failure. Transport errors were also sanitized before SDK logging and shutdown was wired to abort pending requests. A preliminary MFA-regex finding was withdrawn after checking raw characters. The two isolated fixture tests then passed; auth/API calls were mocked and all destination-rejection tests intercepted fetch before invocation. The first fixture run's Host test was corrected to raw loopback HTTP because Node fetch normalized its forged Host. Test source SHA-256: `10d58cc52af2cd3f66072532a590922305b510d2da755a035d584432b0488790`. These are operational-client checks, not extra production mutations or a new red-team round.
+
+After the UI reported a fresh AAL2 session, the orchestrator clicked `Run three read-only checks`. Each request used the freshly authenticated verifier's bearer, no cookie, and only `{"email":"codex-1185-no-match@example.test"}` at `/api/admin/suppressions/lookup`.
+
+| UTC | Server-client Origin case | Observed | Result |
+|---|---|---|---|
+| 03:38:17.698 | `https://admin.staging.repworth.net` | 200; expected handle, zero rows/corrections; no-store/private; exact allowed Origin; no Allow-Credentials or Set-Cookie | PASS |
+| 03:38:18.354 | Origin absent | 200; same empty lookup; no-store/private; no Allow-Origin, Allow-Credentials or Set-Cookie | PASS |
+| 03:38:18.474 | `https://untrusted.example` | 403, `origin`; no Allow-Origin, Allow-Credentials or Set-Cookie | PASS |
+
+These prove successful live AAL2 bearer POST through the proxy, canonical gate and CSRF exemption, plus the disallowed-Origin refusal. The Origin headers were deliberately simulated by a server client: this is **not browser bearer POST/CORS proof**, and it does not implement or prove the later #1197 D9 retry-on-`mfa_required` loop. The existing browser GET and earlier preflight provide their own limited evidence. Cookie cross/missing-Origin refusal, owner-with-bearer CSRF enforcement, malformed header beside a cookie, and impersonation boundaries are established by the already passing local tracers and mutation evidence, not claimed as live-browser attack tests.
+
+### Sanitized screenshots and final teardown
+
+All files below are local operational artifacts, not new tracked repository paths. Timestamps are screenshot file recording times in UTC, not invented request timestamps.
+
+| Screenshot in `/private/tmp/` | Recorded UTC | SHA-256 |
+|---|---|---|
+| `1185-cookie-lookup-invalid-desktop.png` | 03:13:00 | `37d1da1b0bae0211ec37da8e3d49a551ca6e3b6c415e19b3db2dc0cdd804608b` |
+| `1185-cookie-lookup-success-desktop.png` | 03:13:20 | `699aba06cb112c73f5f763a4ed16970dedd3a169d146b85d30c5058dcac66889` |
+| `1185-cookie-lookup-invalid-mobile.png` | 03:13:47 | `80ab672f9b6404fde180ec70be4b8129606b449b23584829abbe90f19acbd2c9` |
+| `1185-cookie-lookup-success-mobile.png` | 03:13:27 | `8e539b3c43a1be6ac5a185c74a47659853342759390f8b8cfed79d12a93cbf50` |
+| `1185-admin-app-shell-desktop.png` | 03:20:44 | `f9442a056af888584318e6db456d77382f7ccd4c10912a30c15e6977e0d64271` |
+| `1185-admin-app-shell-mobile.png` | 03:23:12 | `887385a6e9758a0742f5e2e0554defe3d221ea239f0464b73b04e6db419479ca` |
+| `1185-bearer-post-results.png` | 03:38:32 | `37dfc1d5d813b5772cf1d45a370a20ed7f999aa62760938f403e9bec4726c44e` |
+
+**Final verdict: PASS for #1185's scoped campaign.** D-OPS-2 is resolved by the authenticated continuation, with each verification method's limits above. No open #1185 staging path or product defect remains; the separate #1197 handshake work remains queued. No fixture rows, flags, account attributes, factor enrollment, provider settings or production state changed. Normal fresh sign-in/challenge/verification occurred only for an existing staging admin.
+
+The verifier released session references after its one-shot checks. The lead then sent SIGTERM to the verified exact process (PID 51721), observed its owning execution session exit 0, and confirmed no listener remained on 127.0.0.1:63307 at 03:39:47 UTC. Shutdown aborted pending requests and ended the process; no claim of JavaScript RAM zeroization or revocation of the fresh Supabase session is made, and no global logout was performed. Browser tabs remain with the owner; viewport restored. The staging code deployment remains for merge review. Subsequent commits change only this report, preserving the actual deployed SHA and frozen mutation pin.
 
 ## Complete current-head inventory
 
