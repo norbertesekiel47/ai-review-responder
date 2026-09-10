@@ -230,7 +230,7 @@ describe('PATCH /api/admin/businesses/[id] — ownerEmail enrollment sync', () =
 // cache semantics of an admin refusal silently changed.
 describe('GET /api/admin/businesses/[id] — the admin MFA gate (#1184)', () => {
   const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null };
-  const DETAIL = { business: { id: 'biz-1', name: 'Test Cafe' } };
+  const DETAIL = { business: { id: 'biz-1', name: 'Test Cafe' }, account: { id: 'acct-1' } };
 
   beforeEach(() => {
     vi.clearAllMocks();

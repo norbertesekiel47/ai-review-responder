@@ -12,6 +12,7 @@ import {
 import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { readAdminBatchSummary } from '@/lib/solicitation/batch-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,9 @@ export async function GET(
     if (!detail) {
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
-    return NextResponse.json(detail);
+    // ADR 0027: keep the two read chains sequential against DB_POOL_MAX=3.
+    const batchSummary = await readAdminBatchSummary(sql, detail.account.id, businessId);
+    return NextResponse.json({ ...detail, batchSummary });
   } catch (error) {
     reportCaughtError('api/admin/businesses/[id] GET', error, { businessId });
     return NextResponse.json({ error: 'Failed to fetch business' }, { status: 500 });
