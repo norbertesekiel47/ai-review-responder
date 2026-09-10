@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "category": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 100
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tone": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "productsServices": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 5000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "staffNames": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 100
+      }
+    },
+    "highlightFacts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      }
+    },
+    "avoidFacts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      }
+    },
+    "website": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 500
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ownerEmail": {
+      "type": "string",
+      "maxLength": 255,
+      "format": "email",
+      "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+    },
+    "ownerEmailBounced": {
+      "type": "boolean"
+    }
+  },
+  "x-repworth-source": "src/lib/shared/schemas.ts:181:37",
+  "x-repworth-approximation": true,
+  "x-repworth-limitations": [
+    {
+      "kind": "refinement",
+      "path": "$.website",
+      "operation": "refine",
+      "source": "(val) => {\n      try {\n        const url = new URL(val);\n        return url.protocol === 'http:' || url.protocol === 'https:';\n      } catch {\n        return false;\n      }\n    }"
+    },
+    {
+      "kind": "refinement",
+      "path": "$",
+      "operation": "refine",
+      "source": "(data) => Object.keys(data).length > 0"
+    }
+  ]
+}

@@ -228,14 +228,9 @@ import ts from 'typescript';
  * ANY of these needs the gate (#1184 — see the ROUTES paragraph in the header
  * for why this is the whole set and not the mutation verbs).
  *
- * Deliberately NOT exported. `ci:admin-contract` (#1190, ADR 0028 D2) will
- * enumerate the same handlers to build the **Admin API contract**'s route table
- * and must reuse this list and this file's gate resolver rather than write a
- * second reader — two readers of the same gate shape can disagree, and a
- * disagreement there understates a route's posture in a document a stranger
- * codes against. #1190 adds the `export` keyword when it has that consumer; an
- * export with no consumer in the tree is what `ci:fallow` flags (the same
- * reason #1183 withheld `IdentityTransportError`).
+ * `describeRouteHandlers` exposes this inventory and the same provenance
+ * resolver to the Admin API contract generator (#1190, ADR 0028 D2). Keep the
+ * list private so consumers cannot combine it with a second gate parser.
  */
 const HANDLER_VERBS = [
   'GET',
@@ -539,6 +534,8 @@ function importedAs(
 }
 
 interface GateEvidence {
+  /** Canonical imported names, shared with the generated Admin API contract. */
+  names: Set<string>;
   /** A CALL to requireAdminWithAal2 — an import alone can never set this. */
   callsGate: boolean;
   /** resolveAdminActor referenced as a value (called, or passed as `resolveActor:`). */
@@ -562,7 +559,7 @@ interface GateEvidence {
  * yields no evidence and is reported.
  */
 function collectGateEvidence(index: ModuleIndex, start: ts.Node): GateEvidence {
-  const evidence: GateEvidence = { callsGate: false, bindsAdminResolver: false };
+  const evidence: GateEvidence = { callsGate: false, bindsAdminResolver: false, names: new Set() };
   const visited = new Set<string>();
   const queue: ts.Node[] = [start];
 
@@ -571,14 +568,18 @@ function collectGateEvidence(index: ModuleIndex, start: ts.Node): GateEvidence {
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
         const callee = node.expression;
-        if (GATE_FNS.some((fn) => importedAs(index, callee, fn, CANONICAL.gate))) {
-          evidence.callsGate = true;
+        for (const fn of GATE_FNS) {
+          if (importedAs(index, callee, fn, CANONICAL.gate)) {
+            evidence.callsGate = true;
+            evidence.names.add(fn);
+          }
         }
       }
 
       if (isValueIdentifier(node)) {
         if (importedAs(index, node, ADMIN_RESOLVER, CANONICAL.resolver)) {
           evidence.bindsAdminResolver = true;
+          evidence.names.add(ADMIN_RESOLVER);
         }
         // Follow local declarations — `withSameOrigin()(createBusiness)`.
         const local = index.locals.get(node.text);
@@ -681,6 +682,21 @@ export function scanRouteFile(path: string, text: string): string[] {
     );
   }
   return findings;
+}
+
+/** Contract consumer of the SAME export index, reachability and provenance rule. */
+export function describeRouteHandlers(path: string, text: string): Array<{
+  method: string;
+  gates: string[];
+}> {
+  const findings = scanRouteFile(path, text);
+  if (findings.length > 0) throw new Error(findings.join('\n'));
+  const index = indexModule(text, path);
+  return HANDLER_VERBS.filter((method) => index.exports.has(method)).map((method) => {
+    const node = index.exports.get(method);
+    if (!node) throw new Error(`${path}: unresolved ${method}`);
+    return { method, gates: [...collectGateEvidence(index, node).names].sort() };
+  });
 }
 
 /**

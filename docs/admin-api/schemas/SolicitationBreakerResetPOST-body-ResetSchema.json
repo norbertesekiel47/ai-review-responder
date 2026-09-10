@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    }
+  },
+  "required": [
+    "note"
+  ],
+  "additionalProperties": false,
+  "x-repworth-source": "src/app/api/admin/solicitation/breaker/reset/route.ts:25:21",
+  "x-repworth-approximation": true,
+  "x-repworth-limitations": [
+    {
+      "kind": "normalization",
+      "path": "$.note",
+      "operation": "trim",
+      "source": "z.string().trim()"
+    }
+  ]
+}

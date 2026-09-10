@@ -1,0 +1,90 @@
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { auditContractFiles, checkRouteTable, emitPortableDeclarations, generateAdminContract } from '../admin-contract-audit';
+
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+describe('admin contract audit', () => {
+  it('fails on edited declarations and missing or stale route rows', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'admin-contract-audit-')); roots.push(root);
+    const files = new Map([['admin-api.d.ts', 'export type Result = string;\n'], ['README.md', 'generated\n']]);
+    for (const [file, contents] of files) writeFileSync(join(root, file), contents);
+    expect(await auditContractFiles(root, files)).toEqual([]);
+    writeFileSync(join(root, 'admin-api.d.ts'), 'export type Result = number;\n');
+    expect((await auditContractFiles(root, files)).join('\n')).toContain('admin-api.d.ts');
+    mkdirSync(join(root, 'schemas')); writeFileSync(join(root, 'schemas/stale.json'), '{}');
+    expect((await auditContractFiles(root, files)).join('\n')).toContain('stale.json');
+    const rows = [{ path: '/api/admin/test', methods: ['GET'], gates: ['GET: requireAdminWithAal2'] }];
+    expect(checkRouteTable('| `/api/admin/test` | GET | GET: requireAdminWithAal2 | none | Test | 200 |', rows)).toEqual([]);
+    expect(checkRouteTable('', rows).join()).toContain('missing');
+    expect(checkRouteTable('| `/api/admin/gone` | GET | GET: requireAdminWithAal2 | none | Test | 200 |', rows).join()).toContain('stale');
+  });
+
+  it('detects route method and gate provenance drift', () => {
+    const rows = [{ path: '/api/admin/test', methods: ['GET', 'POST'], gates: ['GET: requireAdminWithAal2', 'POST: requireAdminJson'] }];
+    expect(checkRouteTable('| `/api/admin/test` | GET | GET: requireAdminWithAal2 | none | Test | 200 |', rows).join()).toContain('methods');
+    expect(checkRouteTable('| `/api/admin/test` | GET, POST | GET: requireRole<br>POST: requireAdminJson | none | Test | 200 |', rows).join()).toContain('gate');
+  });
+
+  it('emits standalone declarations without repository aliases', () => {
+    const declaration = emitPortableDeclarations('export type Result = { name: string; nested: {value: number | null} };');
+    expect(declaration).toContain('export type Result');
+    expect(declaration).not.toContain('@/');
+    expect(() => emitPortableDeclarations('export type Result = MissingPrivateName;')).toThrow('MissingPrivateName');
+  });
+
+  it('reproduces the current contract including enriched responses and existing DTO exports', async () => {
+    const generated = await generateAdminContract(process.cwd());
+    expect(await auditContractFiles(resolve('docs/admin-api'), generated.files)).toEqual([]);
+    const declarations = generated.files.get('admin-api.d.ts')!;
+    for (const name of ['DemoListItem', 'SuspendedPolicyListItem', 'SendBreakerState', 'BusinessDetailResponse']) {
+      expect(declarations).toContain(`export type ${name} =`);
+    }
+    expect(declarations).toMatch(/export type BusinessesIdGETResponse =[\s\S]*?"batchSummary"/);
+    expect(declarations).toMatch(/export type BusinessesOptionsGETResponse =[\s\S]*?"betaCompActive": false \| true/);
+    expect(generated.rows.find((row) => row.path === '/api/admin/businesses/options')).toEqual({
+      path: '/api/admin/businesses/options', methods: ['GET'], gates: ['GET: requireAdminWithAal2'],
+    });
+  });
+
+  it('regenerates an isolated contract and rejects drift through the real CLI', () => {
+    const root = mkdtempSync(join(tmpdir(), 'admin-contract-cli-')); roots.push(root);
+    const files = {
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', paths: { '@/*': ['./src/*'] } } }),
+      'src/lib/admin/dto.ts': 'export interface Example { name: string; }',
+      'src/lib/admin/api-contract.ts': "export type { Example } from './dto';",
+      'src/lib/auth/admin-mfa-gate.ts': 'export async function requireAdminWithAal2(_req: Request) { return {ok: true}; }',
+      'src/app/api/admin/example/route.ts': `import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+        import { z } from 'zod';
+        const Input = z.object({name: z.string().trim().min(1)});
+        export async function POST(req: Request) {
+          await requireAdminWithAal2(req);
+          const parsed = Input.safeParse(await req.json());
+          return Response.json({success: parsed.success}, {status: 201});
+        }`,
+    };
+    for (const [file, contents] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, file)), { recursive: true }); writeFileSync(join(root, file), contents);
+    }
+    symlinkSync(resolve('node_modules'), join(root, 'node_modules'), 'dir');
+    const run = (...args: string[]) => spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/ci/admin-contract-audit.ts'), ...args], {
+      cwd: root, encoding: 'utf8', timeout: 120_000,
+    });
+    const generated = run('--write');
+    expect(generated.stderr).toBe(''); expect(generated.status).toBe(0);
+    const audit = run(); expect(audit.status, audit.stderr).toBe(0);
+    const destination = join(root, 'docs/admin-api');
+    expect(readFileSync(join(destination, 'README.md'), 'utf8')).toContain('POST: 201');
+    const schema = JSON.parse(readFileSync(join(destination, 'schemas/ExamplePOST-body-Input.json'), 'utf8'));
+    expect(schema).toMatchObject({ 'x-repworth-approximation': true, properties: {name: {type: 'string', minLength: 1}} });
+    writeFileSync(join(destination, 'admin-api.d.ts'), 'changed');
+    const drift = run(); expect(drift.status).toBe(1); expect(drift.stderr).toContain('changed artifact admin-api.d.ts');
+    writeFileSync(join(destination, 'schemas/stale.json'), '{}');
+    expect(run('--write').status).toBe(0);
+    expect(existsSync(join(destination, 'schemas/stale.json'))).toBe(false);
+    expect(run().status).toBe(0);
+  });
+});
