@@ -8,6 +8,8 @@ function location(node: ts.Node): string {
   return `${file.fileName}:${file.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
 }
 
+const typeRenderings = new WeakMap<ts.TypeChecker, Map<ts.Type, Array<string | undefined>>>();
+
 /** Expand compiler types into a portable closure, without repository import aliases. */
 export function renderJsonType(
   checker: ts.TypeChecker,
@@ -16,6 +18,22 @@ export function renderJsonType(
   wire = true,
   nested = false,
   parents: ReadonlySet<ts.Type> = new Set(),
+): string {
+  let cache = typeRenderings.get(checker);
+  if (!cache) { cache = new Map(); typeRenderings.set(checker, cache); }
+  const slot = Number(wire) * 2 + Number(nested);
+  const previous = cache.get(type)?.[slot];
+  if (previous !== undefined) return previous;
+  const rendered = renderUncachedJsonType(checker, type, at, wire, nested, parents);
+  const entries = cache.get(type) ?? [];
+  entries[slot] = rendered;
+  cache.set(type, entries);
+  return rendered;
+}
+
+function renderUncachedJsonType(
+  checker: ts.TypeChecker, type: ts.Type, at: ts.Node,
+  wire: boolean, nested: boolean, parents: ReadonlySet<ts.Type>,
 ): string {
   const render = (value: ts.Type, child = true) => renderJsonType(checker, value, at, wire, child, new Set([...parents, type]));
   if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
@@ -89,6 +107,31 @@ export interface ResponseShape {
 
 interface Binding { node: ts.Node; env: Bindings }
 type Bindings = ReadonlyMap<ts.Symbol, Binding>;
+
+// A program is immutable. Index constructor call sites once, rather than walk
+// every imported application's AST again for each route/domain-error status.
+const constructorIndexes = new WeakMap<ts.Program, Map<ts.Symbol, ts.NewExpression[]>>();
+
+function constructorCalls(program: ts.Program, owner: ts.Symbol): readonly ts.NewExpression[] {
+  let index = constructorIndexes.get(program);
+  if (!index) {
+    index = new Map();
+    const checker = program.getTypeChecker();
+    const walk = (node: ts.Node): void => {
+      if (ts.isNewExpression(node)) {
+        const symbol = checker.getSymbolAtLocation(node.expression);
+        const target = symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+        if (target) index!.set(target, [...(index!.get(target) ?? []), node]);
+      }
+      ts.forEachChild(node, walk);
+    };
+    for (const file of program.getSourceFiles()) {
+      if (!file.isDeclarationFile && !/(?:node_modules|__tests__|\.test\.|\.spec\.)/.test(file.fileName)) walk(file);
+    }
+    constructorIndexes.set(program, index);
+  }
+  return index.get(owner) ?? [];
+}
 
 /** Bounded call-site analysis. It never evaluates application JavaScript. */
 export function describeResponses(program: ts.Program, source: ts.SourceFile, method: string): ResponseShape[] {
@@ -237,19 +280,12 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
         }
         if (parameter >= 0) {
           const values: number[] = [];
-          for (const file of program.getSourceFiles()) {
-            if (file.isDeclarationFile || /(?:node_modules|__tests__|\.test\.|\.spec\.)/.test(file.fileName)) continue;
-            const walk = (child: ts.Node): void => {
-              if (ts.isNewExpression(child) && symbolAt(child.expression) === owner) {
-                const argument = child.arguments?.[parameter] ?? constructor.parameters[parameter]?.initializer;
-                if (!argument) throw new Error(`${location(child)}: missing status constructor argument`);
-                const derived = finiteStatuses(argument, new Map(), depth + 1);
-                if (!derived.length) throw new Error(`${location(argument)}: unresolved status constructor argument`);
-                values.push(...derived);
-              }
-              ts.forEachChild(child, walk);
-            };
-            walk(file);
+          for (const call of constructorCalls(program, owner)) {
+            const argument = call.arguments?.[parameter] ?? constructor.parameters[parameter]?.initializer;
+            if (!argument) throw new Error(`${location(call)}: missing status constructor argument`);
+            const derived = finiteStatuses(argument, new Map(), depth + 1);
+            if (!derived.length) throw new Error(`${location(argument)}: unresolved status constructor argument`);
+            values.push(...derived);
           }
           return values;
         }
