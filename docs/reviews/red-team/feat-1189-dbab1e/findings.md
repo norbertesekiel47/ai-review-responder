@@ -333,11 +333,12 @@ repository hook/config file.
 
 ## Staging campaign evidence and teardown ledger
 
-**Campaign status: BLOCKED — authenticated API proof remains open.** This record was opened at
+**Campaign status: PASS — API, desktop/mobile browser, and teardown complete.** This record was opened at
 2026-09-10T11:38:03Z before staging setup or helper authentication. The candidate
-is READY on staging; desktop/mobile browser acceptance passed. The first
-isolated helper run expired without a login attempt, so API acceptance remains
-unproven. Teardown for that run is complete at 2026-09-10T12:19:23Z.
+is READY on staging; desktop/mobile browser acceptance passed. The corrected
+isolated helper proved all three API reads and confirmed local logout.
+All helper/probe process cleanup is complete at 2026-09-10T21:27:56Z.
+Earlier incomplete attempts and their cleanup remain preserved below.
 No staging PASS is claimed by the preceding independent reports.
 
 Environment and fixed scope:
@@ -405,7 +406,7 @@ fixed_missing_business_absent=true.
 | Candidate report commit and fresh gate | PASS | Commit 57af3d9786413d37f5ce531ca66e67d24528d0bb; all 32 full-gate rows passed; 14,665 tests passed / 1,184 skipped; test runtime 374.75 seconds. Fingerprint 3789716147e025faa32fe4cc96111661606661afa996c0f214449093d4a16e95. |
 | Candidate Vercel deployment READY and runtime-source identity | PASS | dpl_Epjm5UxkSNSA4K7Qpkfrr3YF4GnU at the candidate SHA; READY 2026-09-10T11:59:07.947Z; only two report files differ from the reviewed runtime pin. |
 | Designated fixture/account and missing-ID read-only recheck | PASS | Fixed-ID SQL and boolean/count results above, 2026-09-10T11:58:36Z; no broader lookup or fixture creation. |
-| Browser/operator authentication | PARTIAL / BLOCKED | Existing cookie-AAL2 HTML regression passed. Root opened the isolated helper and handed credential/MFA entry to the owner; its eight-minute run ended without any session attempt. API proof awaits a fresh owner-ready handoff. |
+| Browser/operator authentication | PASS | Existing cookie-AAL2 desktop/mobile HTML regression passed; owner-completed fresh password/MFA in the reviewed corrected helper produced the three API proofs and confirmed local logout at 21:27 UTC. |
 
 The candidate staging push completed normally after all 25 unchanged pre-push
 checks passed under the documented serial scheduling override (58.23 seconds).
@@ -421,24 +422,75 @@ installation sync; the actual pre-push command summary contains all 25 passes.
 | Helper-created auth session | First isolated run only; cleanup obligation opened at 2026-09-10T12:10Z | Original TTL shutdown reported “no session attempted”; no session existed to sign out. | COMPLETE at approximately 2026-09-10T12:19:02Z; no auth session created. |
 | Loopback GET helper process | Reviewed source SHA-256 6d851b260755e45527eed807bd759246d4cef0b165bf0f9bc0981b1ddf356361; 127.0.0.1:60783, owned exec session 10913, PID 36642 | Original eight-minute TTL; owned session exited 0. Elevated lsof and ps returned no listener/process at 2026-09-10T12:19:23Z. | COMPLETE; process and listener absent. |
 | Designated staging records | Existing fixed account/business only | Read-only campaign; no fixture creation or data cleanup required. | No writes planned or performed. |
+| Second helper-created auth session | Owner-ready resume, 2026-09-10T21:11Z; isolated reviewed helper only | After outer local request rejection, normal SIGTERM shutdown reported “no session attempted.” | COMPLETE; no auth session created. |
+| Second loopback helper process | Exact approved SHA-256 6d851b260755e45527eed807bd759246d4cef0b165bf0f9bc0981b1ddf356361; 127.0.0.1:51441, owned exec session 71967, PID 28124, launch 2026-09-10T21:12:16Z | SIGTERM through original shutdown; owned exec exited 0. Elevated lsof/ps confirmed process and listener absent at 2026-09-10T21:16:13Z. | COMPLETE. |
+| Credential-free Origin-policy probe process | Approved source SHA-256 a6819932becc309903fe0beb7bca049349aa83e9b71f37f03560799183e302b7; 127.0.0.1:54054, owned exec 8979 | Root clicked Close probe after labeled evidence; owned exec exited 0, listener absence verified. No authentication or staging request occurred. | COMPLETE at approximately 2026-09-10T21:20:30Z. |
+| Third helper-created auth session | Corrected exact reviewed helper; fresh run after owner readiness and real-browser policy proof | Password/MFA accepted, local logout successful HTTP response received; result page and final stdout both confirmed local logout. | COMPLETE at 21:27 UTC. Existing browser admin sessions untouched. |
+| Third loopback helper process | Approved corrected SHA-256 c89566baf90d5edf6c209af457832850098cf5079e670c471dded2947a4b0f92; 127.0.0.1:54708, owned exec 44616, PID 49320, launch approximately 2026-09-10T21:21:14Z | Root clicked Close helper; owned exec exited 0. Elevated lsof/ps confirmed process and listener absent at 2026-09-10T21:27:56Z. | COMPLETE. |
 
 ### Unproven paths
 
 | Acceptance path | Status |
 | --- | --- |
-| Authenticated options response contains exactly one boolean betaCompActive | BLOCKED: first helper expired without a login attempt; live proof still required. |
-| Authenticated designated detail retains existing fields and includes a valid batchSummary/null | BLOCKED: first helper expired without a login attempt; live proof still required. |
-| Fixed missing business returns 404 and exact route error JSON | BLOCKED: first helper expired without a login attempt; live proof still required. |
+| Authenticated options response contains exactly one boolean betaCompActive | PASS: HTTP 200, exact boolean schema valid, betaCompActive=true. |
+| Authenticated designated detail retains existing fields and includes a valid batchSummary/null | PASS: HTTP 200, existing keys/types and designated business/account match valid; batchSummary present and null. |
+| Fixed missing business returns 404 and exact route error JSON | PASS: HTTP 404 and exact route error JSON valid. |
 | Legacy business page remains usable at desktop and mobile layouts | PASS: root's in-app browser checks at 1440×900 and 390×844, persistent screenshots below. |
-| Helper session cleanup and process teardown | PASS for first run: no session attempted, exit 0, process/listener verified absent. A future run must open its own ledger obligation before authentication. |
+| Helper session cleanup and process teardown | PASS: earlier two runs had no session attempted; final authenticated run confirmed local logout, exit 0, and process/listener absence. Synthetic probe also closed and exited 0. |
 
-The deployed coupon's actual armed/unarmed value will be recorded without
-changing configuration. Unit tests cover both values and AAL1/non-admin/
+The deployed coupon was armed (betaCompActive=true); no configuration changed.
+Unit tests cover both values and AAL1/non-admin/
 unauthenticated refusal; live evidence must be limited to paths actually
 observed. A null live summary proves presence/nullability, not a populated
 summary. No claim of #1197 Gate B or ADR 0025 D9 completion is made here.
 
 ### Campaign deviations and final verdict
+
+Owner-ready resume at 2026-09-10T21:11Z: staging.repworth.net still resolves
+to READY deployment dpl_Epjm5UxkSNSA4K7Qpkfrr3YF4GnU at
+57af3d9786413d37f5ce531ca66e67d24528d0bb. Runtime source remains identical
+to reviewed bf84c855; only the two authorized findings artifacts differ.
+The helper's exact approved source hash was rechecked unchanged. A second
+isolated run is authorized after the owner explicitly reported readiness;
+the first attempt's blocked verdict below remains historical until this
+new run supplies actual API results and cleanup evidence.
+Before the second launch, a fresh staging-only SELECT restricted to the same
+fixed business/account and missing UUID returned
+designated_business_account_match=true and fixed_missing_business_absent=true.
+Only the enabled modern staging publishable key was selected; no key value
+or credential is persisted in this record.
+
+Second-attempt deviation: the owner submitted the local login form and root
+observed its fixed “Request rejected.” page at /login. The helper's outer
+request guard rejected the request before authentication; after normal
+shutdown, the helper reported “no session attempted” and exited 0. This is
+a temporary-verifier defect, not an observed staging API or admin-gate failure.
+The reviewed source sends Referrer-Policy:no-referrer while mandating exact
+Origin on POST. Root checked the WHATWG Fetch Origin-header algorithm:
+for a non-CORS POST, no-referrer serializes Origin as null. The proposed
+bounded correction is Referrer-Policy:same-origin with the strict request
+guards unchanged; independent exact-artifact security review and a
+credential-free real-browser probe are required before another owner login.
+The subsequent safe probe measured actual browser Origin behavior as below.
+
+At 2026-09-10T21:20:21Z root completed both fixed empty forms in the in-app
+browser. The labeled original-policy result reported Origin:null; the labeled
+corrected-policy result reported Origin:http://127.0.0.1:54054. Both reported
+Host:127.0.0.1:54054 and Sec-Fetch-Site:same-origin. This reproduces the exact
+guard conflict and verifies the bounded correction without credentials or
+external requests. Root clicked Close probe; owned exec 8979 exited 0 and
+the listener was confirmed absent. The corrected authenticated helper was
+started only after this proof and fresh independent exact-hash approval.
+
+Sanitized labeled probe screenshot:
+[1189-helper-origin-policy-proof.png](/Users/norbertesekiel/.codex/visualizations/2026/09/09/01a084d9-2ea0-7bd3-a71a-0fb8ef37c4f8/1189-helper-origin-policy-proof.png),
+SHA-256 5ba451007122127b5844a1e196383dd10c989e05946485b43d715c6030199193.
+Specification reference: [WHATWG Fetch — Origin header](https://fetch.spec.whatwg.org/#origin-header).
+
+Sanitized rejection screenshot, inspected by root with no credentials:
+[1189-helper-origin-rejection.png](/Users/norbertesekiel/.codex/visualizations/2026/09/09/01a084d9-2ea0-7bd3-a71a-0fb8ef37c4f8/1189-helper-origin-rejection.png),
+UTC 2026-09-10T21:15:16.787Z, SHA-256
+8256673e9ee5f73b6b36c27881a1824338748b1b279b000d7a51e9b543a01f93.
 
 Root reported the read-only legacy HTML regression PASS on staged 57af3d97
 using the existing cookie-authenticated AAL2 session. The exact designated
@@ -489,7 +541,7 @@ The evidence-file path adaptation and watcher/tooling recovery are described
 above. The additional campaign deviation is the unattended auth handoff
 expiring before login. No product defect was observed and no bug was filed.
 
-**Attempt verdict: FAIL / BLOCKED on missing authenticated API proof.**
+**Historical first-attempt verdict: FAIL / BLOCKED on missing authenticated API proof.**
 The three API acceptance paths remain explicitly open; no owner sign-off
 waives them. The implementation, staging deployment, independent reviews,
 mutation campaign, and desktop/mobile HTML observations retain their recorded
@@ -497,6 +549,62 @@ PASS results. Teardown is complete for this attempt; verification ended at
 2026-09-10T12:19:23Z. Resume only after a fresh owner-ready handoff, open a
 new isolated-helper ledger obligation before login, and prove the three fixed
 GETs plus that run's cleanup before publishing the PR or claiming campaign PASS.
+
+### Final authenticated API observations and campaign verdict
+
+At 2026-09-10T21:27:14.505Z root captured the corrected helper's sanitized
+PASS result after the owner directly completed staging admin password/MFA.
+The owner briefly saw “A verification step is already running” on /mfa;
+root preserved the in-flight operation and subsequently navigated with GET /
+to retrieve its completed result. No MFA POST or credential attempt was
+repeated to obtain this evidence. The concurrent-request guard remained active.
+
+| Actual observed result | Value |
+| --- | --- |
+| Options HTTP status | 200 |
+| Options exact one-boolean schema | true |
+| betaCompActive | true |
+| Designated business detail HTTP status / JSON | 200 / true |
+| Existing detail keys and types retained | true |
+| Designated business/account IDs match | true |
+| batchSummary field present | true |
+| batchSummary is null / schema valid | true / true |
+| Non-null batch fields/types | Not applicable to this existing fixture; no live populated-summary claim. |
+| Fixed missing business HTTP status | 404 |
+| Fixed missing business exact route error JSON | true |
+| Password grant attempted / full response received / SDK session accepted | true / true / true |
+| MFA verify attempted / full response received / SDK session accepted | true / true / true |
+| Local logout successful HTTP response received | true |
+| Helper cleanup outcome | confirmed local logout |
+
+Root inspected and retained this sanitized screenshot containing PASS, all API
+rows, and confirmed logout, without credentials, tokens, MFA codes, raw DTOs,
+or customer records:
+[1189-staging-api-pass.png](/Users/norbertesekiel/.codex/visualizations/2026/09/09/01a084d9-2ea0-7bd3-a71a-0fb8ef37c4f8/1189-staging-api-pass.png),
+SHA-256 a419cb8533afe46fd5eeabeccf526ae8b4e6e89e3cad29a67568953326f23d83.
+
+Root clicked Close helper after preserving the result. Owned exec 44616
+returned exit 0 and the exact output:
+
+```text
+Helper stopped. Session cleanup outcome: confirmed local logout.
+```
+
+Elevated checks confirmed PID 49320 and the 54708 listener absent at
+2026-09-10T21:27:56Z. All teardown ledger rows are complete. Existing admin
+browser sessions were preserved; no staging records, flags, or production
+state were changed.
+
+**Final campaign verdict: PASS.** All five acceptance paths in the table are
+closed with actual evidence. Deviations were the first unattended auth handoff,
+the temporary helper's Referrer-Policy mismatch (corrected with an independently
+reviewed single-header change and real-browser synthetic proof), and retrieving
+the finished result after a busy response with a safe GET. No application bug
+was observed, no new issue was filed, and no repository runtime fix was needed.
+The live batch summary was null; populated-summary shapes, unarmed options,
+and refusal cases are covered by the recorded tests rather than claimed as
+live observations. This campaign does not prove #1197 Gate B or ADR 0025 D9.
+UTC end: 2026-09-10T21:27:56Z.
 
 <!-- END #1189 STAGING CAMPAIGN -->
 
@@ -1438,3 +1546,618 @@ SHA-256: 3ffcf88c4f799b03996ae45451c579e66e4bffc3241df723bd945073fa045f50
 <!-- END 1189-PREVIEW-LEDGER -->
 
 <!-- END #1189 LEAD ACCEPTANCE RECORD -->
+
+## Reviewed Origin-policy correction artifacts
+
+These temporary verification artifacts do not change repository runtime code.
+The original helper and its earlier reviews remain preserved above. The only
+helper source change is Referrer-Policy:no-referrer to same-origin; reversing
+that single exact substitution reproduces the original 6d851b26…6361 hash.
+The strict Host, Origin, fetch-site, nonce, destination, auth, and cleanup
+checks are unchanged. Both corrected artifacts passed independent source
+review, then node --check before any execution. The corrected helper remains
+subject to actual browser proof and per-run local-session cleanup.
+
+### Independent Origin-policy correction security review
+
+Temporary source: /private/tmp/1189-helper-origin-security.md
+SHA-256: 20887f9c0fc7684efc6304286878317d78e31df79596b6ddde75a619264c4605
+
+<!-- BEGIN 1189-ORIGIN-ARTIFACT-0 -->
+````markdown
+# Independent security review — #1189 Origin-policy correction
+
+Verdict: **APPROVED** for the exact temporary helper correction and synthetic loopback probe identified below. No actionable P0, P1, or P2 finding was identified. This is source-review approval; actual browser behavior and authenticated API verification remain unproven by this review.
+
+## Artifacts and exact change
+
+| Artifact | Independently observed SHA-256 |
+| --- | --- |
+| Original `/private/tmp/1189-staging-get-verifier.mjs`, before writer correction | `6d851b260755e45527eed807bd759246d4cef0b165bf0f9bc0981b1ddf356361` |
+| Corrected `/private/tmp/1189-staging-get-verifier.mjs` | `c89566baf90d5edf6c209af457832850098cf5079e670c471dded2947a4b0f92` |
+| `/private/tmp/1189-origin-policy-probe.mjs` | `a6819932becc309903fe0beb7bca049349aa83e9b71f37f03560799183e302b7` |
+
+I read all 413 lines of the original helper and the full prior security verification report, retained the original source in review memory, and read the corrected helper. Comparing the latter against the retained original with exactly one replacement produced equality. The entire change is:
+
+```diff
+-    'referrer-policy': 'no-referrer', 'cross-origin-resource-policy': 'same-origin',
++    'referrer-policy': 'same-origin', 'cross-origin-resource-policy': 'same-origin',
+```
+
+I read the full 114-line synthetic probe and independently hashed both final files. Neither artifact was imported, executed, syntax-tested, or used for authentication during this review. No browser action, test, external network request, credential inspection, or repository edit was performed. Only this temporary report was written.
+
+## Helper correction assessment
+
+The lead supplied the primary WHATWG Fetch Origin-header rule at `https://fetch.spec.whatwg.org/#origin-header`: for the relevant non-CORS POST, no-referrer can produce literal `Origin: null`, while same-origin retains the same origin. I did not independently fetch that reference under this read-only, no-network assignment. The synthetic browser probe must establish the actual in-app browser behavior; this report does not treat the stated rule as observed runtime evidence.
+
+The revised response policy is compatible with retaining the helper's mandatory exact Origin comparison. In particular, no `null`-Origin exception is added to the authenticated helper. Host and Origin duplicate detection, exact loopback Host, mandatory exact Origin on every POST, Sec-Fetch-Site restrictions, rotating cryptographic nonce, exact form fields and size limits all remain byte-identical. Login/MFA single-flow handling, eight-minute TTL, bounded request/response handling, fixed staging Auth/API destinations, redirect refusal, in-memory SDK settings, and local-session-only cleanup and uncertainty reporting remain byte-identical.
+
+The policy change permits a Referer header on same-origin requests and suppresses it on cross-origin requests. The helper serves fixed URLs `/`, `/login`, `/mfa`, and `/close`; it puts credentials and MFA values in POST bodies, with no redirect or URL serialization of those values. Its forms have fixed relative actions and its CSP remains `default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Legitimate same-origin Referer values therefore contain only the ephemeral loopback origin and fixed step path, not submitted credentials, MFA codes, factor IDs, tokens, customer DTOs, or provider errors. No new external resource or form target is introduced. The browser response-header change does not modify the server-side SDK fetch implementation or its outbound headers.
+
+The existing security verification's limitations remain in force, including conservative cleanup uncertainty after a lost session-bearing response, and the distinction between successful local logout HTTP evidence and instantaneous access-token invalidation. Those claims are unchanged by this correction.
+
+## Synthetic probe assessment
+
+- The sole import is native `node:http`. There is no SDK, environment read, file read/write, outbound HTTP client, credential field, script, or external resource. The form has no inputs or named submit button, so its intended POST body is empty.
+- The server binds only `127.0.0.1` on an ephemeral port. Exact single Host validation prevents alternate-host requests. Cookie, Authorization, Proxy-Authorization, Transfer-Encoding, and any declared nonzero Content-Length are rejected before routing. Any received body chunk is cleared and the request destroyed; no body is logged or retained.
+- GET handling permits only fixed paths and absent or exact loopback Origin, with same-origin/none/absent Sec-Fetch-Site handling. POST handling permits only the two fixed synthetic submit paths, one exact URL-encoded content type, and a single `Sec-Fetch-Site: same-origin` header. It accepts only a single literal `Origin: null` or exact loopback Origin so it can measure the original and corrected policies. This exception exists solely in the credential-free synthetic collector; the authenticated helper remains strict.
+- The observation objects contain only the allowlisted Origin, generated loopback Host, and fixed Sec-Fetch-Site value. They do not echo raw header collections, Referer, request URLs, body data, or errors. These restricted values are safe in the HTML result block despite no general HTML escaper. The fixed original/corrected modes identify each result on the page; terminal records alone omit that mode and should not substitute for the browser's paired results.
+- Default-deny CSP, same-origin form action, frame denial, no-store, and connection close apply to probe responses. Header/body receipt and socket timeouts are five seconds; maximum header size, header count, and connection count are bounded. The three-minute TTL, close route, SIGINT, and SIGTERM converge on idempotent shutdown, clear retained observations, close the listener, and close connections. There is no remote session or other persistent resource to clean up.
+- A GET close link can terminate this ephemeral probe without a nonce. That is acceptable within its explicitly credential-free measurement scope: termination clears two non-sensitive observations and cannot mutate application data or revoke a session. This is not approval to transfer that design to the authenticated helper.
+
+## Execution boundaries and evidence still required
+
+Approval binds only the hashes above. Recheck them before use; any additional correction requires a new binding. The lead owns execution authorization and campaign bookkeeping, and root owns in-app Browser interaction. Neither artifact should be treated as implicitly executed by this review.
+
+For the probe, preserve the browser's labeled original/corrected observations and confirm process/listener shutdown. Expectation is original `Origin: null` versus corrected exact loopback Origin, with exact Host and same-origin Sec-Fetch-Site in both. If observations differ or submissions are rejected, diagnose the actual evidence instead of relaxing the authenticated helper's Origin validation.
+
+For the helper, staging deployment and designated/missing-record preconditions, owner-entered authentication/MFA, three GET results, and its own session/process cleanup still need separate proof. Neither the probe nor this header correction proves #1197 Gate B/D9 or replaces the existing browser regression evidence.
+````
+<!-- END 1189-ORIGIN-ARTIFACT-0 -->
+
+### Credential-free Origin-policy browser probe source
+
+Temporary source: /private/tmp/1189-origin-policy-probe.mjs
+SHA-256: a6819932becc309903fe0beb7bca049349aa83e9b71f37f03560799183e302b7
+
+<!-- BEGIN 1189-ORIGIN-ARTIFACT-1 -->
+````javascript
+// Review-only synthetic browser probe. Do not execute before security approval.
+// No credentials, cookies, Auth SDK, environment reads, files, or outbound calls.
+// Root supplied the WHATWG Fetch Origin-header finding:
+// https://fetch.spec.whatwg.org/#origin-header
+// Compare browser-generated POST Origin under no-referrer and same-origin.
+import { createServer } from 'node:http';
+
+const TTL_MS = 180_000;
+let host;
+let origin;
+let stopped = false;
+const observations = { original: null, corrected: null };
+const links = '<p><a href="/original">Original policy form</a> | <a href="/corrected">Corrected policy form</a> | <a href="/">Results</a> | <a href="/close">Close probe</a></p>';
+
+function oneHeader(req, name, expected, required = true) {
+  let count = 0;
+  for (let index = 0; index < req.rawHeaders.length; index += 2) {
+    if (req.rawHeaders[index].toLowerCase() === name) count += 1;
+  }
+  return count === 0 ? !required : count === 1 && req.headers[name] === expected;
+}
+
+function page(res, status, policy, body) {
+  res.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-security-policy': "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    'referrer-policy': policy,
+    'x-frame-options': 'DENY',
+    'x-content-type-options': 'nosniff',
+    'cross-origin-resource-policy': 'same-origin',
+    'connection': 'close',
+  });
+  res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Synthetic Origin policy probe</title><body><h1>Synthetic Origin policy probe</h1><p>No input fields. No credentials. Automatic shutdown three minutes after startup.</p>${body}${links}</body></html>`);
+}
+
+function results() {
+  return ['original', 'corrected'].map(mode => {
+    const seen = observations[mode];
+    // Every displayed value was restricted to fixed literals or our loopback host.
+    return `<h2>${mode}</h2><pre>${seen ? JSON.stringify(seen, null, 2) : 'No synthetic POST observed.'}</pre>`;
+  }).join('');
+}
+
+const server = createServer({ maxHeaderSize: 4096 }, (req, res) => {
+  if (stopped || !oneHeader(req, 'host', host) || req.headers.cookie !== undefined
+    || req.headers.authorization !== undefined || req.headers['proxy-authorization'] !== undefined
+    || req.headers['transfer-encoding'] !== undefined
+    || (req.headers['content-length'] !== undefined && req.headers['content-length'] !== '0')) {
+    page(res, 403, 'same-origin', '<p>Rejected.</p>'); return;
+  }
+  if (req.method === 'GET') {
+    if (!oneHeader(req, 'origin', origin, false)
+      || !(oneHeader(req, 'sec-fetch-site', 'none', false) || oneHeader(req, 'sec-fetch-site', 'same-origin'))) {
+      page(res, 403, 'same-origin', '<p>Rejected.</p>'); return;
+    }
+    if (req.url === '/') { page(res, 200, 'same-origin', results()); return; }
+    if (req.url === '/close') {
+      page(res, 200, 'same-origin', '<p>Probe closing.</p>');
+      setTimeout(stop, 100); return;
+    }
+    if (req.url === '/original' || req.url === '/corrected') {
+      const original = req.url === '/original';
+      const policy = original ? 'no-referrer' : 'same-origin';
+      const action = original ? '/original-submit' : '/corrected-submit';
+      page(res, 200, policy, `<h2>Referrer-Policy: ${policy}</h2><form method="post" action="${action}"><button type="submit">Submit empty synthetic POST</button></form>`); return;
+    }
+  }
+  if (req.method !== 'POST' || !['/original-submit', '/corrected-submit'].includes(req.url)) {
+    page(res, 404, 'same-origin', '<p>Not found.</p>'); return;
+  }
+  // This synthetic collector must observe literal null; the real helper still
+  // requires its exact Origin. No unrecognized header values are logged.
+  if (!(oneHeader(req, 'origin', 'null') || oneHeader(req, 'origin', origin))
+    || !oneHeader(req, 'sec-fetch-site', 'same-origin')
+    || !oneHeader(req, 'content-type', 'application/x-www-form-urlencoded')) {
+    page(res, 403, 'same-origin', '<p>Rejected.</p>'); return;
+  }
+  let empty = true;
+  req.on('data', chunk => { empty = false; chunk.fill(0); req.destroy(); });
+  req.on('error', () => { res.destroy(); });
+  req.on('end', () => {
+    if (!empty || stopped) { res.destroy(); return; }
+    const seen = { Origin: req.headers.origin, Host: host, 'Sec-Fetch-Site': 'same-origin' };
+    observations[req.url === '/original-submit' ? 'original' : 'corrected'] = seen;
+    process.stdout.write(`${JSON.stringify(seen)}\n`);
+    page(res, 200, 'same-origin', results());
+  });
+});
+server.requestTimeout = 5000;
+server.headersTimeout = 5000;
+server.timeout = 5000;
+server.maxConnections = 2;
+server.maxHeadersCount = 24;
+server.on('clientError', (_error, socket) => { socket.destroy(); });
+
+function stop() {
+  if (stopped) return;
+  stopped = true;
+  clearTimeout(ttl);
+  observations.original = null; observations.corrected = null;
+  server.close();
+  server.closeAllConnections();
+}
+const ttl = setTimeout(stop, TTL_MS);
+process.once('SIGINT', stop);
+process.once('SIGTERM', stop);
+server.on('error', () => { process.exitCode = 1; stop(); });
+server.listen(0, '127.0.0.1', () => {
+  host = `127.0.0.1:${server.address().port}`;
+  origin = `http://${host}`;
+  // Startup discovery uses only the permitted synthetic Host field.
+  process.stdout.write(`${JSON.stringify({ Host: host })}\n`);
+});
+````
+<!-- END 1189-ORIGIN-ARTIFACT-1 -->
+
+### Corrected authenticated GET verifier source
+
+Temporary source: /private/tmp/1189-staging-get-verifier.mjs
+SHA-256: c89566baf90d5edf6c209af457832850098cf5079e670c471dded2947a4b0f92
+
+<!-- BEGIN 1189-ORIGIN-ARTIFACT-2 -->
+````javascript
+// Review-only artifact. Do not execute before independent security review and lead authorization.
+// Lead must verify MISSING_BUSINESS absent and staging deployment at FEATURE_PIN first.
+// This verifies three API reads only; it does not complete #1197 Gate B/D9 or browser regression.
+// Provenance: installed @supabase/supabase-js 2.106.2 and @supabase/auth-js 2.106.2.
+// supabase-js/src/lib/types.ts: auth options and global.fetch.
+// auth-js/src/GoTrueClient.ts: signInWithPassword 1087; _signOut 3791;
+// _verify 5237; _challenge 5324; _listFactors 5427; memory storage 423-440.
+// auth-js/src/GoTrueAdminApi.ts: signOut 150-167 (logout?scope=local).
+// auth-js/src/lib/fetch.ts: 225 logs thrown fetch errors; this adapter returns
+// sanitized error Responses instead, without passing provider errors to the SDK.
+// Route contracts: src/lib/admin/business-detail-types.ts: BusinessDetailResponse;
+// src/lib/solicitation/batch-view.ts:862 AdminBatchSummary; API routes at feature pin.
+// Pinned enums: src/lib/solicitation/outreach.ts:99-109 and batch-view.ts:165-171.
+import { createServer } from 'node:http';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createRequire } from 'node:module';
+
+const WORKTREE = '/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-1189';
+const FEATURE_PIN = 'bf84c855b947f0cd4c8587b880968cacb7b7caa9';
+const AUTH_ORIGIN = 'https://kubdiqdhqbhwmqfditeg.supabase.co';
+const API_ORIGIN = 'https://staging.repworth.net';
+const ACCOUNT = '01a06dd3-1624-72b4-a4bf-22ab2f19fecb';
+const BUSINESS = '01a06dd3-1622-70c7-9037-7dd9171aea17';
+const MISSING_BUSINESS = '00000000-0000-4000-8000-000000000099';
+const API_PATHS = ['/api/admin/businesses/options', `/api/admin/businesses/${BUSINESS}`, `/api/admin/businesses/${MISSING_BUSINESS}`];
+const BATCH_STATES = ['halted', 'closed', 'sending', 'veto_window', 'approved', 'expired', 'built', 'pending'];
+const HALT_REASONS = ['owner_veto', 'owner_halt', 'admin_halt', 'send_window_elapsed', 'batch_expired', 'platform_halt'];
+const TTL_MS = 8 * 60_000;
+const REQUEST_TIMEOUT_MS = 15_000;
+const FORM_CAP = 8192;
+const AUTH_RESPONSE_CAP = 128 * 1024;
+const API_RESPONSE_CAP = 2 * 1024 * 1024;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const own = (value, key) => object(value) && Object.hasOwn(value, key);
+const publicKey = process.env.REPWORTH_STAGING_SUPABASE_PUBLISHABLE_KEY;
+delete process.env.REPWORTH_STAGING_SUPABASE_PUBLISHABLE_KEY;
+
+function validPublicKey(key) {
+  if (typeof key !== 'string' || key.length > 4096) return false;
+  if (/^sb_publishable_[A-Za-z0-9_-]{16,}$/.test(key)) return true;
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key)) return false;
+  try {
+    const payload = JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString('utf8'));
+    return payload.role === 'anon' && payload.ref === 'kubdiqdhqbhwmqfditeg';
+  } catch { return false; }
+}
+
+if (!validPublicKey(publicKey)) {
+  process.stderr.write('A staging publishable key or staging legacy anon key is required in REPWORTH_STAGING_SUPABASE_PUBLISHABLE_KEY. Key values are never displayed.\n');
+  process.exit(1);
+}
+const require = createRequire(`${WORKTREE}/package.json`);
+const { createClient } = require('@supabase/supabase-js');
+let client;
+let baseOrigin;
+let expectedHost;
+let phase = 'login';
+let nonce = randomBytes(32).toString('hex');
+let factorIds = [];
+let chosenFactor = null;
+let busy = false;
+let stopping = false;
+let flow = Promise.resolve();
+let shutdownPromise;
+let resultRows = [];
+let resultPassed = false;
+const controllers = new Set();
+// Evidence is monotonic for this one sign-in/MFA flow. SDK no-op sign-out success
+// cannot clear an unknown session-issuing response or substitute for HTTP logout.
+const sessionEvidence = {
+  passwordAttempted: false,
+  passwordResponseReceived: false,
+  passwordSessionAccepted: false,
+  mfaAttempted: false,
+  mfaResponseReceived: false,
+  mfaSessionAccepted: false,
+  localLogoutHttpConfirmed: false,
+};
+
+async function boundedBytes(response, cap) {
+  const declared = response.headers.get('content-length');
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > cap)) {
+    await response.body?.cancel();
+    throw new Error('Response exceeds limit');
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > cap) throw new Error('Response exceeds limit');
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks, size);
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+function safeAuthFailure(status = 503) {
+  return new Response('{"message":"Authentication request did not complete","code":"helper_auth_failed"}', {
+    status, headers: { 'content-type': 'application/json' },
+  });
+}
+
+// This client cannot refresh, enroll, reset, access the Data API, or sign out other sessions.
+async function authFetch(input, init = {}) {
+  let timer;
+  const controller = new AbortController();
+  controllers.add(controller);
+  try {
+    if (typeof input !== 'string') return safeAuthFailure(400);
+    const url = new URL(input);
+    const method = init.method?.toUpperCase() ?? 'GET';
+    const path = url.pathname + url.search;
+    const logout = method === 'POST' && path === '/auth/v1/logout?scope=local';
+    const passwordGrant = method === 'POST' && path === '/auth/v1/token?grant_type=password';
+    const mfaVerify = chosenFactor && method === 'POST' && path === `/auth/v1/factors/${chosenFactor}/verify`;
+    const permitted = logout
+      || (phase === 'login' && method === 'POST' && path === '/auth/v1/token?grant_type=password')
+      || (phase === 'login' && method === 'GET' && path === '/auth/v1/user')
+      || (phase === 'mfa' && chosenFactor && method === 'POST'
+        && (path === `/auth/v1/factors/${chosenFactor}/challenge` || path === `/auth/v1/factors/${chosenFactor}/verify`));
+    if (url.origin !== AUTH_ORIGIN || url.username || url.password || url.hash || !permitted || (stopping && !logout)) return safeAuthFailure(400);
+    timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    // Mark the attempt before handing bytes to fetch, including a lost response.
+    if (passwordGrant) sessionEvidence.passwordAttempted = true;
+    if (mfaVerify) sessionEvidence.mfaAttempted = true;
+    if (passwordGrant || mfaVerify) sessionEvidence.localLogoutHttpConfirmed = false;
+    const response = await fetch(input, { ...init, redirect: 'error', signal: controller.signal });
+    const bytes = await boundedBytes(response, AUTH_RESPONSE_CAP);
+    if (passwordGrant) sessionEvidence.passwordResponseReceived = true;
+    if (mfaVerify) sessionEvidence.mfaResponseReceived = true;
+    if (!response.ok) return safeAuthFailure(response.status >= 400 ? response.status : 503);
+    if (logout) sessionEvidence.localLogoutHttpConfirmed = true;
+    // No provider headers (including cookies) cross into the browser or SDK.
+    return new Response(response.status === 204 ? null : bytes, {
+      status: response.status, headers: { 'content-type': 'application/json' },
+    });
+  } catch { return safeAuthFailure(); }
+  finally { clearTimeout(timer); controllers.delete(controller); }
+}
+
+client = createClient(AUTH_ORIGIN, publicKey, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, debug: false },
+  global: { fetch: authFetch },
+});
+
+function escape(value) {
+  return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+}
+
+function sendPage(res, status, content) {
+  res.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store, max-age=0', 'pragma': 'no-cache',
+    'content-security-policy': "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff',
+    'referrer-policy': 'same-origin', 'cross-origin-resource-policy': 'same-origin',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+    'connection': 'close',
+  });
+  res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>1189 staging GET verification</title><body><main><h1>1189 staging GET verification</h1><p>Fixed staging target; helper TTL: 8 minutes from startup. Credentials and MFA codes are entered manually by the owner.</p>${content}</main></body></html>`);
+}
+
+function form(action, body, label) {
+  return `<form method="post" action="${action}" autocomplete="off"><input type="hidden" name="nonce" value="${nonce}">${body}<p><button type="submit">${label}</button></p></form>`;
+}
+
+function currentPage(res) {
+  if (phase === 'login') return sendPage(res, 200,
+    `<p>Sign in with an existing staging admin. The helper will use an existing verified authenticator factor.</p>${form('/login', '<p><label>Email <input name="email" type="email" maxlength="254" required autocomplete="off"></label></p><p><label>Password <input name="password" type="password" maxlength="1024" required autocomplete="off"></label></p>', 'Sign in')}`);
+  if (phase === 'mfa') return sendPage(res, 200,
+    `<p>Select your existing authenticator factor by its order in the account and enter the current six-digit code. Factor names and IDs are not displayed.</p>${form('/mfa', `<p><label>Existing factor <select name="factor">${factorIds.map((_, index) => `<option value="${index}">Authenticator ${index + 1}</option>`).join('')}</select></label></p><p><label>Authenticator code <input name="code" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" required autocomplete="off"></label></p>`, 'Verify MFA and run three GETs')}`);
+  return sendPage(res, 200, `<h2>${resultPassed ? 'PASS' : 'NOT VERIFIED'}</h2><p>Expected feature pin: ${FEATURE_PIN}. Deployment and missing-ID preconditions must be independently evidenced.</p><table><thead><tr><th>Check</th><th>Sanitized result</th></tr></thead><tbody>${resultRows.map(([label, value]) => `<tr><td>${escape(label)}</td><td>${escape(value)}</td></tr>`).join('')}</tbody></table><p>Capture this sanitized page before closing. This is API evidence only; browser regression and #1197 Gate B/D9 remain separate.</p>${form('/close', '', 'Close helper and clean up session')}`);
+}
+
+function exactHeader(req, name, value, required) {
+  let count = 0;
+  for (let index = 0; index < req.rawHeaders.length; index += 2) {
+    if (req.rawHeaders[index].toLowerCase() === name) count += 1;
+  }
+  return count === 0 ? !required : count === 1 && req.headers[name] === value;
+}
+
+async function readForm(req, fields) {
+  if (req.headers['content-type'] !== 'application/x-www-form-urlencoded') throw new Error('Invalid form');
+  const length = req.headers['content-length'];
+  if (length && (!/^\d+$/.test(length) || Number(length) > FORM_CAP)) throw new Error('Invalid form');
+  const buffers = [];
+  let size = 0;
+  try {
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > FORM_CAP) throw new Error('Invalid form');
+      buffers.push(chunk);
+    }
+    const bytes = Buffer.concat(buffers, size);
+    const params = new URLSearchParams(bytes.toString('utf8'));
+    bytes.fill(0);
+    const expected = ['nonce', ...fields];
+    if ([...params.keys()].length !== expected.length || !expected.every(key => params.getAll(key).length === 1)) throw new Error('Invalid form');
+    const provided = params.get('nonce');
+    if (!/^[a-f0-9]{64}$/.test(provided ?? '') || !timingSafeEqual(Buffer.from(provided), Buffer.from(nonce))) throw new Error('Invalid form');
+    nonce = randomBytes(32).toString('hex');
+    return params;
+  } finally { for (const buffer of buffers) buffer.fill(0); }
+}
+
+async function fixedGet(index, token) {
+  if (stopping || ![0, 1, 2].includes(index)) throw new Error('Read stopped');
+  const controller = new AbortController();
+  controllers.add(controller);
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(API_ORIGIN + API_PATHS[index], {
+      method: 'GET', headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+      redirect: 'error', signal: controller.signal, credentials: 'omit', cache: 'no-store',
+    });
+    const bytes = await boundedBytes(response, API_RESPONSE_CAP);
+    let data = null;
+    let json = false;
+    try {
+      if (response.headers.get('content-type')?.split(';')[0].trim() === 'application/json') {
+        data = JSON.parse(bytes.toString('utf8')); json = true;
+      }
+    } catch { /* Only the schema boolean is exposed. */ }
+    finally { bytes.fill(0); }
+    return { status: response.status, json, data };
+  } finally { clearTimeout(timer); controllers.delete(controller); }
+}
+
+async function runGets(token) {
+  const options = await fixedGet(0, token);
+  const optionsShape = options.json && object(options.data) && Object.keys(options.data).length === 1 && typeof options.data.betaCompActive === 'boolean';
+  resultRows.push(['Options status', options.status], ['Options exact boolean schema', optionsShape]);
+  if (optionsShape) resultRows.push(['Options betaCompActive', options.data.betaCompActive]);
+  options.data = null;
+
+  const detail = await fixedGet(1, token);
+  const expectedKeys = ['business', 'account', 'rankingSnapshots', 'reviewsTotal', 'reviews', 'zernio', 'approvalAuditLog', 'accountAuditLog', 'autoApproval'];
+  const keysPresent = expectedKeys.every(key => own(detail.data, key));
+  const existingTypes = keysPresent && ['business', 'account', 'zernio', 'autoApproval'].every(key => object(detail.data[key]))
+    && ['rankingSnapshots', 'reviews', 'approvalAuditLog', 'accountAuditLog'].every(key => Array.isArray(detail.data[key]))
+    && Number.isSafeInteger(detail.data.reviewsTotal) && detail.data.reviewsTotal >= 0;
+  const businessMatch = detail.data?.business?.id === BUSINESS;
+  const accountMatch = detail.data?.account?.id === ACCOUNT;
+  const summaryPresent = own(detail.data, 'batchSummary');
+  const summary = detail.data?.batchSummary;
+  const summaryKeys = ['batchId', 'batchState', 'builtAt', 'approvedAt', 'haltedAt', 'haltReason', 'cancellableCount', 'sendingCount', 'sentCount'];
+  const summaryFields = object(summary) && Object.keys(summary).length === summaryKeys.length && summaryKeys.every(key => own(summary, key));
+  const summaryTypes = summaryFields && UUID.test(summary.batchId) && BATCH_STATES.includes(summary.batchState)
+    && (summary.haltReason === null || HALT_REASONS.includes(summary.haltReason))
+    && ['builtAt', 'approvedAt', 'haltedAt'].every(key => summary[key] === null || typeof summary[key] === 'string')
+    && ['cancellableCount', 'sendingCount', 'sentCount'].every(key => Number.isSafeInteger(summary[key]) && summary[key] >= 0);
+  const summaryValid = summaryPresent && (summary === null || summaryTypes);
+  resultRows.push(['Business detail status', detail.status], ['Business detail JSON', detail.json], ['Existing detail keys retained', keysPresent], ['Existing top-level types', existingTypes], ['Designated business ID matches', businessMatch], ['Designated account ID matches', accountMatch], ['batchSummary field present', summaryPresent], ['batchSummary is null', summary === null], ['batchSummary exact fields if non-null', summary === null ? 'not applicable' : summaryFields], ['batchSummary field types if non-null', summary === null ? 'not applicable' : summaryTypes], ['batchSummary schema valid', summaryValid]);
+  detail.data = null;
+
+  const missing = await fixedGet(2, token);
+  const missing404 = missing.status === 404;
+  const missingShape = missing.json && object(missing.data) && Object.keys(missing.data).length === 1
+    && own(missing.data, 'error') && missing.data.error === 'Business not found';
+  resultRows.push(['Fixed missing business status', missing.status], ['Fixed missing business returns 404', missing404], ['Fixed missing business exact route error JSON', missingShape]);
+  missing.data = null;
+  resultPassed = options.status === 200 && optionsShape && detail.status === 200 && detail.json && existingTypes && businessMatch && accountMatch && summaryValid && missing404 && missingShape;
+}
+
+function cleanupOutcome() {
+  if (!sessionEvidence.passwordAttempted && !sessionEvidence.mfaAttempted) return 'no session attempted';
+  // Conservatively retain uncertainty if a session-bearing response was lost,
+  // malformed, or rejected by the SDK, even if an older token could log out.
+  const sessionsKnown = sessionEvidence.passwordResponseReceived && sessionEvidence.passwordSessionAccepted
+    && (!sessionEvidence.mfaAttempted || (sessionEvidence.mfaResponseReceived && sessionEvidence.mfaSessionAccepted));
+  return sessionsKnown && sessionEvidence.localLogoutHttpConfirmed ? 'confirmed local logout' : 'cleanup unconfirmed';
+}
+
+function recordCleanup(outcome) {
+  resultRows.push(
+    ['Password grant attempted', sessionEvidence.passwordAttempted],
+    ['Password grant response fully received', sessionEvidence.passwordResponseReceived],
+    ['Password session accepted by SDK', sessionEvidence.passwordSessionAccepted],
+    ['MFA verify attempted', sessionEvidence.mfaAttempted],
+    ['MFA verify response fully received', sessionEvidence.mfaResponseReceived],
+    ['MFA session accepted by SDK', sessionEvidence.mfaSessionAccepted],
+    ['Local logout successful HTTP response received', sessionEvidence.localLogoutHttpConfirmed],
+    ['Helper session cleanup outcome', outcome],
+  );
+}
+
+async function releaseSession() {
+  try {
+    await client.auth.signOut({ scope: 'local' });
+  } catch { /* SDK success or failure cannot replace the transport evidence. */ }
+  return cleanupOutcome();
+}
+
+async function handlePost(req, res) {
+  let params;
+  try {
+    if (phase === 'login' && req.url === '/login') {
+      params = await readForm(req, ['email', 'password']);
+      const email = params.get('email');
+      const password = params.get('password');
+      if (!email || email.length > 254 || !password || password.length > 1024) throw new Error('Invalid form');
+      const signed = await client.auth.signInWithPassword({ email, password });
+      params.delete('email'); params.delete('password');
+      sessionEvidence.passwordSessionAccepted = !signed.error && Boolean(signed.data.session);
+      if (signed.error || !signed.data.session || stopping) throw new Error('Sign-in failed');
+      // Tokens returned by the SDK are never stored outside request processing memory.
+      const factors = await client.auth.mfa.listFactors();
+      if (factors.error || stopping) throw new Error('Factor lookup failed');
+      factorIds = factors.data.totp.filter(factor => factor.status === 'verified' && factor.factor_type === 'totp' && UUID.test(factor.id)).map(factor => factor.id);
+      if (factorIds.length === 0 || factorIds.length > 10) throw new Error('Existing verified factor required');
+      phase = 'mfa';
+      return currentPage(res);
+    }
+    if (phase === 'mfa' && req.url === '/mfa') {
+      params = await readForm(req, ['factor', 'code']);
+      const choice = params.get('factor');
+      if (!/^[0-9]$/.test(choice ?? '') || !factorIds[Number(choice)] || !/^[0-9]{6}$/.test(params.get('code') ?? '')) throw new Error('Invalid form');
+      chosenFactor = factorIds[Number(choice)];
+      const challenge = await client.auth.mfa.challenge({ factorId: chosenFactor });
+      if (challenge.error || !UUID.test(challenge.data?.id) || stopping) throw new Error('Challenge failed');
+      const verified = await client.auth.mfa.verify({ factorId: chosenFactor, challengeId: challenge.data.id, code: params.get('code') });
+      params.delete('code');
+      sessionEvidence.mfaSessionAccepted = !verified.error && typeof verified.data?.access_token === 'string';
+      if (verified.error || typeof verified.data?.access_token !== 'string' || stopping) throw new Error('MFA failed');
+      phase = 'reading';
+      await runGets(verified.data.access_token);
+      const cleanup = await releaseSession();
+      recordCleanup(cleanup);
+      resultPassed &&= cleanup === 'confirmed local logout';
+      phase = 'result';
+      return currentPage(res);
+    }
+    if (phase === 'result' && req.url === '/close') {
+      params = await readForm(req, []);
+      sendPage(res, 200, '<p>Closing helper and cleaning up its session. The terminal reports the cleanup result.</p>');
+      setTimeout(() => { void shutdown(); }, 200);
+      return;
+    }
+    sendPage(res, 400, '<p>Invalid step.</p>');
+  } catch {
+    // Fail closed with one attempt per phase; never serialize provider errors or input.
+    const cleanup = await releaseSession();
+    resultPassed = false;
+    resultRows.push(['Flow completed', false]);
+    recordCleanup(cleanup);
+    phase = 'result';
+    currentPage(res);
+  } finally {
+    if (params) for (const key of [...params.keys()]) params.delete(key);
+    chosenFactor = null;
+  }
+}
+
+const server = createServer((req, res) => {
+  const originOK = exactHeader(req, 'origin', baseOrigin, req.method === 'POST');
+  const site = req.headers['sec-fetch-site'];
+  if (stopping || !exactHeader(req, 'host', expectedHost, true) || !originOK || (site && site !== 'none' && site !== 'same-origin')) {
+    sendPage(res, 403, '<p>Request rejected.</p>'); return;
+  }
+  if (req.method === 'GET' && req.url === '/') {
+    if (busy) sendPage(res, 409, '<p>A verification step is already running.</p>');
+    else currentPage(res);
+    return;
+  }
+  if (req.method !== 'POST' || !['/login', '/mfa', '/close'].includes(req.url)) { sendPage(res, 404, '<p>Not found.</p>'); return; }
+  if (busy) { sendPage(res, 409, '<p>A verification step is already running.</p>'); return; }
+  busy = true;
+  flow = handlePost(req, res).catch(() => { res.destroy(); }).finally(() => { busy = false; });
+});
+server.requestTimeout = 20_000;
+server.headersTimeout = 10_000;
+// One MFA submission can contain six sequential bounded network operations.
+// Keep the response socket alive while those run; request-body receipt stays 20s.
+server.timeout = 105_000;
+server.maxHeadersCount = 24;
+server.maxConnections = 4;
+server.on('clientError', (_error, socket) => { socket.destroy(); });
+
+async function shutdown() {
+  if (shutdownPromise) return shutdownPromise;
+  stopping = true;
+  shutdownPromise = (async () => {
+    clearTimeout(ttl);
+    for (const controller of controllers) controller.abort();
+    server.close();
+    server.closeAllConnections();
+    await flow;
+    const cleanup = await releaseSession();
+    factorIds = []; chosenFactor = null; nonce = ''; resultRows = []; client = null;
+    process.stdout.write(`Helper stopped. Session cleanup outcome: ${cleanup}.\n`);
+    process.exitCode = cleanup === 'cleanup unconfirmed' ? 1 : 0;
+  })();
+  return shutdownPromise;
+}
+const ttl = setTimeout(() => { void shutdown(); }, TTL_MS);
+process.once('SIGINT', () => { void shutdown(); });
+process.once('SIGTERM', () => { void shutdown(); });
+server.on('error', () => { process.stderr.write('Loopback helper could not start.\n'); void shutdown(); });
+server.listen(0, '127.0.0.1', () => {
+  expectedHost = `127.0.0.1:${server.address().port}`;
+  baseOrigin = `http://${expectedHost}`;
+  process.stdout.write(`Owner-only manual sign-in page: ${baseOrigin}/\n`);
+});
+````
+<!-- END 1189-ORIGIN-ARTIFACT-2 -->
