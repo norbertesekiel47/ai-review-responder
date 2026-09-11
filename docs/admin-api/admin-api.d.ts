@@ -930,6 +930,25 @@ export type BusinessesIdChannelsGETResponse = {
 } | {
     "error": string;
 };
+/** POST /api/admin/businesses/[id]/disconnect; derived from actual JSON response expressions. */
+export type BusinessesIdDisconnectPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "account_offboarding_blocked";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
+    "error": "no_active_connection";
+} | {
+    "error": string;
+} | {
+    "note"?: "connection_already_disconnected";
+    "ok": true;
+};
 /** PUT /api/admin/businesses/[id]/keywords; derived from actual JSON response expressions. */
 export type BusinessesIdKeywordsPUTResponse = {
     "error": "Forbidden";
