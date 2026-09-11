@@ -134,7 +134,7 @@ function WordmarkReveal({ text }: { text: string }) {
           r="22%"
           initial={{ cx: '50%', cy: '50%' }}
           animate={maskPosition}
-          transition={{ duration: 0.28, ease: 'easeOut' }}
+          transition={{ duration: prefersReducedMotion ? 0 : 0.28, ease: 'easeOut' }}
         >
           <stop offset="0%" stopColor="white" />
           <stop offset="100%" stopColor="black" />

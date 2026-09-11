@@ -1,126 +1,33 @@
 'use client';
 
 import Link from 'next/link';
-import { MARKETING_LINKS } from '@/components/ui/marketing-links';
-import { AgentFlipCard } from '../agent-flip-card';
-import { CarouselDots, useCarousel } from '../carousel';
-import { Staged, StagedLine } from '../staged';
-import {
-  PIPELINE_LINK_LABEL,
-  EYEBROW,
-  HEADING_ACCENT,
-  HEADING_LEAD,
-  LEAD_IN,
-  STATEMENT_ACCENT,
-  STATEMENT_FOOTNOTE,
-  STATEMENT_LEAD,
-  TIER_LABEL,
-  WATCHDOGS,
-} from './watchdogs-copy';
+import { BrandClip } from '../brand-clip';
+import { STATEMENT_ACCENT, STATEMENT_FOOTNOTE, STATEMENT_LEAD, WATCHDOGS } from './watchdogs-copy';
 
 /**
- * The supervising agents — the watchtower rows (2026-08-24 revamp).
- *
- * Deliberately cooler than the personas section — teal accent, wider spacing,
- * more air. The reference doc (§1.2) asks for the watchdogs to read as an
- * "oversight layer" rather than a "worker layer", and a temperature shift does
- * that without spending a sentence explaining it. If this section ever adopts
- * the gold accent, the two layers collapse into one.
- *
- * The ROW form stays (measurements.md §2 — it exists for real reasons: height
- * budget and a clipping bug), but the row now WORKS its width: a larger
- * avatar stage where the Judge's iris motion actually reads, and the
- * governing rule stamped as a plate in the space that used to be a void. The
- * statement panel enters as staged lines — it is the page's strongest trust
- * claim, and it now performs its own interruption instead of merely sitting
- * in one.
- *
- * 2026-08-25 (phone carousel): below 767px the grid becomes a scroll-snap rail
- * with a teal indicator. The row form and its 15rem height floor are unchanged
- * — the rail only stops the two rows stacking. See ../carousel.tsx.
+ * Section 6 — the agents that watch. Judge and Governor copy on the left; the
+ * paired original CRTs inside the arched scene on the right. The scene owns
+ * `overflow: hidden`, so the clips cannot protrude through its curved corners.
+ * This section is the page's door to /how-it-works.
  */
 export function WatchdogsSection() {
-  const carousel = useCarousel();
   return (
-    <section className="rw-lp-watch" aria-labelledby="rw-lp-watch-heading">
-      <div className="rw-lp-watch-inner">
-        <Staged beat={0}>
-          <header className="rw-lp-watch-intro">
-            <p className="rw-lp-watch-eyebrow">{EYEBROW}</p>
-            <h2 className="rw-lp-watch-heading" id="rw-lp-watch-heading">
-              {HEADING_LEAD} <span className="rw-lp-watch-heading-accent">{HEADING_ACCENT}</span>
-            </h2>
-            <p className="rw-lp-watch-lead">{LEAD_IN}</p>
-          </header>
-        </Staged>
-
-        {/* The statement's two halves land as separate beats, the footnote
-            after them — the claim interrupts, then qualifies itself. */}
-        <Staged beat={1}>
-          <figure className="rw-lp-watch-statement rw-lp-glass">
-            <blockquote className="rw-lp-watch-statement-quote">
-              <StagedLine beat={2}>{STATEMENT_LEAD}</StagedLine>{' '}
-              <StagedLine beat={3} className="rw-lp-watch-statement-accent">
-                {STATEMENT_ACCENT}
-              </StagedLine>
-            </blockquote>
-            <figcaption>
-              <StagedLine beat={4} className="rw-lp-watch-statement-note">
-                {STATEMENT_FOOTNOTE}
-              </StagedLine>
-            </figcaption>
-          </figure>
-        </Staged>
-
-        <Staged beat={4}>
-          <p className="rw-lp-watch-tier-label">{TIER_LABEL}</p>
-        </Staged>
-
-        <div className="rw-lp-watch-grid rw-lp-carousel" {...carousel.track}>
-          {WATCHDOGS.map((watchdog, index) => (
-            <Staged key={watchdog.id} beat={5 + index}>
-              <AgentFlipCard
-                name={watchdog.name}
-                tagline={watchdog.tagline}
-                duties={watchdog.body}
-                chip={watchdog.rule}
-                chipTone="teal"
-                tier="watchdog"
-                frontRule={watchdog.rule}
-                videoSrc={`/agents/${watchdog.id}.mp4`}
-                posterSrc={`/agents/${watchdog.id}.jpg`}
-              />
-            </Staged>
-          ))}
+    <div className="rw-lp-synthesis-model">
+      <section className="rw-lp-syn-m-watch" aria-labelledby="rw-lp-watch-heading">
+        <div className="rw-lp-syn-m-inner rw-lp-syn-m-watch-grid">
+          <div>
+            <p className="rw-lp-syn-m-label">The agents that watch</p>
+            <h2 id="rw-lp-watch-heading">Care needs<em>oversight, too.</em></h2>
+            {WATCHDOGS.map((agent) => <article key={agent.id}><h3>{agent.name}</h3><p>{agent.body}</p><strong>{agent.rule}</strong></article>)}
+            <Link href="/how-it-works" className="rw-lp-syn-m-text-link">See how a review moves through the fleet <span aria-hidden="true">↗</span></Link>
+          </div>
+          <div className="rw-lp-syn-m-watch-scene">
+            <div className="rw-lp-syn-m-watch-machines"><BrandClip id="judge" /><BrandClip id="governor" /></div>
+            <blockquote>{STATEMENT_LEAD}<em>{STATEMENT_ACCENT}</em></blockquote>
+            <p>{STATEMENT_FOOTNOTE}</p>
+          </div>
         </div>
-
-        {/* Teal, not gold: the indicator belongs to the oversight layer, and a
-            gold bar under these two cards would read as the acting layer's.
-            Rendered only once the rail has somewhere to scroll. */}
-        {carousel.overflowing ? (
-          <CarouselDots
-            count={WATCHDOGS.length}
-            active={carousel.active}
-            onSelect={carousel.goTo}
-            label={TIER_LABEL}
-            tone="teal"
-          />
-        ) : null}
-
-        {/* The whole pipeline lives on /how-it-works — the landing page links
-            to it rather than retelling it (see watchdogs-copy.ts). Gold, not
-            teal: the link is an ACTION, and gold is the action temperature. */}
-        <Staged beat={7}>
-          <p className="rw-lp-watch-pipeline">
-            <Link href={MARKETING_LINKS.howItWorks.href} className="rw-lp-watch-pipeline-link">
-              {PIPELINE_LINK_LABEL}
-              <span aria-hidden="true" className="rw-lp-watch-pipeline-arrow">
-                {'→'}
-              </span>
-            </Link>
-          </p>
-        </Staged>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

@@ -1,32 +1,44 @@
 // @vitest-environment jsdom
+import { createElement } from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobsSection } from '../jobs/JobsSection';
 import { JOBS } from '../jobs/jobs-copy';
 
-// Reduced motion collapses the staged reveals to their final frame, the same
-// way the sibling section tests render (TiersSection.test.tsx).
+// Reduced motion keeps every job film on its still, so the render is static.
 vi.mock('@/hooks/usePrefersReducedMotion', () => ({
   usePrefersReducedMotion: () => true,
 }));
+vi.mock('next/image', () => ({
+  default: ({ src, alt }: { src: string; alt: string }) => createElement('img', { src, alt }),
+}));
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    },
+  );
+});
 
 describe('JobsSection', () => {
-  it('renders the five jobs as equal ledger rows with one verb each', () => {
+  it('renders the five jobs in order, one verb each', () => {
     render(<JobsSection />);
-    expect(screen.getByRole('heading', { level: 2 })).toHaveAccessibleName(
-      'It runs a whole reputation department.'
-    );
     const verbs = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    expect(verbs).toEqual(['Respond', 'Protect', 'Request', 'Brief', 'Measure']);
-    expect(screen.getAllByRole('listitem')).toHaveLength(JOBS.length);
+    expect(verbs).toEqual(['Respond.', 'Protect.', 'Request.', 'Brief.', 'Measure.']);
+    expect(screen.getAllByRole('article')).toHaveLength(JOBS.length);
   });
 
-  it('keeps the gold/teal temperature split: acting agents gold, the watching layer teal', () => {
-    const { container } = render(<JobsSection />);
-    const tones = Array.from(container.querySelectorAll('.rw-lp-jobs-row')).map((row) =>
-      row.getAttribute('data-tone')
-    );
-    expect(tones).toEqual(['gold', 'teal', 'gold', 'gold', 'teal']);
+  it('gives every job its own film still, with a description of the scene', () => {
+    render(<JobsSection />);
+    for (const job of JOBS) {
+      const still = document.querySelector(`[data-job-film="${job.id}"] img`);
+      expect(still).toHaveAttribute('src', `/jobs/${job.id}.webp`);
+      expect(still?.getAttribute('alt')).toBeTruthy();
+    }
   });
 
   it('states only shipped capability, in present tense, with no channel that is off in production', () => {

@@ -205,7 +205,9 @@ function useHeroEntrance() {
   const prefersReducedMotion = usePrefersReducedMotion();
   return (step: number) =>
     prefersReducedMotion
-      ? { initial: false as const }
+      // Hydration may switch the preference after Motion applied the initial
+      // hidden pose. Explicitly resolve that pose when reducing motion.
+      ? { initial: false as const, animate: { opacity: 1, y: 0 }, transition: { duration: 0 } }
       : {
           initial: { opacity: 0, y: 14 },
           animate: { opacity: 1, y: 0 },

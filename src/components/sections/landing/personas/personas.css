@@ -1,155 +1,334 @@
-/* ==========================================================================
-   The acting agents — a grid of flip cards.
-
-   Card mechanics (3D flip, hover/tap/keyboard, reduced-motion cross-fade) live
-   in ../agent-flip-card.css, shared with the watchdog section. This file owns
-   only the section frame and the grid.
-
-   GOLD is this section's accent. The watchdog section deliberately answers in
-   TEAL: the reference doc asks for the oversight layer to read "cooler, more
-   architectural" than the worker layer, and a temperature shift carries that
-   distinction without a word of copy. Keep the two apart.
-   ========================================================================== */
-
-.rw-lp-personas {
-  --rw-lp-personas-text: #f4f2ec;
-  --rw-lp-personas-muted: rgb(var(--rw-lp-text-rgb) / 0.66);
-
+/* Section 4 — the agents that act. Type roles and tokens: section-scopes.css
+   (.rw-lp-synthesis-loop). Desktop alternates copy around a tall central CRT;
+   phones pin a short CRT strip with four 44px controls below its arch, on a
+   solid paper ground — never pale numbers over the curved edge. */
+.rw-lp-syn-l-media {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  /* As tall as its content plus the page's section rhythm — never bound to
-     the viewport (2026-08-16; docs/brand-asset-library/design-systems/landing/measurements.md §2). */
-  padding: var(--rw-lp-section-gap, 6rem) 0;
-  /* A warm gold wash off the TOP-LEFT — where this section's intro sits and
-     where its temperature is declared. This was the only narrative section on
-     bare ink (fleet has its contour rings, watchdogs its teal wash + lighter
-     ground, future its bottom ember), which is a big part of why 2–5 scrolled
-     past as one band. The wash answers the watchdogs' top-centre teal the way
-     the copy answers it: gold acts, teal watches. 0.055, not the teal's 0.07 —
-     gold is the brighter pigment, and this weight matches optically.
-
-     Contrast, computed COMPOSITED (the channel reading lies — see the note on
-     the column-note below): the wash's peak lifts the ground to rgb(31,41,34);
-     over that the 0.55 column-note measures 5.10:1 (5.40 on flat ink) and the
-     gold eyebrow 8.79:1 — both clear of the 4.5 AA floor. Re-measure both
-     before raising the alpha. */
-  background:
-    radial-gradient(ellipse 65% 50% at 12% 0%, rgb(var(--rw-lp-accent-rgb) / 0.055), transparent 70%),
-    var(--rw-lp-ink, #14201c);
+  min-width: 0;
+  overflow: hidden;
+  background: var(--rw-lp-syn-l-dark);
 }
-
-.rw-lp-personas-inner {
-  /* `width: 100%` is load-bearing. The section is a column flex container, so
-     this is a flex item; its `margin: 0 auto` then wins over the default
-     `align-self: stretch` and collapses the block to fit-content, silently
-     narrowing every grid inside it. */
+.rw-lp-syn-l-media img,
+.rw-lp-syn-l-media video {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  max-width: var(--rw-lp-inner-max, 102rem);
-  margin: 0 auto;
-  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+  height: 100%;
+  object-fit: cover;
 }
-
-/* ---------- intro ---------- */
-
-.rw-lp-personas-intro {
-  max-width: 46rem;
-  margin-bottom: clamp(1.25rem, 3.5vh, 2.5rem);
+.rw-lp-syn-l-media video {
+  z-index: 1;
 }
-
-/* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
-.rw-lp-personas-eyebrow {
-  margin: 0 0 1.125rem;
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: var(--rw-lp-label-size);
-  letter-spacing: var(--rw-lp-label-tracking);
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
+.rw-lp-syn-l-agents {
+  background: var(--rw-lp-syn-l-cream);
+  color: var(--rw-lp-syn-l-forest);
+  padding: 84px 0 65px;
 }
-
-.rw-lp-personas-heading {
-  /* Height-aware: a 1440x810 laptop is wide but short, so `vw` alone sizes
-     this for a screen that is not there. The `vh` term is what keeps the
-     section inside one viewport. */
-  margin: 0;
-  font-family: var(--rw-font-display);
-  font-weight: 200;
-  font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-  color: var(--rw-lp-personas-text);
+.rw-lp-syn-l-section-heading {
+  max-width: 770px;
+  margin-bottom: 65px;
 }
-
-.rw-lp-personas-heading-accent {
-  color: var(--rw-lp-accent, #dcc489);
+.rw-lp-syn-l-section-heading .rw-lp-syn-l-eyebrow {
+  margin-bottom: 23px;
 }
-
-.rw-lp-personas-lead {
-  margin: clamp(0.75rem, 2vh, 1.25rem) 0 0;
-  max-width: 38rem;
-  font-family: var(--rw-font-display);
-  font-weight: 400;
-  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
-  line-height: 1.7;
-  color: var(--rw-lp-personas-muted);
+.rw-lp-syn-l-section-heading > p:last-child:not(.rw-lp-syn-l-eyebrow) {
+  margin-top: 26px;
+  max-width: 525px;
+  font-size: 15px;
 }
-
-/* Tells the visitor the cards have a back before they discover it by accident.
-   Without this the duties are only found by hovering, which is not a
-   discoverable affordance on any device. */
-.rw-lp-personas-column-note {
-  margin: 0 0 1.25rem;
-  /* Same label role as the eyebrow (mono, 12px), one alpha step quieter. */
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: var(--rw-lp-label-size);
-  letter-spacing: var(--rw-lp-label-tracking);
-  text-transform: uppercase;
-  /* 0.55, not the 0.45 this shipped with. Composited over this section's ground
-     (#14201c) that alpha measures 4.07:1 — below the 4.5 AA floor for small
-     text. 0.55 measures 5.40:1. The ratio MUST be computed on the composited
-     colour: reading the rgba() channels alone reports ~15:1 for text that is
-     actually at 4.07, which is how it passed review the first time. */
-  color: rgb(var(--rw-lp-text-rgb) / 0.55);
-}
-
-/* ---------- card grid ---------- */
-
-/* Four `aspect-ratio: 3/4` cards across the 75rem column: ~264px wide, ~352px
-   tall at 1200px. The `min(100%, calc(180svh + 3rem))` cap this used to carry
-   existed only to keep the row inside a `100svh` section on short viewports;
-   with the bind gone the section grows with the row, so the cap went with it
-   (2026-08-16). */
-.rw-lp-personas-list {
+.rw-lp-syn-l-gallery {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: 1fr 34% 1fr;
+  column-gap: 40px;
+  grid-template-rows: repeat(4, minmax(350px, auto));
+  position: relative;
+}
+.rw-lp-syn-l-gallery-stage {
+  grid-column: 2;
+  grid-row: 1 / 5;
+  min-width: 0;
+}
+.rw-lp-syn-l-gallery-sticky {
+  position: sticky;
+  top: 8vh;
+}
+.rw-lp-syn-l-aperture {
+  position: relative;
+  height: min(73vh, 700px);
+  min-height: 490px;
+  background: var(--rw-lp-syn-l-dark);
+  border-radius: 190px 190px 8px 8px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px var(--rw-lp-syn-l-brass),
+    0 14px 30px rgb(var(--rw-lp-syn-l-shadow-rgb) / 0.08);
+}
+.rw-lp-syn-l-aperture::after {
+  content: '';
+  position: absolute;
+  inset: 15px;
+  border: 1px solid rgb(var(--rw-lp-accent-rgb) / 0.22);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.rw-lp-syn-l-aperture .rw-lp-syn-l-media {
+  width: 100%;
+  aspect-ratio: 1;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-55%);
+}
+.rw-lp-syn-l-aperture-caption {
+  position: absolute;
+  top: 14%;
+  left: 15%;
+  right: 15%;
+  color: var(--rw-lp-accent);
+  font-family: var(--rw-lp-label-font);
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  text-align: center;
+  text-transform: uppercase;
+  z-index: 2;
+}
+.rw-lp-syn-l-plinth {
+  position: absolute;
+  left: 20%;
+  right: 20%;
+  height: 16px;
+  bottom: 24%;
+  background: linear-gradient(
+    var(--rw-lp-syn-l-brass),
+    var(--rw-lp-syn-l-forest)
+  );
+  border-radius: 50%;
+  opacity: 0.45;
+}
+.rw-lp-syn-l-current {
+  position: absolute;
+  bottom: 9%;
+  left: 12%;
+  right: 12%;
+  color: var(--rw-lp-accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--rw-lp-label-font);
+  font-size: 10px;
+}
+.rw-lp-syn-l-current strong {
+  font-family: var(--rw-lp-syn-l-display);
+  font-size: 26px;
+  font-weight: 400;
+}
+.rw-lp-syn-l-agent-tabs {
+  display: flex;
+  gap: 9px;
+  justify-content: center;
+  margin-top: 14px;
+}
+.rw-lp-syn-l-agent-tabs a {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rw-lp-syn-l-brass);
+  border-radius: 50%;
+  font-family: var(--rw-lp-label-font);
+  font-size: 10px;
+}
+.rw-lp-syn-l-agent-tabs a[aria-current='true'] {
+  background: var(--rw-lp-syn-l-forest);
+  color: var(--rw-lp-syn-l-cream);
+}
+.rw-lp-syn-l-agent {
+  scroll-margin-top: 130px;
+  align-self: start;
+  padding: 20px 0 65px;
+}
+.rw-lp-syn-l-agent:nth-of-type(even) {
+  padding-top: 35px;
+}
+.rw-lp-syn-l-number {
+  display: inline-grid;
+  place-items: center;
+  width: 45px;
+  height: 49px;
+  border: 1px solid var(--rw-lp-syn-l-brass);
+  border-radius: 50% 50% 0 50%;
+  margin-bottom: 22px;
+  font-family: var(--rw-lp-syn-l-display);
+  font-size: 21px;
+}
+.rw-lp-syn-l-agent .rw-lp-syn-l-eyebrow {
+  font-size: 11px;
+  margin-bottom: 20px;
+}
+.rw-lp-syn-l-agent h3 {
+  font-size: clamp(37px, 3.8vw, 61px);
+  margin-bottom: 25px;
+}
+.rw-lp-syn-l-agent p {
+  font-size: 13px;
+  line-height: 1.75;
+}
+.rw-lp-syn-l-agent .rw-lp-syn-l-claim {
+  font-size: 17px;
+  line-height: 1.5;
+  margin-bottom: 15px;
+  font-weight: 500;
+}
+.rw-lp-syn-l-agent .rw-lp-syn-l-permission {
+  margin-top: 22px;
+  border-top: 1px solid var(--rw-lp-syn-l-brass);
+  padding-top: 13px;
+  font-size: 11px;
 }
 
+@media (min-width: 1700px) {
+  .rw-lp-syn-l-agent p {
+    font-size: 15px;
+  }
+  .rw-lp-syn-l-gallery {
+    grid-template-rows: repeat(4, minmax(400px, auto));
+  }
+}
 @media (max-width: 1100px) {
-  .rw-lp-personas-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .rw-lp-syn-l-gallery {
+    column-gap: 25px;
+    grid-template-columns: 1fr 31% 1fr;
+  }
+  .rw-lp-syn-l-aperture {
+    min-height: 430px;
+    height: 65vh;
+  }
+  .rw-lp-syn-l-aperture-caption {
+    font-size: 8px;
   }
 }
-
-@media (max-width: 560px) {
-  .rw-lp-personas-list {
-    grid-template-columns: 1fr;
+@media (max-width: 760px) {
+  .rw-lp-syn-l-agents {
+    padding: 52px 0;
+  }
+  .rw-lp-syn-l-section-heading {
+    margin-bottom: 35px;
+  }
+  .rw-lp-syn-l-section-heading .rw-lp-syn-l-eyebrow {
+    margin-bottom: 16px;
+  }
+  .rw-lp-syn-l-section-heading h2 {
+    font-size: 44px;
+  }
+  .rw-lp-syn-l-section-heading > p:last-child:not(.rw-lp-syn-l-eyebrow) {
+    font-size: 14px;
+    margin-top: 20px;
+  }
+  /* The CRT strip's height follows the viewport, and both the anchor
+     clearance and the reading line in PersonasSection derive from it. */
+  .rw-lp-syn-l-gallery {
+    display: block;
+    --rw-lp-gallery-screen-height: min(190px, 28svh);
+  }
+  .rw-lp-syn-l-gallery-stage {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--rw-lp-syn-l-cream);
+    padding: 10px 0 12px;
+    margin: 0 -1px 25px;
+  }
+  .rw-lp-syn-l-gallery-sticky {
+    position: static;
+  }
+  .rw-lp-syn-l-aperture {
+    height: var(--rw-lp-gallery-screen-height);
+    min-height: 0;
+    border-radius: 105px 105px 8px 8px;
+  }
+  .rw-lp-syn-l-aperture .rw-lp-syn-l-media {
+    width: min(180px, var(--rw-lp-gallery-screen-height));
+    height: min(180px, var(--rw-lp-gallery-screen-height));
+    left: 50%;
+    top: 48%;
+    transform: translate(-50%, -55%);
+  }
+  .rw-lp-syn-l-aperture-caption,
+  .rw-lp-syn-l-plinth {
+    display: none;
+  }
+  .rw-lp-syn-l-aperture::after {
+    inset: 8px;
+  }
+  .rw-lp-syn-l-current {
+    left: 18px;
+    right: 18px;
+    bottom: 15px;
+    font-size: 9px;
+  }
+  .rw-lp-syn-l-current strong {
+    font-size: 22px;
+  }
+  /* A thumb-sized index below the arch keeps every label on a solid ground. */
+  .rw-lp-syn-l-agent-tabs {
+    position: static;
+    flex-direction: row;
+    margin: 8px 0 0;
+    gap: 12px;
+  }
+  .rw-lp-syn-l-agent-tabs a {
+    font-size: 11px;
+  }
+  .rw-lp-syn-l-agent,
+  .rw-lp-syn-l-agent:nth-of-type(even) {
+    padding: 12px 0 35px;
+    scroll-margin-top: calc(var(--rw-lp-gallery-screen-height) + 90px);
+  }
+  .rw-lp-syn-l-number {
+    width: 36px;
+    height: 39px;
+    font-size: 18px;
+    margin-bottom: 15px;
+  }
+  .rw-lp-syn-l-agent .rw-lp-syn-l-eyebrow {
+    display: inline-block;
+    margin-left: 12px;
+  }
+  .rw-lp-syn-l-agent h3 {
+    font-size: 49px;
+    margin-bottom: 17px;
+  }
+  .rw-lp-syn-l-agent p {
+    font-size: 14px;
+  }
+  .rw-lp-syn-l-agent .rw-lp-syn-l-claim {
+    font-size: 18px;
+  }
+  .rw-lp-syn-l-agent .rw-lp-syn-l-permission {
+    font-size: 12px;
   }
 }
-
-/* ---------- phone carousel ----------
-   Below 767px the list is a scroll-snap rail (../carousel.css owns the rail
-   mechanics; this only sets the card measure). `grid-template-columns` above
-   goes inert there because the rail switches the box to `display: flex`.
-
-   19rem, not the full column: the card is `aspect-ratio: 3/4`, so width IS
-   height here. 19rem caps it at 405px tall on a 390px phone, against the 456px
-   a full-width card cost. The 78vw term is what leaves the next card's edge
-   showing — the peek is the only thing that says the row continues. */
-@media (max-width: 767px) {
-  .rw-lp-personas-list {
-    --rw-lp-carousel-slide: min(78vw, 19rem);
+@media (max-width: 380px) {
+  .rw-lp-syn-l-section-heading h2 {
+    font-size: 39px;
+  }
+}
+/* The final desktop row needs extra clearance so linking to it does not pull
+   the tall sticky frame past its containing block. Earlier rows stay higher. */
+@media (min-width: 761px) {
+  .rw-lp-syn-l-agent:last-of-type { scroll-margin-top: calc(50svh - 16px); }
+}
+/* Wide but short screens: the CRT fills the viewport height and drops its
+   decorative caption and plinth to leave room for the agent controls. */
+@media (min-width: 761px) and (max-height: 650px) {
+  .rw-lp-syn-l-aperture {
+    height: calc(100svh - 130px);
+    min-height: 0;
+  }
+  .rw-lp-syn-l-aperture-caption,
+  .rw-lp-syn-l-plinth { display: none; }
+  .rw-lp-syn-l-aperture .rw-lp-syn-l-media {
+    width: min(100%, 100svh - 170px);
+    left: 50%;
+    transform: translate(-50%, -55%);
   }
 }

@@ -7,6 +7,8 @@
 
 ## Overview
 
+**Current middle narrative — owner selection, 2026-09-10:** `/` uses **F3 with F1's Working Atlas roadmap**. Its authoritative composition, paper/ink sections, responsive refinements, imagery and motion contracts are saved in [the chosen design record](../../collections/2026-09-final/chosen-design.md). That selection supersedes the original middle-section anatomy described below. The existing hero, navigation, closing CTA, footer and their measured scrims remain current. The original middle sections and their helpers (`Staged`, the phone carousel, the agent flip card, the route-map path builder) were deleted from the codebase in the same day's cleanup, together with the `design-*` comparison routes: where this page describes sections 2–8, it is history, not a spec.
+
 **The landing page is deliberately unlocked from the Island system.** `PRODUCT.md`
 records this exception (agreed 2026-08-03): `/` may establish its own world; the rest of
 the site does not follow it. Do not "restore" sage/teal/peach here.

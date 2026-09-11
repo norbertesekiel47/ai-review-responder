@@ -8,6 +8,8 @@ them — including the two ways contrast measurement on this page silently lies.
 The page's design system — palette, type, components, copy contracts — is
 [`DESIGN.md`](DESIGN.md) beside this file. This document is its engineering companion.
 
+**Current selection, 2026-09-10:** the actual `/` route uses F3's narrative and F1's roadmap. [Chosen design measurements and contracts](../../collections/2026-09-final/chosen-design.md) govern that middle: responsive CRT index/reading line, arched watchdog containment, lever timing and the 3840px map's 1.75× framing. The original bookend measurements below still apply. The middle-section measurements below — including the file map, the carousel breakpoint and the flip-card import order — describe components deleted in the same day's cleanup; read them as history.
+
 **Status as of 2026-08-04:** sections 1–5 + 9 + footer built; 6–8 unbuilt. Audited
 **19/20** across three `/impeccable audit` passes (16 → 17 → 19), with the remaining point
 held by one missing asset — see §5. Gate at that point: typecheck ✓, lint ✓, 10,668

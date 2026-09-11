@@ -1,529 +1,104 @@
 'use client';
 
 import Image from 'next/image';
-import { m, useInView } from 'motion/react';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { RefObject } from 'react';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
-import { CarouselDots, useCarousel } from '../carousel';
-import { Staged } from '../staged';
+import { useState, type CSSProperties } from 'react';
+import { PERSONAS } from '../personas/personas-copy';
+import { PIVOT_ACCENT, PIVOT_LEAD } from '../problem/problem-copy';
 import { VideoLightbox } from './VideoLightbox';
-import {
-  CENTRE_CAPTION,
-  CENTRE_LABEL,
-  CENTRE_PILL,
-  EYEBROW,
-  HEADING_ACCENT,
-  HEADING_LEAD,
-  LEAD_IN,
-  NEXT_TAG,
-  PERSONA_RAIL_LABEL,
-  PERSONAS,
-  WATCHDOG_RAIL_LABEL,
-  WATCHDOGS,
-  type FleetAgent,
-} from './fleet-copy';
 
-/**
- * The fleet constellation: a central media node with the named agents orbiting
- * it, joined by SVG bezier connectors.
- *
- * Two structural decisions worth keeping:
- *
- *   1. Watchdogs render ABOVE the centre and personas BELOW. That is not
- *      arbitrary prettiness — it draws the reference doc's §3.5 metaphor, an
- *      oversight layer sitting over an action layer. Flattening them into one
- *      ring loses the only thing the diagram is arguing.
- *   2. Connectors are MEASURED at runtime rather than hand-authored in a fixed
- *      viewBox. Node positions come from flex/grid and move with the viewport,
- *      so hard-coded path coordinates would drift at every width. See
- *      `useConnectorPaths`.
- *
- * ── The living diagram (2026-08-24 revamp) ────────────────────────────────
- * The diagram assembles when it arrives: live wires DRAW themselves in
- * (motion `pathLength`, staggered), the nodes and centre fade up, the flow
- * current starts once the wires exist, and hovering a node brightens its own
- * wire — the diagram behaves like the system it describes. The wire layer is
- * `FleetWires`, the media hub `FleetCentre`; `FleetSection` only composes.
- *
- * Motion rule for THIS section: the nodes and the media card are MEASURED
- * (`getBoundingClientRect`, which includes transforms), and the observer
- * only re-fires on size change — an entrance TRANSFORM on a measured element
- * would bake its mid-flight position into the wire endpoints. So every
- * measured element enters by OPACITY ONLY (`armedFadeProps`); only the
- * unmeasured intro rises.
- *
- * Below 900px the constellation is abandoned entirely for a stacked list — a
- * six-node radial diagram is illegible at phone widths, and faking it with a
- * squashed SVG is worse than not drawing it. Below 767px each tier goes one
- * step further and becomes its own scroll-snap carousel (2026-08-25): stacked,
- * the six nodes plus the video ran the section past three phone screens. The
- * two breakpoints are deliberately different — 900px is where the DIAGRAM
- * stops working, 767px is where the STACK gets too long.
- */
+/** Station names, in PERSONAS order. Each pill links to that agent's story. */
+const STATION_NAMES = ['The reply desk', 'The lookout', 'The report room', 'The outbox'];
 
-interface FleetSectionProps {
-  /**
-   * Optional source for the central media node. When present the centre
-   * becomes a CLICK-TO-OPEN poster rather than an inline autoplaying loop:
-   * this slot holds the narrated explainer, which has audio and runs 2m26s, so
-   * playing it unbidden behind the diagram would be both loud and wasteful.
-   * The file is only fetched once a visitor asks for it.
-   */
-  videoSrc?: string;
-  /** Still shown in the centre before the video is opened. Required with
-   *  `videoSrc` — without it the centre would open on an empty black box. */
-  videoPoster?: string;
-  /** Accessible name for the player dialog and the button that opens it. */
-  videoTitle?: string;
-}
+/** Pill anchor points on the courtyard art, as % of its width and height. */
+const STATION_POSITIONS = [
+  [18, 69],
+  [29, 26],
+  [67, 66],
+  [85, 69],
+];
 
-interface Connector {
-  id: string;
-  d: string;
-  status: FleetAgent['status'];
-}
-
-/** One stable identity for the full roster. Building this inline in the
- *  component recreated the array every render, which recreated `measure`
- *  (it depends on `agents`), which re-ran the observer effect — a
- *  re-observe/re-measure loop the async ResizeObserver merely disguised.
- *  A module constant ends the cycle at the root. */
-const ALL_AGENTS: readonly FleetAgent[] = [...WATCHDOGS, ...PERSONAS];
-
-/** The assembly's ONE fade contract: opacity only (measured elements — see
- *  the section comment), gated on the arming signal, settled instantly under
- *  reduced motion. Every fading element consumes this so none can drift into
- *  a transform. */
-function armedFadeProps(prefersReducedMotion: boolean, armed: boolean, delay: number) {
+function stationStyle(index: number): CSSProperties {
+  const position = STATION_POSITIONS[index] ?? [50, 50];
   return {
-    initial: prefersReducedMotion ? (false as const) : { opacity: 0 },
-    animate: armed ? { opacity: 1 } : undefined,
-    transition: prefersReducedMotion
-      ? { duration: 0 }
-      : { duration: 0.6, ease: 'easeOut' as const, delay },
-  };
+    '--rw-lp-station-x': `${position[0]}%`,
+    '--rw-lp-station-y': `${position[1]}%`,
+  } as CSSProperties;
 }
 
-/**
- * Measures where each agent node actually sits and returns the bezier paths
- * joining them to the centre.
- *
- * The ResizeObserver is the whole mechanism, not a fallback: it fires once on
- * `observe()` with the initial size, so the first measurement arrives through
- * the same path as every later one. That also keeps the state update inside an
- * external-system callback rather than the effect body.
- */
-function useConnectorPaths(
-  containerRef: RefObject<HTMLDivElement | null>,
-  mediaRef: RefObject<HTMLDivElement | null>,
-  nodeRefs: RefObject<Map<string, HTMLElement>>,
-  agents: readonly FleetAgent[],
-  enabled: boolean,
-) {
-  const [connectors, setConnectors] = useState<Connector[]>([]);
-
-  const measure = useCallback(() => {
-    const container = containerRef.current;
-    const media = mediaRef.current;
-    if (!container || !media) return;
-
-    const box = container.getBoundingClientRect();
-    if (box.width === 0) return;
-
-    // Wires terminate on the media card's EDGE, never at its centre. Running
-    // them to the middle draws an X straight through the video: the card is
-    // translucent glass, so anything behind it shows through.
-    const mediaBox = media.getBoundingClientRect();
-    const mx = mediaBox.left + mediaBox.width / 2 - box.left;
-    const topEdge = mediaBox.top - box.top;
-    const bottomEdge = mediaBox.bottom - box.top;
-
-    const next: Connector[] = [];
-    for (const agent of agents) {
-      const el = nodeRefs.current?.get(agent.id);
-      if (!el) continue;
-      const b = el.getBoundingClientRect();
-      const above = b.top < mediaBox.top;
-      const sx = b.left + b.width / 2 - box.left;
-      // Leave from the node's edge facing the card, not its middle, so the
-      // line emerges from the card rather than out of its text.
-      const sy = (above ? b.bottom : b.top) - box.top;
-      const ey = above ? topEdge : bottomEdge;
-      // Land slightly off-centre, keeping each wire's own direction, so the
-      // set reads as a fan converging rather than as spokes on a hub.
-      const ex = mx + (sx - mx) * 0.16;
-      const midY = (sy + ey) / 2;
-      next.push({
-        id: agent.id,
-        status: agent.status,
-        d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${sx.toFixed(1)} ${midY.toFixed(1)}, ${ex.toFixed(1)} ${midY.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`,
-      });
-    }
-    setConnectors(next);
-  }, [containerRef, mediaRef, nodeRefs, agents]);
-
-  useEffect(() => {
-    // No clearing of state here when disabled — that would be a setState in an
-    // effect body. Stale paths simply go unrendered; the caller gates on the
-    // same `enabled` flag.
-    if (!enabled) return;
-    const container = containerRef.current;
-    if (!container || typeof ResizeObserver === 'undefined') return;
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(container);
-    const media = mediaRef.current;
-    if (media) observer.observe(media);
-    for (const el of nodeRefs.current?.values() ?? []) observer.observe(el);
-
-    window.addEventListener('resize', measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [enabled, measure, containerRef, mediaRef, nodeRefs]);
-
-  return connectors;
-}
-
-function NextTag() {
-  return <span className="rw-lp-fleet-tag">{NEXT_TAG}</span>;
-}
-
-function AgentCard({
-  agent,
-  tier,
-  entranceDelay,
-  armed,
-  registerRef,
-  onHot,
-}: {
-  agent: FleetAgent;
-  tier: 'watchdog' | 'persona';
-  /** Seconds. The dock order: watchdogs, centre, then personas. */
-  entranceDelay: number;
-  armed: boolean;
-  registerRef: (id: string, el: HTMLElement | null) => void;
-  onHot: (id: string | null) => void;
-}) {
-  const prefersReducedMotion = usePrefersReducedMotion();
+function PlayIcon() {
   return (
-    <m.article
-      ref={(el: HTMLElement | null) => registerRef(agent.id, el)}
-      className="rw-lp-fleet-node"
-      data-tier={tier}
-      data-status={agent.status}
-      {...armedFadeProps(prefersReducedMotion, armed, entranceDelay)}
-      onPointerEnter={() => onHot(agent.id)}
-      onPointerLeave={() => onHot(null)}
-    >
-      <header className="rw-lp-fleet-node-head">
-        <h3 className="rw-lp-fleet-node-name">{agent.name}</h3>
-        {agent.status === 'next' ? <NextTag /> : null}
-      </header>
-      <p className="rw-lp-fleet-node-role">{agent.role}</p>
-    </m.article>
-  );
-}
-
-/**
- * One tier of the constellation — and, below 767px, one carousel.
- *
- * The tier div is the SAME element in both layouts: on desktop it is the flex
- * row the wires are measured against, on a phone `carousel.css` restyles it
- * into a scroll-snap rail. Both dot rows are GOLD, including the watchdogs':
- * the teal `--rw-lp-watch-accent-rgb` is declared on `.rw-lp-watch` and does
- * not resolve here, and this section's whole diagram is gold anyway. Teal
- * belongs to the watchdogs SECTION, not to the fleet's oversight row.
- */
-function FleetTier({
-  tier,
-  agents,
-  label,
-  baseDelay,
-  armed,
-  registerRef,
-  onHot,
-}: {
-  tier: 'watchdog' | 'persona';
-  agents: readonly FleetAgent[];
-  /** Screen-reader name for the carousel. Not visible copy. */
-  label: string;
-  /** Seconds before the first card in this tier fades in. */
-  baseDelay: number;
-  armed: boolean;
-  registerRef: (id: string, el: HTMLElement | null) => void;
-  onHot: (id: string | null) => void;
-}) {
-  const carousel = useCarousel();
-  return (
-    <>
-      <div
-        className="rw-lp-fleet-tier rw-lp-carousel"
-        data-tier={tier}
-        {...carousel.track}
-      >
-        {agents.map((agent, index) => (
-          <AgentCard
-            key={agent.id}
-            agent={agent}
-            tier={tier}
-            entranceDelay={baseDelay + index * 0.11}
-            armed={armed}
-            registerRef={registerRef}
-            onHot={onHot}
-          />
-        ))}
-      </div>
-
-      {/* A sibling, not a child of the tier — it must not become a slide. Its
-          grid `order` is set in fleet.css beside the tier's own, and the
-          selector there is `tier + dots`, so this must stay the tier's NEXT
-          sibling. Rendered only once the rail has somewhere to scroll: the two
-          watchdog cards already fit at 767px. */}
-      {carousel.overflowing ? (
-        <CarouselDots
-          count={agents.length}
-          active={carousel.active}
-          onSelect={carousel.goTo}
-          label={label}
-        />
-      ) : null}
-    </>
-  );
-}
-
-/**
- * The connector layer. The draw-in is motion-driven and finite
- * (pause-rule-immune); `pathLength` normalises every bezier to 0..1, so one
- * duration fits all lengths. The dashed NEXT connector keeps its stylesheet
- * dash geometry and simply fades in via the `data-armed` transitions in
- * fleet.css (a pathLength draw would override its dashes).
- */
-function FleetWires({
-  connectors,
-  armed,
-  hotId,
-}: {
-  connectors: Connector[];
-  armed: boolean;
-  hotId: string | null;
-}) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const gradientId = useId();
-  return (
-    <svg
-      className="rw-lp-fleet-wires"
-      data-still={prefersReducedMotion ? 'true' : 'false'}
-      aria-hidden="true"
-      focusable="false"
-    >
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--rw-lp-fleet-wire-bright)" />
-          <stop offset="100%" stopColor="var(--rw-lp-fleet-wire-dim)" />
-        </linearGradient>
-      </defs>
-      {connectors.map((connector, index) => (
-        <g
-          key={connector.id}
-          data-status={connector.status}
-          data-hot={hotId === connector.id ? 'true' : 'false'}
-        >
-          {connector.status === 'live' ? (
-            <m.path
-              className="rw-lp-fleet-wire"
-              d={connector.d}
-              stroke={`url(#${gradientId})`}
-              initial={prefersReducedMotion ? false : { pathLength: 0 }}
-              animate={armed ? { pathLength: 1 } : undefined}
-              transition={
-                prefersReducedMotion
-                  ? { duration: 0 }
-                  : { duration: 0.9, ease: 'easeInOut', delay: 0.2 + index * 0.09 }
-              }
-            />
-          ) : (
-            <path className="rw-lp-fleet-wire" d={connector.d} stroke={`url(#${gradientId})`} />
-          )}
-          <path className="rw-lp-fleet-wire-flow" d={connector.d} />
-        </g>
-      ))}
+    <svg viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <path d="M9 4.5 24 14 9 23.5Z" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   );
 }
 
 /**
- * The media hub. Opacity only — the media card inside is measured (see the
- * section comment). A real <button>, not a div with onClick: it opens a
- * modal, so it has to be reachable and operable from the keyboard and
- * announced as a control. The poster is decorative — the button's own label
- * carries the meaning.
+ * Section 3 — meet the fleet. The 3:1 courtyard scene with four station
+ * pills; each pill links to its agent in the personas section. Phones keep the
+ * whole scene (numbered pins) and move the pills into a two-column index.
+ * The film opens in the accessible lightbox.
  */
-function FleetCentre({
-  videoSrc,
-  videoPoster,
-  videoTitle,
-  armed,
-  mediaRef,
-  onOpen,
-}: FleetSectionProps & {
-  armed: boolean;
-  mediaRef: RefObject<HTMLDivElement | null>;
-  onOpen: () => void;
-}) {
-  const prefersReducedMotion = usePrefersReducedMotion();
+export function FleetSection() {
+  const [filmOpen, setFilmOpen] = useState(false);
   return (
-    <m.div className="rw-lp-fleet-centre" {...armedFadeProps(prefersReducedMotion, armed, 0.25)}>
-      <p className="rw-lp-fleet-pill">
-        <span className="rw-lp-fleet-pill-dot" aria-hidden="true" />
-        {CENTRE_PILL}
-      </p>
-
-      <div className="rw-lp-fleet-media" ref={mediaRef}>
-        {videoSrc && videoPoster ? (
-          <button type="button" className="rw-lp-fleet-play" onClick={onOpen}>
-            <Image
-              src={videoPoster}
-              alt=""
-              fill
-              sizes="(max-width: 900px) 90vw, 40rem"
-              className="rw-lp-fleet-play-poster"
-            />
-            <span className="rw-lp-fleet-play-ring" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" focusable="false">
-                <path d="M9 7.5v9l7.5-4.5L9 7.5z" fill="currentColor" />
-              </svg>
-            </span>
-            <span className="rw-lp-fleet-play-label">{videoTitle ?? 'Watch the film'}</span>
-          </button>
-        ) : (
-          /* Placeholder. Pass `videoSrc` + `videoPoster` to swap it out. */
-          <div className="rw-lp-fleet-placeholder">
-            <span className="rw-lp-fleet-placeholder-ratio">16 : 9</span>
-            <span className="rw-lp-fleet-placeholder-hint">Video</span>
-          </div>
-        )}
-        <p className="rw-lp-fleet-media-label">{CENTRE_LABEL}</p>
-      </div>
-    </m.div>
-  );
-}
-
-export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSectionProps) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const [playerOpen, setPlayerOpen] = useState(false);
-  const [hotId, setHotId] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mediaRef = useRef<HTMLDivElement | null>(null);
-  const nodeRefs = useRef<Map<string, HTMLElement>>(new Map());
-
-  /* One arming signal for the whole assembly, so the wires, nodes and centre
-     choreograph as a single event rather than six independent fades. */
-  const armed = useInView(containerRef, { once: true, amount: 0.2 });
-
-  // Connectors are drawn only in the constellation layout. Below the
-  // breakpoint the nodes stack, and lines between stacked cards mean nothing.
-  // Phrased as min-width so the SSR fallback (`false`) is the stacked layout —
-  // the one that is correct without any measurement having happened yet.
-  const constellation = useMediaQuery('(min-width: 901px)');
-
-  const registerRef = useCallback((id: string, el: HTMLElement | null) => {
-    if (el) nodeRefs.current.set(id, el);
-    else nodeRefs.current.delete(id);
-  }, []);
-
-  const connectors = useConnectorPaths(
-    containerRef,
-    mediaRef,
-    nodeRefs,
-    ALL_AGENTS,
-    constellation,
-  );
-
-  return (
-    <section className="rw-lp-fleet" aria-labelledby="rw-lp-fleet-heading">
-      <div className="rw-lp-fleet-field" aria-hidden="true" />
-
-      <div className="rw-lp-fleet-inner">
-        <Staged beat={0}>
-          <header className="rw-lp-fleet-intro">
-            <p className="rw-lp-fleet-eyebrow">{EYEBROW}</p>
-            <h2 className="rw-lp-fleet-heading" id="rw-lp-fleet-heading">
-              {HEADING_LEAD} <span className="rw-lp-fleet-heading-accent">{HEADING_ACCENT}</span>
+    <div className="rw-lp-synthesis-loop">
+      <section className="rw-lp-syn-l-fleet" aria-labelledby="rw-lp-fleet-heading">
+        <div className="rw-lp-syn-l-inner">
+          <p className="rw-lp-syn-l-eyebrow">
+            {PIVOT_LEAD} {PIVOT_ACCENT}
+          </p>
+          <div className="rw-lp-syn-l-fleet-heading-row">
+            <h2 id="rw-lp-fleet-heading">
+              A little fleet.
+              <br />
+              <em>A whole lot of care.</em>
             </h2>
-            <p className="rw-lp-fleet-lead">{LEAD_IN}</p>
-          </header>
-        </Staged>
-
-        <div
-          className="rw-lp-fleet-stage"
-          ref={containerRef}
-          data-armed={armed ? 'true' : 'false'}
-        >
-          <FleetWires
-            connectors={constellation ? connectors : []}
-            armed={armed}
-            hotId={hotId}
-          />
-
-          <FleetTier
-            tier="watchdog"
-            agents={WATCHDOGS}
-            label={WATCHDOG_RAIL_LABEL}
-            baseDelay={0}
-            armed={armed}
-            registerRef={registerRef}
-            onHot={setHotId}
-          />
-
-          <FleetCentre
-            videoSrc={videoSrc}
-            videoPoster={videoPoster}
-            videoTitle={videoTitle}
-            armed={armed}
-            mediaRef={mediaRef}
-            onOpen={() => setPlayerOpen(true)}
-          />
-
-          <FleetTier
-            tier="persona"
-            agents={PERSONAS}
-            label={PERSONA_RAIL_LABEL}
-            baseDelay={0.35}
-            armed={armed}
-            registerRef={registerRef}
-            onHot={setHotId}
-          />
-
-          {/* Sits BELOW the personas, not under the media card: the gap between
-              the card and the persona tier is where the wires fan out, and text
-              placed there collides with every one of them. Kept a direct child
-              (its mobile `order` must stay on the grid item), so it is an
-              `m.p` rather than a `Staged` wrapper. */}
-          <m.p
-            className="rw-lp-fleet-caption"
-            {...armedFadeProps(prefersReducedMotion, armed, 0.9)}
-          >
-            {CENTRE_CAPTION}
-          </m.p>
+            <button className="rw-lp-syn-l-film" onClick={() => setFilmOpen(true)}>
+              <PlayIcon />
+              <span>Watch the RepWorth film</span>
+              <small>2m 26s</small>
+            </button>
+          </div>
+          <div className="rw-lp-syn-l-panorama">
+            <div className="rw-lp-syn-l-panorama-art">
+              <Image
+                src="/fleet/courtyard.webp"
+                alt="Four sage CRT agents serving a miniature business from a reply counter, lookout balcony, report kiosk and outbound postbox."
+                width={2172}
+                height={724}
+                sizes="100vw"
+              />
+              {PERSONAS.map((agent, index) => (
+                <span className="rw-lp-syn-l-station-pin" key={agent.id} style={stationStyle(index)} aria-hidden="true">
+                  0{index + 1}
+                </span>
+              ))}
+            </div>
+            {PERSONAS.map((agent, index) => (
+              <a key={agent.id} className="rw-lp-syn-l-station" href={`#rw-lp-agent-${agent.id}`} style={stationStyle(index)}>
+                <span className="rw-lp-syn-l-station-index">0{index + 1}</span>
+                <span>
+                  <small>{STATION_NAMES[index]}</small>
+                  <strong>{agent.name}</strong>
+                </span>
+                <span className="rw-lp-syn-l-live">Live</span>
+              </a>
+            ))}
+          </div>
+          <p className="rw-lp-syn-l-panorama-note">
+            <span>Four acting agents. Two independent watchdogs.</span>
+            <span>Live = available today. Every action is recorded.</span>
+          </p>
         </div>
-      </div>
-
-      {/* Rendered outside the diagram so the dialog's stacking context is not
-          the constellation's — the SVG connector layer and the node z-indexes
-          would otherwise sit above a modal that is supposed to cover them. */}
-      {videoSrc && videoPoster ? (
         <VideoLightbox
-          open={playerOpen}
-          onClose={() => setPlayerOpen(false)}
-          src={videoSrc}
-          poster={videoPoster}
-          title={videoTitle ?? 'RepWorth film'}
+          open={filmOpen}
+          onClose={() => setFilmOpen(false)}
+          src="/video/repworth-explainer.mp4"
+          poster="/video/repworth-explainer-poster.jpg"
+          title="Meet the RepWorth fleet"
         />
-      ) : null}
-    </section>
+      </section>
+    </div>
   );
 }
