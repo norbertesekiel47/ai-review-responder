@@ -6,13 +6,13 @@ import { AdminPage } from '../AdminPage';
 describe('AdminPage', () => {
   it('renders group, title, description, actions, and children', () => {
     render(
-      <AdminPage group="Operate" title="Costs" description="LLM + API spend" actions={<button>Export</button>}>
+      <AdminPage group="Safety" title="Report" description="Report details" actions={<button>Export</button>}>
         <div>page body</div>
       </AdminPage>,
     );
-    expect(screen.getByText('Operate')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Costs' })).toBeInTheDocument();
-    expect(screen.getByText('LLM + API spend')).toBeInTheDocument();
+    expect(screen.getByText('Safety')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Report' })).toBeInTheDocument();
+    expect(screen.getByText('Report details')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
     expect(screen.getByText('page body')).toBeInTheDocument();
   });
@@ -28,7 +28,6 @@ describe('AdminPage', () => {
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(nav).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Businesses' })).toHaveAttribute('href', '/admin/locations/csv-import');
-    // Operate's landing page is Jobs; Safety's is Flagged.
     expect(nav.querySelectorAll('li')).toHaveLength(1);
   });
 
@@ -51,7 +50,6 @@ describe('AdminPage', () => {
   });
 
   it.each([
-    ['Operate', '/admin/jobs'],
     ['Safety', '/admin/flagged'],
     ['Growth', '/admin/demos'],
   ] as const)('links the %s group to %s', (group, href) => {

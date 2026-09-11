@@ -13,12 +13,6 @@ interface AdminNavGroup {
 /** Grouped admin IA (spec §2). Every admin page must appear exactly once. */
 export const ADMIN_NAV_GROUPS = [
   {
-    label: 'Operate',
-    items: [
-      { href: '/admin/jobs', label: 'Jobs', badge: 'failedJobs' },
-    ],
-  },
-  {
     label: 'Businesses',
     items: [
       { href: '/admin/locations/csv-import', label: 'Locations import' },

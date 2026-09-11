@@ -19,14 +19,6 @@ import { describe, expect, it } from 'vitest';
  */
 const CONVERGED_PAGES = [
   {
-    page: 'src/app/admin/jobs/page.tsx',
-    client: 'src/app/admin/jobs/JobsClient.tsx',
-    component: 'JobsClient',
-    group: 'Operate',
-    title: 'Jobs',
-    description: 'Outbox, queue depth, and failed jobs',
-  },
-  {
     page: 'src/app/admin/flagged/page.tsx',
     client: 'src/app/admin/flagged/FlaggedClient.tsx',
     component: 'FlaggedClient',
