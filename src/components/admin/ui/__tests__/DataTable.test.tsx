@@ -262,7 +262,7 @@ describe('serverPaginationFooterState (CF-2)', () => {
       label: 'No rows on this page (10 total)',
       show: false,
     });
-    // OffboardingsClient passes the raw index: `page > 0` keeps
+    // For a raw page index, `page > 0` keeps
     // the footer, and Previous, alive.
     expect(serverPaginationFooterState({ page: 2, pageSize: 20, rowsOnPage: 0, totalRows: 10 })).toEqual({
       pageCount: 1,

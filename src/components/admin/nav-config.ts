@@ -16,7 +16,6 @@ export const ADMIN_NAV_GROUPS = [
     label: 'Businesses',
     items: [
       { href: '/admin/locations/csv-import', label: 'Locations import' },
-      { href: '/admin/offboardings', label: 'Offboardings' },
     ],
   },
   {

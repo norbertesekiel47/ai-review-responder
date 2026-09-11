@@ -56,9 +56,8 @@ function pageCountOf(totalRows: number, pageSize: number): number {
 }
 
 /**
- * Server-pagination footer math, shared by DataTable's controlled mode and by
- * card-list pages (OffboardingsClient) that paginate
- * server-side without a table. Single owner so the "Showing a–b of N" string
+ * Server-pagination footer math for controlled tables and raw page indices.
+ * Single owner so the "Showing a–b of N" string
  * and the empty-page-with-rows-behind-you guard cannot drift between call
  * sites.
  *

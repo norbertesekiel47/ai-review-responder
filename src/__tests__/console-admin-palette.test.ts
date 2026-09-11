@@ -32,7 +32,6 @@ const SWEPT_FILES = [
   'src/app/admin/loading.tsx',
   'src/app/admin/locations/csv-import/CsvImportClient.tsx',
   'src/app/admin/locations/csv-import/page.tsx',
-  'src/app/admin/offboardings/OffboardingsClient.tsx',
   'src/app/admin/demos/DemosClient.tsx',
   'src/app/admin/suppressions/SuppressionsClient.tsx',
   'src/app/admin/impersonate/page.tsx',
