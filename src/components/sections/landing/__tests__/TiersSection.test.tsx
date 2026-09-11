@@ -1,47 +1,67 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { createElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { TiersSection } from '../tiers/TiersSection';
-import { MOVEMENT_NOTE, PRICING_LINK_LABEL } from '../tiers/tiers-copy';
+import { PRICING_LINK_LABEL, TIERS } from '../tiers/tiers-copy';
 
-// The tiers section is the landing page's door to /pricing (the nav is
-// absolute over the hero, not sticky — tiers-copy.ts, PRICING_LINK_LABEL).
-// These tests pin that door: where it sits, what it says, and that it carries
-// the landing focus ring like every other landing control.
+// The owner controls explain the two plans; they change no subscription.
+// These tests pin the selector state, the lever mapping (Copilot = left,
+// Autopilot = right), and the section's two doors: the primary CTA and
+// /pricing.
 
 vi.mock('@/hooks/usePrefersReducedMotion', () => ({
   usePrefersReducedMotion: () => true,
 }));
+vi.mock('next/image', () => ({
+  default: ({ src, alt }: { src: string; alt: string }) => createElement('img', { src, alt }),
+}));
 
-const TIERS_CSS = readFileSync(
-  resolve(process.cwd(), 'src/components/sections/landing/tiers/tiers.css'),
-  'utf-8',
-);
+const CTA = { primaryCtaHref: '/book-a-demo', primaryCtaLabel: 'Get early access' };
+
+function tier(id: 'copilot' | 'autopilot') {
+  const found = TIERS.find((item) => item.id === id);
+  if (!found) throw new Error(`missing tier ${id}`);
+  return found;
+}
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    },
+  );
+});
 
 describe('TiersSection', () => {
-  it('renders the two operable mode buttons with Copilot pressed by default', () => {
-    render(<TiersSection />);
-    expect(screen.getByRole('button', { name: 'Copilot' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Autopilot' })).toHaveAttribute('aria-pressed', 'false');
+  it('opens on Copilot, with the lever at the left over the approval tray', () => {
+    render(<TiersSection {...CTA} />);
+    expect(screen.getByRole('button', { name: /Copilot/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Autopilot/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(tier('copilot').claim);
+    expect(screen.getByAltText(/lever set to the left for Copilot/)).toHaveAttribute('src', '/tiers/lever-copilot.webp');
   });
 
-  it('offers "See plans and pricing" to /pricing after the movement note', () => {
-    render(<TiersSection />);
-    const door = screen.getByRole('link', { name: PRICING_LINK_LABEL });
-    expect(door).toHaveAttribute('href', '/pricing');
-    expect(door).toHaveClass('rw-lp-tiers-pricing-link');
-    expect(PRICING_LINK_LABEL).toBe('See plans and pricing');
-
-    // Directly after the note, inside the same staged beat.
-    const note = screen.getByText((_, el) => el?.textContent?.startsWith(MOVEMENT_NOTE) === true && el.tagName === 'P');
-    expect(note.nextElementSibling).toContainElement(door);
+  it('moves the lever to the right and explains Autopilot when selected', () => {
+    render(<TiersSection {...CTA} />);
+    fireEvent.click(screen.getByRole('button', { name: /Autopilot/ }));
+    expect(screen.getByRole('button', { name: /Autopilot/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(tier('autopilot').claim);
+    expect(screen.getByAltText(/lever set to the right for Autopilot/)).toHaveAttribute('src', '/tiers/lever-autopilot.webp');
   });
 
-  it('gives the pricing door the landing focus ring (gold, 3px offset)', () => {
-    expect(TIERS_CSS).toMatch(
-      /\.rw-lp-tiers-pricing-link:focus-visible \{[\s\S]{0,120}?outline: 2px solid var\(--rw-lp-accent\);[\s\S]{0,60}?outline-offset: 3px;/,
-    );
+  it('switches instantly under reduced motion: no transition film plays', () => {
+    const { container } = render(<TiersSection {...CTA} />);
+    fireEvent.click(screen.getByRole('button', { name: /Autopilot/ }));
+    expect(container.querySelector('video')).toBeNull();
+  });
+
+  it('offers the server-selected CTA and the door to /pricing', () => {
+    render(<TiersSection {...CTA} />);
+    expect(screen.getByRole('link', { name: /Get early access/ })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.getByRole('link', { name: new RegExp(PRICING_LINK_LABEL) })).toHaveAttribute('href', '/pricing');
   });
 });

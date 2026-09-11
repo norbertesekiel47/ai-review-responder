@@ -1,0 +1,129 @@
+/* The two type scopes the middle sections render inside. Each section's
+   component renders its own scope wrapper.
+
+   .rw-lp-synthesis-model — serif headings over the body face, on the landing
+     ink. Problem and watchdogs.
+   .rw-lp-synthesis-loop — Georgia editorial headings on paper and forest.
+     Fleet, personas and jobs.
+
+   The class names come from the 2026-09 design exploration that produced
+   these sections; the selected composition is recorded in
+   docs/brand-asset-library/collections/2026-09-final/chosen-design.md.
+
+   MUST load after landing-experience.css: some rules here tie on specificity
+   with `.rw-lp …` rules there, and order settles the tie. */
+
+.rw-lp-synthesis-model {
+  --rw-lp-syn-paper: #eee5ce;
+  --rw-lp-syn-paper-ink: #203b2e;
+  --rw-lp-syn-stage: #06150d;
+  --rw-lp-syn-muted: #bdc6b9;
+  --rw-lp-syn-watch: #b3d0c7;
+  color: var(--rw-lp-text);
+  background: var(--rw-lp-ink);
+  font-family: var(--rw-font-body);
+}
+.rw-lp-synthesis-model :where(h2,h3,h4,p,figure,blockquote) { margin: 0; }
+.rw-lp-synthesis-model :where(h2,h3) { font-family: var(--rw-font-serif); font-weight: 400; letter-spacing: -.035em; }
+.rw-lp-synthesis-model h2 { font-size: clamp(2.5rem,4.8vw,4.7rem); line-height: 1.02; text-wrap: balance; }
+.rw-lp-synthesis-model h2 em { display: block; font-weight: 400; }
+.rw-lp-synthesis-model p { line-height: 1.7; }
+.rw-lp-synthesis-model :is(a,button):focus-visible { outline: 3px solid var(--rw-lp-accent); outline-offset: 5px; }
+.rw-lp-syn-m-inner { width: min(100% - 8vw, 1440px); margin: 0 auto; }
+.rw-lp-syn-m-label { color: var(--rw-lp-accent); font: 400 .72rem/1.5 var(--rw-font-mono); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 1.5rem !important; }
+.rw-lp-syn-m-clip { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--rw-lp-syn-stage); }
+.rw-lp-syn-m-clip :is(img,video) { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.rw-lp-synthesis-loop {
+  --rw-lp-syn-l-cream: #f2eddf;
+  --rw-lp-syn-l-paper: #e7e1d0;
+  --rw-lp-syn-l-forest: #152c25;
+  --rw-lp-syn-l-dark: #07180e;
+  --rw-lp-syn-l-brass: #b99555;
+  --rw-lp-syn-l-shadow-rgb: 7 24 14;
+  --rw-lp-syn-l-display: Georgia, 'Times New Roman', serif;
+  color: var(--rw-lp-syn-l-cream);
+  background: var(--rw-lp-syn-l-forest);
+  font-family: var(--rw-font-display), sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+}
+.rw-lp-synthesis-loop *,
+.rw-lp-synthesis-loop *::before,
+.rw-lp-synthesis-loop *::after {
+  box-sizing: border-box;
+}
+.rw-lp-synthesis-loop h2,
+.rw-lp-synthesis-loop h3,
+.rw-lp-synthesis-loop h4,
+.rw-lp-synthesis-loop p {
+  margin: 0;
+}
+.rw-lp-synthesis-loop h2,
+.rw-lp-synthesis-loop h3 {
+  color: inherit;
+  font-family: var(--rw-lp-syn-l-display);
+  font-weight: 400;
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+}
+.rw-lp-synthesis-loop h2 {
+  font-size: clamp(44px, 5.1vw, 82px);
+  text-wrap: balance;
+}
+.rw-lp-synthesis-loop h2 em {
+  font-weight: 400;
+}
+.rw-lp-synthesis-loop button,
+.rw-lp-synthesis-loop a {
+  -webkit-tap-highlight-color: transparent;
+}
+.rw-lp-synthesis-loop a {
+  color: inherit;
+  text-decoration: none;
+}
+.rw-lp-synthesis-loop button {
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.rw-lp-synthesis-loop :is(a, button):focus-visible {
+  outline: 3px solid var(--rw-lp-accent);
+  outline-offset: 5px;
+  box-shadow: 0 0 0 7px var(--rw-lp-syn-l-forest);
+}
+.rw-lp-syn-l-inner {
+  width: min(100% - 112px, 1440px);
+  margin: 0 auto;
+}
+.rw-lp-syn-l-eyebrow {
+  font-family: var(--rw-lp-label-font);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 1100px) {
+  .rw-lp-syn-l-inner {
+    width: calc(100% - 64px);
+  }
+}
+@media (max-width: 760px) {
+  .rw-lp-syn-l-inner {
+    width: calc(100% - 40px);
+  }
+}
+@media (max-width: 700px) {
+  .rw-lp-syn-m-inner { width: calc(100% - 2.5rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-synthesis-model * { animation: none !important; transition: none !important; }
+  .rw-lp-synthesis-loop *,
+  .rw-lp-synthesis-loop *::before,
+  .rw-lp-synthesis-loop *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

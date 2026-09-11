@@ -94,9 +94,8 @@ function HeroBackdrop() {
    * under reduced motion. At rest the scale is exactly 1: the state every
    * scrim contrast figure was measured in.
    *
-   * The transform lives on `.rw-lp-hero-media` — INSIDE this section. It is
-   * never an ancestor of the future section, so the fixed-attachment glow
-   * constraint (measurements.md §2) is untouched.
+   * The transform lives on the zoom layer INSIDE this section, never on a
+   * section wrapper (measurements.md §2, "The zoom layer").
    */
   const mediaRef = useRef<HTMLDivElement | null>(null);
   const { scrollYProgress } = useScroll({
@@ -205,7 +204,9 @@ function useHeroEntrance() {
   const prefersReducedMotion = usePrefersReducedMotion();
   return (step: number) =>
     prefersReducedMotion
-      ? { initial: false as const }
+      // Hydration may switch the preference after Motion applied the initial
+      // hidden pose. Explicitly resolve that pose when reducing motion.
+      ? { initial: false as const, animate: { opacity: 1, y: 0 }, transition: { duration: 0 } }
       : {
           initial: { opacity: 0, y: 14 },
           animate: { opacity: 1, y: 0 },

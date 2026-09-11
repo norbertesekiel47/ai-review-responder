@@ -16,24 +16,22 @@ import { PersonasSection } from './personas/PersonasSection';
 import { ProblemSection } from './problem/ProblemSection';
 import { TiersSection } from './tiers/TiersSection';
 import { WatchdogsSection } from './watchdogs/WatchdogsSection';
-import './agent-flip-card.css';
 import './cta/cta.css';
 import './footer/footer.css';
-import './fleet/fleet.css';
 import './fleet/video-lightbox.css';
-import './future/future.css';
 import './hero/hero.css';
-import './jobs/jobs.css';
-import './personas/personas.css';
-import './problem/problem.css';
-import './tiers/tiers.css';
-import './watchdogs/watchdogs.css';
-/* MUST stay after every section stylesheet. The phone rail rules tie on
-   specificity with `.rw-lp-fleet-tier[data-tier='watchdog']`, so order is what
-   settles it — move this import up and that tier stays a stacked column while
-   the other two become carousels. */
-import './carousel.css';
 import './landing-experience.css';
+/* The middle sections MUST load after landing-experience.css: their scope
+   rules tie on specificity with `.rw-lp …` rules there, and order is what
+   settles it. The scopes file comes first — each section file overrides it. */
+import './section-scopes.css';
+import './problem/problem.css';
+import './fleet/fleet.css';
+import './personas/personas.css';
+import './jobs/jobs.css';
+import './watchdogs/watchdogs.css';
+import './tiers/tiers.css';
+import './future/future.css';
 
 /**
  * RepWorth landing page.
@@ -44,24 +42,20 @@ import './landing-experience.css';
  * under `./<section>/`, so this file stays a table of contents as sections land
  * rather than growing back into a monolith.
  *
- * Sections, per the narrative spine in the website design reference §3.4:
- *   1. Hero                    <- built
- *   2. Meet the fleet          <- built (constellation + run-spine centre)
- *   3. The agents that act     <- built (four personas, in depth)
- *   4. The agents that watch   <- built (Judge + Governor, cooler register)
- *   5. Where this is going     <- built (committed vs exploring, two tiers)
- *   6. The problem             <- pending, if still wanted
- *   7. The pipeline            <- pending
- *   8. Copilot vs Autopilot    <- pending
- *   9. CTA                     <- built (night bookend to the hero)
+ * Sections, in page order (composition of record: the landing design
+ * system's linked chosen-design.md):
+ *   1. Hero                  4. The agents that act   7. Owner controls (tiers)
+ *   2. The problem           5. The five jobs         8. Where this is going
+ *   3. Meet the fleet        6. The agents that watch 9. CTA
  *
  * 1 and 9 are a deliberate pair: the same world, opened in daylight with the
  * copy set RIGHT and closed at night with it set LEFT. They are the only two
  * full-bleed video sections, and they mirror rather than repeat.
  *
- * Accent temperature is load-bearing across 3 and 4: the acting agents are
- * GOLD, the supervising agents are TEAL. That contrast is what makes the
- * oversight layer read as a different tier rather than more of the same.
+ * Accent temperature is load-bearing across 4 and 6: the acting agents carry
+ * brass and gold, the supervising agents a cooler teal. That contrast is what
+ * makes the oversight layer read as a different tier rather than more of the
+ * same.
  *
  * Nav positioning note: the nav is absolute over the hero, not sticky, and
  * that is now a decision rather than a placeholder (2026-09-02). Its lockup
@@ -75,16 +69,14 @@ import './landing-experience.css';
  * Scroll note (2026-08-16 Linear pass): the page scrolls natively. The Lenis
  * smooth-scroll + snap layer, the scroll-linked section dissolve, the chapter
  * rail and the vertical chapter markers were removed together — the reader
- * owns the wheel, sections are as tall as their content, and the only motion
- * on arrival is `Reveal`'s single opacity fade. Rationale and the measurements
- * that changed: docs/brand-asset-library/design-systems/landing/measurements.md §2.
+ * owns the wheel and sections are as tall as their content. Rationale:
+ * docs/brand-asset-library/design-systems/landing/measurements.md §2.
  *
- * 2026-08-24, owner override of part of that pass: the two film bookends now
- * carry a scroll-linked push-in/settle on their internal zoom layers, the hero
- * copy enters in five staged beats on load, and the tiers thumb breathes. All
- * three stay inside the Linear pass's real constraints — native scroll, no
- * snap, no transform on any ancestor of the future section — see
- * measurements.md §2 ("Bookend cinema").
+ * Motion that remains: the hero copy's five staged beats on load and the two
+ * film bookends' scroll-linked push-in/settle (measurements.md §2, "Bookend
+ * cinema"); the personas CRT following the paragraph in view; the owner
+ * lever's film. Every clip honours reduced motion and the footer's pause
+ * control (chosen-design.md, "Interaction and motion contract").
  */
 
 interface LandingExperienceProps {
@@ -274,18 +266,12 @@ function LandingChrome({
 
       <main id="main-content">
         {/* Sections sit directly in the landmark. No wrapper carries a snap
-            point or a scroll-linked transform any more, which also means
-            nothing above the future section can put a transform on an ancestor
-            of its `background-attachment: fixed` card glow. */}
+            point or a scroll-linked transform. */}
         <HeroSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
 
         <ProblemSection />
 
-        <FleetSection
-          videoSrc="/video/repworth-explainer.mp4"
-          videoPoster="/video/repworth-explainer-poster.jpg"
-          videoTitle="Watch the film"
-        />
+        <FleetSection />
 
         <PersonasSection />
         {/* The five jobs: the reader has met the acting agents one by one;
@@ -295,7 +281,7 @@ function LandingChrome({
 
         <WatchdogsSection />
 
-        <TiersSection />
+        <TiersSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
 
         <FutureSection />
 

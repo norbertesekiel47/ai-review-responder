@@ -6,7 +6,9 @@
 
 ## Canonical entries
 
-_None yet — the Summary bullet is the current rule; see History for the dated evidence._
+### Reduced-motion first paint
+
+An SSR-safe motion preference hook may return false during hydration. Switching `initial`/`transition` afterwards can leave an already-started Motion entrance running. For the landing hero, CSS under `prefers-reduced-motion: reduce` enforces the final visible, untransformed copy pose before script runs. Keep this alongside the hook; verify computed styles both before hydration (JavaScript disabled) and after hydration, rather than checking only the hook's boolean or the final settled screenshot. Evidence: history/2026-09.md § "Reduced-motion hero entrance survives hydration preference update".
 
 ## History
 
