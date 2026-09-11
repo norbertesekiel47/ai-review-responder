@@ -19,8 +19,7 @@ import {
 // — the page function is invoked against a mocked gate rather than merely
 // grepped, so "gates before reading" is proved by the call order, not by text.
 //
-// The source assertions from src/app/admin/autonomy/__tests__/page-source.test.ts
-// ride along: they pin the SSR-root/client-component split this file is named for.
+// The source assertions pin the SSR-root/client-component split this file is named for.
 
 const { mockRequireAdminPage, mockSql, mockReadSendBreaker, mockSendBreakerClient } = vi.hoisted(
   () => ({

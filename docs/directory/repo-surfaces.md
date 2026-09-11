@@ -43,7 +43,7 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 | Judge worker/publisher | `worker/jobs/judge/__tests__/{JudgeWorker,failed-hook,lock-order-source}.test.ts`; `worker/jobs/publisher/__tests__/{judge-gate,auto-policy-downgrade,auto-policy-downgrade-lock-order}.test.ts` + the live-DB `auto-policy-downgrade.integration.test.ts` (the `auto_post_revoked` **Refusal**: `occurred_at` equality, the rollback pair and the partial index, none of which a mocked `sql` can carry); WS6 cases in `ResponsePublisherWorker.test.ts`. |
 | Governor loops | `worker/background/pollers/__tests__/JudgeSweepPoller.test.ts` and `worker/background/schedulers/__tests__/{AutonomyGovernorScheduler,AutonomyGovernorScheduler.integration}.test.ts`. |
 | Suspension notices/admin alert | `worker/jobs/autonomy-suspended-notice/__tests__/{AutonomySuspendedNoticeWorker,context,dispatch}.test.ts`, `worker/jobs/__tests__/AutonomyAdminAlertWorker.test.ts`, `src/lib/notifications/email/templates/__tests__/autonomy-suspended-notice.test.ts`, WS6 cases in `src/lib/notifications/__tests__/delivery.test.ts` and `src/lib/notifications/channels/__tests__/{email-channel,factory,telegram-body,telegram-channel,whatsapp-body,whatsapp-channel}.test.ts`, plus `worker/ingress/__tests__/resend-webhook-bounce.test.ts`. |
-| Admin recovery UI/API | `src/app/admin/autonomy/__tests__/AutonomySuspensionsClient.test.tsx`, `src/app/admin/autonomy/__tests__/page-source.test.ts`, and `src/app/api/admin/autonomy/__tests__/routes.test.ts`. |
+| Admin recovery API | `src/app/api/admin/autonomy/__tests__/routes.test.ts`. |
 | Eval lane | `tests/llm-eval/__tests__/judge-eval.test.ts` plus WS6 live-judge coverage in `live-runner.test.ts`. |
 
 ---

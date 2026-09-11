@@ -23,7 +23,6 @@ export const ADMIN_NAV_GROUPS = [
     label: 'Safety',
     items: [
       { href: '/admin/flagged', label: 'Flagged', badge: 'flaggedOpen' },
-      { href: '/admin/autonomy', label: 'Autonomy' },
       { href: '/admin/suppressions', label: 'Suppressions' },
       { href: '/admin/solicitation', label: 'Send breaker' },
     ],
