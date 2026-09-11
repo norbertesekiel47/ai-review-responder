@@ -139,6 +139,24 @@ describe('POST /api/zernio/disconnect', () => {
     });
   });
 
+  it('keeps an owner scoped to the session location even when the body names another business', async () => {
+    const res = await POST(makeRequest({ businessId: '22222222-2222-4222-8222-222222222222' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(sqlCalls[0]?.values).toEqual([ACCOUNT_ID, BUSINESS_ID, ACCOUNT_ID]);
+    expect(txCalls[0]?.values).toEqual(['manual_owner', BUSINESS_ID, 'zernio-account-1']);
+    expect(mockDeleteAccount).toHaveBeenCalledExactlyOnceWith('zernio-account-1');
+  });
+
+  it('requires an explicit admin body target and retains the admin reason', async () => {
+    mockRequireRole.mockResolvedValue({ id: 'admin-1', role: 'admin', accountId: null, locationId: null });
+    expect((await POST(makeRequest({}))).status).toBe(400);
+    expect(mockBegin).not.toHaveBeenCalled();
+    const res = await POST(makeRequest({ businessId: BUSINESS_ID }));
+    expect(res.status).toBe(200);
+    expect(txCalls[0]?.values).toEqual(['manual_admin', BUSINESS_ID, 'zernio-account-1']);
+  });
+
   it('rejects read-only past-due owner disconnect before mutating connection state', async () => {
     mockAccountRows.value = [
       {

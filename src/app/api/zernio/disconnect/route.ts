@@ -8,9 +8,8 @@ import { sql } from '@/lib/db/server';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { requireRole, AuthError } from '@/lib/db/auth';
 import { zernioRouteErrorResponse } from '../_shared/error-response';
-import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
-import { zernioClient } from '@/lib/zernio/client';
+import { disconnectZernioConnection } from '@/lib/zernio/disconnect';
 import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 
@@ -175,120 +174,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } catch (err) {
       return errorToResponse(err);
     }
-  } else {
-    try {
-      const [accountRow] = await sql<Array<{
-        account_id: string;
-      } & ActiveOffboardingProjection>>`
-        SELECT a.id AS account_id,
-             ao.id AS offboarding_id,
-             ao.account_id AS offboarding_account_id,
-             ao.mode AS offboarding_mode,
-             ao.status AS offboarding_status,
-             ao.failed_step AS offboarding_failed_step,
-             ao.access_ends_at AS offboarding_access_ends_at,
-             ao.teardown_started_at AS offboarding_teardown_started_at,
-             ao.purge_after AS offboarding_purge_after,
-             ao.purge_started_at AS offboarding_purge_started_at,
-             ao.purge_cancelled_at AS offboarding_purge_cancelled_at
-        FROM businesses b
-        JOIN accounts a ON a.id = b.account_id
-        LEFT JOIN account_offboardings ao
-          ON ao.account_id = a.id
-         AND ao.terminal_at IS NULL
-        WHERE b.id = ${businessId}
-          AND b.archived_at IS NULL
-        ORDER BY ao.created_at DESC NULLS LAST
-        LIMIT 1
-      `;
-      const offboardingState = accountRow
-        ? activeOffboardingStateFromProjection(accountRow)
-        : null;
-      if (isConnectBlocked(offboardingState)) {
-        return NextResponse.json(
-          { error: 'account_offboarding_blocked' },
-          { status: 403, headers: NO_STORE },
-        );
-      }
-    } catch (err) {
-      return errorToResponse(err);
-    }
   }
 
-  // 4. Resolve the active Zernio account so the best-effort delete-account
-  // call has its target. 404 is cleaner than 400/500 when no live row.
-  let accountId: string;
   try {
-    const rows = await sql<{ zernio_account_id: string }[]>`
-      SELECT zernio_account_id
-      FROM zernio_connections
-      WHERE business_id = ${businessId} AND status = 'active'
-      LIMIT 1
-    `;
-    const row = rows[0];
-    if (!row) {
-      return NextResponse.json(
-        { error: 'no_active_connection' },
-        { status: 404, headers: NO_STORE },
-      );
-    }
-    accountId = row.zernio_account_id;
-  } catch (err) {
-    return errorToResponse(err);
-  }
-
-  // 5. Mark the connection disconnected. The UPDATE pins to the SAME
-  // zernio_account_id we just read — without that pin, a parallel
-  // webhook+reconnect race could land us disconnecting a fresh-and-active
-  // row that the owner just reconnected. We also count rows updated so a
-  // 0-row outcome (account already disconnected by a parallel writer)
-  // skips the deleteAccount call below.
-  const reason = user.role === 'owner' ? 'manual_owner' : 'manual_admin';
-  let rowsUpdated = 0;
-  try {
-    await sql.begin(async (tx) => {
-      const result = await tx`
-        UPDATE zernio_connections
-        SET status = 'disconnected',
-            disconnected_at = NOW(),
-            disconnect_reason = ${reason},
-            last_error = NULL,
-            last_error_at = NULL,
-            updated_at = NOW()
-        WHERE business_id = ${businessId}
-          AND zernio_account_id = ${accountId}
-          AND status = 'active'
-      `;
-      rowsUpdated = result.count;
-    });
-  } catch (err) {
-    return errorToResponse(err);
-  }
-
-  // If the row already flipped to disconnected via a parallel writer, abort
-  // the Zernio cleanup — the row we read is no longer the live one and
-  // touching the Zernio side would conflict with whatever the parallel
-  // writer already coordinated.
-  if (rowsUpdated === 0) {
-    return NextResponse.json(
-      { ok: true, note: 'connection_already_disconnected' },
-      { status: 200, headers: NO_STORE },
-    );
-  }
-
-  // 6. Best-effort Zernio cleanup. Failure does NOT fail the request — the
-  // DB is the source of truth from RepWorth's perspective; Zernio cleanup
-  // is housekeeping. Log to Sentry for ops visibility.
-  try {
-    await zernioClient.deleteAccount(accountId);
-  } catch (zernioErr) {
-    reportCaughtError('api/zernio/disconnect', zernioErr, {
+    const result = await disconnectZernioConnection(
+      sql,
       businessId,
-      kind: 'zernio_delete_account',
-    });
+      user.role === 'owner' ? 'owner' : 'admin',
+    );
+    return NextResponse.json(result.body, { status: result.status, headers: NO_STORE });
+  } catch (err) {
+    return errorToResponse(err);
   }
-
-  return NextResponse.json({ ok: true }, { status: 200, headers: NO_STORE });
 }
 
 function errorToResponse(err: unknown): NextResponse {

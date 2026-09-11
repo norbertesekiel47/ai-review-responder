@@ -161,7 +161,8 @@ All Zernio API client code and shared connect-flow state.
 
 | File | What it does |
 |------|--------------|
-| `client.ts` | `ZernioClient` class — typed HTTP client for the Zernio API (all endpoint kinds: `createProfile`, `startConnect`, `selectLocation`, `listReviews`, `getReview`, `publishReply`, `editReply`, `deleteReply`). Handles auth errors, validation errors, transient vs permanent errors, and the no-body endpoint set. Includes strict allowlists for safe pre-mutation 400 codes and 409 "reply already exists" codes. |
+| `disconnect.ts` | Shared manual Disconnect: explicit DB client, admin offboarding refusal, selected-account update, and bounded provider cleanup (ADR 0001). Owner callers establish writable location scope first. |
+| `client.ts` | `ZernioClient` — API methods composed from the modules below. Transport/error classifiers own auth, validation, transient/permanent errors and no-body responses; safe pre-mutation 400 and duplicate-reply 409 codes are allowlisted. |
 | `connect-state.ts` | Lua CAS scripts (`luaTokenCAS`, `luaCASUpdate`, `luaCASDel`) + `pendingKey(businessId)` helper for the Redis connect-flow state machine. Prevents race conditions when concurrent start/cancel flows race. |
 | `connect-session-cookie.ts` | HMAC-signed cookie for the Zernio connect session. Format: `{sessionId}.{hmac}`. Mirrors the approval device-cookie pattern (`SameSite=Lax` to survive top-level OAuth redirect). |
 | `errors.ts` | Typed error classes: `ZernioAuthError`, `ZernioValidationError`, `ZernioTransientError`, `ZernioPermanentError`, `ZernioReviewNotFoundError`, `ZernioReplyAlreadyExistsError`, `ZernioReplyAlreadyDeletedError`, `ZernioReplyVerificationIndeterminateError`, `ZernioRateLimitError`, plus the `inbox_addon_required` validation classification. |
