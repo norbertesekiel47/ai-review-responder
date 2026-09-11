@@ -37,9 +37,12 @@ Sites 1–8 are the same event: an admin reached an owner surface, and the app
 bounces them to the admin home. Sites 9–11 are on pages that outlive the
 retirement and would otherwise push an admin at a deleted page.
 
-The remaining `/admin/overview` mentions are nav data or comments
-(`AdminSidebar.tsx:180,189`, `nav-config.ts:18`, `ui/AdminPage.tsx:36`, and four
-prose comments). They are deleted with the pages they serve, not repointed.
+**Corrected 2026-09-11:** `AdminSidebar.tsx` also has two live brand anchors
+to `/admin/overview`, one desktop and one mobile. Under the revised D5 timing,
+the sidebar survives Overview retirement. Repoint both through the same
+server-provided Admin app URL in #1192 + #1201, alongside the eleven sites above.
+Prune Overview's nav entry and check `AdminPage`'s group fallback against the
+remaining routes; prose comments are not navigation sites.
 
 **The impersonation preselect cannot work.** `ImpersonationStartClient` takes four
 free-text fields — `accountId`, `impersonatedUserId`, `ticketId`, `reason` — and has
