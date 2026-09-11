@@ -95,7 +95,10 @@ configuration, cleanup, and remaining post-merge work.
   suite now explicitly stubs and restores its own `ADMIN_APP_URL` fixture.
   The complete seven-suite regression slice passes 66 tests with CI's ambient
   origin present. No production code, workflow fixture, global test setup,
-  mutation journal or counter changed. Full verification and fresh CI follow.
+  mutation journal or counter changed. The complete local suite also passes
+  with CI's ambient origin: 15,712 passed / 11 expected skips, 1,159 passing
+  files. Same-pass fix review at `9c55e4be`: Spec 0 / Standards 0. Fresh cloud CI
+  remains the merge gate.
 
 - D-6: The first normal atomic push was rejected by `ci:merge-ledger` because
   the committed diff lacked a descriptive architecture review-log addition.
