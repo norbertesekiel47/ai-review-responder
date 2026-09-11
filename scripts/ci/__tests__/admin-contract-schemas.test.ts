@@ -67,7 +67,9 @@ describe('admin request schema source analysis', () => {
     expect(result.schemas[0]?.limitations[0]?.source).toContain('never execute');
   });
 
-  it('refuses unsupported dynamic schema dependencies and getters', () => {
+  // Five fresh TypeScript programs exceed 5s under parallel CI coverage
+  // (run 34637163000, attempt 2); keep every refusal fixture within a bounded case.
+  it('refuses unsupported dynamic schema dependencies and getters', { timeout: 30_000 }, () => {
     for (const expr of ['z.string().max(getLimit())', 'z.object({ get name() { return z.string(); } })', 'z.string().refine(makeCallback())']) {
       expect(() => fixture({ 'route.ts': `import { z } from 'zod'; const Input = ${expr};
         export async function POST(req: Request) { return Input.safeParse(await req.json()); }` })).toThrow(/Unsupported request schema.*route.ts:\d+/);
