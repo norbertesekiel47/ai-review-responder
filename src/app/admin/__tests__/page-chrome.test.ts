@@ -27,14 +27,6 @@ const CONVERGED_PAGES = [
     description: 'Outbox, queue depth, and failed jobs',
   },
   {
-    page: 'src/app/admin/notifications/page.tsx',
-    client: 'src/app/admin/notifications/NotificationsClient.tsx',
-    component: 'NotificationsClient',
-    group: 'Operate',
-    title: 'Notifications',
-    description: 'Delivery log across channels',
-  },
-  {
     page: 'src/app/admin/flagged/page.tsx',
     client: 'src/app/admin/flagged/FlaggedClient.tsx',
     component: 'FlaggedClient',

@@ -61,14 +61,10 @@ vi.mock('@/lib/admin/jobs-service', () => ({ getAdminJobsData: service('read', {
 vi.mock('@/lib/admin/queue-health', () => ({
   fetchQueueHealth: service('read', { queueHealth: { unavailable: true }, pool: null }),
 }));
-vi.mock('@/lib/admin/notifications-service', () => ({
-  getAdminNotifications: service('read', { notifications: [], total: 0 }),
-}));
 
 vi.mock('next/link', () => ({ default: ({ children }: { children?: unknown }) => children }));
 vi.mock('@/components/admin/ui/AdminPage', () => ({ AdminPage: () => null }));
 vi.mock('../jobs/JobsClient', () => ({ JobsClient: () => null }));
-vi.mock('../notifications/NotificationsClient', () => ({ NotificationsClient: () => null }));
 
 /**
  * The surviving pages, each with the `from` its sibling-route parity requires.
@@ -83,12 +79,6 @@ const PAGES = [
     load: () => import('../jobs/page'),
     props: undefined as unknown,
     from: '/admin/jobs',
-  },
-  {
-    name: '/admin/notifications',
-    load: () => import('../notifications/page'),
-    props: undefined as unknown,
-    from: '/admin/notifications',
   },
 ] as const;
 
