@@ -76,8 +76,8 @@ Runbook: `docs/runbooks/deployment-guide.md`; execution contract:
 
 ## Teardown ledger
 
-No fixtures or environment changes have been created yet. The following rows
-record planned setup, prior state, and rollback before execution.
+The following rows were opened before setup and now record the actual retained
+configuration, cleanup, and remaining post-merge work.
 
 | Item | Identifier / prior state | Cleanup or retained delivery state | Verified UTC |
 |---|---|---|---|
@@ -158,15 +158,54 @@ record planned setup, prior state, and rollback before execution.
 
 ## Unproven paths
 
-- Server redirect sites, including admin on onboarding paths.
-- MFA challenge keeps its existing same-origin return restrictions and completes
-  the new default destination without a login loop.
-- End-impersonation navigation changes to a single full document navigation;
-  endpoint/session behavior remains unchanged.
-- Desktop/mobile retained sidebar brand links and retirement-safe error link.
-- Overview page retired while its API remains available to the Admin app.
-- Computer Use journey evidence or explicit owner disposition of this gap.
+- Server redirect sites and retirement boundaries have local regression/audit
+  coverage; source default login and the explicit impersonation return also
+  have the owner's two reported live observations above. Gate A/B exercises
+  the separate Admin app and source APIs, not every source redirect caller.
+- The source MFA challenge/continuation, desktop/mobile retained sidebar and
+  error-link navigation, and live post-End-Session navigation remain unobserved
+  in a live browser. The owner explicitly accepted these gaps on 2026-09-11:
+  **"Accept these documented browser gaps"**. This is owner disposition, not
+  Computer Use evidence or a claim that a real impersonation session was run.
+- The Overview page retirement is covered by the accepted #1225 port parity,
+  local filesystem/navigation checks, and retained API/Gate B checks. No
+  authenticated live legacy Overview rendering after deletion is claimed.
+
+## Single red-team pass and subsequent fixes
+
+The [immutable pass report](../../reviews/red-team/codex-1192-1201-admin-home-cutover-435ef1/findings.md)
+and its complete JSON inventory inspect `9c3fa9848bf134422eecc3bc52076ebe544c4f17`.
+They were committed separately as `4cca3306` before any fix. Round 1 used exactly
+30 supervised launches: collection, 14 green individual baselines, and 15
+mutants. Fourteen mutants were caught; one demonstrated a missing redaction
+assertion. Root restored all mutated files and dotenv swaps, verified no backup
+or dirty path remained, and preserved the round/run counters.
+
+The pass has 15,661 inventory rows, including 15,618 skipped-budget rows and
+four uncovered wiring rows. Its historical `OPEN_P0` status is preserved; it
+must not be represented as a clean or exhaustive pass after later changes.
+No second mutation round is authorized or performed. The normal LEAN release
+needs an explicit disposition of this partial-pass limitation.
+
+| Finding | Subsequent correction | Verification |
+|---|---|---|
+| RT-1: no-echo assertion accepted a leaked suffix | Require the entire fixed safe error message, anchored at both ends; production accessor unchanged | All 16 accessor cases pass, including the credential-containing fixture |
+| RT-2: login destination wiring untested | Execute the real Admin login page with two configured origins | Both cases assert the actual default destination and Admin portal prop |
+| RT-3: retained layout destination wiring untested | Execute the real server layout with two configured origins | Both cases assert the shell destination and retained children |
+| RT-4: direct impersonation view destination wiring untested | Execute the real view page with two configured origins and mocked existing auth/data boundaries | Both cases assert the end-button destination and existing session-resolution arguments; no live session or endpoint behavior changed |
+| RT-5: error recovery destination untested | Render the real error boundary with Admin configuration absent | Recovery link remains the local support-access path |
+| RT-6: configuration failure lacks an alert mapping | Add exact emitted identity, project/environment filter, level, default grouping limits, cadence, and repair/delivery action to alerting rule 10 | Static documentation correction only; no live Sentry rule or delivery test is claimed |
+
+The focused regression run passed 23 tests in two files. Full normal checks and
+the same review pass's targeted fix continuation are pending. These tests and
+documentation are later changes to the inspected tree; the original sidecar's
+head, outcomes and counters are not rewritten to imply re-verification.
 
 ## Verdict
 
-PENDING. No staging ride, production cutover, or browser verification is claimed.
+Staging functional acceptance is complete with the owner's explicit browser-gap
+disposition and the automated evidence above. Overall release/teardown remains
+PENDING: the post-merge preview-setting cleanup and staging realignment are
+still open, and the red-team fixes, partial-pass disposition, and fresh cloud CI
+must be completed before merge. No complete Computer Use or authenticated
+production browser verification is claimed.

@@ -14,7 +14,9 @@ describe('trusted Admin app origin', () => {
   });
   it.each([undefined, '', ' ', '//admin.example.com', 'javascript:alert(1)', 'https://user:password@admin.example.com', 'https://admin.example.com/path', 'https://admin.example.com?next=x', 'https://admin.example.com#x', 'https://*.example.com', 'https://admin.example.com/a/..', 'https://admin.example.com\\path'])('rejects invalid configuration without echoing it: %s', (value) => {
     vi.stubEnv('ADMIN_APP_URL', value);
-    expect(() => adminAppUrl()).toThrow('ADMIN_APP_URL must be a configured HTTP(S) origin');
+    expect(() => adminAppUrl()).toThrow(
+      /^ADMIN_APP_URL must be a configured HTTP\(S\) origin without credentials, path, query or fragment$/,
+    );
   });
   it('has no import-time configuration dependency', async () => {
     vi.stubEnv('ADMIN_APP_URL', undefined);
