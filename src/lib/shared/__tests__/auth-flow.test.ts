@@ -180,14 +180,14 @@ const resolverCases: Array<{
     role: 'admin',
     rawNext: '/dashboard',
     flow: 'admin',
-    expected: { kind: 'redirect', destination: '/admin/overview' },
+    expected: { kind: 'redirect', destination: 'https://admin.example.com' },
   },
   {
     name: 'admin undefined flow empty next → /admin/overview',
     role: 'admin',
     rawNext: '',
     flow: undefined,
-    expected: { kind: 'redirect', destination: '/admin/overview' },
+    expected: { kind: 'redirect', destination: 'https://admin.example.com' },
   },
   {
     name: 'hostile // owner → /dashboard',
@@ -222,7 +222,7 @@ const resolverCases: Array<{
     role: 'admin',
     rawNext: '//evil.com',
     flow: 'admin',
-    expected: { kind: 'redirect', destination: '/admin/overview' },
+    expected: { kind: 'redirect', destination: 'https://admin.example.com' },
   },
 ];
 
@@ -234,6 +234,7 @@ describe('resolveCallbackDestination', () => {
           role: testCase.role,
           rawNext: testCase.rawNext,
           flow: testCase.flow,
+          adminDestination: 'https://admin.example.com',
         }),
       ).toEqual(testCase.expected);
     });
@@ -255,9 +256,12 @@ describe('resolveCallbackDestination', () => {
     for (const rawNext of hostile) {
       for (const role of ['owner', 'admin', null] as const) {
         for (const flow of ['owner', 'admin', undefined] as const) {
-          const resolution = resolveCallbackDestination({ role, rawNext, flow });
-          expect(resolution.destination.startsWith('/')).toBe(true);
-          expect(resolution.destination.startsWith('//')).toBe(false);
+          const resolution = resolveCallbackDestination({ role, rawNext, flow, adminDestination: 'https://admin.example.com' });
+          if (role === 'admin') expect(resolution.destination).toBe('https://admin.example.com');
+          else {
+            expect(resolution.destination.startsWith('/')).toBe(true);
+            expect(resolution.destination.startsWith('//')).toBe(false);
+          }
         }
       }
     }

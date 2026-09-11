@@ -60,7 +60,7 @@ describe('OnboardingDemoPage guard', () => {
 
     await expect(OnboardingDemoPage()).rejects.toThrow('NEXT_REDIRECT');
 
-    expect(mockRedirect).toHaveBeenCalledWith('/admin/overview');
+    expect(mockRedirect).toHaveBeenCalledWith('https://admin.example.com');
   });
 
   it('redirects sales_partner away from owner onboarding to /login', async () => {

@@ -24,8 +24,8 @@ describe('resolveWizardDestination — Scenario L wizard guards', () => {
         subscription_status: 'active',
         place_id_verified: false,
         google_maps_url: null,
-      }),
-    ).toEqual({ kind: 'redirect', path: '/admin/overview' });
+      }, { adminDestination: 'https://admin.example.com' }),
+    ).toEqual({ kind: 'redirect', path: 'https://admin.example.com' });
   });
 
   it('L.2b sales_partner role → /login (unsupported legacy role fails closed)', () => {
@@ -116,8 +116,8 @@ describe('resolveWizardDestination — Scenario L wizard guards', () => {
         subscription_status: 'active',
         place_id_verified: true,
         google_maps_url: 'https://maps.google.com/?cid=1',
-      }),
-    ).toEqual({ kind: 'redirect', path: '/admin/overview' });
+      }, { adminDestination: 'https://admin.example.com' }),
+    ).toEqual({ kind: 'redirect', path: 'https://admin.example.com' });
   });
 
   // Order-dependence guard: a pending-payment owner who already filled in

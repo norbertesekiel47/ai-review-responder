@@ -41,6 +41,7 @@ concurrency:
 env:
   CI: 'true'
   MOCK_EXTERNAL_APIS: 'false'
+  ADMIN_APP_URL: https://admin.example.invalid
   NEXT_PUBLIC_APP_URL: http://localhost:3000
   NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
   NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
@@ -83,6 +84,7 @@ jobs:
     env:
       TEST_DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
       ALLOW_E2E_DB_WRITES: "true"
+      ADMIN_APP_URL: https://admin.example.invalid
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       PLAYWRIGHT_BASE_URL: http://localhost:3000
       NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321

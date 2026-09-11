@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { sql } from '@/lib/db/server';
 import { PaymentSuccessClient } from './PaymentSuccessClient';
 
@@ -60,7 +61,7 @@ export default async function PaymentSuccessPage({
   `;
 
   if (!row) redirect('/signup');
-  if (row.role === 'admin') redirect('/admin/overview');
+  if (row.role === 'admin') redirect(adminAppUrl());
   if (row.role !== 'owner') redirect('/login');
 
   const params = await searchParams;

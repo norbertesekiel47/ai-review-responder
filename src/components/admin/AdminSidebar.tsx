@@ -112,7 +112,7 @@ function SidebarFooter({ identity, pathname }: { identity: AdminShellIdentity | 
         ) : (
           <>
             Step-up not verified ·{' '}
-            <Link href={mfaChallengePath(pathname ?? '/admin/overview')} className="text-gray-200 underline hover:text-white">
+            <Link href={mfaChallengePath(pathname ?? '/admin')} className="text-gray-200 underline hover:text-white">
               Verify
             </Link>
           </>
@@ -135,7 +135,7 @@ function SidebarFooter({ identity, pathname }: { identity: AdminShellIdentity | 
   );
 }
 
-export function AdminSidebar({ identity = null }: { identity?: AdminShellIdentity | null }) {
+export function AdminSidebar({ identity = null, adminAppUrl }: { identity?: AdminShellIdentity | null; adminAppUrl: string }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
@@ -177,18 +177,18 @@ export function AdminSidebar({ identity = null }: { identity?: AdminShellIdentit
     <>
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col bg-gray-900 md:flex">
-        <Link href="/admin/overview" className="block px-4 py-4 text-base font-bold text-white">
+        <a href={adminAppUrl} className="block px-4 py-4 text-base font-bold text-white">
           RepWorth <span className="align-top text-[10px] font-semibold text-red-400">ADMIN</span>
-        </Link>
+        </a>
         <NavGroups pathname={pathname} counts={counts} />
         <SidebarFooter identity={identity} pathname={pathname} />
       </aside>
 
       {/* Mobile top bar + drawer */}
       <div className="fixed inset-x-0 top-0 z-40 flex h-12 items-center justify-between bg-gray-900 px-3 md:hidden">
-        <Link href="/admin/overview" className="text-sm font-bold text-white">
+        <a href={adminAppUrl} className="text-sm font-bold text-white">
           RepWorth <span className="align-top text-[10px] font-semibold text-red-400">ADMIN</span>
-        </Link>
+        </a>
         <button
           ref={mobileTriggerRef}
           type="button"

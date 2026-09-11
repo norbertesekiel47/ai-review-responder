@@ -7,7 +7,7 @@
 //   - no auth session               → /login?from=<current path> (owner login;
 //                                     the admin login rejects owner credentials)
 //   - no users row / owner row without account → /login?from=…&error=account_not_found
-//   - role === 'admin'              → /admin/overview
+//   - role === 'admin'              → configured Admin app home
 //   - unsupported legacy role       → /login
 //   - subscription_status not active/past_due → /onboarding/pay
 //
@@ -34,6 +34,7 @@
 import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { createServerClient } from '@supabase/ssr';
 import type { User } from '@supabase/supabase-js';
 import type { Sql } from 'postgres';
@@ -163,7 +164,7 @@ export async function requireOwnerAccess(sql: Sql): Promise<OwnerAccess> {
     redirect(ownerLoginPath(requestHeaders.get(REQUEST_PATHNAME_HEADER), 'account_not_found'));
   }
   // Admins have a row but no account: route them before the account check.
-  if (row.role === 'admin') redirect('/admin/overview');
+  if (row.role === 'admin') redirect(adminAppUrl());
   // `!row.has_account` is the former inner-JOIN miss for an owner row.
   if (!row.has_account) {
     const requestHeaders = await headers();

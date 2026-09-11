@@ -416,7 +416,7 @@ describe('GET /api/auth/callback', () => {
     );
     // /onboarding/pay isn't an admin path → ignore + default to /admin/overview.
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/admin/overview',
+      'https://admin.example.com/',
     );
   });
 
@@ -469,7 +469,7 @@ describe('GET /api/auth/callback', () => {
 
     const res = await GET(mkReq(buildUrl({ code: 'valid-code' })));
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/admin/overview',
+      'https://admin.example.com/',
     );
   });
 

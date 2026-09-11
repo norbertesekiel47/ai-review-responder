@@ -59,7 +59,7 @@ describe('PaymentSuccessPage guard', () => {
     await expect(PaymentSuccessPage({ searchParams })).rejects.toThrow(
       'NEXT_REDIRECT',
     );
-    expect(mockRedirect).toHaveBeenCalledWith('/admin/overview');
+    expect(mockRedirect).toHaveBeenCalledWith('https://admin.example.com');
   });
 
   it('renders for an owner in pending_payment AND post-payment states', async () => {

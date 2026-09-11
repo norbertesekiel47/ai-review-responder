@@ -38,6 +38,7 @@ env:
   # per-test where it exercises the mock path (see zernio client.test.ts +
   # transport.ts). Setting it globally true breaks real-path Zernio tests.
   MOCK_EXTERNAL_APIS: 'false'
+  ADMIN_APP_URL: https://admin.example.invalid
   NEXT_PUBLIC_APP_URL: http://localhost:3000
   NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
   NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci

@@ -68,7 +68,7 @@ describe('OnboardingBusinessPage', () => {
 
     await expect(OnboardingBusinessPage()).rejects.toThrow('NEXT_REDIRECT');
 
-    expect(mockRedirect).toHaveBeenCalledWith('/admin/overview');
+    expect(mockRedirect).toHaveBeenCalledWith('https://admin.example.com');
   });
 
   it('redirects an owner who has not paid to /onboarding/pay', async () => {

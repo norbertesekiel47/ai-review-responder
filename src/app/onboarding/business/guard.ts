@@ -6,7 +6,7 @@
  * a React/JSX transformer into the vitest pipeline.
  *
  * Order matters — earlier branches preempt later ones (e.g. an admin with
- * subscription_status='active' should redirect to /admin/overview, not
+ * subscription_status='active' should redirect to the trusted Admin app home, not
  * /dashboard).
  */
 
@@ -24,6 +24,8 @@ export type WizardGuardOutcome =
   | { kind: 'render' };
 
 export interface WizardGuardOptions {
+  /** Trusted server-provided home, keeping this guard pure of environment reads. */
+  adminDestination?: string;
   /**
    * True only when the location was ALREADY captured at /onboarding/start (the
    * pre-pay demo flow), so the wizard runs its Profile/Voice/Connect steps. The
@@ -63,7 +65,10 @@ export function resolveWizardDestination(
   options: WizardGuardOptions = {},
 ): WizardGuardOutcome {
   if (!row) return { kind: 'redirect', path: '/signup' };
-  if (row.role === 'admin') return { kind: 'redirect', path: '/admin/overview' };
+  if (row.role === 'admin') {
+    if (!options.adminDestination) throw new Error('Admin destination is required for an admin redirect');
+    return { kind: 'redirect', path: options.adminDestination };
+  }
   if (row.role !== 'owner') return { kind: 'redirect', path: '/login' };
   if (!subscriptionGrantsFullAccess(row.subscription_status)) {
     return { kind: 'redirect', path: '/onboarding/pay' };

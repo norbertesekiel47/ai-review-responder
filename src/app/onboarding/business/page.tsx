@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
@@ -59,7 +60,10 @@ export default async function OnboardingBusinessPage() {
   // card-up-front trial arrives subscribed with no location → non-demo wizard
   // (which captures the location), instead of the /onboarding/start bounce loop.
   const props = wizardClientProps(row, onboardingDemoEnabled());
-  const decision = resolveWizardDestination(row, { demoFlowEnabled: props.demoFlowEnabled });
+  const decision = resolveWizardDestination(row, {
+    demoFlowEnabled: props.demoFlowEnabled,
+    adminDestination: row?.role === 'admin' ? adminAppUrl() : undefined,
+  });
   if (decision.kind === 'redirect') redirect(decision.path);
 
   return <BusinessWizardClient {...props} />;

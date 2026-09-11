@@ -68,6 +68,69 @@ function hasComingSoonProxyHeader(response: Response): boolean {
   });
 }
 
+describe('trusted Admin home MFA relay', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('ADMIN_APP_URL', 'https://admin.example.com');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://repworth.net');
+    vi.stubEnv('MFA_ENFORCEMENT_ENABLED', 'true');
+    getUser.mockResolvedValue({ data: { user: { id: 'admin-auth' } } });
+    selfRow.value = { role: 'admin', account_id: null };
+    setSupabaseCookies.value = false;
+    getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal2', nextLevel: 'aal2' }, error: null,
+    });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('sends an anonymous visitor to Admin login before reading the destination', async () => {
+    vi.stubEnv('ADMIN_APP_URL', '');
+    getUser.mockResolvedValue({ data: { user: null } });
+    const response = await proxy(request('https://repworth.net/admin'));
+    expect(response.headers.get('location')).toBe('https://repworth.net/admin/login?from=%2Fadmin');
+    expect(getAuthenticatorAssuranceLevel).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner', 'sales_partner'])('refuses the %s role before the relay', async (role) => {
+    selfRow.value = { role, account_id: 'account-1' };
+    const response = await proxy(request('https://repworth.net/admin'));
+    expect(response.headers.get('location')).toBe('https://repworth.net/admin/login?from=%2Fadmin');
+    expect(getAuthenticatorAssuranceLevel).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { data: { currentLevel: 'aal1', nextLevel: 'aal2' }, error: null },
+    { data: null, error: { message: 'unavailable' } },
+  ])('keeps an insufficient or failed assurance check on the local MFA journey', async (result) => {
+    getAuthenticatorAssuranceLevel.mockResolvedValue(result);
+    const response = await proxy(request('https://repworth.net/admin'));
+    expect(response.headers.get('location')).toBe('https://repworth.net/mfa/challenge?next=%2Fadmin');
+  });
+
+  it('relays an AAL2 admin and retains refreshed cookies on the source host', async () => {
+    setSupabaseCookies.value = true;
+    const response = await proxy(request('https://repworth.net/admin?next=https://evil.example'));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('https://admin.example.com/');
+    expect(response.headers.get('set-cookie')).toContain('sb-refresh-token=updated');
+    expect(response.headers.get('set-cookie')).not.toMatch(/domain=/i);
+  });
+
+  it('returns an expired Admin challenge to Admin login', async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const response = await proxy(request('https://repworth.net/mfa/challenge?next=%2Fadmin'));
+    expect(response.headers.get('location')).toBe('https://repworth.net/admin/login?from=%2Fmfa%2Fchallenge');
+  });
+
+  it('preserves surviving Admin pages and the actual onboarding redirect', async () => {
+    const survivor = await proxy(request('https://repworth.net/admin/impersonate'));
+    expect(survivor.headers.get('location')).toBeNull();
+    expect(survivor.headers.get('x-middleware-next')).toBe('1');
+    const onboarding = await proxy(request('https://repworth.net/onboarding/start'));
+    expect(onboarding.headers.get('location')).toBe('https://admin.example.com/');
+  });
+});
+
 describe('Admin API bearer transport', () => {
   beforeEach(() => {
     vi.clearAllMocks();

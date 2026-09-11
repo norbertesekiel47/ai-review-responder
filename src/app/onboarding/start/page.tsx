@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
@@ -58,7 +59,7 @@ export default async function OnboardingStartPage() {
   `;
 
   if (!row) redirect('/signup');
-  if (row.role === 'admin') redirect('/admin/overview');
+  if (row.role === 'admin') redirect(adminAppUrl());
   if (row.role !== 'owner') redirect('/login');
   // The allowed state for this step is exactly `pending_payment`. Everything
   // else belongs on the dashboard: active/trialing are already entitled,

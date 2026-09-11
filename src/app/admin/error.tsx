@@ -43,7 +43,7 @@ export default function AdminError({
           Admin page failed to load
         </h1>
         <p className="mt-2 text-sm text-red-700">
-          The error has been reported. Try again, or return to the overview.
+          The error has been reported. Try again, or return to support access.
         </p>
         <div className="mt-6 flex items-center justify-center gap-3">
           <button
@@ -54,10 +54,10 @@ export default function AdminError({
             Try again
           </button>
           <Link
-            href="/admin/overview"
+            href="/admin/impersonate"
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
           >
-            Back to overview
+            Back to support access
           </Link>
         </div>
         {error.digest ? (

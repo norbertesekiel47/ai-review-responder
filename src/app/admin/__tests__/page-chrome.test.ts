@@ -19,14 +19,6 @@ import { describe, expect, it } from 'vitest';
  */
 const CONVERGED_PAGES = [
   {
-    page: 'src/app/admin/overview/page.tsx',
-    client: 'src/app/admin/overview/OverviewClient.tsx',
-    component: 'OverviewClient',
-    group: 'Operate',
-    title: 'Overview',
-    description: 'System health and every business at a glance',
-  },
-  {
     page: 'src/app/admin/jobs/page.tsx',
     client: 'src/app/admin/jobs/JobsClient.tsx',
     component: 'JobsClient',
@@ -97,17 +89,5 @@ describe('admin page chrome lives on the server page, not the client', () => {
 
     expect(source).toContain("'use client'");
     expect(source).not.toContain('<AdminPage');
-  });
-});
-
-describe('admin overview actions are static links, safe to render on the server', () => {
-  it('keeps the surviving Demos action on the server without retired business links', () => {
-    const page = readFileSync('src/app/admin/overview/page.tsx', 'utf8');
-    const client = readFileSync('src/app/admin/overview/OverviewClient.tsx', 'utf8');
-
-    expect(page).toContain('href="/admin/demos"');
-    expect(page).not.toContain('href="/admin/businesses');
-    expect(client).not.toContain('/admin/businesses');
-    expect(client).not.toContain('href="/admin/demos"');
   });
 });

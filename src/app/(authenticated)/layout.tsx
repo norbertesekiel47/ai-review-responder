@@ -1,5 +1,6 @@
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import localFont from 'next/font/local';
 import { sql } from '@/lib/db/server';
 import { Sidebar } from '@/components/dashboard/shell/Sidebar';
@@ -89,7 +90,7 @@ export default async function AuthenticatedLayout({
   // different postures under one layout. Defense in depth behind proxy.ts's
   // owner-page block (`role === 'owner'` on /dashboard, /settings, /account —
   // the whole of this route group), not a replacement for it.
-  if (appUser.role === 'admin') redirect('/admin/overview');
+  if (appUser.role === 'admin') redirect(adminAppUrl());
   if (appUser.role !== 'owner') redirect('/login');
 
   // An owner row with no account is a provisioning gap, not an admin (D4).

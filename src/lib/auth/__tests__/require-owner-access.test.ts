@@ -191,7 +191,7 @@ describe('requireOwnerAccess', () => {
 
     const { redirect } = await import('next/navigation');
     await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirect).toHaveBeenCalledWith('/admin/overview');
+    expect(redirect).toHaveBeenCalledWith('https://admin.example.com');
   });
 
   it('redirects sales_partner to owner login instead of admin overview', async () => {

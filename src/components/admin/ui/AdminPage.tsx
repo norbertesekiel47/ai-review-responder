@@ -33,7 +33,7 @@ function groupHref(group: AdminNavGroupLabel): string {
   // Every AdminNavGroupLabel is a member of ADMIN_NAV_GROUPS by construction
   // (the type is derived from it), so this branch is unreachable; the fallback
   // keeps the render total without a non-null assertion.
-  return match?.items[0]?.href ?? '/admin/overview';
+  return match?.items[0]?.href ?? '/admin/impersonate';
 }
 
 /**

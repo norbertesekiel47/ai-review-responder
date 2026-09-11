@@ -24,11 +24,11 @@ vi.mock('@/lib/db/browser', () => ({
 
 type SidebarProps = Parameters<typeof AdminSidebar>[0];
 
-function renderSidebar(props: SidebarProps = {}) {
+function renderSidebar(props: Partial<SidebarProps> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <AdminSidebar {...props} />
+      <AdminSidebar adminAppUrl="https://admin.example.com" {...props} />
     </QueryClientProvider>,
   );
 }
@@ -41,7 +41,7 @@ describe('AdminSidebar', () => {
     pushMock.mockClear();
     refreshMock.mockClear();
     signOutMock.mockReset().mockResolvedValue({ error: null });
-    mockUsePathname.mockReturnValue('/admin/overview');
+    mockUsePathname.mockReturnValue('/admin/jobs');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ flaggedOpen: 3, failedJobs: 1 }), { status: 200 }),
     ));
@@ -65,11 +65,18 @@ describe('AdminSidebar', () => {
     }
   });
 
+  it('uses the server-provided Admin home in both desktop and mobile brand anchors', () => {
+    renderSidebar();
+    const homeLinks = screen.getAllByRole('link', { name: /RepWorth.*ADMIN/i });
+    expect(homeLinks).toHaveLength(2);
+    for (const link of homeLinks) expect(link).toHaveAttribute('href', 'https://admin.example.com');
+  });
+
   it('marks the current page active, including sub-routes', () => {
     mockUsePathname.mockReturnValue('/admin/locations/csv-import/preview');
     renderSidebar();
     expect(screen.getByRole('link', { name: /Locations import/ })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /Overview/ })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: /Jobs/ })).not.toHaveAttribute('aria-current');
   });
 
   it('shows badge counts from nav-counts', async () => {

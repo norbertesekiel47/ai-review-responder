@@ -95,7 +95,7 @@ describe('AuthenticatedLayout role gate', () => {
       { role: 'admin', account_id: 'acc-1', owner_name: 'Ada', email: 'a@example.com' },
     ];
 
-    await expectRedirect('/admin/overview');
+    await expectRedirect('https://admin.example.com');
   });
 
   it('sends any other role to /login', async () => {

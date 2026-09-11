@@ -9,7 +9,13 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-11 (legacy business pages retired after the Admin app tranche-3 parity approval).
+Last updated: 2026-09-11 (Admin home cutover candidate; staging and red-team release pending).
+
+## Quick summary — Admin home cutover and Overview retirement (#1192 + #1201, candidate)
+
+The configured server-only `ADMIN_APP_URL` supplies the Admin default across login, callback, owner/onboarding redirects, both retained sidebar brand links, and the end-impersonation return. External password-login defaults use full document navigation. MFA keeps its existing local-only `next` rules: the exact `/admin` proxy route relays to the configured home only after the existing session, Admin-role and AAL2 checks, preserving refreshed cookies on the source host. No broad redirect of surviving Admin pages is introduced.
+
+The legacy Overview page/client/tests and their navigation/file pins are removed following the owner's #1225 Page parity approval. All Admin APIs, nav-counts, remaining tranche-4 pages, shared UI and impersonation session behavior remain. The lazy URL accessor validates a configured HTTP(S) origin and never imports server configuration into shared/client auth code. Staging, production rollout authorization and browser limitations are recorded in the [cutover evidence ledger](runbooks/evidence/2026-09-11-admin-home-cutover-staging-evidence.md); this candidate is not a completed rollout.
 
 ## Quick summary — legacy business-page retirement (#1202, 2026-09-11)
 

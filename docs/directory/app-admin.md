@@ -36,12 +36,10 @@ is declared once, in the client, and imported by the server page.
 | `layout.tsx` | Wraps everything in `AdminProviders` + `AdminShellFrame` (sidebar shell). |
 | `providers.tsx` | React context providers wrapping the admin layout. |
 | `loading.tsx` | Segment streaming fallback: title skeleton + shared `TableSkeleton`, at `AdminPage`'s measure. Owns no viewport height or background — the shell does. |
-| `error.tsx` | Segment error boundary: reports to Sentry, focuses its heading, offers Try again / Back to overview. Rendered as a card inside the shell's main column, palette-matched to the shared `ErrorState`. |
-| `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). Renders outside the shell (`ADMIN_AUTH_ROUTES`). |
+| `error.tsx` | Segment error boundary: reports to Sentry, focuses its heading, offers Try again / Back to support access. Rendered as a card inside the shell's main column, palette-matched to the shared `ErrorState`. |
+| `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). Supplies the trusted `ADMIN_APP_URL` default; renders outside the shell (`ADMIN_AUTH_ROUTES`). |
 | `forgot-password/page.tsx` | Admin forgot-password. Outside the shell. |
 | `reset-password/page.tsx` | Admin reset-password. Outside the shell. |
-| `overview/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminOverview` + `getAdminNavCounts`, owns the `<AdminPage group="Operate">` chrome and the surviving Demos action. |
-| `overview/OverviewClient.tsx` | Client island: system-health tiles (shares `navCountsQueryOptions`' cache entry with the sidebar badge) and the **At-risk list** — heading `At risk (N of M)`, business name + status/activity + `HealthBadge` rows, and `EmptyState` when nothing is at risk. Business management lives in the Admin app; retired legacy business links are replaced by plain-text guidance. **(§5.3)** No `DataTable`, pagination or `PAGE_SIZE` — Overview ranks rather than paginates. |
 | `jobs/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminJobsData` + `fetchQueueHealth`, `<AdminPage group="Operate" title="Jobs">`. |
 | `jobs/JobsClient.tsx` | Client island: outbox summary tiles + failed-jobs table + per-queue depth/pool-wait; owns `PAGE_SIZE`. |
 | `costs/page.tsx` | **(Phase 2/3)** Server component: gate, `getCostReport` + `getMarginReport`, `<AdminPage group="Operate" title="Costs">`. |
@@ -66,7 +64,7 @@ is declared once, in the client, and imported by the server page.
 | `impersonate/ImpersonationStartClient.tsx` | Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
 | `impersonate/[sessionId]/view/page.tsx` | **(Wave 2 / Phase 3)** Admin-owned read-only impersonation shell on `<AdminPage>`. Keeps its bespoke gate — `resolveImpersonationViewSession` has four distinct redirect/notFound outcomes that `requireAdminPage` cannot express. Does not mount owner routes. |
 | `impersonate/[sessionId]/view/ImpersonationLocationsTable.tsx` | **(Phase 3)** The account's locations as a `DataTable` (Name / Location ID / State); no `rowHref` — nothing is navigable inside a read-only session. |
-| `layout.tsx` | Server layout: reads `loadAdminShellContext` (identity + live view-as session, display only, never redirects) and hands it to `AdminShellFrame`. |
+| `layout.tsx` | Server layout: reads `loadAdminShellContext` (identity + live view-as session, display only, never redirects) and supplies it plus the trusted Admin home URL to `AdminShellFrame`. |
 
 ---
 

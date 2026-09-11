@@ -11,6 +11,7 @@ import {
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
 import { EndImpersonationButton } from '@/components/admin/EndImpersonationButton';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import {
   ImpersonationLocationsTable,
   type ImpersonationLocationRow,
@@ -87,7 +88,7 @@ export default async function AdminImpersonationViewPage({ params }: PageProps) 
               Expires {expiresAt}. Actor: {admin.email}.
             </p>
           </div>
-          <EndImpersonationButton />
+          <EndImpersonationButton adminAppUrl={adminAppUrl()} />
         </div>
       </div>
 

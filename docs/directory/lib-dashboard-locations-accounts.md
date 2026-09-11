@@ -6,6 +6,7 @@ The three env-config lanes (client / server / worker) plus their shared Zod help
 
 | File | What it does |
 |------|--------------|
+| `admin-app-url.ts` | `adminAppUrl()` — lazy, Edge-safe sole reader of server-only `ADMIN_APP_URL`; normalizes the configured HTTP(S) origin and rejects credentials, paths, query and fragments. Server redirects and link props share it; no browser environment read. |
 | `admin-origins.ts` | The **Admin origin allowlist** decision (#1186, ADR 0026 D2/D4) — `src/proxy.ts` writes the CORS headers, this owns which origins earn them. Three exports plus `AdminOriginConfigError`: `readAdminAppOrigins()` (the sole `ADMIN_APP_ORIGINS` reader, not memoized, throws on a bad entry), `normalizeOrigin()` (the canonical origin the proxy echoes), and `isAllowedAdminOrigin(origin, allowlist)` — self via `isSelfOrigin` (never re-spelt) → loopback TERMINALLY → the list. Config throws; a bad request Origin only ever returns false. Edge-safe. The exact parser rules and the operational contract live in `.claude/reference/env-vars.md` § `ADMIN_APP_ORIGINS`. |
 | `client.ts` | CLIENT lane — Zod schema of the build-inlined `NEXT_PUBLIC_*` vars (Supabase URL/anon key and app URL required; Maps key, Sentry DSN, docs URL optional). `getClientConfig()` is a lazy memoized parse; `assertClientConfig()` throws naming the missing vars and runs in the prebuild step; `CLIENT_REQUIRED_VARS` is the declared list. |
 | `deployment-lane.ts` | The authoritative "which deployment lane is this?" reader — `NODE_ENV` cannot answer it (staging sets `NODE_ENV=production`, production leaves it unset — #610/#611). `deploymentLane()` resolves by PRECEDENCE (`RAILWAY_ENVIRONMENT_NAME`, then `NODE_ENV`, else `development`); `requiresProductionConfig()` is the UNION (any Railway lane OR `NODE_ENV=production`) — two rules, never collapse them; `deploymentLaneFields()` adds `lane_source` for logs. Rationale: ADR 0013. |
@@ -95,4 +96,3 @@ The **On-demand generation** doors' own live-Postgres suite is
 discarding a v1 `Generate` draft retains it and the next POST enqueues v2.
 Both suites follow the live-DB convention (`*.integration.test.ts`, no migration
 SQL, `assertSchemaReady`); provision with `pnpm test:db:setup`.
-

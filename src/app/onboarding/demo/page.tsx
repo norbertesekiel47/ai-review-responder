@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
@@ -60,7 +61,7 @@ export default async function OnboardingDemoPage() {
     LIMIT 1
   `;
   if (!row) redirect('/signup');
-  if (row.role === 'admin') redirect('/admin/overview');
+  if (row.role === 'admin') redirect(adminAppUrl());
   if (row.role !== 'owner') redirect('/login');
   if (subscriptionGrantsFullAccess(row.subscription_status)) redirect('/dashboard');
   if (row.subscription_status === SubscriptionStatus.CANCELLED) redirect('/dashboard');

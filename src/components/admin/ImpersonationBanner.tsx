@@ -15,7 +15,7 @@ import { EndImpersonationButton } from './EndImpersonationButton';
  * Sticky under the mobile top bar (`top-12`) and at the viewport top on
  * desktop, inside `<main>` so the sidebar keeps its own scroll.
  */
-export function ImpersonationBanner({ impersonation }: { impersonation: AdminShellImpersonation }) {
+export function ImpersonationBanner({ impersonation, adminAppUrl }: { impersonation: AdminShellImpersonation; adminAppUrl: string }) {
   return (
     <div
       role="status"
@@ -33,7 +33,7 @@ export function ImpersonationBanner({ impersonation }: { impersonation: AdminShe
         </time>
       </span>
       <span className="ml-auto">
-        <EndImpersonationButton tone="inverse" compact />
+        <EndImpersonationButton tone="inverse" compact adminAppUrl={adminAppUrl} />
       </span>
     </div>
   );

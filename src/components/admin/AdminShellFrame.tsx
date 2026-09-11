@@ -16,10 +16,12 @@ import { ADMIN_AUTH_ROUTES } from './nav-config';
 export function AdminShellFrame({
   identity = null,
   impersonation = null,
+  adminAppUrl,
   children,
 }: {
   identity?: AdminShellIdentity | null;
   impersonation?: AdminShellImpersonation | null;
+  adminAppUrl: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -28,9 +30,9 @@ export function AdminShellFrame({
   }
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <AdminSidebar identity={identity} />
+      <AdminSidebar identity={identity} adminAppUrl={adminAppUrl} />
       <main className="min-w-0 flex-1 pt-12 md:pt-0">
-        {impersonation && <ImpersonationBanner impersonation={impersonation} />}
+        {impersonation && <ImpersonationBanner impersonation={impersonation} adminAppUrl={adminAppUrl} />}
         {children}
       </main>
     </div>
