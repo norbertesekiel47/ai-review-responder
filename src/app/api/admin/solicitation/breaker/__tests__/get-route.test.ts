@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  BREAKER_COMPLAINT_RATE,
+  BREAKER_HARD_BOUNCE_RATE,
+  BREAKER_MIN_SENDS,
+  BREAKER_WINDOW_DAYS,
+} from '@/lib/solicitation/send-breaker';
 
 // Unit suite for the admin send-breaker READ route (#898).
 //
@@ -37,6 +43,12 @@ process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
 
 const ADMIN_ID = '22222222-2222-4222-8222-222222222222';
 const TRIPPED_AT = new Date('2026-08-18T09:30:00.000Z');
+const ENFORCEMENT_THRESHOLDS = {
+  windowDays: BREAKER_WINDOW_DAYS,
+  minSends: BREAKER_MIN_SENDS,
+  hardBounceRate: BREAKER_HARD_BOUNCE_RATE,
+  complaintRate: BREAKER_COMPLAINT_RATE,
+};
 
 function makeRequest(): NextRequest {
   return new NextRequest('https://app.example.com/api/admin/solicitation/breaker');
@@ -75,6 +87,7 @@ describe('admin send-breaker read route', () => {
     const response = await GET(makeRequest());
 
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'aal2_required' });
     // The read must not be the weaker door: nothing about the platform's send
     // health is computed, let alone returned, before the gate passes.
     expect(readSendBreakerMock).not.toHaveBeenCalled();
@@ -103,6 +116,7 @@ describe('admin send-breaker read route', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       open: true,
+      thresholds: ENFORCEMENT_THRESHOLDS,
       trip: {
         id: 'trip-1',
         trippedAt: '2026-08-18T09:30:00.000Z',
@@ -126,7 +140,11 @@ describe('admin send-breaker read route', () => {
     const response = await GET(makeRequest());
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ open: false, trip: null });
+    expect(await response.json()).toEqual({
+      open: false,
+      trip: null,
+      thresholds: ENFORCEMENT_THRESHOLDS,
+    });
   });
 
   it('the breaker read route maps a failed read to a 500 rather than a halt', async () => {

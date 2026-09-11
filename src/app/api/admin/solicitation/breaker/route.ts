@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { readSendBreaker } from '@/lib/solicitation/send-breaker';
+import {
+  BREAKER_COMPLAINT_RATE,
+  BREAKER_HARD_BOUNCE_RATE,
+  BREAKER_MIN_SENDS,
+  BREAKER_WINDOW_DAYS,
+  readSendBreaker,
+} from '@/lib/solicitation/send-breaker';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +32,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       {
         open: state.open,
         trip: state.trip && { ...state.trip, trippedAt: state.trip.trippedAt.toISOString() },
+        // The separate Admin app displays the enforcement values through this
+        // seam, so they must come from the same constants as the breaker.
+        thresholds: {
+          windowDays: BREAKER_WINDOW_DAYS,
+          minSends: BREAKER_MIN_SENDS,
+          hardBounceRate: BREAKER_HARD_BOUNCE_RATE,
+          complaintRate: BREAKER_COMPLAINT_RATE,
+        },
       },
       { headers: NO_STORE_HEADERS },
     );

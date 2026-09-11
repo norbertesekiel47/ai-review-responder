@@ -1915,6 +1915,12 @@ export type SolicitationBreakerGETResponse = {
     "error": string;
 } | {
     "open": false | true;
+    "thresholds": {
+        "complaintRate": number | null;
+        "hardBounceRate": number | null;
+        "minSends": number | null;
+        "windowDays": number | null;
+    };
     "trip": null | {
         "id": string;
         "metrics": {
