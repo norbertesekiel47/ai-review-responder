@@ -95,6 +95,26 @@ describe('compiler-derived response contracts', () => {
       }`);
       expect(() => describeResponses(program, source, 'GET')).toThrow('unresolved status');
     }
+    for (const text of [
+      'function reply(status:number): NextResponse { status=418; return NextResponse.json({ok:true},{status}); } export function GET(){return reply(200);}',
+      'function reply(status:number): NextResponse { (() => {status++;})(); return NextResponse.json({ok:true},{status}); } export function GET(){return reply(200);}',
+      'export function GET(){const init={status:200}; init.status=418; return NextResponse.json({ok:true},init);}',
+      'export function GET(){const init={status:200}; const alias=init; alias.status=418; return NextResponse.json({ok:true},init);}',
+      'function change(init:{status:number}){init.status=418;} export function GET(){const init={status:200}; change(init); return NextResponse.json({ok:true},init);}',
+      'export function GET(){const init={status:200}; init.status=418; return NextResponse.json({ok:true},{status:init.status});}',
+      'export function GET(){const init={status:200,change(){this.status=418;}}; init.change(); return NextResponse.json({ok:true},init);}',
+      'export function GET(){const choices={ok:{status:200}}; const alias=choices.ok; alias.status=418; return NextResponse.json({ok:true},{status:choices.ok.status});}',
+      'export const init={status:200}; export function GET(){return NextResponse.json({ok:true},init);}',
+    ]) {
+      const {program, source} = fixture(text);
+      expect(() => describeResponses(program, source, 'GET')).toThrow('unresolved status');
+    }
+    const stable = fixture('function reply(status:number): NextResponse {return NextResponse.json({ok:true},{status});} export function GET(){const status=200; return reply(status);}');
+    expect(describeResponses(stable.program, stable.source, 'GET').map((response) => response.status)).toEqual(['200']);
+    const guarded = fixture('export function GET(){const choices={ok:{status:200}}; const known=Math.random() ? choices.ok : undefined; if(known) return NextResponse.json({ok:true},{status:known.status}); return NextResponse.json({ok:false},{status:404});}');
+    expect(describeResponses(guarded.program, guarded.source, 'GET').map((response) => response.status).sort()).toEqual(['200','404']);
+    const namedInit = fixture('export function GET(){const init={status:200}; return NextResponse.json({ok:true},init);}');
+    expect(describeResponses(namedInit.program, namedInit.source, 'GET').map((response) => response.status)).toEqual(['200']);
   });
 
   it('preserves inline dictionary signatures and refuses unresolved object spreads', () => {

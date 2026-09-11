@@ -155,6 +155,8 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
   const environments = new WeakMap<Bindings, number>();
   let nextEnvironment = 0;
   let steps = 0;
+  let provingStatus = false;
+  const referenceCache = new Map<ts.Symbol, ts.Identifier[]>();
 
   function identity(node: ts.Node): string {
     return `${node.getSourceFile().fileName}:${node.getStart()}:${node.end}`;
@@ -172,6 +174,81 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
     const symbol = checker.getSymbolAtLocation(node);
     return symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
   }
+  function referencesTo(symbol: ts.Symbol): ts.Identifier[] {
+    const previous = referenceCache.get(symbol);
+    if (previous) return previous;
+    const declaration = symbol.valueDeclaration;
+    if (!declaration) return [];
+    let scope: ts.Node = declaration.parent;
+    while (!ts.isFunctionLike(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+    const references: ts.Identifier[] = [];
+    const walk = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && node.text === symbol.name && symbolAt(node) === symbol) references.push(node);
+      ts.forEachChild(node, walk);
+    };
+    walk(scope);
+    referenceCache.set(symbol, references);
+    return references;
+  }
+  function isWritten(reference: ts.Identifier): boolean {
+    for (let parent = reference.parent; parent && !ts.isFunctionLike(parent); parent = parent.parent) {
+      if (ts.isBinaryExpression(parent) && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        && reference.pos >= parent.left.pos && reference.end <= parent.left.end) return true;
+      if (ts.isDeleteExpression(parent) || ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent))
+        && (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken))) return true;
+      if (ts.isStatement(parent)) break;
+    }
+    return false;
+  }
+  function assertStableStatusBinding(symbol: ts.Symbol, at: ts.Node, object: boolean, seen = new Set<ts.Symbol>()): void {
+    if (seen.has(symbol)) return;
+    seen.add(symbol);
+    const declaration = symbol.valueDeclaration;
+    if (object && declaration && ts.isVariableDeclaration(declaration) && ts.isVariableDeclarationList(declaration.parent)
+      && ts.isVariableStatement(declaration.parent.parent) && ts.getModifiers(declaration.parent.parent)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      throw new Error(`${location(declaration)}: unresolved status object is exported`);
+    }
+    for (const reference of referencesTo(symbol)) {
+      if (declaration && 'name' in declaration && reference === declaration.name) continue;
+      if (isWritten(reference)) throw new Error(`${location(reference)}: unresolved status binding is written`);
+      if (!object) continue;
+      // Named objects may alias or escape despite const. Only property reads and
+      // this exact analyzed argument are supported; other uses need a proof we
+      // deliberately do not approximate with their original initializer.
+      const parent = reference.parent;
+      const propertyRead = (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === reference;
+      const analyzedArgument = reference === at && ts.isCallExpression(parent) && parent.arguments.some((argument) => argument === reference);
+      const truthinessRead = (ts.isIfStatement(parent) && parent.expression === reference)
+        || (ts.isConditionalExpression(parent) && parent.condition === reference)
+        || (ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken);
+      if (propertyRead) {
+        let access: ts.Expression = parent;
+        while ((ts.isPropertyAccessExpression(access.parent) || ts.isElementAccessExpression(access.parent)) && access.parent.expression === access) access = access.parent;
+        if (ts.isCallExpression(access.parent) && access.parent.expression === access) throw new Error(`${location(access)}: unresolved status object method call`);
+        const value = checker.getTypeAtLocation(access);
+        const parts = value.isUnion() ? value.types : [value];
+        if (parts.some((part) => part.flags & (ts.TypeFlags.Object | ts.TypeFlags.Any | ts.TypeFlags.Unknown))) {
+          let initializer: ts.Node = access;
+          while (ts.isParenthesizedExpression(initializer.parent) || ts.isAsExpression(initializer.parent) || ts.isNonNullExpression(initializer.parent)
+            || (ts.isConditionalExpression(initializer.parent) && initializer.parent.condition !== initializer)) initializer = initializer.parent;
+          const alias = ts.isVariableDeclaration(initializer.parent) && initializer.parent.initializer === initializer ? symbolAt(initializer.parent.name) : undefined;
+          if (!alias) throw new Error(`${location(access)}: unresolved status object property escapes`);
+          assertStableStatusBinding(alias, access, true, seen);
+        }
+        continue;
+      }
+      if (!analyzedArgument && !truthinessRead) throw new Error(`${location(reference)}: unresolved status object escapes its binding`);
+    }
+  }
+  function withStatusProof<T>(read: () => T): T {
+    const previous = provingStatus;
+    provingStatus = true;
+    try { return read(); } finally { provingStatus = previous; }
+  }
+  function mayBeObject(node: ts.Node): boolean {
+    const type = checker.getTypeAtLocation(node);
+    return (type.isUnion() ? type.types : [type]).some((part) => Boolean(part.flags & (ts.TypeFlags.Object | ts.TypeFlags.Any | ts.TypeFlags.Unknown)));
+  }
   function resolveBinding(node: ts.Node, env: Bindings, seen = new Set<ts.Symbol>()): Binding {
     if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isAwaitExpression(node) || ts.isNonNullExpression(node)) {
       return resolveBinding(node.expression, env, seen);
@@ -180,9 +257,13 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
       const symbol = symbolAt(node);
       if (symbol && !seen.has(symbol)) {
         const bound = env.get(symbol);
-        if (bound) return resolveBinding(bound.node, bound.env, new Set([...seen, symbol]));
+        if (bound) {
+          if (provingStatus) assertStableStatusBinding(symbol, node, mayBeObject(bound.node));
+          return resolveBinding(bound.node, bound.env, new Set([...seen, symbol]));
+        }
         const declaration = symbol.valueDeclaration;
         if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && ts.isVariableDeclarationList(declaration.parent) && declaration.parent.flags & ts.NodeFlags.Const) {
+          if (provingStatus) assertStableStatusBinding(symbol, node, mayBeObject(node));
           return resolveBinding(declaration.initializer, env, new Set([...seen, symbol]));
         }
         if (declaration && (ts.isFunctionDeclaration(declaration) || ts.isArrowFunction(declaration) || ts.isFunctionExpression(declaration))) return { node: declaration, env };
@@ -388,13 +469,13 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
       if (receiverName === 'NextResponse' || receiverName === 'Response') {
         const body = node.arguments[0];
         if (!body) throw new Error(`${location(node)}: JSON response without body`);
-        const init = node.arguments[1] && resolveBinding(node.arguments[1], env);
+        const init = node.arguments[1] && withStatusProof(() => resolveBinding(node.arguments[1]!, env));
         if (init && (!ts.isObjectLiteralExpression(init.node) || init.node.properties.some((part) => !ts.isPropertyAssignment(part) && !ts.isShorthandPropertyAssignment(part)))) {
           throw new Error(`${location(init.node)}: unresolved response init`);
         }
         const status = init && ts.isObjectLiteralExpression(init.node) ? init.node.properties.find((part) => part.name?.getText().replace(/['"]/g, '') === 'status') : undefined;
         const statusNode = status && ts.isPropertyAssignment(status) ? status.initializer : status && ts.isShorthandPropertyAssignment(status) ? status.name : undefined;
-        responses.push({ body: renderExpression(body, env), status: statusText(statusNode, init?.env ?? env), source: location(node) });
+        responses.push({ body: renderExpression(body, env), status: withStatusProof(() => statusText(statusNode, init?.env ?? env)), source: location(node) });
         return true;
       }
     }
