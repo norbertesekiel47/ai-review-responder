@@ -16,7 +16,9 @@ Runbook: `docs/runbooks/deployment-guide.md`; execution contract:
 - Starting Admin app main/staging: `44452f060f78c691cc81188b6bbd05a6d3be82c1`.
 - Preparation UTC: 2026-09-11T18:55:00Z.
 - Reviewed code SHA: `d65d182c669554a26fd29e7ae8fa88cdb37e5c92`; the staging
-  candidate will include the preparation-ledger commit immediately after it.
+  candidate is `5f437245026a23fb3614c6b7cd4dce495dade5a9`, with only preparation
+  ledger and required review-log documentation added after review.
+- Draft source PR: https://github.com/RepWorth/ai-review-responder/pull/1253.
 - Designated staging account: `gate-a-admin-20260907@repworth.net` only if
   authenticated verification is needed. Credentials stay in sealed CI inputs.
 - No provider actions, customer edits, global logout, or impersonation session
@@ -44,6 +46,9 @@ Runbook: `docs/runbooks/deployment-guide.md`; execution contract:
 | Public baseline (before candidate) | Nine read-only checks passed: both login pages 200; anonymous `/admin`, `/admin/impersonate`, and expired `/mfa/challenge?next=%2Fadmin` each 307 to same-origin `/admin/login`; Overview/nav-counts APIs 401; allowed CORS 204 with exact origin and no credentials header; unrelated origin 403 without allowance | 2026-09-11T19:51:38Z |
 | Candidate local gates | `d65d182c`: lint/typecheck/build + nine relevant audits passed; full suite with both DB variables pinned to validated local test DB: 15,705 passed, 11 skipped, 1,158 files passed | Before staging push |
 | Single code-review pass | Spec: zero actionable findings; Standards: zero actionable findings at `0ad5c1bdc...d65d182c` | Before staging push |
+| Candidate deployed/public probes | `staging.repworth.net` resolves to READY deployment `dpl_AB2f4BksJ6PBR265hxn4e1WZRVfo`, exact SHA `5f437245026a23fb3614c6b7cd4dce495dade5a9`, expected custom env. All nine baseline public checks also pass against this candidate. Target alias remains at `44452f060`. | 2026-09-11T20:12:56Z |
+| Candidate Gate A/B | Run `34633995382`, attempt 2, E2E job `103407081043`: Gate A acceptance, isolated Gate B build, live staging handshake, and generated-route cleanup all succeeded. Artifact `gate-a-evidence` ID `10281070114` was created at 20:14:20Z. | 2026-09-11T20:16Z |
+| Post-proof deployment pins | Source alias still READY at `5f437245` / `dpl_AB2f4BksJ6PBR265hxn4e1WZRVfo`; Admin alias still READY at `44452f060` / `dpl_5Mq5BLSYQ9rVAnM2YCiFPSQEkJv1` | After Gate A/B completion |
 
 ## Candidate verification procedure
 
@@ -77,10 +82,24 @@ record planned setup, prior state, and rollback before execution.
 | Item | Identifier / prior state | Cleanup or retained delivery state | Verified UTC |
 |---|---|---|---|
 | [x] Source staging `ADMIN_APP_URL` | Created `FrDfGVWVmn4xsGyC`; project `prj_wIMnzHKefoQRdzCeMZesg2mIgNc0`, custom env `env_Xdvi79MDL9zMt5LmTMRLFSBBeKGT` only | Retain `https://admin.staging.repworth.net` as cutover delivery config. If cutover abandoned, delete only this created entry and verify absent. Exact value, empty target list, and custom env verified by API. | 2026-09-11T19:47Z |
-| [ ] Source cutover preview `ADMIN_APP_URL` | Branch `codex/1192-1201-admin-home-cutover` not yet on remote; creation failed and metadata confirms no preview entry | Deferred until branch exists. Delete any subsequently created branch entry after merged PR/preview retirement and verify absent. | Not created, verified 2026-09-11T19:47Z |
-| [ ] Candidate source staging deployment | Prior branch `0ad5c1bdc4375e45474d487256ebd2d34d4c74b6`, deployment `dpl_BVG4ZwXR1AwtXz2E2AY1S4qKm1JM` | Normal fast-forward push of reviewed code plus this ledger; record actual candidate/deployment SHA. After owner-authorized merge, realign staging to main per deployment guide. If candidate abandoned, restore recorded prior staging ref with exact lease and verify deployment. | Planned, not pushed |
+| [ ] Source cutover preview `ADMIN_APP_URL` | Created `gVOKy6rduUBNrXhV`, only preview branch `codex/1192-1201-admin-home-cutover`, exact staging Admin URL verified after remote branch creation | Delete this created branch entry after merged PR/preview retirement and verify absent. | Value/scope verified after push; cleanup pending |
+| [ ] Candidate source staging deployment | Prior branch `0ad5c1bdc4375e45474d487256ebd2d34d4c74b6`, deployment `dpl_BVG4ZwXR1AwtXz2E2AY1S4qKm1JM`; candidate `5f437245026a23fb3614c6b7cd4dce495dade5a9`, READY deployment `dpl_AB2f4BksJ6PBR265hxn4e1WZRVfo` | Normal atomic feature/staging push passed all hooks. After authorized merge, realign staging to main per deployment guide. If candidate abandoned, restore recorded prior staging ref with exact lease and verify deployment. | Alias/deployment SHA verified 2026-09-11T20:12:56Z; post-merge alignment pending |
+| [x] Sealed Gate A/B rerun | Existing disposable staging CI accounts; run `34633995382`, attempt 2, E2E job `103407081043`; no new account, factor, role, or impersonation session | Gate A closed its ephemeral browser contexts; Gate B's own-session sign-out and generated-route removal succeeded. Existing fixture accounts retained. No global session revocation is claimed or performed. | Successful job/cleanup and stable deployment pins verified |
 
 ## Deviations
+
+- D-6: The first normal atomic push was rejected by `ci:merge-ledger` because
+  the committed diff lacked a descriptive architecture review-log addition.
+  No ref moved. Two documentation lines were added, no counter or journal was
+  changed, the audit passed, and the normal atomic retry succeeded. Staging
+  and the feature branch now equal `5f437245`; main remains `0ad5c1bdc`.
+
+- D-7: Source authenticated browser verification is pending owner input on the
+  actual staging candidate: default admin login/MFA to the new Admin origin and
+  explicit `from=/admin/impersonate` remaining on the source origin. The request
+  also identifies unverified desktop/mobile sidebar and live post-End-Session
+  navigation. Existing port parity approvals do not claim those new paths. No
+  new real impersonation session is needed or requested for the manual check.
 
 - D-5 (2026-09-11T19:58Z): The prepared production proposal incorrectly allowed
   the source app's legacy anon JWT. ADR 0030 D4 requires a modern publishable key.
@@ -99,7 +118,8 @@ record planned setup, prior state, and rollback before execution.
   failure before the branch was pushed. A fresh metadata read confirms only the
   intended custom-staging entry exists; no preview or production entry was
   created. Retry only after the remote branch is present and preserve a sanitized
-  API error if it still fails. No source deployment has been requested yet.
+  API error if it still fails. After the remote branch existed, creation succeeded
+  and its exact branch-only scope/value were verified; see the ledger.
 
 - D-1: Production Admin app is not ready for the redirect cutover. Its existing
   merged pages are independently proven by owner parity and staging Gate A/B,
@@ -118,7 +138,6 @@ record planned setup, prior state, and rollback before execution.
 
 ## Unproven paths
 
-- Candidate staging deployment and exact deployed SHA.
 - Server redirect sites, including admin on onboarding paths.
 - Admin login default reaches external Admin app; explicit
   `from=/admin/impersonate` stays on the source app.
@@ -128,7 +147,6 @@ record planned setup, prior state, and rollback before execution.
   endpoint/session behavior remains unchanged.
 - Desktop/mobile retained sidebar brand links and retirement-safe error link.
 - Overview page retired while its API remains available to the Admin app.
-- Staging Gate A/B remain green against the candidate source deployment.
 - Computer Use journey evidence or explicit owner disposition of this gap.
 
 ## Verdict
