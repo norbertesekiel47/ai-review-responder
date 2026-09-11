@@ -9,5 +9,3 @@ export const QUEUE_HEALTH_JOB_STATES = [
   'completed',
   'paused',
 ] as const;
-
-export type QueueHealthJobState = (typeof QUEUE_HEALTH_JOB_STATES)[number];
