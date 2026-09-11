@@ -134,7 +134,7 @@ function WordmarkReveal({ text }: { text: string }) {
           r="22%"
           initial={{ cx: '50%', cy: '50%' }}
           animate={maskPosition}
-          transition={{ duration: 0.28, ease: 'easeOut' }}
+          transition={{ duration: prefersReducedMotion ? 0 : 0.28, ease: 'easeOut' }}
         >
           <stop offset="0%" stopColor="white" />
           <stop offset="100%" stopColor="black" />
@@ -226,9 +226,8 @@ export function LandingFooter() {
 
         <div className="rw-lp-foot-bottom">
           <div className="rw-lp-foot-bottom-lead">
-            {/* WCAG 2.2.2: eight clips and two keyframe animations start on
-                their own and loop forever, so the page owes the visitor a way
-                to stop them. It lives HERE — in flow, in the bottom bar — since
+            {/* WCAG 2.2.2: the page's ambient clips start on their own and
+                loop forever, so the page owes the visitor a way to stop them. It lives HERE — in flow, in the bottom bar — since
                 2026-08-16; the fixed bottom-left placement it had before sat on
                 top of the closing band's note text at 1440x900. Placement note:
                 landing-experience.css, "Ambient motion toggle". */}

@@ -1,0 +1,115 @@
+{
+  "origin": "http://localhost:3101",
+  "browser": "Chromium",
+  "nativeComputerUse": false,
+  "layouts": [
+    {
+      "width": 320,
+      "height": 568,
+      "galleryIndex": "four keyboard links, readable selected state, 44px targets",
+      "screenFits": true
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "galleryIndex": "four keyboard links, readable selected state, 44px targets",
+      "screenFits": true
+    },
+    {
+      "width": 760,
+      "height": 540,
+      "galleryIndex": "four keyboard links, readable selected state, 44px targets",
+      "screenFits": true
+    },
+    {
+      "width": 768,
+      "height": 1024,
+      "galleryIndex": "four keyboard links, readable selected state, 44px targets",
+      "screenFits": true
+    },
+    {
+      "width": 844,
+      "height": 390,
+      "galleryIndex": "four keyboard links, readable selected state, 44px targets",
+      "screenFits": true
+    },
+    {
+      "width": 1440,
+      "height": 1000,
+      "galleryIndex": "four keyboard links, readable selected state, 44px targets",
+      "screenFits": true
+    }
+  ],
+  "links": [
+    {
+      "route": "/features",
+      "clicked": true,
+      "title": "Features · RepWorth"
+    },
+    {
+      "route": "/how-it-works",
+      "clicked": true,
+      "title": "How it works · RepWorth"
+    },
+    {
+      "route": "/pricing",
+      "clicked": true,
+      "title": "Pricing · RepWorth"
+    },
+    {
+      "route": "/book-a-demo",
+      "clicked": true,
+      "title": "Get early access · RepWorth"
+    },
+    {
+      "route": "/help/contact",
+      "clicked": true,
+      "title": "Contact support · RepWorth"
+    },
+    {
+      "route": "/legal/privacy",
+      "clicked": true,
+      "title": "Privacy Policy · RepWorth"
+    },
+    {
+      "route": "/legal/terms",
+      "clicked": true,
+      "title": "Terms of Service · RepWorth"
+    },
+    {
+      "route": "/security",
+      "clicked": true,
+      "title": "Security · RepWorth"
+    },
+    {
+      "route": "/legal/sub-processors",
+      "clicked": true,
+      "title": "Sub-processors · RepWorth"
+    },
+    {
+      "route": "/legal/cookies",
+      "clicked": true,
+      "title": "Cookie Policy · RepWorth"
+    },
+    {
+      "route": "/legal/aup",
+      "clicked": true,
+      "title": "Acceptable Use Policy · RepWorth"
+    }
+  ],
+  "checks": [
+    {
+      "reducedMotionFirstPaint": "headline, copy and CTA visible without waiting for hydration"
+    },
+    {
+      "mobileNavigation": "menu → pricing"
+    },
+    {
+      "conversion": "hero CTA → required validation → simulated server error → retry → simulated success → how it works",
+      "backend": "intercepted; no lead submitted"
+    },
+    {
+      "originalMediaFailure": "house, Judge, Governor, Reply and Guardian keep their still images"
+    }
+  ]
+}

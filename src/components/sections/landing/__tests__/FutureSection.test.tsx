@@ -1,80 +1,76 @@
 // @vitest-environment jsdom
 import { createElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { FutureSection } from '../future/FutureSection';
 import {
   HORIZON_MARKER,
-  HORIZON_X,
-  LEGEND_NOTE,
   PLANNED_MARKER,
   SHIPPED_MARKER,
   STOPS,
 } from '../future/future-copy';
-import { routePath } from '../future/future-route';
 
-// The route map's contract (DESIGN.md → Future): every stop is a real button
-// with its body reachable by assistive tech; unbuilt stops carry their marker
-// beside the name; the disclaimer sits on the chart; only shipped stops may be
-// written in the present tense. These tests pin the honesty machinery and the
-// geometry, not the pixels.
+// The Working Atlas's contract (chosen-design.md → "Where this is going"):
+// three chapter controls, five stops per chapter on the map and in the
+// ledger, and every one of the 15 canonical stops reachable with its
+// availability label. These tests pin the honesty machinery, not the pixels.
 
-vi.mock('@/hooks/usePrefersReducedMotion', () => ({
-  usePrefersReducedMotion: () => false,
-}));
 vi.mock('next/image', () => ({
-  default: ({ src, alt, className }: { src: string; alt: string; className?: string }) =>
-    createElement('img', { src, alt, className }),
+  default: ({ src, alt }: { src: string; alt: string }) => createElement('img', { src, alt }),
 }));
-vi.mock('motion/react', async () => {
-  const actual = await vi.importActual<typeof import('motion/react')>('motion/react');
-  return { ...actual, useInView: () => true };
-});
 
-beforeEach(() => {
-  vi.stubGlobal(
-    'IntersectionObserver',
-    class {
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
-    },
-  );
-});
+function ledger() {
+  return within(screen.getByRole('complementary', { name: 'Roadmap detail ledger' }));
+}
 
-describe('FutureSection — the route map', () => {
-  it('renders one button per stop, in travel order, each describing its body', () => {
+function chapterButton(name: RegExp) {
+  return within(screen.getByRole('navigation', { name: 'Explore roadmap chapters' })).getByRole('button', { name });
+}
+
+describe('FutureSection — the Working Atlas', () => {
+  it('opens on the shipped chapter with its first stop selected', () => {
     render(<FutureSection />);
-    const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(STOPS.length);
-    STOPS.forEach((stop, index) => {
-      const button = buttons[index];
-      expect(button).toHaveTextContent(stop.name);
-      expect(button).toHaveTextContent(stop.marker);
-      const describedBy = button?.getAttribute('aria-describedby');
-      expect(describedBy).toBeTruthy();
-      expect(document.getElementById(describedBy ?? '')).toHaveTextContent(stop.body);
-    });
+    expect(chapterButton(/Shipped/)).toHaveAttribute('aria-pressed', 'true');
+    expect(chapterButton(/Planned/)).toHaveAttribute('aria-pressed', 'false');
+    const first = STOPS[0];
+    if (!first) throw new Error('no stops');
+    expect(ledger().getByRole('heading', { level: 3 })).toHaveTextContent(first.name);
+    expect(ledger().getByText('Available today')).toBeInTheDocument();
   });
 
-  it('keeps the disclaimer on the chart', () => {
+  it('lists exactly the chapter’s stops on the map and in the ledger', () => {
     render(<FutureSection />);
-    expect(screen.getByText(LEGEND_NOTE)).toBeInTheDocument();
+    const shipped = STOPS.filter((stop) => stop.state === 'shipped');
+    const rows = ledger().getAllByRole('listitem');
+    expect(rows.map((row) => row.textContent)).toEqual(
+      shipped.map((stop) => expect.stringContaining(stop.name)),
+    );
+    const mapStops = document.querySelectorAll('.rw-lp-final-atlas-stop');
+    expect(mapStops).toHaveLength(shipped.length);
   });
 
-  it('opens exactly one stop at a time, on hover and on focus', () => {
+  it('moves to a chapter’s first stop and marks unbuilt stops "Not available yet"', () => {
     render(<FutureSection />);
-    const [first, second] = screen.getAllByRole('button');
-    if (!first || !second) throw new Error('stops missing');
-    fireEvent.pointerEnter(first);
-    expect(first).toHaveAttribute('aria-pressed', 'true');
-    expect(second).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.focus(second);
-    fireEvent.pointerLeave(first);
-    expect(first).toHaveAttribute('aria-pressed', 'false');
-    expect(second).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.blur(second);
-    expect(second).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(chapterButton(/Planned/));
+    const firstPlanned = STOPS.find((stop) => stop.state === 'planned');
+    if (!firstPlanned) throw new Error('no planned stop');
+    expect(chapterButton(/Planned/)).toHaveAttribute('aria-pressed', 'true');
+    expect(ledger().getByRole('heading', { level: 3 })).toHaveTextContent(firstPlanned.name);
+    expect(ledger().getByText('Not available yet')).toBeInTheDocument();
+    expect(ledger().getAllByText(`Planned · ${firstPlanned.marker}`).length).toBeGreaterThan(0);
+  });
+
+  it('reaches all 15 canonical stops through the three chapters', () => {
+    render(<FutureSection />);
+    const seen = new Set<string>();
+    for (const name of [/Shipped/, /Planned/, /Horizon/]) {
+      fireEvent.click(chapterButton(name));
+      for (const button of ledger().getAllByRole('button')) {
+        fireEvent.click(button);
+        seen.add(ledger().getByRole('heading', { level: 3 }).textContent ?? '');
+      }
+    }
+    expect([...seen].sort()).toEqual(STOPS.map((stop) => stop.name).sort());
   });
 });
 
@@ -100,30 +96,5 @@ describe('future-copy — the honesty contract', () => {
       if (stop.state === 'horizon') expect(stop.marker).toBe(HORIZON_MARKER);
     }
     expect(PLANNED_MARKER).toBe('Planned');
-  });
-
-  it('keeps the horizon stops past the horizon line and everything else before it', () => {
-    for (const stop of STOPS) {
-      if (stop.state === 'horizon') expect(stop.x).toBeGreaterThan(HORIZON_X);
-      else expect(stop.x).toBeLessThan(HORIZON_X);
-    }
-  });
-});
-
-describe('routePath', () => {
-  it('draws nothing for fewer than two points', () => {
-    expect(routePath([])).toBe('');
-    expect(routePath([{ x: 1, y: 1 }])).toBe('');
-  });
-
-  it('starts at the first point, ends at the last, one cubic per leg', () => {
-    const d = routePath([
-      { x: 0, y: 0 },
-      { x: 100, y: 50 },
-      { x: 200, y: 0 },
-    ]);
-    expect(d.startsWith('M 0 0')).toBe(true);
-    expect(d.endsWith('200 0')).toBe(true);
-    expect(d.match(/ C /g)).toHaveLength(2);
   });
 });

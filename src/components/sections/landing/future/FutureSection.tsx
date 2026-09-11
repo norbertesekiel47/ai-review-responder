@@ -1,395 +1,230 @@
 'use client';
 
 import Image from 'next/image';
-import { m, useInView } from 'motion/react';
-import { useId, useRef, useState, type CSSProperties } from 'react';
-import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
-import { Staged } from '../staged';
+import { useId, useState, type CSSProperties } from 'react';
 import {
-  CLOSING_ACCENT,
-  CLOSING_LEAD,
-  CLOSING_TAIL,
-  EYEBROW,
-  HEADING_ACCENT,
-  HEADING_LEAD,
-  HORIZON_LABEL,
-  HORIZON_X,
-  LEAD_IN,
-  LEGEND_HORIZON,
-  LEGEND_LABEL,
-  LEGEND_NOTE,
-  LEGEND_PLANNED,
-  LEGEND_SHIPPED,
-  STAGE_HEIGHT,
-  STAGE_WIDTH,
   STOPS,
-  STOPS_LABEL,
-  TODAY_LABEL,
+  EYEBROW,
+  HEADING_LEAD,
+  HEADING_ACCENT,
+  LEAD_IN,
+  CLOSING_LEAD,
+  CLOSING_ACCENT,
+  CLOSING_TAIL,
   type RoadmapStop,
 } from './future-copy';
-import { routePath, type RoutePoint } from './future-route';
 
-/**
- * Where RepWorth is going — the route map (2026-09-06 revamp).
- *
- * A survey chart of the product: one road from the run spine through every
- * shipped stop, on into the locked roadmap order, then branching into fog.
- * The chart is a generated ground (`/future/roadmap-ground.jpg`, made against
- * the agent stills so it inherits the world); the road is SVG in the same
- * 1600×900 space; every stop is an HTML button, so the names and the
- * future-tense bodies stay real text — searchable, readable, focusable.
- *
- * ── Honesty devices (all three stay) ──────────────────────────────────────
- *   1. The legend on the chart says "not available yet" about everything past
- *      the lit stops.
- *   2. Every unbuilt stop wears its marker beside its name (Phase n / Later).
- *   3. Unbuilt roads are dashed and dim; lit roads are solid gold. A skim
- *      reads the temperature before a word.
- *
- * ── Motion ────────────────────────────────────────────────────────────────
- * One `useInView` arming signal, like the fleet: the ground fades up, the lit
- * road draws in (motion `pathLength`), the stops rise in travel order, and the
- * dashed roads fade last (a pathLength draw would override their dashes).
- * Lit stops carry a breathing halo — CSS keyframes, so the ambient pause rule
- * covers it. Reduced motion renders the settled frame via `initial={false}`.
- * The old `background-attachment: fixed` glow left with the cards, so this
- * section no longer forbids transforms on its ancestors.
- *
- * Below 900px the chart is a TRAIL, and since 2026-09-06 (owner: "it
- * stretches for so long, not functional") an ACCORDION: one compact row per
- * stop — glyph, marker, name — and a tap opens the hint under it. Fifteen
- * open bodies ran ~2,300px on a phone; fifteen rows run ~900px.
- *
- * The chart is FULL-BLEED (owner direction 2026-09-06): it is a sibling of
- * the content column, not a child, so it runs edge to edge while the header
- * keeps the reading measure. From 1280px up the header sits OVER the chart's
- * title band (the top ~30%, faded to ink), so the section starts straight
- * under the dial with no ink gap between the two — the owner read that gap
- * as a hole. Below 1280px the header stacks above the chart. Below 900px it is abandoned for a trail (the
- * fleet does the same at that width): the same stops, in the same order,
- * stacked, every body visible.
- */
+const CHAPTERS = [
+  { state: 'shipped', number: '01', title: 'Here today', status: 'Shipped', note: 'The foundation is in place.', range: '01 — 05' },
+  { state: 'planned', number: '02', title: 'The next stretch', status: 'Planned', note: 'Five phases, in this order.', range: '06 — 10' },
+  { state: 'horizon', number: '03', title: 'Further ahead', status: 'Horizon', note: 'Sequenced later. The order may change.', range: '11 — 15' },
+] as const;
 
-const LIT_STOPS = STOPS.filter((stop) => stop.state === 'shipped');
-const PLANNED_STOPS = STOPS.filter((stop) => stop.state === 'planned');
-const HORIZON_STOPS = STOPS.filter((stop) => stop.state === 'horizon');
-
-const LAST_LIT = LIT_STOPS[LIT_STOPS.length - 1];
-const LAST_PLANNED = PLANNED_STOPS[PLANNED_STOPS.length - 1];
-
-const LIT_PATH = routePath(LIT_STOPS);
-const PLANNED_PATH = routePath(LAST_LIT ? [LAST_LIT, ...PLANNED_STOPS] : PLANNED_STOPS);
-
-/** After Phase 5 the roadmap "may be re-ordered", so the road forks: one faint
- *  branch from the last planned stop to each horizon stop, bowed a little. */
-function branch(from: RoutePoint, to: RoutePoint): string {
-  const mid = { x: from.x + (to.x - from.x) * 0.55, y: from.y + (to.y - from.y) * 0.3 };
-  return routePath([from, mid, to]);
-}
-const BRANCH_PATHS = LAST_PLANNED ? HORIZON_STOPS.map((stop) => branch(LAST_PLANNED, stop)) : [];
-
-/** Which side the detail card opens on, and whether it must avoid an edge. */
-function cardSide(stop: RoadmapStop): 'left' | 'right' {
-  return stop.x > STAGE_WIDTH * 0.62 ? 'left' : 'right';
-}
-function cardAnchor(stop: RoadmapStop): 'above' | 'below' | 'mid' {
-  if (stop.y < STAGE_HEIGHT * 0.34) return 'below';
-  if (stop.y > STAGE_HEIGHT * 0.74) return 'above';
-  return 'mid';
+type Chapter = (typeof CHAPTERS)[number];
+interface RoadmapSelection {
+  selected: RoadmapStop;
+  chapter: Chapter;
+  stops: readonly RoadmapStop[];
+  select: (stop: RoadmapStop) => void;
+  selectChapter: (chapter: Chapter) => void;
+  panelId: string;
 }
 
-function Stop({
-  stop,
-  index,
-  armed,
-  active,
-  onActivate,
-  onDeactivate,
-}: {
-  stop: RoadmapStop;
-  index: number;
-  armed: boolean;
-  active: boolean;
-  onActivate: (id: string) => void;
-  onDeactivate: (id: string) => void;
-}) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const bodyId = useId();
-  const pointerFocus = useRef(false);
-  const style = {
-    '--rw-lp-stop-x': `${(stop.x / STAGE_WIDTH) * 100}%`,
-    '--rw-lp-stop-y': `${(stop.y / STAGE_HEIGHT) * 100}%`,
-    '--rw-lp-landmark-aspect': stop.landmarkAspect ?? 1,
-  } as CSSProperties;
+/** Map positions of a chapter's five stops, as % of the map's width/height. */
+const ATLAS_POSITIONS = [
+  { x: 12, y: 63 }, { x: 30, y: 39 }, { x: 50, y: 60 }, { x: 70, y: 30 }, { x: 88, y: 52 },
+] as const;
 
+function stopNumber(stop: RoadmapStop) {
+  return String(STOPS.findIndex((item) => item.id === stop.id) + 1).padStart(2, '0');
+}
+
+function stopStatus(stop: RoadmapStop) {
+  if (stop.state === 'shipped') return 'Shipped';
+  if (stop.state === 'planned') return `Planned · ${stop.marker}`;
+  return 'Horizon · Later';
+}
+
+function MapGround() {
   return (
-    <m.li
-      className="rw-lp-future-stop-item"
-      data-state={stop.state}
-      data-active={active ? 'true' : 'false'}
-      data-side={cardSide(stop)}
-      data-anchor={cardAnchor(stop)}
-      data-label={stop.label}
-      style={style}
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
-      animate={armed ? { opacity: 1, y: 0 } : undefined}
-      transition={
-        prefersReducedMotion
-          ? { duration: 0 }
-          : { duration: 0.55, ease: 'easeOut', delay: 0.35 + index * 0.07 }
-      }
-    >
-      <button
-        type="button"
-        className="rw-lp-future-stop"
-        aria-pressed={active}
-        aria-describedby={bodyId}
-        /* Not on touch: a tap fires enter + click together and the card
-           would close as soon as it opened. Touch toggles by click alone. */
-        onPointerEnter={(event) => {
-          if (event.pointerType !== 'touch') onActivate(stop.id);
-        }}
-        onPointerLeave={(event) => {
-          if (event.pointerType !== 'touch') onDeactivate(stop.id);
-        }}
-        /* Keyboard focus opens the card; a pointer's focus does not, because
-           the click that follows would toggle it straight back. A ref set on
-           pointerdown tells the two apart — `:focus-visible` does not, under
-           touch (Chromium reports a tap's focus as keyboard-like). */
-        onPointerDown={() => {
-          pointerFocus.current = true;
-        }}
-        onFocus={() => {
-          if (!pointerFocus.current) onActivate(stop.id);
-        }}
-        /* Blur closes the card only when focus LEAVES the list. Tabbing or
-           tapping to another stop hands over without closing first: on the
-           trail a close collapses the list under the finger mid-tap, and
-           the click that follows lands on whichever row slid into place. */
-        onBlur={(event) => {
-          const next = event.relatedTarget;
-          if (next instanceof Element && next.closest('.rw-lp-future-stops')) return;
-          onDeactivate(stop.id);
-        }}
-        onClick={() => {
-          pointerFocus.current = false;
-          if (active) onDeactivate(stop.id);
-          else onActivate(stop.id);
-        }}
-      >
-        {/* The glyph is always rendered: it is the trail's bullet below 900px,
-            and the chart's marker for a stop with no landmark cutout. */}
-        <span className="rw-lp-future-landmark" aria-hidden="true" data-landmark={stop.landmark ? 'true' : 'false'}>
-          {stop.landmark ? (
-            <Image
-              src={stop.landmark}
-              alt=""
-              fill
-              sizes="(max-width: 900px) 4rem, 9rem"
-              /* Served as authored: the cutouts are small WebPs with alpha
-                 (7–52K) and a second lossy pass through the optimizer
-                 softened their edges at 2×. */
-              unoptimized
-              className="rw-lp-future-landmark-img"
-            />
-          ) : null}
-          <span className="rw-lp-future-glyph" />
-        </span>
-        <span className="rw-lp-future-stop-label">
-          <span className="rw-lp-future-stop-marker">{stop.marker}</span>
-          <span className="rw-lp-future-stop-name">{stop.name}</span>
-        </span>
-      </button>
-      {/* "Today" pins the end of the lit road, above the last shipped stop. */}
-      {stop.id === LAST_LIT?.id ? (
-        <span className="rw-lp-future-today" aria-hidden="true">
-          {TODAY_LABEL}
-        </span>
-      ) : null}
-      {/* The body. On the chart it is the card that opens beside the stop; on
-          the trail it is always visible. Referenced by aria-describedby, so a
-          screen reader gets it whether or not the card is open. */}
-      <div className="rw-lp-future-stop-card" id={bodyId}>
-        <span className="rw-lp-future-stop-card-marker">{stop.marker}</span>
-        <span className="rw-lp-future-stop-card-name">{stop.name}</span>
-        <p className="rw-lp-future-stop-card-body">{stop.body}</p>
-      </div>
-    </m.li>
+    <div className="rw-lp-final-map-ground" aria-hidden="true">
+      {/* The enlarged ground needs the original 3840px asset, not a viewport-sized thumbnail. */}
+      <Image src="/future/roadmap-ground.jpg" alt="" fill sizes="(max-width: 760px) 100vw, 90vw" unoptimized />
+    </div>
   );
 }
 
-function Roads({ armed }: { armed: boolean }) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const drawn = armed ? { pathLength: 1 } : undefined;
-  const drawTransition = prefersReducedMotion
-    ? { duration: 0 }
-    : { duration: 1.1, ease: 'easeInOut' as const, delay: 0.25 };
-
+function Compass() {
   return (
-    <svg
-      className="rw-lp-future-chart"
-      viewBox={`0 0 ${STAGE_WIDTH} ${STAGE_HEIGHT}`}
-      aria-hidden="true"
-      focusable="false"
-      data-armed={armed ? 'true' : 'false'}
-    >
-      {/* The horizon: where the locked order ends and the fog begins. */}
-      <line
-        className="rw-lp-future-horizon-line"
-        x1={HORIZON_X}
-        y1={40}
-        x2={HORIZON_X}
-        y2={STAGE_HEIGHT - 40}
-      />
-      {BRANCH_PATHS.map((d) => (
-        <path key={d} className="rw-lp-future-road-branch" d={d} />
-      ))}
-      <path className="rw-lp-future-road-planned" d={PLANNED_PATH} />
-      {/* The lit road: a soft wide glow under a thin bright core, both drawn
-          in together so the light and the line arrive as one stroke. */}
-      <m.path
-        className="rw-lp-future-road-glow"
-        d={LIT_PATH}
-        initial={prefersReducedMotion ? false : { pathLength: 0 }}
-        animate={drawn}
-        transition={drawTransition}
-      />
-      <m.path
-        className="rw-lp-future-road-lit"
-        d={LIT_PATH}
-        initial={prefersReducedMotion ? false : { pathLength: 0 }}
-        animate={drawn}
-        transition={drawTransition}
-      />
+    <svg className="rw-lp-final-compass" viewBox="0 0 96 96" aria-hidden="true" fill="none">
+      <circle cx="48" cy="48" r="35" />
+      <circle cx="48" cy="48" r="28" strokeDasharray="1 7" />
+      <path d="M48 3v17m0 56v17M3 48h17m56 0h17M48 27l8 21-8 21-8-21Z" />
+      <path d="M48 27v42M27 48h42" />
     </svg>
   );
 }
 
-export function FutureSection() {
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  /* `amount: 'some'`, not a fraction: below 900px the stage is the trail, far
-     taller than a phone viewport, and a fraction of it never comes into view.
-     The bottom margin holds the arrival until the chart is ~15% up the screen. */
-  const armed = useInView(stageRef, { once: true, amount: 'some', margin: '0px 0px -15% 0px' });
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const [activeId, setActiveId] = useState<string | null>(null);
+function Landmark({ stop }: { stop: RoadmapStop }) {
+  return (
+    <span className="rw-lp-final-landmark" data-state={stop.state} aria-hidden="true">
+      {stop.landmark ? (
+        <Image
+          src={stop.landmark}
+          alt=""
+          width={Math.round(300 * (stop.landmarkAspect ?? 1))}
+          height={300}
+          sizes="(max-width: 760px) 220px, 360px"
+        />
+      ) : (
+        <svg className="rw-lp-final-beacon" viewBox="0 0 120 120" fill="none">
+          <ellipse cx="60" cy="93" rx="45" ry="12" />
+          <ellipse cx="60" cy="93" rx="31" ry="8" strokeDasharray="3 5" />
+          <path d="M60 88V39M53 88h14M60 12l17 18-17 18-17-18Z" />
+          <path d="M31 65 20 76m69-11 11 11M60 4v5" />
+          <circle cx="60" cy="30" r="4" />
+        </svg>
+      )}
+    </span>
+  );
+}
 
-  const activate = (id: string) => setActiveId(id);
-  const deactivate = (id: string) => setActiveId((current) => (current === id ? null : current));
+function ChapterTabs({ selection }: { selection: RoadmapSelection }) {
+  return (
+    <nav className="rw-lp-final-chapters" aria-label="Explore roadmap chapters">
+      {CHAPTERS.map((chapter) => (
+        <button
+          type="button"
+          key={chapter.state}
+          data-state={chapter.state}
+          aria-pressed={chapter.state === selection.chapter.state}
+          aria-controls={selection.panelId}
+          onClick={() => selection.selectChapter(chapter)}
+        >
+          <span className="rw-lp-final-chapter-number">{chapter.number}</span>
+          <span><strong>{chapter.status}</strong><small>{chapter.title}</small></span>
+          <span className="rw-lp-final-chapter-arrow" aria-hidden="true">↗</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function SelectedDetail({ stop, id }: { stop: RoadmapStop; id: string }) {
+  return (
+    <div className="rw-lp-final-stop-detail" id={id} aria-live="polite" aria-atomic="true" data-state={stop.state}>
+      <p className="rw-lp-final-stop-status">{stopStatus(stop)}</p>
+      <h3>{stop.name}</h3>
+      <p className="rw-lp-final-stop-body">{stop.body}</p>
+      <span className="rw-lp-final-availability">{stop.state === 'shipped' ? 'Available today' : 'Not available yet'}</span>
+    </div>
+  );
+}
+
+function StopIndex({ selection }: { selection: RoadmapSelection }) {
+  return (
+    <ol className="rw-lp-final-stop-index" aria-label={`${selection.chapter.status} stops, in order`}>
+      {selection.stops.map((stop) => (
+        <li key={stop.id}>
+          <button type="button" aria-pressed={selection.selected.id === stop.id} aria-controls={selection.panelId} onClick={() => selection.select(stop)} data-state={stop.state}>
+            <span className="rw-lp-final-index-number">{stopNumber(stop)}</span>
+            <span className="rw-lp-final-index-copy"><small>{stopStatus(stop)}</small><strong>{stop.name}</strong></span>
+            <span className="rw-lp-final-index-arrow" aria-hidden="true">↗</span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** The chapter changes only the ground's framing: Shipped = bright left,
+ *  Planned = darker centre, Horizon = right under cloud plates. */
+function AtlasMap({ selection }: { selection: RoadmapSelection }) {
+  return (
+    <div className="rw-lp-final-atlas-map" data-state={selection.chapter.state}>
+      <MapGround />
+      <div className="rw-lp-final-map-caption"><span>RepWorth / Route {selection.chapter.number}</span><span>{selection.chapter.title}</span></div>
+      <Compass />
+      <svg className="rw-lp-final-atlas-route" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true" fill="none">
+        <path d="M-10 453C65 453 63 378 120 378S232 234 300 234 401 360 500 360 604 180 700 180 814 312 880 312 947 230 1010 230" />
+      </svg>
+      {selection.stops.map((stop, index) => {
+        const position = ATLAS_POSITIONS[index];
+        if (!position) return null;
+        return (
+          <button
+            type="button"
+            key={stop.id}
+            className="rw-lp-final-atlas-stop"
+            data-state={stop.state}
+            aria-label={`${stopNumber(stop)}. ${stop.name}. ${stopStatus(stop)}`}
+            aria-pressed={selection.selected.id === stop.id}
+            aria-controls={selection.panelId}
+            onClick={() => selection.select(stop)}
+            style={{ '--rw-lp-map-x': `${position.x}%`, '--rw-lp-map-y': `${position.y}%` } as CSSProperties}
+          >
+            <Landmark stop={stop} />
+            <span className="rw-lp-final-map-pin">{stopNumber(stop)}</span>
+            <span className="rw-lp-final-map-stop-label"><small>{stopStatus(stop)}</small><strong>{stop.name}</strong></span>
+          </button>
+        );
+      })}
+      <p className="rw-lp-final-map-footnote">{selection.chapter.note}</p>
+    </div>
+  );
+}
+
+/**
+ * Section 8 — where this is going: the Working Atlas. Three chapter controls,
+ * a map of the chapter's five illustrated stops, and a detail ledger. All 15
+ * canonical stops stay reachable, each with its availability label.
+ */
+export function FutureSection() {
+  const [selected, setSelected] = useState<RoadmapStop>(() => {
+    const first = STOPS[0];
+    if (!first) throw new Error('The roadmap needs a starting point.');
+    return first;
+  });
+  const panelId = useId();
+  const chapter = CHAPTERS.find((item) => item.state === selected.state) ?? CHAPTERS[0];
+  const selection: RoadmapSelection = {
+    selected,
+    chapter,
+    stops: STOPS.filter((stop) => stop.state === selected.state),
+    select: setSelected,
+    selectChapter: (nextChapter) => {
+      if (nextChapter.state === selected.state) return;
+      const first = STOPS.find((stop) => stop.state === nextChapter.state);
+      if (first) setSelected(first);
+    },
+    panelId,
+  };
 
   return (
-    <section className="rw-lp-future" aria-labelledby="rw-lp-future-heading">
-      <div className="rw-lp-future-inner">
-        <div className="rw-lp-future-head">
-          <Staged beat={0}>
-            <header className="rw-lp-future-intro">
-              <p className="rw-lp-future-eyebrow">{EYEBROW}</p>
-              <h2 className="rw-lp-future-heading" id="rw-lp-future-heading">
-                {HEADING_LEAD}{' '}
-                <span className="rw-lp-future-heading-accent">{HEADING_ACCENT}</span>
-              </h2>
-              <p className="rw-lp-future-lead">{LEAD_IN}</p>
-            </header>
-          </Staged>
-
-          <div className="rw-lp-future-aside">
-            <Staged beat={2}>
-              <figure className="rw-lp-future-closing">
-                <blockquote className="rw-lp-future-closing-quote">
-                  {CLOSING_LEAD}{' '}
-                  <span className="rw-lp-future-closing-accent">{CLOSING_ACCENT}</span>{' '}
-                  {CLOSING_TAIL}
-                </blockquote>
-              </figure>
-            </Staged>
-            {/* The legend lives with the argument, not on the chart: from 1280px
-                up the whole header sits over the chart's title band. */}
-            <Staged beat={3}>
-              <div className="rw-lp-future-legend">
-                <p className="rw-lp-future-legend-label">{LEGEND_LABEL}</p>
-                <p className="rw-lp-future-legend-note">{LEGEND_NOTE}</p>
-                <ul className="rw-lp-future-legend-keys">
-                  <li className="rw-lp-future-legend-key" data-state="shipped">
-                    {LEGEND_SHIPPED}
-                  </li>
-                  <li className="rw-lp-future-legend-key" data-state="planned">
-                    {LEGEND_PLANNED}
-                  </li>
-                  <li className="rw-lp-future-legend-key" data-state="horizon">
-                    {LEGEND_HORIZON}
-                  </li>
-                </ul>
-              </div>
-            </Staged>
+    <section className="rw-lp-final-roadmap" aria-labelledby="rw-lp-future-heading">
+      <div className="rw-lp-final-roadmap-inner">
+        <header className="rw-lp-final-roadmap-intro">
+          <div>
+            <p className="rw-lp-final-roadmap-eyebrow">{EYEBROW}</p>
+            <h2 id="rw-lp-future-heading">{HEADING_LEAD}<em>{HEADING_ACCENT}</em></h2>
+          </div>
+          <p className="rw-lp-final-roadmap-lead">{LEAD_IN}</p>
+        </header>
+        <div className="rw-lp-final-atlas">
+          <ChapterTabs selection={selection} />
+          <div className="rw-lp-final-atlas-spread">
+            <AtlasMap selection={selection} />
+            <aside className="rw-lp-final-atlas-ledger" aria-label="Roadmap detail ledger">
+              <p className="rw-lp-final-ledger-heading">The route / {selection.chapter.range}</p>
+              <StopIndex selection={selection} />
+              <SelectedDetail stop={selection.selected} id={selection.panelId} />
+            </aside>
           </div>
         </div>
-
-      </div>
-
-      <div className="rw-lp-future-map" ref={stageRef}>
-        {/* The ground — decorative; the road and stops carry the meaning. */}
-        <m.div
-          className="rw-lp-future-ground"
-          aria-hidden="true"
-          initial={prefersReducedMotion ? false : { opacity: 0 }}
-          animate={armed ? { opacity: 1 } : undefined}
-          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.9, ease: 'easeOut' }}
-        >
-          <Image
-            src="/future/roadmap-ground.jpg"
-            alt=""
-            fill
-            sizes="100vw"
-            quality={88}
-            className="rw-lp-future-ground-img"
-          />
-        </m.div>
-        <span className="rw-lp-future-fog" aria-hidden="true" />
-      {/* Clouds past the horizon (owner request 2026-09-06): two generated
-          plates, white mist on pure black, screen-blended so the black drops
-          out and only the mist stays. They drift on CSS keyframes (covered
-          by the ambient pause rule), fade in from the horizon line, and sit
-          under the stops so the hints stay readable. Decorative. */}
-      <span className="rw-lp-future-clouds" aria-hidden="true">
-        <Image
-          src="/future/clouds-a.jpg"
-          alt=""
-          fill
-          sizes="(max-width: 900px) 0px, 45vw"
-          className="rw-lp-future-cloud rw-lp-future-cloud-a"
-        />
-        <Image
-          src="/future/clouds-b.jpg"
-          alt=""
-          fill
-          sizes="(max-width: 900px) 0px, 45vw"
-          className="rw-lp-future-cloud rw-lp-future-cloud-b"
-        />
-      </span>
-
-        <Roads armed={armed} />
-
-        <span
-          className="rw-lp-future-horizon-label"
-          aria-hidden="true"
-          style={{ '--rw-lp-stop-x': `${(HORIZON_X / STAGE_WIDTH) * 100}%` } as CSSProperties}
-        >
-          {HORIZON_LABEL}
-        </span>
-
-        <ol className="rw-lp-future-stops" aria-label={STOPS_LABEL}>
-          {STOPS.map((stop, index) => (
-            <Stop
-              key={stop.id}
-              stop={stop}
-              index={index}
-              armed={armed}
-              active={activeId === stop.id}
-              onActivate={activate}
-              onDeactivate={deactivate}
-            />
-          ))}
-        </ol>
+        <footer className="rw-lp-final-roadmap-footer">
+          <p><strong>{CLOSING_LEAD} {CLOSING_ACCENT}</strong> {CLOSING_TAIL}</p>
+          <span>Shipped is available today.<br />Planned and Horizon are not available yet.</span>
+        </footer>
       </div>
     </section>
   );

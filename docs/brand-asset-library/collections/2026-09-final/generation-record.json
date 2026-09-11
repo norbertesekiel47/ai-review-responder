@@ -1,0 +1,359 @@
+{
+  "images": {
+    "jobs": [
+      {
+        "index": 1,
+        "job_id": "7d13864c-0860-40eb-b3ec-10d5608f7dc0",
+        "status": "completed",
+        "type": "image",
+        "model": "gpt_image_2",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111835_7d13864c-0860-40eb-b3ec-10d5608f7dc0.png"
+      },
+      {
+        "index": 2,
+        "job_id": "51ebaa9a-ce12-4a85-ac42-b25ec3446b49",
+        "status": "completed",
+        "type": "image",
+        "model": "gpt_image_2",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111836_51ebaa9a-ce12-4a85-ac42-b25ec3446b49.png"
+      },
+      {
+        "index": 3,
+        "job_id": "2bbb9ccd-416b-4826-a7c2-0113afb1fd9a",
+        "status": "completed",
+        "type": "image",
+        "model": "gpt_image_2",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111835_2bbb9ccd-416b-4826-a7c2-0113afb1fd9a.png"
+      },
+      {
+        "index": 4,
+        "job_id": "1cb26646-9436-415f-a0b9-b7856b7793af",
+        "status": "completed",
+        "type": "image",
+        "model": "gpt_image_2",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111835_1cb26646-9436-415f-a0b9-b7856b7793af.png"
+      },
+      {
+        "index": 5,
+        "job_id": "6b85b54b-e465-4f31-ac7b-00c073fdc7ad",
+        "status": "completed",
+        "type": "image",
+        "model": "gpt_image_2",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111836_6b85b54b-e465-4f31-ac7b-00c073fdc7ad.png"
+      }
+    ],
+    "summary": {
+      "total": 5,
+      "completed": 5,
+      "failed": 0,
+      "active": 0,
+      "errors": 0
+    },
+    "all_terminal": true
+  },
+  "imageRequests": [
+    {
+      "index": 1,
+      "params": {
+        "model": "gpt_image_2",
+        "aspect_ratio": "16:9",
+        "resolution": "1k",
+        "quality": "high",
+        "prompt": "Create a cinematic miniature product photograph for RepWorth, a reputation-care team for small businesses. Landscape 16:9. One beautifully crafted physical mechanism on pale travertine, patinated sage-green enamel, brushed aged brass, warm ivory cotton paper, dark forest-green backdrop and tiny soft-focus olive foliage at edges. Warm sidelight from upper left, real miniature materials, subtle wear, restrained editorial composition, fixed eye-level macro camera, product centered with 12 percent breathing room. Physically plausible and cohesive with a charming sage CRT / miniature storefront brand, but DO NOT include televisions, screens, robots, faces, people, text, letters, numbers, logos, UI, floating icons, neon, arrows, or painted illustration. High-end stop-motion set photographed with shallow depth of field. A tiny brass typewriter-like correspondence press with sage ceramic housing. A single broad ivory card is held flat beneath a delicate articulated brass pen arm. A shallow debossed speech-bubble silhouette is embossed into the card, with only delicate abstract ruled lines (no readable words). Neat blank paper stack beside it. Clearly a thoughtful response being composed."
+      }
+    },
+    {
+      "index": 2,
+      "params": {
+        "model": "gpt_image_2",
+        "aspect_ratio": "16:9",
+        "resolution": "1k",
+        "quality": "high",
+        "prompt": "Create a cinematic miniature product photograph for RepWorth, a reputation-care team for small businesses. Landscape 16:9. One beautifully crafted physical mechanism on pale travertine, patinated sage-green enamel, brushed aged brass, warm ivory cotton paper, dark forest-green backdrop and tiny soft-focus olive foliage at edges. Warm sidelight from upper left, real miniature materials, subtle wear, restrained editorial composition, fixed eye-level macro camera, product centered with 12 percent breathing room. Physically plausible and cohesive with a charming sage CRT / miniature storefront brand, but DO NOT include televisions, screens, robots, faces, people, text, letters, numbers, logos, UI, floating icons, neon, arrows, or painted illustration. High-end stop-motion set photographed with shallow depth of field. A small inspection station: one ivory envelope held safely behind a transparent teal-tinted glass shield gate, a brass jeweller's magnifying lens suspended above it, soft warm inspection lamp. Sage mechanical base with a closed brass latch; no envelope exits the gate. Clearly a concern held for human attention, not a weapon or security camera."
+      }
+    },
+    {
+      "index": 3,
+      "params": {
+        "model": "gpt_image_2",
+        "aspect_ratio": "16:9",
+        "resolution": "1k",
+        "quality": "high",
+        "prompt": "Create a cinematic miniature product photograph for RepWorth, a reputation-care team for small businesses. Landscape 16:9. One beautifully crafted physical mechanism on pale travertine, patinated sage-green enamel, brushed aged brass, warm ivory cotton paper, dark forest-green backdrop and tiny soft-focus olive foliage at edges. Warm sidelight from upper left, real miniature materials, subtle wear, restrained editorial composition, fixed eye-level macro camera, product centered with 12 percent breathing room. Physically plausible and cohesive with a charming sage CRT / miniature storefront brand, but DO NOT include televisions, screens, robots, faces, people, text, letters, numbers, logos, UI, floating icons, neon, arrows, or painted illustration. High-end stop-motion set photographed with shallow depth of field. A sage-and-brass invitation folding machine, a neat ivory envelope open under a small brass folding arm, an approved invitation blank card half tucked inside it, a simple sealing wheel and a waiting outbound tray. One restrained leaf-shaped brass seal; no text. Clearly a courteous invitation prepared for sending, not bulk spam."
+      }
+    },
+    {
+      "index": 4,
+      "params": {
+        "model": "gpt_image_2",
+        "aspect_ratio": "16:9",
+        "resolution": "1k",
+        "quality": "high",
+        "prompt": "Create a cinematic miniature product photograph for RepWorth, a reputation-care team for small businesses. Landscape 16:9. One beautifully crafted physical mechanism on pale travertine, patinated sage-green enamel, brushed aged brass, warm ivory cotton paper, dark forest-green backdrop and tiny soft-focus olive foliage at edges. Warm sidelight from upper left, real miniature materials, subtle wear, restrained editorial composition, fixed eye-level macro camera, product centered with 12 percent breathing room. Physically plausible and cohesive with a charming sage CRT / miniature storefront brand, but DO NOT include televisions, screens, robots, faces, people, text, letters, numbers, logos, UI, floating icons, neon, arrows, or painted illustration. High-end stop-motion set photographed with shallow depth of field. An elegant little sage drum press producing a single folded ivory weekly briefing booklet. Layered cotton-paper pages carry only nonverbal tiny inset blocks and abstract horizontal rules. A slim brass binding arm and two tidy finished booklets on travertine. Clearly many observations gathered into one calm report."
+      }
+    },
+    {
+      "index": 5,
+      "params": {
+        "model": "gpt_image_2",
+        "aspect_ratio": "16:9",
+        "resolution": "1k",
+        "quality": "high",
+        "prompt": "Create a cinematic miniature product photograph for RepWorth, a reputation-care team for small businesses. Landscape 16:9. One beautifully crafted physical mechanism on pale travertine, patinated sage-green enamel, brushed aged brass, warm ivory cotton paper, dark forest-green backdrop and tiny soft-focus olive foliage at edges. Warm sidelight from upper left, real miniature materials, subtle wear, restrained editorial composition, fixed eye-level macro camera, product centered with 12 percent breathing room. Physically plausible and cohesive with a charming sage CRT / miniature storefront brand, but DO NOT include televisions, screens, robots, faces, people, text, letters, numbers, logos, UI, floating icons, neon, arrows, or painted illustration. High-end stop-motion set photographed with shallow depth of field. A distinctive analog record keeper: sage enamel ledger cradle with one open ivory book, six small brushed brass counting beads on a rail above it, a fine mechanical brass stylus touching an understated dotted trace on paper. No numeric labels, no large rising graph or promised result. Clearly a dependable record of actions, not a finance dashboard."
+      }
+    }
+  ],
+  "videos": {
+    "jobs": [
+      {
+        "index": 11,
+        "job_id": "1dbd4e40-78f4-43d3-bced-7e53de9c0893",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_112728_1dbd4e40-78f4-43d3-bced-7e53de9c0893.mp4",
+        "thumbnail_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111835_7d13864c-0860-40eb-b3ec-10d5608f7dc0.png"
+      },
+      {
+        "index": 12,
+        "job_id": "d0dbf345-85b0-4220-bfe6-294d7a5d4620",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_112728_d0dbf345-85b0-4220-bfe6-294d7a5d4620.mp4",
+        "thumbnail_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111836_51ebaa9a-ce12-4a85-ac42-b25ec3446b49.png"
+      },
+      {
+        "index": 13,
+        "job_id": "dc59d58d-2192-4967-8207-442ae8e70d2d",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_112728_dc59d58d-2192-4967-8207-442ae8e70d2d.mp4",
+        "thumbnail_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111835_2bbb9ccd-416b-4826-a7c2-0113afb1fd9a.png"
+      },
+      {
+        "index": 14,
+        "job_id": "7e423ad7-9f27-4c99-833a-40069b1fdd37",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_112728_7e423ad7-9f27-4c99-833a-40069b1fdd37.mp4",
+        "thumbnail_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111835_1cb26646-9436-415f-a0b9-b7856b7793af.png"
+      },
+      {
+        "index": 15,
+        "job_id": "8602ff18-b434-4d5d-bb57-cf1f3fbcdfce",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_112728_8602ff18-b434-4d5d-bb57-cf1f3fbcdfce.mp4",
+        "thumbnail_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_111836_6b85b54b-e465-4f31-ac7b-00c073fdc7ad.png"
+      }
+    ],
+    "summary": {
+      "total": 5,
+      "completed": 5,
+      "failed": 0,
+      "active": 0,
+      "errors": 0
+    },
+    "all_terminal": true
+  },
+  "videoRequests": [
+    {
+      "index": 11,
+      "params": {
+        "model": "flux_3_video",
+        "aspect_ratio": "16:9",
+        "resolution": "720p",
+        "duration": 5,
+        "generate_audio": false,
+        "medias": [
+          {
+            "role": "start_image",
+            "value": "7d13864c-0860-40eb-b3ec-10d5608f7dc0"
+          },
+          {
+            "role": "end_image",
+            "value": "7d13864c-0860-40eb-b3ec-10d5608f7dc0"
+          }
+        ],
+        "prompt": "Locked tripod macro shot of this exact refined sage-and-brass miniature on travertine. Preserve its materials, shape, proportions, lighting, foliage and framing. Quiet seamless ambient film, with the starting and ending frames matching exactly. One subtle physically plausible five-second action: The delicate articulated brass pen completes one measured stroke across the already debossed speech-bubble card, lifts gently, and returns to rest. Small gears turn slowly. Card and machine remain perfectly rigid, no new text. No camera movement, zoom, transitions, cuts, people, faces, TV screens, overlays, added labels, symbols or sound. The film must feel deliberate and crafted, never frantic."
+      }
+    },
+    {
+      "index": 12,
+      "params": {
+        "model": "flux_3_video",
+        "aspect_ratio": "16:9",
+        "resolution": "720p",
+        "duration": 5,
+        "generate_audio": false,
+        "medias": [
+          {
+            "role": "start_image",
+            "value": "51ebaa9a-ce12-4a85-ac42-b25ec3446b49"
+          },
+          {
+            "role": "end_image",
+            "value": "51ebaa9a-ce12-4a85-ac42-b25ec3446b49"
+          }
+        ],
+        "prompt": "Locked tripod macro shot of this exact refined sage-and-brass miniature on travertine. Preserve its materials, shape, proportions, lighting, foliage and framing. Quiet seamless ambient film, with the starting and ending frames matching exactly. One subtle physically plausible five-second action: The brass magnifying lens travels in a small smooth inspection arc over the single envelope, warm inspection light passes over the paper, then lens returns to rest. Crucial: glass safety gate and latch remain CLOSED and the envelope never leaves the holding bay. No camera movement, zoom, transitions, cuts, people, faces, TV screens, overlays, added labels, symbols or sound. The film must feel deliberate and crafted, never frantic."
+      }
+    },
+    {
+      "index": 13,
+      "params": {
+        "model": "flux_3_video",
+        "aspect_ratio": "16:9",
+        "resolution": "720p",
+        "duration": 5,
+        "generate_audio": false,
+        "medias": [
+          {
+            "role": "start_image",
+            "value": "2bbb9ccd-416b-4826-a7c2-0113afb1fd9a"
+          },
+          {
+            "role": "end_image",
+            "value": "2bbb9ccd-416b-4826-a7c2-0113afb1fd9a"
+          }
+        ],
+        "prompt": "Locked tripod macro shot of this exact refined sage-and-brass miniature on travertine. Preserve its materials, shape, proportions, lighting, foliage and framing. Quiet seamless ambient film, with the starting and ending frames matching exactly. One subtle physically plausible five-second action: The brass folding arm gently presses the invitation flap down and a small sealing wheel turns once, then the arm rises to rest. Delicate physical paper folding, no paper teleportation, no new objects, no high-speed conveyer. No camera movement, zoom, transitions, cuts, people, faces, TV screens, overlays, added labels, symbols or sound. The film must feel deliberate and crafted, never frantic."
+      }
+    },
+    {
+      "index": 14,
+      "params": {
+        "model": "flux_3_video",
+        "aspect_ratio": "16:9",
+        "resolution": "720p",
+        "duration": 5,
+        "generate_audio": false,
+        "medias": [
+          {
+            "role": "start_image",
+            "value": "1cb26646-9436-415f-a0b9-b7856b7793af"
+          },
+          {
+            "role": "end_image",
+            "value": "1cb26646-9436-415f-a0b9-b7856b7793af"
+          }
+        ],
+        "prompt": "Locked tripod macro shot of this exact refined sage-and-brass miniature on travertine. Preserve its materials, shape, proportions, lighting, foliage and framing. Quiet seamless ambient film, with the starting and ending frames matching exactly. One subtle physically plausible five-second action: The drum turns slowly as the existing booklet advances a few centimeters into its tray, pages settle once in a tiny breeze, brass binding arm makes one gentle press, mechanism settles back. Keep all page graphics abstract and unreadable. No camera movement, zoom, transitions, cuts, people, faces, TV screens, overlays, added labels, symbols or sound. The film must feel deliberate and crafted, never frantic."
+      }
+    },
+    {
+      "index": 15,
+      "params": {
+        "model": "flux_3_video",
+        "aspect_ratio": "16:9",
+        "resolution": "720p",
+        "duration": 5,
+        "generate_audio": false,
+        "medias": [
+          {
+            "role": "start_image",
+            "value": "6b85b54b-e465-4f31-ac7b-00c073fdc7ad"
+          },
+          {
+            "role": "end_image",
+            "value": "6b85b54b-e465-4f31-ac7b-00c073fdc7ad"
+          }
+        ],
+        "prompt": "Locked tripod macro shot of this exact refined sage-and-brass miniature on travertine. Preserve its materials, shape, proportions, lighting, foliage and framing. Quiet seamless ambient film, with the starting and ending frames matching exactly. One subtle physically plausible five-second action: The fine stylus makes a short measured dot sequence, one brass bead slides a small distance and settles, then stylus lifts to rest. Keep the book fixed, no page turn, no rising graph, no numeric claims. No camera movement, zoom, transitions, cuts, people, faces, TV screens, overlays, added labels, symbols or sound. The film must feel deliberate and crafted, never frantic."
+      }
+    }
+  ],
+  "ownerImage": {
+    "jobs": [
+      {
+        "index": 6,
+        "job_id": "bb53a73a-5586-494f-8e29-5124ffe50fcd",
+        "status": "completed",
+        "type": "image",
+        "model": "grok_image_2_0",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_113608_bb53a73a-5586-494f-8e29-5124ffe50fcd.png"
+      }
+    ],
+    "summary": {
+      "total": 1,
+      "completed": 1,
+      "failed": 0,
+      "active": 0,
+      "errors": 0
+    },
+    "all_terminal": true
+  },
+  "ownerImageParams": {
+    "model": "grok_image_2_0",
+    "resolution": "2k",
+    "quality": "medium",
+    "aspect_ratio": "auto",
+    "medias": [
+      {
+        "role": "image",
+        "value": "b1385da6-ab89-4fc7-be13-4e92870da6fe"
+      }
+    ],
+    "prompt": "Precisely edit this existing miniature dispatch counter image. Keep the EXACT image, composition, entire scene, camera, every machine, stone, wall, shadows, paper, colors and aspect ratio unchanged. Make only ONE change: the tall central brass lever currently leans from its round pivot toward the UPPER RIGHT. Rotate that exact solid lever counterclockwise around the exact same fixed circular pivot until it leans toward the UPPER LEFT, at the symmetric angle. Its brass ball must finish clearly LEFT of the pivot, around horizontal position 44 percent of image width, while the pivot stays at 51 percent. Remove the old right-leaning lever cleanly, fill the wall behind naturally. Do not add a second lever. Do not change any machinery, do not move either side machine, no TVs, no lettering or icons. Photoreal miniature, identical warm sage and brass materials. This is the matching end frame of a mechanical lever switching from Copilot on the right to Autopilot on the left."
+  },
+  "ownerVideo": {
+    "jobs": [
+      {
+        "index": 16,
+        "job_id": "cb541f53-0033-4ef9-aaaa-e0785e835a87",
+        "status": "pending"
+      }
+    ],
+    "submitted_count": 1,
+    "failed_count": 0
+  },
+  "ownerVideoParams": {
+    "model": "flux_3_video",
+    "resolution": "720p",
+    "duration": 5,
+    "aspect_ratio": "auto",
+    "generate_audio": false,
+    "medias": [
+      {
+        "role": "start_image",
+        "value": "b1385da6-ab89-4fc7-be13-4e92870da6fe"
+      },
+      {
+        "role": "end_image",
+        "value": "bb53a73a-5586-494f-8e29-5124ffe50fcd"
+      }
+    ],
+    "prompt": "Precisely animate the existing miniature dispatch desk between these two matching frames. Locked tripod, NO camera movement, no zoom, no cuts. The single CENTRAL brass lever pivots smoothly COUNTERCLOCKWISE from the UPPER RIGHT position to the UPPER LEFT position, keeping its circular pivot fixed in place. The brass ball follows a clean circular arc across the top of the pivot. Complete the lever movement during seconds 0.4–3.4, then HOLD firmly at the LEFT endpoint. Never bend or duplicate the lever. At the beginning the LEFT approval tray's brass hand-stamp makes a very small anticipatory lift and settles; the papers stay held for approval. As the lever settles LEFT, the three brass needles on the RIGHT bounded dispatch machine make a small coordinated sweep and settle, and the existing envelope advances just a few millimeters but stays in the outlet. Preserve every object's position, shape, the sage enamel, brass, warm stone, courtyard, foliage, entire horizontal framing, and all rails. Physical mechanism only. No television, characters, hands, text, arrows, digital UI, sparkles or sound. This is an owner-controlled two-position lever, not an ambient loop. End exactly at the supplied LEFT-leaning lever image."
+  },
+  "dispatchReferenceId": "b1385da6-ab89-4fc7-be13-4e92870da6fe",
+  "posters": [
+    {
+      "media_id": "9c8a44af-8979-4b69-9f33-35533bd18bea",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/9c8a44af-8979-4b69-9f33-35533bd18bea.webp"
+    },
+    {
+      "media_id": "1dab440d-6de0-4ca0-b152-bd05340d5159",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/1dab440d-6de0-4ca0-b152-bd05340d5159.webp"
+    },
+    {
+      "media_id": "6980d245-6f74-4c54-a07a-f17afcb4fcb6",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/6980d245-6f74-4c54-a07a-f17afcb4fcb6.webp"
+    },
+    {
+      "media_id": "9bc76e25-af03-4909-8267-22fb782db275",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/9bc76e25-af03-4909-8267-22fb782db275.webp"
+    },
+    {
+      "media_id": "1f1c1f7b-5111-43ca-aa3e-f54fa576964a",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/1f1c1f7b-5111-43ca-aa3e-f54fa576964a.webp"
+    }
+  ],
+  "filmstrip": {
+    "media_id": "e310c7da-f68f-44f1-a7fb-ded9b87c9a01",
+    "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/e310c7da-f68f-44f1-a7fb-ded9b87c9a01.jpg"
+  }
+}

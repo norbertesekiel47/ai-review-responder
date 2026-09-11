@@ -11,8 +11,8 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useDisclosurePopover } from '@/components/ui/useDisclosurePopover';
 
 /**
- * The repo's one "this device has a real pointer" predicate, shared with
- * `agent-flip-card.tsx`. A tap emits a synthetic `mouseenter` on many touch
+ * The repo's one "this device has a real pointer" predicate. A tap emits a
+ * synthetic `mouseenter` on many touch
  * browsers; opening on that would let the click which follows toggle the tip
  * straight shut. `(pointer: fine)` additionally excludes a coarse pointer that
  * reports hover, which is the hybrid-device case.

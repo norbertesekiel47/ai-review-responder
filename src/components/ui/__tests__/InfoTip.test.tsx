@@ -26,7 +26,7 @@ function panel() {
   return node as HTMLElement;
 }
 
-/** The repo's one hover-capability predicate, shared with agent-flip-card. */
+/** The repo's one hover-capability predicate (InfoTip.tsx). */
 const HOVER_CAPABLE = '(hover: hover) and (pointer: fine)';
 
 const realMatchMedia = window.matchMedia;

@@ -1,415 +1,55 @@
-/* ==========================================================================
-   Copilot vs Autopilot — section 8 (v4 — the circular dial).
-
-   The dial IS the layout, and it is OPERABLE (see TiersSection.tsx): a
-   semicircular machined gauge sits between the two modes, the mode names are
-   buttons, and pressing one swings the gold needle to that side while the
-   fill measures how much autonomy has been granted. Detents along the arc
-   keep the "range, not toggle" argument. No glass, no cards; nothing here is
-   gold-FILLED in the pill sense (the three pills stay the whole set — the
-   needle, fill and hub are instrument marks, and the buttons are hairline
-   pills).
-   ========================================================================== */
-
-.rw-lp-tiers {
-  --rw-lp-tiers-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
-  --rw-lp-tiers-rule: rgb(var(--rw-lp-text-rgb) / 0.22);
-
-  display: flex;
-  flex-direction: column;
-  /* Content-height plus the shared rhythm — never viewport-bound
-     (2026-08-16; docs/brand-asset-library/design-systems/landing/measurements.md §2). */
-  padding: var(--rw-lp-section-gap, 6rem) 0;
-  background:
-    radial-gradient(ellipse 55% 40% at 50% 0%, rgb(var(--rw-lp-accent-rgb) / 0.05), transparent 70%),
-    var(--rw-lp-ink, #14201c);
+/* Section 7 — owner controls. Light paper: the editorial heading spans the
+   left column; the dispatch scene and the Copilot/Autopilot selector stack on
+   the right. Keep the whole 3:1 scene visible — never crop away the approval
+   tray or the dispatch machine. */
+.rw-lp-final-owner { --rw-lp-owner-paper: #f2eddf; --rw-lp-owner-ink: #152c25; --rw-lp-owner-rule: #b9ae90; background: var(--rw-lp-owner-paper); color: var(--rw-lp-owner-ink); padding: 100px 0 84px; font-family: var(--rw-font-display), sans-serif; font-size: 15px; line-height: 1.65; }
+.rw-lp-final-owner *, .rw-lp-final-owner *::before, .rw-lp-final-owner *::after { box-sizing: border-box; }
+.rw-lp-final-owner :is(h2,h3,p) { margin: 0; }
+.rw-lp-final-owner-grid { width: min(100% - 112px, 1440px); margin: auto; display: grid; gap: 26px 60px; grid-template-columns: .8fr 1.2fr; grid-template-areas: 'heading scene' 'heading controls' 'footer footer'; align-items: start; }
+.rw-lp-final-owner-heading { grid-area: heading; }
+.rw-lp-final-owner-eyebrow { font-family: var(--rw-font-mono), monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 24px !important; }
+.rw-lp-final-owner h2 { font: 400 clamp(40px,4.4vw,72px)/1.04 Georgia, serif; letter-spacing: -.045em; margin-bottom: 28px; text-wrap: balance; }
+.rw-lp-final-owner-heading > p:last-child { max-width: 490px; font-size: 17px; }
+.rw-lp-final-owner-scene { grid-area: scene; min-width: 0; }
+.rw-lp-final-owner-picture { position: relative; aspect-ratio: 3 / 1; background: #d6cdb8; overflow: hidden; }
+.rw-lp-final-owner-picture :is(img,video) { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.rw-lp-final-mode-activity { position: absolute; inset: 0; }
+/* Animate only the selected side station, preserving the corrected lever
+   endpoint at the centre. Feather the join into the matching still scene. */
+.rw-lp-final-mode-activity[data-station='copilot'] { mask-image: linear-gradient(to right, #000 32%, transparent 39%); }
+.rw-lp-final-mode-activity[data-station='autopilot'] { mask-image: linear-gradient(to left, #000 32%, transparent 39%); }
+.rw-lp-final-owner-scene-caption { display: flex; justify-content: space-between; gap: 12px; padding-top: 12px; font-size: 11px; }
+.rw-lp-final-owner-controls { grid-area: controls; min-width: 0; }
+.rw-lp-final-owner-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 4px; border: 1px solid var(--rw-lp-owner-rule); }
+/* Text aligns at the top so a wrapped subtitle cannot shift the two plan
+   names out of line. */
+.rw-lp-final-owner-selector button { appearance: none; border: 0; color: inherit; background: transparent; display: grid; grid-template-columns: 22px 1fr; align-items: start; align-content: start; column-gap: 8px; row-gap: 4px; text-align: left; padding: 16px 12px; cursor: pointer; font: inherit; min-height: 76px; transition: background .2s, color .2s; }
+.rw-lp-final-owner-selector button[aria-pressed='true'] { background: var(--rw-lp-owner-ink); color: var(--rw-lp-owner-paper); }
+.rw-lp-final-owner-selector strong { font-size: 17px; font-weight: 500; }
+.rw-lp-final-owner-selector small { grid-column: 2; font-size: 11px; }
+.rw-lp-final-owner :is(button,a):focus-visible { outline: 3px solid #b17f30; outline-offset: 5px; }
+.rw-lp-final-owner-detail { padding: 28px 0 22px; min-height: 165px; }
+.rw-lp-final-owner-detail .rw-lp-final-owner-eyebrow { margin-bottom: 10px !important; }
+.rw-lp-final-owner-detail h3 { font: 400 33px/1.15 Georgia, serif; letter-spacing: -.025em; margin-bottom: 12px; }
+.rw-lp-final-owner-bounds { display: flex; flex-wrap: wrap; gap: 8px 20px; border-top: 1px solid var(--rw-lp-owner-rule); padding-top: 14px; font-size: 11px; }
+.rw-lp-final-owner-bounds span::before { content: '·'; margin-right: 8px; }
+.rw-lp-final-owner-bounds > strong { flex-basis: 100%; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; }
+.rw-lp-final-owner-footer { grid-area: footer; display: flex; justify-content: space-between; gap: 32px; align-items: end; border-top: 1px solid var(--rw-lp-owner-rule); padding-top: 26px; font-size: 12px; }
+.rw-lp-final-owner-footer p + p { margin-top: 6px; max-width: 550px; }
+.rw-lp-final-owner-links { display: flex; gap: 16px; align-items: center; flex-shrink: 0; }
+.rw-lp-final-owner-links a { color: inherit; text-decoration: none; padding: 14px 0; min-height: 44px; }
+.rw-lp-final-owner-links a:first-child { background: var(--rw-lp-owner-ink); color: var(--rw-lp-owner-paper); padding: 14px 22px; }
+.rw-lp-final-owner-links span { margin-left: 18px; }
+@media (max-width: 1100px) { .rw-lp-final-owner-grid { width: calc(100% - 64px); } .rw-lp-final-owner-footer { align-items: start; flex-direction: column; } .rw-lp-final-owner-selector button { padding: 13px 8px; column-gap: 3px; } }
+@media (max-width: 760px) {
+  .rw-lp-final-owner { padding: 66px 0 54px; }
+  .rw-lp-final-owner .rw-lp-final-owner-grid { width: calc(100% - 40px); display: flex; flex-direction: column; }
+  .rw-lp-final-owner-grid > * { width: 100%; }
+  .rw-lp-final-owner h2 { font-size: clamp(38px, 9vw, 56px); }
+  .rw-lp-final-owner-heading > p:last-child { font-size: 15px; }
+  .rw-lp-final-owner-detail { padding: 25px 0 20px; min-height: 170px; }
+  .rw-lp-final-owner-selector button { padding: 14px 10px; }
+  .rw-lp-final-owner-selector strong { font-size: 16px; }
+  .rw-lp-final-owner-links { flex-wrap: wrap; gap: 14px; }
 }
-
-.rw-lp-tiers-inner {
-  /* `width: 100%` is load-bearing (measurements.md §2 — flex-item collapse). */
-  width: 100%;
-  max-width: var(--rw-lp-inner-max, 75rem);
-  margin: 0 auto;
-  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.rw-lp-tiers-intro {
-  max-width: 42rem;
-  text-align: center;
-}
-
-.rw-lp-tiers-eyebrow {
-  margin: 0 0 1rem;
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: var(--rw-lp-label-size);
-  letter-spacing: var(--rw-lp-label-tracking);
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-/* The shared section-heading scale (the fleet/personas/watchdogs clamp) —
-   part of the 2026-08-24 header-grammar pass: one scale for every section
-   heading except the problem essay's stated exception. */
-.rw-lp-tiers-heading {
-  margin: 0;
-  font-family: var(--rw-font-display);
-  font-weight: 200;
-  font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
-  line-height: 1.06;
-  letter-spacing: -0.025em;
-  color: var(--rw-lp-text, #f4f2ec);
-}
-
-.rw-lp-tiers-heading-accent {
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-.rw-lp-tiers-lead {
-  margin: 1.125rem 0 0;
-  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
-  line-height: 1.65;
-  color: var(--rw-lp-tiers-muted);
-  text-wrap: pretty;
-}
-
-/* ---------- the instrument panel ----------
-   Three columns from 721px: the two modes flank the gauge and read TOWARD
-   it, so the whole band composes as one instrument rather than a diagram
-   with captions. */
-
-.rw-lp-tiers-dialplate-reveal {
-  width: 100%;
-}
-
-.rw-lp-tiers-dialplate {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: clamp(1.5rem, 4vw, 3.25rem);
-  width: 100%;
-  max-width: 66rem;
-  margin: clamp(2.25rem, 5vw, 3.5rem) auto 0;
-}
-
-.rw-lp-tiers-instrument {
-  display: flex;
-  justify-content: center;
-}
-
-.rw-lp-tiers-gauge {
-  width: clamp(13rem, 24vw, 17.5rem);
-  height: auto;
-  overflow: visible;
-}
-
-/* The machined groove: a 1px-ish specular lip under a recessed channel. The
-   lip's white is a genuine specular highlight, not a tokenable text shade
-   (DESIGN.md → "Deliberate literals"). */
-.rw-lp-tiers-gauge-lip {
-  fill: none;
-  stroke: rgba(255, 255, 255, 0.06);
-  stroke-width: 9;
-  stroke-linecap: round;
-}
-
-.rw-lp-tiers-gauge-groove {
-  fill: none;
-  stroke: rgb(var(--rw-lp-ink-rgb) / 0.85);
-  stroke-width: 6.5;
-  stroke-linecap: round;
-}
-
-/* The travelled portion — strokeDashoffset is motion-animated from
-   TiersSection (0.88 at Copilot, 0.12 at Autopilot), so the gold literally
-   measures how much autonomy has been granted. */
-.rw-lp-tiers-gauge-fill {
-  fill: none;
-  stroke: rgb(var(--rw-lp-accent-rgb) / 0.45);
-  stroke-width: 6.5;
-  stroke-linecap: round;
-}
-
-.rw-lp-tiers-gauge-detent {
-  fill: rgb(var(--rw-lp-text-rgb) / 0.35);
-}
-
-/* End stops are radial ticks: the travel ends here. */
-.rw-lp-tiers-gauge-tick {
-  stroke: rgb(var(--rw-lp-text-rgb) / 0.5);
-  stroke-width: 1.5;
-}
-
-.rw-lp-tiers-gauge-needle {
-  stroke: var(--rw-lp-accent, #dcc489);
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-
-.rw-lp-tiers-gauge-tail {
-  stroke: rgb(var(--rw-lp-accent-rgb) / 0.45);
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-
-/* The hub's breathing halo — the section's one idle sign of life: the dial
-   is set, not inert. Infinite CSS, so the universal pause rule covers it
-   without enumeration; skipped under reduced motion below. Opacity, not a
-   transform: the needle group's rotation owns this subtree's transforms. */
-.rw-lp-tiers-gauge-halo {
-  fill: rgb(var(--rw-lp-accent-rgb) / 0.14);
-  animation: rw-lp-tiers-breathe 4.5s ease-in-out infinite;
-}
-
-.rw-lp-tiers-gauge-hub {
-  stroke: rgb(var(--rw-lp-accent-rgb) / 0.9);
-  stroke-width: 1;
-}
-
-@keyframes rw-lp-tiers-breathe {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rw-lp-tiers-gauge-halo {
-    animation: none;
-  }
-}
-
-/* ---------- the two modes, flanking the instrument ---------- */
-
-.rw-lp-tiers-modes {
-  display: contents;
-}
-
-.rw-lp-tiers-mode {
-  max-width: 24rem;
-  transition: opacity 300ms ease;
-}
-
-/* The dial's emphasis follows the needle: the un-selected mode steps back.
-   0.55 keeps it clearly readable — this is emphasis, not disclosure; both
-   texts are always legible and always in the accessibility tree. */
-.rw-lp-tiers-mode[data-active='false'] {
-  opacity: 0.55;
-}
-
-/* Both modes read TOWARD the gauge; source order (Copilot first) plus grid
-   placement puts Copilot left of the instrument, Autopilot right. */
-.rw-lp-tiers-mode[data-tier='copilot'] {
-  order: -1;
-  text-align: right;
-  justify-self: end;
-}
-
-.rw-lp-tiers-mode[data-tier='autopilot'] {
-  text-align: left;
-  justify-self: start;
-}
-
-.rw-lp-tiers-mode-name {
-  margin: 0;
-}
-
-/* The dial's handle for keyboard and touch: the mode name as a hairline
-   pill. NOT gold-filled — the three gold pills (nav, hero, closing band)
-   stay the whole set; selection is carried by text + border colour plus the
-   needle's position and aria-pressed. */
-.rw-lp-tiers-mode-button {
-  display: inline-flex;
-  align-items: center;
-  margin: 0;
-  padding: 0.4375rem 0.9375rem;
-  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.2);
-  border-radius: 999px;
-  background: none;
-  cursor: pointer;
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: var(--rw-lp-label-size);
-  letter-spacing: var(--rw-lp-label-tracking);
-  text-transform: uppercase;
-  color: rgb(var(--rw-lp-text-rgb) / 0.66);
-  transition:
-    color 200ms ease,
-    border-color 200ms ease,
-    background-color 200ms ease;
-}
-
-.rw-lp-tiers-mode-button:hover {
-  color: var(--rw-lp-text, #f4f2ec);
-  border-color: rgb(var(--rw-lp-text-rgb) / 0.4);
-}
-
-.rw-lp-tiers-mode[data-active='true'] .rw-lp-tiers-mode-button {
-  color: var(--rw-lp-accent, #dcc489);
-  border-color: rgb(var(--rw-lp-accent-rgb) / 0.55);
-  background: rgb(var(--rw-lp-accent-rgb) / 0.08);
-}
-
-/* Asserted by src/__tests__/focus-visible-marketing.test.ts (bare token, no
-   fallback — the test matches the declaration byte-for-byte). */
-.rw-lp-tiers-mode-button:focus-visible {
-  outline: 2px solid var(--rw-lp-accent);
-  outline-offset: 3px;
-}
-
-.rw-lp-tiers-mode-claim {
-  margin: 0.875rem 0 0;
-  font-family: var(--rw-font-display);
-  font-weight: 300;
-  font-size: clamp(1.25rem, 1.8vw, 1.625rem);
-  line-height: 1.25;
-  color: var(--rw-lp-text, #f4f2ec);
-}
-
-.rw-lp-tiers-mode-body {
-  margin: 0.625rem 0 0;
-  font-size: clamp(0.875rem, 1vw, 0.9375rem);
-  line-height: 1.6;
-  color: var(--rw-lp-tiers-muted);
-  text-wrap: pretty;
-}
-
-/* ---------- the movement note ---------- */
-
-.rw-lp-tiers-note {
-  margin: clamp(2rem, 4vw, 2.75rem) 0 0;
-  max-width: 40rem;
-  text-align: center;
-  font-size: clamp(0.875rem, 1vw, 0.9375rem);
-  line-height: 1.6;
-  color: var(--rw-lp-text, #f4f2ec);
-  text-wrap: pretty;
-}
-
-.rw-lp-tiers-note-governor {
-  color: var(--rw-lp-tiers-muted);
-}
-
-/* ---------- the door ----------
-   The link to /pricing, after the movement note. Same grammar as the
-   watchdogs section's `.rw-lp-watch-pipeline-link` (gold text, underline on
-   hover, the arrow nudges), kept as its own class so the tiers section owns
-   its rule and the focus test can name it. */
-
-.rw-lp-tiers-door {
-  margin: 1.25rem 0 0;
-  text-align: center;
-}
-
-.rw-lp-tiers-pricing-link {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  /* 6px vertical padding lifts the ~19px line to a 24px+ target — the same
-     target-size trick the footer links use. */
-  padding: 0.375rem 0.125rem;
-  font-family: var(--rw-font-display);
-  font-weight: 300;
-  font-size: clamp(0.9375rem, 1.2vw, 1.0625rem);
-  color: var(--rw-lp-accent, #dcc489);
-  text-decoration: none;
-  border-radius: 2px;
-}
-
-.rw-lp-tiers-pricing-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
-}
-
-.rw-lp-tiers-pricing-arrow {
-  transition: transform 200ms ease;
-}
-
-.rw-lp-tiers-pricing-link:hover .rw-lp-tiers-pricing-arrow {
-  transform: translateX(3px);
-}
-
-.rw-lp-tiers-pricing-link:focus-visible {
-  outline: 2px solid var(--rw-lp-accent);
-  outline-offset: 3px;
-}
-
-/* ---------- stacked below 720px ----------
-   The gauge stays (it is compact enough for a phone), centred above the
-   stacked modes; the modes hang from a short vertical travel line and the
-   ACTIVE mode's node takes the gold. The buttons still operate. */
-
-@media (max-width: 720px) {
-  .rw-lp-tiers-dialplate {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.75rem;
-  }
-
-  .rw-lp-tiers-gauge {
-    width: clamp(11rem, 52vw, 14rem);
-  }
-
-  .rw-lp-tiers-modes {
-    display: flex;
-    flex-direction: column;
-    gap: 1.75rem;
-    position: relative;
-    /* The vertical travel line the stacked modes hang from. */
-    padding-left: 1.375rem;
-  }
-
-  .rw-lp-tiers-modes::before {
-    content: '';
-    position: absolute;
-    left: 0.4375rem;
-    top: 0.25rem;
-    bottom: 0.25rem;
-    width: 1px;
-    background: linear-gradient(
-      180deg,
-      rgb(var(--rw-lp-accent-rgb) / 0.55) 0%,
-      var(--rw-lp-tiers-rule) 55%,
-      var(--rw-lp-tiers-rule) 100%
-    );
-  }
-
-  .rw-lp-tiers-mode[data-tier='copilot'] {
-    order: 0;
-    text-align: left;
-    justify-self: stretch;
-  }
-
-  .rw-lp-tiers-mode[data-tier='autopilot'] {
-    text-align: left;
-    justify-self: stretch;
-  }
-
-  /* Node per mode on the vertical travel; the ACTIVE node is the thumb. */
-  .rw-lp-tiers-mode {
-    position: relative;
-  }
-
-  .rw-lp-tiers-mode::before {
-    content: '';
-    position: absolute;
-    left: -1.375rem;
-    top: 0.125rem;
-    width: 0.5rem;
-    height: 0.5rem;
-    transform: translateX(0.1875rem);
-    border-radius: 50%;
-    background: rgb(var(--rw-lp-text-rgb) / 0.4);
-    transition: background-color 300ms ease, box-shadow 300ms ease;
-  }
-
-  .rw-lp-tiers-mode[data-active='true']::before {
-    background: var(--rw-lp-accent, #dcc489);
-    box-shadow: 0 0 0 4px rgb(var(--rw-lp-accent-rgb) / 0.14);
-  }
-}
+@media (prefers-reduced-motion: reduce) { .rw-lp-final-owner-selector button { transition: none; } }

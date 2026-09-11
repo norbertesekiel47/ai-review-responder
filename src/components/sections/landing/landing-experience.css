@@ -64,16 +64,10 @@
      to `100svh`, where width was spent as card height and the column had to
      be wide enough to keep the persona row inside a 16:9 viewport. That bind
      is gone (sections are as tall as their content), so the column is sized
-     for line length and rhythm instead: at 1200px the persona grid gives four
-     264px cards, the fleet's four persona nodes fit one row at their 13rem
-     basis, and the future section's prose column stays inside its 34rem
-     measure. Re-measure the fleet tier fit before going narrower. */
+     for line length and rhythm instead. Since the 2026-09-10 cleanup the
+     footer is its only user; the middle sections set their own widths
+     (section-scopes.css and each section's stylesheet). */
   --rw-lp-inner-max: 75rem;
-  /* Vertical rhythm of the narrative sections (2-5): the section's own top and
-     bottom padding. 96px at desktop, scaling down to 64px on narrow viewports.
-     Replaces the `100svh` bind — a section is now as tall as its content plus
-     this, never as tall as the screen. */
-  --rw-lp-section-gap: clamp(4rem, 8vw, 6rem);
   /* The label role — section eyebrows and the tier labels under them. One
      style for every small caps label on the page: the mono face at 12px with
      a hair of tracking, instead of the 10-11px display face at 0.24-0.28em
@@ -89,61 +83,6 @@
 
   position: relative;
   background: var(--rw-lp-ink);
-}
-
-/* ==========================================================================
-   Liquid glass — shared surface for the narrative sections.
-
-   The border is a gradient STROKE, not a flat 1px rule: a `::before` inset with
-   `padding: 1.4px` is filled with a vertical white gradient, then the interior
-   is punched out with `mask-composite: exclude`. That leaves only the ring, so
-   the edge is bright at top and bottom and vanishes at the sides — the way real
-   glass catches light. A plain `border` cannot vary along its own length.
-
-   `-webkit-` prefixes are load-bearing: Safari still requires them for both
-   `mask-composite` (as `xor`) and `backdrop-filter`.
-   ========================================================================== */
-
-.rw-lp-glass {
-  position: relative;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.022);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08);
-}
-
-.rw-lp-glass::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: inherit;
-  padding: 1.4px;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.4) 0%,
-    rgba(255, 255, 255, 0.13) 20%,
-    rgba(255, 255, 255, 0) 42%,
-    rgba(255, 255, 255, 0) 58%,
-    rgba(255, 255, 255, 0.13) 80%,
-    rgba(255, 255, 255, 0.4) 100%
-  );
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-}
-
-/* Content has to clear the ::before ring, which sits at z-index 1. */
-.rw-lp-glass > * {
-  position: relative;
-  z-index: 2;
 }
 
 /* ---------- nav ---------- */
@@ -483,12 +422,12 @@
 /* The CSS half of the pause. Videos are paused imperatively (only script can
    stop a media element); every keyframe animation on the page is stopped here.
 
-   The universal selector is deliberate. Three infinite animations exist today
-   — the fleet's pulse and flow, and the tiers gauge halo's breathing — and
-   enumerating them means the next one added silently escapes the control. Every
-   animation on this page is decorative and infinite (checked: there is not one
-   finite keyframe animation under `sections/landing/`), so there is nothing
-   here that freezing mid-flight would strand. `!important` because this has to
+   The universal selector is deliberate. No keyframe animation exists under
+   `sections/landing/` today (checked 2026-09-10; the middle sections move with
+   Motion and their clips read the pause through context), and enumerating
+   selectors would let the next animation added silently escape the control.
+   Any keyframe animation added here must be decorative and infinite, so that
+   freezing it mid-flight strands nothing. `!important` because this has to
    beat whatever a section declares, and `animation-play-state` does not affect
    transitions, so interactive feedback keeps working while paused. */
 .rw-lp[data-ambient-motion='paused'] *,

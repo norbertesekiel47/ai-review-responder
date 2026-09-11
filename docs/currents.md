@@ -9,7 +9,15 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-07 (job_outbox carries deny-all RLS in both lanes; the last staging/prod RLS drift is closed.)
+Last updated: 2026-09-10 (the selected landing design ships as plain sections; the exploration code and the superseded sections are removed.)
+
+## Quick summary — selected editorial landing (2026-09-10)
+
+The local landing route now uses the owner's chosen **F3 composition with F1's Working Atlas roadmap**, between the existing hero and night closing bookend. The courtyard fleet, original CRT agents, five job films, supervision scene and Copilot-left/Autopilot-right lever are retained. Roadmap chapters frame the bright left, darker center and clouded right of the original high-resolution map.
+
+The final polish makes the phone agent index readable below its curved frame, adapts the sticky media to short viewports, keeps agent selection aligned with the visible paragraph, and supplies stills when original media fails. Primary CTAs retain their server-authoritative signup/early-access destination. Comparison controls are absent from `/`.
+
+**The new shape:** `LandingExperience.tsx` composes all nine sections directly; each middle section lives in its own folder (`problem/`, `fleet/`, `personas/`, `jobs/`, `watchdogs/`, `tiers/`, `future/`) with its CSS, and `section-scopes.css` holds the two shared type scopes. Section media lives under `public/fleet/`, `public/jobs/` and `public/tiers/`. The same-day cleanup deleted the `design-*` comparison routes, the exploration component folders, their public assets, and the superseded original middle sections with their helpers (`staged`, `carousel`, `agent-flip-card`, `future-route`); a pixel comparison at eight viewports confirmed `/` unchanged. The [chosen design record](brand-asset-library/collections/2026-09-final/chosen-design.md) owns exact decisions, measurements, verification scripts and limitations. Browser checks use local Chromium and staging; backend lead submission is simulated in the design record's checks.
 
 ## Quick summary — job_outbox deny-all RLS, and the staging/prod drift closes (2026-09-07, PR #1175)
 
@@ -885,4 +893,3 @@ written by the skill). New class found: an *uncounted* PR (#803) deleted the `/f
 skill's entire step 8 — the surface three earlier prescriptions targeted. Handoff-
 execution PRs are now explicitly **not counted** toward the threshold (policy written
 into `arch-review-log.md`). Counter reset to 0.
-

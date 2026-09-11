@@ -284,6 +284,9 @@
 
 /* Reduced motion — collapse decorative animations */
 @media (prefers-reduced-motion: reduce) {
+  /* The public island reset cancels the entrance animation; keep its auth
+     counterpart visible without relying on the animation's final frame. */
+  .rw-auth .rw-island { opacity: 1; transform: none; animation: none !important; }
   .rw-auth *,
   .rw-auth *::before,
   .rw-auth *::after {
