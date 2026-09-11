@@ -1,0 +1,121 @@
+{
+  "origin": "http://localhost:3101",
+  "widths": [
+    {
+      "id": "F1",
+      "width": 320,
+      "overflow": false
+    },
+    {
+      "id": "F2",
+      "width": 320,
+      "overflow": false
+    },
+    {
+      "id": "F3",
+      "width": 320,
+      "overflow": false
+    },
+    {
+      "id": "F4",
+      "width": 320,
+      "overflow": false
+    },
+    {
+      "id": "F1",
+      "width": 900,
+      "overflow": false
+    },
+    {
+      "id": "F2",
+      "width": 900,
+      "overflow": false
+    },
+    {
+      "id": "F3",
+      "width": 900,
+      "overflow": false
+    },
+    {
+      "id": "F4",
+      "width": 900,
+      "overflow": false
+    },
+    {
+      "id": "F1",
+      "width": 1100,
+      "overflow": false
+    },
+    {
+      "id": "F2",
+      "width": 1100,
+      "overflow": false
+    },
+    {
+      "id": "F3",
+      "width": 1100,
+      "overflow": false
+    },
+    {
+      "id": "F4",
+      "width": 1100,
+      "overflow": false
+    },
+    {
+      "id": "F1",
+      "width": 1920,
+      "overflow": false
+    },
+    {
+      "id": "F2",
+      "width": 1920,
+      "overflow": false
+    },
+    {
+      "id": "F3",
+      "width": 1920,
+      "overflow": false
+    },
+    {
+      "id": "F4",
+      "width": 1920,
+      "overflow": false
+    }
+  ],
+  "checks": [
+    {
+      "comparison": 1440,
+      "links": true,
+      "focus": true,
+      "modeTouchTarget": {
+        "x": 61,
+        "y": 461.75,
+        "width": 294.1875,
+        "height": 76.546875
+      }
+    },
+    {
+      "comparison": 390,
+      "links": true,
+      "focus": true,
+      "modeTouchTarget": {
+        "x": 25,
+        "y": 383.65625,
+        "width": 169,
+        "height": 76
+      }
+    },
+    {
+      "invalidId": 404
+    },
+    {
+      "oldPreviewsPreserved": true,
+      "originalRoadmapPreserved": true,
+      "noindex": true
+    },
+    {
+      "jobMediaFailure": "still remains",
+      "leverMediaFailure": "correct selected endpoint remains"
+    }
+  ]
+}

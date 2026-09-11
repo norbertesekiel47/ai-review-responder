@@ -1,0 +1,95 @@
+{
+  "requests": [
+    {
+      "index": 18,
+      "params": {
+        "model": "flux_3_video",
+        "duration": 5,
+        "resolution": "720p",
+        "aspect_ratio": "21:9",
+        "generate_audio": false,
+        "medias": [
+          {
+            "role": "start_image",
+            "value": "8c2ac668-eedd-4f69-9a62-c70713a00a3c"
+          },
+          {
+            "role": "end_image",
+            "value": "8c2ac668-eedd-4f69-9a62-c70713a00a3c"
+          }
+        ],
+        "prompt": "Use this EXACT letterboxed miniature dispatch photograph. Locked static tripod camera, no zoom, pan, reframing, newobjects, text, television, humans or UI. Keep the black top and bottom bars stationary and exactly black. Preserve the entire left tray AND entire right three-dial machine at the same position and scale throughout. The central brass lever MUST NOT MOVE AT ALL; keep its supplied fixed position. Make one clearly visible physically plausible five-second process event, smoothly returning to the exact starting frame for a seamless loop. COPILOT / WAITING FOR OWNER APPROVAL. Animate ONLY the LEFT approval tray and its brass approval stamp. A single ivory envelope rises slowly within the tray to stand upright, its upper half clearly visible above the tray edge. The brass stamp rises straight up by its own height, hovers clearly ABOVE the waiting envelope for two seconds without stamping it, then gently settles back as the envelope returns to its original angle. The envelope never leaves the tray and nothing is dispatched. This is a miniature mechanical visual metaphor of a draft held for a person's approval, so the hold should be unmistakable. RIGHT machine and its envelope stay absolutely motionless. Central lever stays leaning RIGHT for all frames. No hands, no newmechanicalarms. Slow deliberate substantial paper and stamp motion; not merely a light flicker."
+      }
+    },
+    {
+      "index": 19,
+      "params": {
+        "model": "flux_3_video",
+        "duration": 5,
+        "resolution": "720p",
+        "aspect_ratio": "21:9",
+        "generate_audio": false,
+        "medias": [
+          {
+            "role": "start_image",
+            "value": "20dce18d-60e1-402b-b4ce-9ce19955a62f"
+          },
+          {
+            "role": "end_image",
+            "value": "20dce18d-60e1-402b-b4ce-9ce19955a62f"
+          }
+        ],
+        "prompt": "Use this EXACT letterboxed miniature dispatch photograph. Locked static tripod camera, no zoom, pan, reframing, newobjects, text, television, humans or UI. Keep the black top and bottom bars stationary and exactly black. Preserve the entire left tray AND entire right three-dial machine at the same position and scale throughout. The central brass lever MUST NOT MOVE AT ALL; keep its supplied fixed position. Make one clearly visible physically plausible five-second process event, smoothly returning to the exact starting frame for a seamless loop. AUTOPILOT / ONE CONTROLLED DISPATCH. Animate ONLY the RIGHT three-dial dispatch machine: its three brass gauge needles visibly turn to their set marks together, the small sage scalloped hatch lifts slightly, and ONE ivory envelope slides fully out of the slot onto the gold-railed output tray by roughly its own length, pauses clearly in the tray, then the next envelope smoothly feeds into the ready position as the first descends out of view into the tray. Exactly one envelope at a time, slow controlled movement, never a torrent. Return to initial arrangement to loop. LEFT approval tray and stamp remain absolutely stationary. Central lever stays leaning LEFT for all frames. Preserve the brass rails and bounded physical machine, without inventing UI or written markings. The paper dispatch must be visually obvious, not merely a gauge flicker."
+      }
+    }
+  ],
+  "jobs": {
+    "jobs": [
+      {
+        "index": 18,
+        "job_id": "57df0858-da36-468a-ad54-1720230e524e",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_115655_57df0858-da36-468a-ad54-1720230e524e.mp4",
+        "thumbnail_url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/8c2ac668-eedd-4f69-9a62-c70713a00a3c.png"
+      },
+      {
+        "index": 19,
+        "job_id": "44ddcbda-37fa-4e36-ad0e-d83d6cc8054a",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_115656_44ddcbda-37fa-4e36-ad0e-d83d6cc8054a.mp4",
+        "thumbnail_url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/20dce18d-60e1-402b-b4ce-9ce19955a62f.png"
+      }
+    ],
+    "summary": {
+      "total": 2,
+      "completed": 2,
+      "failed": 0,
+      "active": 0,
+      "errors": 0
+    },
+    "all_terminal": true
+  },
+  "outputs": [
+    {
+      "media_id": "7b4f72a1-0b93-4ec9-82e2-65b27bfc87fc",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/7b4f72a1-0b93-4ec9-82e2-65b27bfc87fc.mp4"
+    },
+    {
+      "media_id": "f6ce327b-b0e1-4c5d-8b17-f4fea2e941a4",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/f6ce327b-b0e1-4c5d-8b17-f4fea2e941a4.mp4"
+    },
+    {
+      "media_id": "a3b2a9db-443f-4255-9b2a-28c06cde27da",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/a3b2a9db-443f-4255-9b2a-28c06cde27da.jpg"
+    },
+    {
+      "media_id": "258a63ad-93f3-49ff-8bf2-d2406cf1769c",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/258a63ad-93f3-49ff-8bf2-d2406cf1769c.jpg"
+    }
+  ],
+  "reason": "Independent brief critic required visible activity at each workstation. Added Copilot draft/approval-stamp hold and Autopilot single-envelope processing. Both keep their mode's lever fixed and obey ambient pause."
+}

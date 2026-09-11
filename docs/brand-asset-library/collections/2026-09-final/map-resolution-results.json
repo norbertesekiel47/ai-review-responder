@@ -1,0 +1,134 @@
+[
+  {
+    "width": 1440,
+    "dpr": 1,
+    "state": "shipped",
+    "decodedWidth": 3840,
+    "renderedWidth": 1820,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "0px 263.148px",
+    "clouds": "0"
+  },
+  {
+    "width": 1440,
+    "dpr": 1,
+    "state": "planned",
+    "decodedWidth": 3840,
+    "renderedWidth": 1820,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "520px 265.75px",
+    "clouds": "0"
+  },
+  {
+    "width": 1440,
+    "dpr": 1,
+    "state": "horizon",
+    "decodedWidth": 3840,
+    "renderedWidth": 1820,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "1040px 262.742px",
+    "clouds": "0.42"
+  },
+  {
+    "width": 1440,
+    "dpr": 2,
+    "state": "shipped",
+    "decodedWidth": 3840,
+    "renderedWidth": 1820,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "0px 263.148px",
+    "clouds": "0"
+  },
+  {
+    "width": 1440,
+    "dpr": 2,
+    "state": "planned",
+    "decodedWidth": 3840,
+    "renderedWidth": 1820,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "520px 265.75px",
+    "clouds": "0"
+  },
+  {
+    "width": 1440,
+    "dpr": 2,
+    "state": "horizon",
+    "decodedWidth": 3840,
+    "renderedWidth": 1820,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "1040px 262.742px",
+    "clouds": "0.42"
+  },
+  {
+    "width": 390,
+    "dpr": 3,
+    "state": "shipped",
+    "decodedWidth": 3840,
+    "renderedWidth": 682.5,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "0px 124px",
+    "clouds": "0"
+  },
+  {
+    "width": 390,
+    "dpr": 3,
+    "state": "planned",
+    "decodedWidth": 3840,
+    "renderedWidth": 682.5,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "195px 124px",
+    "clouds": "0"
+  },
+  {
+    "width": 390,
+    "dpr": 3,
+    "state": "horizon",
+    "decodedWidth": 3840,
+    "renderedWidth": 682.5,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "390px 124px",
+    "clouds": "0.42"
+  },
+  {
+    "width": 1920,
+    "dpr": 2,
+    "state": "shipped",
+    "decodedWidth": 3840,
+    "renderedWidth": 1988,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "0px 263.148px",
+    "clouds": "0"
+  },
+  {
+    "width": 1920,
+    "dpr": 2,
+    "state": "planned",
+    "decodedWidth": 3840,
+    "renderedWidth": 1988,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "568px 265.75px",
+    "clouds": "0"
+  },
+  {
+    "width": 1920,
+    "dpr": 2,
+    "state": "horizon",
+    "decodedWidth": 3840,
+    "renderedWidth": 1988,
+    "src": "http://localhost:3101/future/roadmap-ground.jpg",
+    "scale": "matrix(1.75, 0, 0, 1.75, 0, 0)",
+    "origin": "1136px 262.742px",
+    "clouds": "0.42"
+  }
+]

@@ -8,6 +8,8 @@ them — including the two ways contrast measurement on this page silently lies.
 The page's design system — palette, type, components, copy contracts — is
 [`DESIGN.md`](DESIGN.md) beside this file. This document is its engineering companion.
 
+**Scope since 2026-09-10.** Sections 2–8 are the owner-selected design. Their measurements and contracts — the responsive CRT index and reading line, the arched watchdog containment, the lever timing, the 3840px map's 1.75× framing — live in [the chosen design record](../../collections/2026-09-final/chosen-design.md). This file keeps the page-wide, bookend, nav and footer measurements. The §2 entries for the deleted original middle sections were removed in the cleanup (git history holds them). The dated notes below are history.
+
 **Status as of 2026-08-04:** sections 1–5 + 9 + footer built; 6–8 unbuilt. Audited
 **19/20** across three `/impeccable audit` passes (16 → 17 → 19), with the remaining point
 held by one missing asset — see §5. Gate at that point: typecheck ✓, lint ✓, 10,668
@@ -55,21 +57,21 @@ deleted, so the reasoning that produced the old value survives beside the new on
 the single `<main id="main-content">` landmark, the footer — plus a numbered section map.
 Sections sit directly in the landmark; there is no wrapper component.
 
-| # | Section | Component | Status |
-|---|---|---|---|
-| 1 | Hero | `hero/HeroSection.tsx` | built |
-| 2 | Meet the fleet | `fleet/FleetSection.tsx` | built (+ click-to-open film) |
-| 3 | The agents that act | `personas/PersonasSection.tsx` | built |
-| 4 | The agents that watch | `watchdogs/WatchdogsSection.tsx` | built |
-| 5 | Where this is going | `future/FutureSection.tsx` | built |
-| 6 | The problem | `problem/ProblemSection.tsx` | built (2026-08-24) |
-| 7 | The pipeline (7 steps) | — | **deliberately not a section** — the watchdogs section links to `/how-it-works` instead (owner decision, 2026-08-24) |
-| 8 | Copilot vs Autopilot | `tiers/TiersSection.tsx` | built (2026-08-24, the dial-track) |
-| 9 | Closing CTA | `cta/CtaSection.tsx` | built |
-| — | Footer | `footer/LandingFooter.tsx` | built |
+| # | Section | Component |
+|---|---|---|
+| 1 | Hero | `hero/HeroSection.tsx` |
+| 2 | The problem | `problem/ProblemSection.tsx` |
+| 3 | Meet the fleet (+ click-to-open film) | `fleet/FleetSection.tsx` |
+| 4 | The agents that act | `personas/PersonasSection.tsx` |
+| 5 | The five jobs | `jobs/JobsSection.tsx` |
+| 6 | The agents that watch | `watchdogs/WatchdogsSection.tsx` |
+| 7 | Owner controls — Copilot vs Autopilot | `tiers/TiersSection.tsx` |
+| 8 | Where this is going (the Working Atlas) | `future/FutureSection.tsx` |
+| 9 | Closing CTA | `cta/CtaSection.tsx` |
+| — | Footer | `footer/LandingFooter.tsx` |
 
-Sections 6–8 come from the narrative spine in §3.4 of the owner's brief
-(`~/Desktop/RepWorth-website-design-reference.md`).
+The pipeline is deliberately not a section: the watchdogs section links to
+`/how-it-works` instead (owner decision, 2026-08-24).
 
 **1 and 9 are a deliberate pair:** the same world, opened in daylight with the copy set
 RIGHT and closed at night with it set LEFT. They are the only two full-bleed video
@@ -79,31 +81,30 @@ sections; they mirror rather than repeat.
 
 ```
 src/components/sections/landing/
-  LandingExperience.tsx        composition root + section map + nav
-  landing-experience.css       nav, .rw-lp-glass, shared tokens, the pause control
-  agent-flip-card.tsx / .css   shared flip card (sections 3 + 4)
-  carousel.tsx / .css          phone card rail (sections 2-5, ≤767px only);
-                               .css MUST be imported after every section file
+  LandingExperience.tsx        composition root: nav, menu, section order, CSS order
+  landing-experience.css       nav, shared tokens, the pause control
+  section-scopes.css           the two type scopes of sections 2-8; MUST be imported
+                               after landing-experience.css, before the section files
+  brand-clip.tsx               the problem house and watchdog CRT clips
   ambient-motion.tsx           WCAG 2.2.2 pause control + AmbientVideo
-  reveal.tsx                   shared arrival fade (motion/react, opacity, ≤200ms)
   hero/       {HeroSection.tsx, hero.css, hero-copy.ts}
-  fleet/      {FleetSection.tsx, fleet.css, fleet-copy.ts,
-               VideoLightbox.tsx, video-lightbox.css}
-  personas/   {PersonasSection.tsx, personas.css, personas-copy.ts}
-  jobs/       {JobsSection.tsx, jobs.css, jobs-copy.ts}   the five-jobs ledger (2026-09-06)
   problem/    {ProblemSection.tsx, problem.css, problem-copy.ts}
-  tiers/      {TiersSection.tsx, tiers.css, tiers-copy.ts}
+  fleet/      {FleetSection.tsx, fleet.css, VideoLightbox.tsx, video-lightbox.css}
+  personas/   {PersonasSection.tsx, personas.css, personas-copy.ts}
+  jobs/       {JobsSection.tsx, jobs.css, jobs-copy.ts}
   watchdogs/  {WatchdogsSection.tsx, watchdogs.css, watchdogs-copy.ts}
-  future/     {FutureSection.tsx, future.css, future-copy.ts, future-route.ts}
+  tiers/      {TiersSection.tsx, tiers.css, tiers-copy.ts}
+  future/     {FutureSection.tsx, future.css, future-copy.ts}
   cta/        {CtaSection.tsx, cta.css, cta-copy.ts}
   footer/     {LandingFooter.tsx, footer.css, footer-copy.ts}
-src/hooks/useMediaQuery.ts
 src/app/(public)/page.tsx      passes primaryCtaHref/Label + selfServeEnabled
 src/app/layout.tsx             Plus Jakarta weights 200/300
-src/__tests__/focus-visible-marketing.test.ts   18 asserted focus rings
+src/__tests__/focus-visible-marketing.test.ts   the asserted focus rings
 
 (`scroll/` — SectionTransition, ChapterRail, SmoothScroll, section-map,
-scroll-experience.css — was deleted 2026-08-16. See §2, "Scroll".)
+scroll-experience.css — was deleted 2026-08-16. The original middle sections and
+their helpers — agent-flip-card, carousel, staged, reveal, future-route — were
+deleted 2026-09-10.)
 ```
 
 Every section keeps its copy in a `*-copy.ts`. That is deliberate: those files carry the
@@ -141,123 +142,14 @@ lockup sits at ~6% over the brightest part of the frame (a linear decay left it 
 rule, rendering headlines near-black on a dark scrim. Same trap for `.rw-foot` vs the
 landing footer's `.rw-lp-foot-`.
 
-**`.rw-lp-flip .rw-lp-flip-face` is scoped deliberately.** The faces also carry
-`rw-lp-glass`, which sets `position: relative` at equal specificity — and
-`landing-experience.css` imports *after* `agent-flip-card.css`, so flattening the selector
-drops both faces into normal flow.
-
 **`width: 100%` on every `*-inner` wrapper.** Sections are column flex containers, so
 those wrappers are flex items; `margin: 0 auto` overrides `align-self: stretch` and
 collapses them to fit-content, silently narrowing every grid inside.
 
 **`--rw-lp-inner-max` is 75rem (1200px) since 2026-08-16 — a reading ceiling, not a
-fit-the-viewport one.** It WAS `102rem`, and that number was measured: with every section
-bound to `100svh` and the persona/watchdog cards at `aspect-ratio: 3/4`, width was spent
-as height, and at 1920×812 the persona row kept 48px of slack at 102rem and only 6px at
-110rem. That constraint went with the bind. At 75rem the persona grid gives four ~264px
-cards (~352px tall), the fleet's four persona nodes fit one row at their `13rem` flex
-basis with room (4×208 + 3 gaps ≈ 916px in a 1104px content box), and the future
-section's prose stays inside its 34rem measure. Re-measure the fleet tier fit before going
-narrower; the persona/watchdog cards no longer have a height budget to overflow.
-
-**`.rw-lp-personas-list` no longer carries `min(100%, calc(180svh + 3rem))`.** That cap
-existed only to keep the row inside a `100svh` section on short viewports (1416px instead
-of 1504px at 1920×760, buying back 29px). The section now grows with the row.
-
-**Sections 2–5 are `padding: var(--rw-lp-section-gap) 0` and nothing else sets their
-height.** `--rw-lp-section-gap` is `clamp(4rem, 8vw, 6rem)` — 96px from 1200px up. The
-`min-height: 100svh` + `justify-content: center` pair each section carried is gone; the
-`vh` terms that remain in the heading clamps (`min(4.4vw, 5.2vh)`) are kept only to keep
-display type proportionate on short laptops — they no longer have to fit a screen. Sections
-1 and 9 keep `min-height: 100svh`: they are full-bleed film, the clip is the content, and
-their scrim stops are measured against the full frame.
-
-**Fleet: the node cap, not the container, sets the drawing width.** The tiers are centred
-flex rows, so a wider `-inner` only adds empty space. `.rw-lp-fleet-node` at `21rem` is
-what fills it — and widening a node *buys* height (text cards wrap to fewer lines): slack
-went 9px → 45px.
-
-**Watchdog cards are the ROW form, not the shared portrait shape.** Portrait coupled width
-to height and 32rem alone overflowed 1920×812. The row form also fixed a real clipping
-bug: the Governor's back needed 337px in a 288px `overflow: hidden` box. The `15rem` height
-floor is set by the 390px case — lower it and clipping returns.
-
-**Future — the route map (2026-09-06) replaced the cards, and the fixed-attachment
-glow went with them.** Until then the section's card glow was `background-attachment:
-fixed`, which a **transformed ancestor silently downgrades to `scroll`** — the reason
-`Reveal` is opacity-only and `Staged` has `rise={0}`. Both stay (the next fixed-attachment
-surface needs them), but nothing on the page depends on them today.
-
-**Future — the header is the map's title from 1280px up.** The owner rejected the
-seam with the dial section three times: first two stacked section gaps, then one small
-gap, then the ink band the header sat on ("I really do not like the transition"). The
-fix is structural: the section has NO padding, the chart starts at its top edge and
-fades up from ink over `--rw-lp-title-band` (36%), and `.rw-lp-future-inner` goes
-`position: absolute` over that band. The stage grew 900 → 1440 units tall so the road
-stays under the title: every stop keeps y ≥ 820, and at 1280px (the narrowest overlay)
-the QR stop's label-above lands ~380px down against a header that ends ~330px down. At
-1100px the same numbers collide (the stage unit is 0.55px), which is why the overlay
-starts at 1280 and the header stacks above the chart below it.
-
-**Future — the road is a serpentine, and each stop names its own label side.** The
-stage is 2000×1440 in `future-copy.ts` (25:18, full-bleed — the first cut was 1600×900
-inside the 75rem column and the owner called it cramped; the second spread the stops
-along a near-flat road across the full width and the owner called THAT "convoluted"
-and "cramped even though it's stretched out"). The road now climbs from bottom-left
-(y 720) over a crest (y 300), drops through a trough (y 730) and rises again to the
-horizon (y 320), so consecutive stops sit ~230 units apart ALONG the road instead of
-~130; the lit stops span x 170–890, the planned 1010–1550, the horizon past
-`HORIZON_X` (1590). Every stop carries `label: 'above' | 'below'` — chosen by hand
-for the outside of its bend, not by index parity, because parity put two neighbours'
-labels at the same height on the crest's shoulders (reply/solicitor, connectors/
-restraint, topics/truth on the first serpentine cut). A horizon stop has no landmark, so its stage collapses to 1.375rem — leave it at a
-landmark's height and its label lands 80px from its glyph, on top of the next label (the
-2026-09-06 first cut). `hoverall.mjs`-style check: every stop must accept a hover at its
-centre; an obstructed stop means two buttons overlap.
-
-**Future — the phone trail is an accordion, and a tap must not move the row under the
-finger.** With every body open the trail ran ~2,300px at 390px and the owner called it
-"not functional"; rows with the hint closed run ~1,500px for the section. Two touch
-traps, both measured with Playwright taps on an iPhone 13 profile: (a) a tap fires
-pointerenter + click together, so the hover path must ignore `pointerType === 'touch'`
-or the card closes the instant it opens; (b) `blur` must NOT close the open row when
-focus moves to another stop — the close collapses the list under the finger between
-pointerdown and pointerup, and the click lands on whichever row slid into place (the
-second tap read as "nothing opened"). Blur closes only when `relatedTarget` leaves
-`.rw-lp-future-stops`. Focus opens a row only when no pointerdown preceded it (a ref),
-because Chromium reports a tap's focus as `:focus-visible` under touch.
-
-**Future — the chart arms on `amount: 'some'`, never a fraction.** Below 900px the same
-element is the trail, ~2,200px tall at 390px wide; `amount: 0.3` never fired there and the
-stops stayed at opacity 0. The bottom `margin` holds desktop arrival until the chart is
-15% up the screen.
-
-**Future — the landmark box is sized by the cutout's aspect.** `--rw-lp-landmark`
-is the box HEIGHT; the width is `landmark × max(1, aspect)` with the aspect on the stop
-(`landmarkAspect`, width ÷ height of the WebP). In a square box the two-set Phase 1
-cutout (1.56) rendered at 64% height at the bottom of the box, and its label — placed
-above the box — floated a box-height above the sets (owner, 2026-09-06). Tall cutouts
-keep a square box so the halo has room.
-
-**Future — no top padding from 1280px up; a small one below.** The dial section above
-ends with its own `--rw-lp-section-gap`; adding this section's meant two stacked gaps
-(~190px) between "See plans and pricing" and the eyebrow, which the owner read as a
-hole — and a single small gap still read as one, which is what led to the title-band
-overlay above. Below 1280px the header stacks and keeps `clamp(1rem, 3vh, 2rem)`. The
-trail (≤ 900px) has NO section padding below it either since 2026-09-06: the ground
-fades into ink under the last rows (`::after`, 5–8rem) and the trail line runs 3rem past
-the last stop under a mask, so the route reads as continuing; a hard edge followed by
-a block of plain ink read as "ends abruptly" plus "a gap" on the owner's phone.
-
-**Future — a fixed 25:18 stage, not a fluid one.** Stops are placed in percentages of
-the stage, and the road is an SVG in the same coordinate space; the two only agree while
-the box keeps the viewBox's ratio. `aspect-ratio: 25 / 18` on `.rw-lp-future-map` is the
-contract — re-measure every stop before changing it. Every road point stays in
-y 820–1320: above is the title band, and the bottom 6rem (~100 units) is a fade into
-the section ink; a stop at the bottom edge with its label below put the label inside
-the fade. The section has NO bottom padding — the chart ends it and its fade is the
-hand-off to the closing band (an ink gap between them read as a hole, owner
-2026-09-06); below 900px the trail has no fade, so the section gap returns there.
+fit-the-viewport one.** It was `102rem` while every section was bound to `100svh` and width
+was spent as card height. Since the 2026-09-10 cleanup the footer is its only user; the
+middle sections set their own widths.
 
 **CTA — the clip choice is the framing fix.** `hero3reverseVideo.mp4` puts the character at
 x 58–85%, clear of the 45% copy column. `hero3Video.mp4` puts it at x 19–37%, *behind* the
@@ -286,12 +178,7 @@ and the measurement behind each piece, so nobody re-derives them from scratch:
   contrast figures (index gold 0.85 = 7.44:1; label 0.55 = 5.40:1; the rail's 24px
   `min-width` target) are recorded here for the archive; none of the elements exist.
 - *The hero scroll cue* (`SCROLL`, the running dot): the one infinite animation the hero
-  carried. Gone; the ambient-motion control now governs two CSS animations, not three.
-
-`Reveal` is the whole scroll vocabulary: opacity 0→1 over **0.2s**, `easeOut`, 60ms
-stagger per index capped at 6, skipped under reduced motion. It was a 700ms `blur(10px)`
-+ 22px drift; both were dropped for the same reason as the dissolve, and "opacity only" is
-also what kept the old future glow safe (above).
+  carried. Gone.
 
 **Bookend cinema — the accent still clears its floor under the push-in.** The hero's
 film scales `1 → 1.045` as the section scrolls out. The gold headline accent is the
@@ -316,70 +203,18 @@ its own animation).
 **Hero entrance — reduced motion is `initial: false`, not a branch by element type.**
 The five-beat arrival keeps the same `m.*` elements in both branches and disables the
 animation via props, so anything that ever observes those nodes can never capture a
-stale one — the `SectionTransition`/`ChapterRail` trap recorded below. The beats are
+stale one. (`SectionTransition` swapped its node after mount and `ChapterRail`'s
+IntersectionObserver froze on the original; both went 2026-08-16. If anything ever
+observes an animated node, render one element type in every branch.) The beats are
 finite and motion/react-driven, so the CSS pause rule (keyframes only) cannot strand
 them mid-flight; the y-drift sits on the hero's own children, never on a section
 wrapper.
 
-**Four infinite CSS animations exist — the fleet's pulse and flow, the tiers gauge
-halo's breathing, and the route map's lit-stop halo (2026-09-06); re-count before
-editing the pause-rule comment.** The tiers
-breathing joined 2026-08-24 (on the straight track's thumb; the v4 circular dial moved
-it to the hub's halo, opacity instead of box-shadow — SVG circles have no box-shadow);
-the universal `animation-play-state` rule covered both incarnations with zero changes,
-which is the rule working as designed. Every OTHER motion added in the sections revamp
-is motion-driven and finite (staged beats, wire draw-in, needle travel) precisely so
-the pause rule — CSS keyframes only — can never strand it mid-flight.
-
-**Staged beats — same-element reduced motion, and `rise={0}`.**
-`staged.tsx` renders ONE element type in both branches (`initial={false}` under
-reduced motion) — the `SectionTransition` observer trap, §2 below, is why. `rise={0}`
-writes NO transform at all; it was mandatory around the old future cards' fixed
-glow and stays for the next fixed-attachment surface. Staged inline halves (`StagedLine` in a heading, quote or
-pivot) need `display: inline-block` at the call site — a transform is silently ignored
-on a plain inline box.
-
-**Fleet assembly — measured elements enter by OPACITY ONLY.** The nodes and the media
-card are measured for the wire endpoints; `getBoundingClientRect` INCLUDES transforms,
-and the ResizeObserver re-fires only on size change — so an entrance transform bakes a
-mid-flight position into the wires permanently. The wire draw-in is motion
-`pathLength` on the LIVE wires only: the dashed NEXT connector keeps its stylesheet
-dash geometry (`3 9` in user units) and fades in instead — a `pathLength`-normalised
-dash array would turn its dashes solid.
-
-**The dial's needle swings via sprung endpoint math, never a CSS rotate.** The first
-v4 cut rotated an SVG line with a motion `rotate`; the rotation pivoted around the
-line's own box centre (SVG transform-origin resolution is unreliable across engines)
-and the needle detached from the hub. `useSpring` on the angle + `useTransform` to
-x2/y2 attributes pins the pivot to the hub exactly. Copilot rest is fraction 0.12 of
-the sweep (the v2 thumb's resting value), Autopilot mirrors at 0.88.
-
-**Problem grid areas keep the pivot the exit at every width.** `'copy figure' /
-'pivot figure'` on two columns, `copy / figure / pivot` on one — the diagram slots
-BETWEEN body and pivot on phones without touching the DOM order. The clip is a 10s
-ping-pong loop (5s forward + reverse, 720×720, 108KB) because the source generation
-cannot be trusted to close its own loop — and generation used a start frame only (the
-"pin both ends and the model barely moves" trap, §3).
-
-**Watchdog front grid is 3 columns since the revamp** (`auto minmax(0,1fr) auto`):
-avatar spans both rows in column 1 at `clamp(5.5rem, 19vh, 9.5rem)` — 21vh/10.5rem
-squeezed the tagline to four lines — and the rule plate sits in column 3 at
-`max-width: 9.5rem`, hidden below 560px (one-column fronts return to name + tagline;
-the rule stays on the back). The card's 15rem height floor is untouched and still
-load-bearing.
-
-**Personas — the gold wash (`0.055` at 12% 0%) is measured like the watchdogs' teal one.**
-Its peak lifts the ground to rgb(31,41,34); the 0.55 column-note measures 5.10:1 there
-(5.40 on flat ink) and the gold eyebrow 8.79:1. Re-measure both before raising the alpha.
-0.055, not the teal's 0.07 — gold is the brighter pigment.
-
-**`Reveal` branches on element type for reduced motion (`div` vs `m.div`) — and that is
-only safe because nothing observes its nodes.** `usePrefersReducedMotion` resolves `false`
-then flips `true` after mount, so the branch replaces the DOM node once. `SectionTransition`
-had the same shape and it bit: `ChapterRail`'s IntersectionObserver captured the originals
-at mount and froze on "Top" for reduced-motion users. Both are gone (2026-08-16), but the
-trap is worth keeping: if anything ever observes a `Reveal` node, render one element type
-for every branch.
+**No keyframe animation exists under `sections/landing/` (checked 2026-09-10).** The
+universal `animation-play-state` pause rule stays universal so the next animation added
+is covered without anyone remembering to. Motion in the middle sections is either
+Motion-driven and finite, or a clip that reads the pause through context — neither can be
+stranded mid-flight by the CSS rule.
 
 **Footer — the wordmark viewBox is `375×58`, and the WIDTH is measured.** The glyph run
 ("REPWORTH", font-size 68, -0.02em tracking) is 370.8 user units by
@@ -396,13 +231,6 @@ narrow column beside a one-link Company column read as crowded-right/empty-middl
 bar carries them beside the copyright; the links reuse `.rw-lp-foot-link` so the asserted
 focus ring covers them, and `.rw-lp-foot-legal-link` only sets the smaller size plus the same
 6px target-size padding trick the column links use.
-
-**Three flip selectors, all required:** `:hover` (hover-capable fine pointers only —
-media-gated 2026-08-24, because sticky tap-hover held a card flipped after the tap that
-set `data-flipped` back to false, so a second tap could never restore the front),
-`[data-flipped='true']` (touch — the click toggle is gated to non-hover devices for the
-mirror reason: on a pointer device a click latched the card flipped after the pointer
-left), `:focus-visible` (keyboard).
 
 **The nav row at 320px has ~70px of slack** since the motion toggle left it (2026-08-16).
 It USED to have zero: lockup (185px) + gap + toggle (44px) + gap + hamburger (40px) landed
@@ -430,44 +258,9 @@ hero and closing actions were a hairline ring with a 12px tracked-caps label, an
 carried a pill only with self-serve on. **These three are the only gold-filled elements on
 the page** — a fourth would spend the accent.
 
-**Sections 2-5 are carousels below 767px, and the breakpoint has one owner: `carousel.css`.**
-Five rails: the fleet's two tiers, the persona grid, the watchtower grid, and the committed
-grid. Stacked, those four sections ran **6,891px at 390px wide**, measured — over eight
-screens of cards to pass to reach the next argument. The rails bring them to **4,010px**.
-Four values are load-bearing. (a) The rail restyles the container each section ALREADY
-renders (`.rw-lp-personas-list`, `.rw-lp-watch-grid`, `.rw-lp-fleet-tier`; the future
-grid was a fourth until the 2026-09-06 route map, whose trail is not a rail); a wrapper
-would become the desktop grid item and every desktop rule
-would have to be re-pointed at it. (b) `.rw-lp-carousel[data-carousel='true']` is 0,2,0 to
-match `.rw-lp-fleet-tier[data-tier='watchdog']`, and carousel.css is imported **after** every
-section file — move that import up and the fleet's watchdog tier stays a stacked column.
-(c) `justify-content: flex-start` is required, not a default: the fleet tier centres its row,
-and a centred flex line that overflows splits the overflow across both sides, where
-`scrollLeft` cannot reach it — the first card sat 394px off the left edge while the rail
-still reported `scrollLeft: 0`. (d) `opacity: 1 !important` / `transform: none !important` on
-the slides: `Staged` gates each card on 30% of ITSELF being in view, a peeking card shows
-~15%, so the peek — the only thing that says the row continues — was invisible. Motion writes
-those as inline styles, which is the one case `!important` exists for. Slide measures are per
-section: personas and committed `min(78vw, 19rem)` (personas is 3:4, so width IS height —
-405px against a full-width card's 456px), watchtower `min(88vw, 24rem)` (the row form's 15rem
-floor was measured at 342px wide; narrower re-opens the clipping bug), fleet
-`min(80vw, 17rem)`. The committed rail also raises `--rw-lp-carousel-pad` to 1.25rem: its
-glow wash sits at `inset: -0.875rem` and the rail's `overflow-y: hidden` would shear 14px off
-it. **The 767px breakpoint is deliberately NOT the fleet's 900px one**: 900 is where the
-constellation stops being readable, 767 is where the stack gets too long. The dots render
-only when the slides actually run wider than the track — at 767px the fleet's two watchdog
-cards already fit, and a control that does nothing when pressed is worse than no control.
-That test measures the SLIDES (`first.left` to `last.right`), never `scrollWidth`: the
-committed card's glow bleed put 570 into `scrollWidth` against a 556 client width, and the
-desktop 2x2 rendered a hidden dot row it had no use for.
-
-**Labels are one style: `--rw-lp-label-*` (mono, 12px, 0.04em, uppercase).** The five
-section eyebrows, the persona column note, the watchdog tier label and the route map's
-legend label all
-consume it. Their alphas were NOT changed (0.55 on the notes/tier labels, measured
-composited at 5.40 / 5.26 / 4.84 under the teal wash), but the face and size were: the
-mono at 12px is a larger glyph than the display face at 10px, so every one of those
-contrast figures is now a floor, not a measurement.
+**Labels are one face: `--rw-lp-label-*` (mono, 12px, 0.04em).** Uppercase is applied at
+the call site so a label can opt out. The middle sections use the label font at their own
+sizes; essential small captions stay at 11px or more (chosen-design.md).
 
 ---
 
@@ -480,9 +273,12 @@ contrast figures is now a floor, not a measurement.
 | `ctaVideo-{1600,960}.mp4` + poster | 515K/204K/115K from `hero3reverseVideo.mp4` (27MB) |
 | `repworth-explainer.mp4` + poster | 25MB, 2m26s, narrated. **Remuxed `+faststart`** — the moov atom was at the end, so playback would have blocked on the full 25MB download. Fetches 0 bytes until clicked. **Still has no captions** (probed 2026-08-04: video + audio streams only, and frames at 20s/75s carry no burned-in text). |
 | `problem/problem-diagram.{mp4,jpg}` | 108K/24K. The reputation diagram (2026-08-24): café + orbiting review artifacts, generated (Higgsfield, nano-banana still → seedance clip, agent still as style ref), 720×720, 10s seamless ping-pong loop, audio stripped, `+faststart`. Asset rules: `problem/problem-copy.ts`. |
-| `future/roadmap-ground.jpg` | 1.0M, 3840×2143. The route map's chart ground (2026-09-06): a dark green survey chart, lamp-lit on the left, no text — generated (Runway, nano-banana-pro, the off-CRT still as style ref) at 2752×1536, then **upscaled 2× (Runway sublime, low detail invention) and downscaled to 3840** so a full-bleed 1920px viewport gets a 2× file on retina. The first cut shipped a 1920px file with `sizes="75rem"`, so the browser fetched a ~1200px variant for a 1920px-wide chart and the owner read the whole section as low-resolution; `sizes="100vw"` + `quality={88}` is the contract now, and `next/image` serves the resized variants (the 1.0M master never ships as-is). Decorative; the road and stops carry the meaning. |
-| `future/clouds-{a,b}.jpg` | 52K each, 1600×900. Two cloud plates for the region past the horizon (owner request 2026-09-06): white mist on pure black (Runway, nano-banana-pro, no reference), `mix-blend-mode: screen` so the black is a no-op and only the mist lightens the chart; masked to fade in from the horizon line; two drift keyframes (90s / 130s, alternate) under the ambient pause rule, off under reduced motion; hidden below 900px. Under the stops, so the hints stay legible. |
+| `future/roadmap-ground.jpg` | 1.0M, 3840×2143. The route map's chart ground (2026-09-06): a dark green survey chart, lamp-lit on the left, no text — generated (Runway, nano-banana-pro, the off-CRT still as style ref) at 2752×1536, then **upscaled 2× (Runway sublime, low detail invention) and downscaled to 3840** so a full-bleed 1920px viewport gets a 2× file on retina. The first cut shipped a 1920px file with `sizes="75rem"`, so the browser fetched a ~1200px variant for a 1920px-wide chart and the owner read the whole section as low-resolution; Since the Working Atlas (2026-09-10) it renders `unoptimized` at 1.75× so each chapter's crop stays sharp on Retina; the ~1MB file is shared by all three chapters (chosen-design.md, "Map rendering contract"). Decorative; the stops carry the meaning. |
+| `future/clouds-{a,b}.jpg` | 52K each, 1600×900. Two cloud plates for the region past the horizon (owner request 2026-09-06): white mist on pure black (Runway, nano-banana-pro, no reference), `mix-blend-mode: screen` so the black is a no-op and only the mist lightens the chart; shown only on the Horizon chapter (opacity .42), with a vertical mask. Under the stops, so the hints stay legible. |
 | `future/stops/*.webp` | 10 landmark cutouts, 253K total (7–52K each, ≤480px tall). Reply and Solicitor are the agent stills cut out; the other eight were generated on a flat dark-green ground against the same stills and cut out with a PIL corner flood-fill (`thresh 70`, 1px erode, 0.8px feather) — the Runway cutter kept only the television and dropped every second object (book, cable, ring, gate arm). Lit stops' screens are ON; planned stops' screens are OFF. No red or orange (the first gate arm and life ring were re-made). Which stop uses which: `future-copy.ts`. `future/off-crt.jpg` (13K, the old cards' unpowered set) was deleted with the cards. |
+| `fleet/courtyard.webp` | 284K, 2172×724. The fleet section's 3:1 courtyard: four CRT agents at a reply counter, lookout balcony, report kiosk and outbound postbox. Provenance: the 2026-09-final collection. |
+| `jobs/{respond,protect,request,brief,measure}.{webp,mp4}` | 472K stills, 8.0M films. One generated film per job, each with its still (the still is the poster, the reduced-motion frame and the failure fallback). Films load only near the viewport. |
+| `tiers/*` | 2.0M. `lever-{copilot,autopilot}.webp` (the settled lever, left and right), `lever-to-{copilot,autopilot}.mp4` (the swing into each mode) and `activity-{copilot,autopilot}.mp4` (the selected side station). Named by mode since 2026-09-10; the generated files had reversed names until then. |
 
 **The masters are no longer in the repo.** `heroVideo.mp4` (23M), `hero2Video.mp4` (30M),
 `hero3Video.mp4` (20M), `landing-hero.mp4` (13M) and `hero3reverseVideo.mp4` (27M, the CTA
@@ -528,10 +324,11 @@ on a paused video without waiting repaints nothing — 24 "different" frames cam
 identical), screenshot the **tight glyph band** from `Range.getClientRects()` rather than the
 block box, and take the brightest pixel. That is what found the hero accent at 2.89:1.
 
-`focus-visible-marketing.test.ts` asserts a ring on **16** landing controls across 15
-rows (the dial's two mode buttons share one). Adding an interactive element means
-adding it there. Landing rings use `--rw-lp-accent`; the Island's `--rw-teal-strong`
-is near-invisible on this ink.
+`focus-visible-marketing.test.ts` asserts a ring per landing control, or per scope where
+one scope rule rings all its controls (sections 2–6 and 8). Adding an interactive element
+means adding it there. Landing rings use `--rw-lp-accent` — except the light-paper owner
+controls, which ring in `#b17f30`; the Island's `--rw-teal-strong` is near-invisible on
+this ink.
 
 ---
 
@@ -605,9 +402,6 @@ still stands. Drop-in steps are in §3. **This is the only thing between the pag
 
 ## 6. Open items beyond the audit
 
-- **Sections 6–8 unbuilt** (problem, pipeline, Copilot vs Autopilot).
-- **Base was `4a16bcfd`**, still level with `origin/main` when the PR opened. `main` moves fast
-  — re-check before any follow-up branch.
 - **Two video-production markdown files remain untracked at the repo root**
   (`RepWorth-hero-video-script.md`, `RepWorth-launch-video-production.md`). They are unrelated to
   this page and were deliberately left out of its PR; decide separately whether they belong in

@@ -394,6 +394,14 @@
    only has to settle the CSS-driven pieces. */
 
 @media (prefers-reduced-motion: reduce) {
+  /* The server cannot know this preference. Motion can retain the entrance
+     it started during hydration even after the hook switches to duration 0.
+     Resolve the authored final pose in CSS from the first paint. */
+  .rw-lp-hero-copy > * {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
   .rw-lp-hero-video {
     transition: none;
   }

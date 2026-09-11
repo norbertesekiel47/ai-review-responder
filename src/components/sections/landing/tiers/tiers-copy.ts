@@ -1,5 +1,5 @@
 /**
- * Copilot vs Autopilot — section 8 copy.
+ * Copilot vs Autopilot — the owner-controls section's copy.
  *
  * Drafted from the design of record (§8); wording blessed by the owner on
  * staging, 2026-08-24.
@@ -19,18 +19,10 @@
  *   - Movement between modes is the owner's act, in both directions.
  */
 
-export const EYEBROW = 'Two ways to run it';
-
-export const HEADING_LEAD = 'A dial,';
-export const HEADING_ACCENT = 'not a switch.';
-
-/** Flat string for `aria-label`, since the visible heading is split. */
-export const HEADING_PLAIN = `${HEADING_LEAD} ${HEADING_ACCENT}`;
-
 export const LEAD_IN =
   'You set how far the fleet may go on its own, and where it has to stop and ask.';
 
-export interface TierPanel {
+interface TierPanel {
   id: string;
   name: string;
   claim: string;
@@ -51,8 +43,6 @@ export const TIERS: readonly TierPanel[] = [
     body: 'Positive reviews can post on their own, inside a rating band and a daily cap you set, after a veto window, with the Judge reviewing every auto-post.',
   },
 ] as const;
-
-export const MOVEMENT_NOTE = 'Start on Copilot. Move the dial when you are ready, and move it back any time.';
 
 export const GOVERNOR_NOTE =
   'And if anything drifts, the Governor can suspend autonomy for the whole account.';

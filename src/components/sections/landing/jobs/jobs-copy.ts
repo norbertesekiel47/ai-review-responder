@@ -36,7 +36,7 @@
  * No customer counts, no testimonials, no invented numbers anywhere.
  */
 
-export interface Job {
+interface Job {
   id: string;
   /** The two-digit index shown in the label font. */
   index: string;
@@ -50,9 +50,6 @@ export interface Job {
   agents: string;
   /** Where the owner meets the result. */
   surface: string;
-  /** Whether the row belongs to the acting (gold) or the watching (teal)
-   *  temperature. Measure is the run spine's job, so it takes teal. */
-  tone: 'gold' | 'teal';
 }
 
 export const JOBS: readonly Job[] = [
@@ -64,7 +61,6 @@ export const JOBS: readonly Job[] = [
     body: 'Reply drafts a response to each new review within seconds, in the language it was written in. You approve it from your inbox, or let Autopilot post the positive ones inside the rating band and daily cap you set.',
     agents: 'Reply',
     surface: 'Your inbox · your Google listing',
-    tone: 'gold',
   },
   {
     id: 'protect',
@@ -74,7 +70,6 @@ export const JOBS: readonly Job[] = [
     body: 'Guardian reads every review of three stars or less, grades how serious it is, and escalates the ones that need you. It never posts. The Judge and the Governor watch everything that posts on its own.',
     agents: 'Guardian · Judge · Governor',
     surface: 'Escalation email · your dashboard',
-    tone: 'teal',
   },
   {
     id: 'request',
@@ -84,7 +79,6 @@ export const JOBS: readonly Job[] = [
     body: 'A printable QR code for each location sends walk-ins straight to your Google review form. Solicitor asks your past customers by email, in batches you approve first. Every opt-out is honoured for good, and it never posts anything publicly.',
     agents: 'Solicitor',
     surface: 'Your counter · your customers’ inboxes',
-    tone: 'gold',
   },
   {
     id: 'brief',
@@ -94,7 +88,6 @@ export const JOBS: readonly Job[] = [
     body: 'Insights sends a plain-language weekly report: what came in, what went out, what needs your eye, and one thing worth a look. A monthly impact report closes each month. Nothing to remember to check.',
     agents: 'Insights',
     surface: 'Your inbox, Monday morning',
-    tone: 'gold',
   },
   {
     id: 'measure',
@@ -104,22 +97,11 @@ export const JOBS: readonly Job[] = [
     body: 'Rep Pulse turns your rating and response rate into one transparent 0–100 score. The dashboard holds rating and volume trends, review velocity, and a Restraint tab listing everything the agents decided not to do, and why.',
     agents: 'The run spine',
     surface: 'Your dashboard',
-    tone: 'teal',
   },
 ] as const;
 
-export const EYEBROW = 'One system, five jobs';
-export const HEADING_LEAD = 'It runs a whole';
-export const HEADING_ACCENT = 'reputation department.';
-/** Flat string for `aria-label`, since the visible heading is split. */
-export const HEADING_PLAIN = `${HEADING_LEAD} ${HEADING_ACCENT}`;
 export const LEAD_IN =
   'Answering reviews is one job of five. Each job belongs to an agent with a single permission, and every action every agent takes lands on the same recorded run spine.';
-
-/** Column labels for the meta cells, rendered once above the ledger on wide
- *  viewports and as inline labels on narrow ones. */
-export const AGENTS_LABEL = 'Who does it';
-export const SURFACE_LABEL = 'Where you see it';
 
 /** The closing line under the ledger: the agentic claim, stated as a rule. */
 export const CLOSING_LEAD = 'Five jobs, one record.';

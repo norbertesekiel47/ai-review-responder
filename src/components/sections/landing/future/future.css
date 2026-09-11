@@ -1,998 +1,226 @@
-/* ==========================================================================
-   Where this is going — the route map (2026-09-06 revamp).
-
-   One survey chart: a generated ground, an SVG road in the chart's own
-   1600×900 space, and HTML stops positioned by the same coordinates. The
-   section's whole job is to be exciting WITHOUT reading as available, and
-   three devices carry that, deliberately redundant:
-
-     1. The legend on the chart says "not available yet" about everything
-        past the lit stops.
-     2. Every unbuilt stop carries its marker (Phase n / Later) beside its
-        name, so a skim reads status before a body.
-     3. Unbuilt roads are dashed and dim; only the shipped road is solid gold.
-
-   Do not give a planned or horizon stop the lit treatment, and do not move
-   the legend off the chart.
-
-   Custom properties here are `--rw-lp-*` only (design-scope-purity). Stop
-   positions ride `--rw-lp-stop-x/y`, written inline by FutureSection.tsx as
-   percentages of the stage.
-   ========================================================================== */
-
-.rw-lp-future {
-  --rw-lp-future-text: #f4f2ec;
-  --rw-lp-future-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
-  /* The landmark stage: the object stands on the road point, the label hangs
-     below it. Sized in vw so the chart and its objects scale together. */
-  --rw-lp-landmark: clamp(3.75rem, 6.2vw, 7rem);
-  --rw-lp-card-width: 18.5rem;
-
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  /* As tall as its content plus the page's section rhythm — never bound to
-     the viewport (2026-08-16; docs/brand-asset-library/design-systems/landing/measurements.md §2).
-     No bottom padding: the chart is full-bleed and ends the section, and its
-     own bottom fade is the hand-off to the closing band. A gap of ink
-     between the two read as a hole (owner, 2026-09-06). */
-  /* No padding at all from 1100px up: the chart starts at the section's
-     top edge, fading up from the dial section's ink, and the header sits
-     over its title band (see the min-width block). Below 1100px a small top
-     padding returns and the header stacks above the chart. */
-  padding: 0;
-  background: var(--rw-lp-ink, #14201c);
+/* Section 8 — where this is going: the Working Atlas. A five-stop chart per
+   chapter with a separate, readable detail ledger. */
+.rw-lp-final-roadmap {
+  --rw-lp-map-stage: #0a1812;
+  --rw-lp-map-rule: rgb(var(--rw-lp-text-rgb) / .22);
+  --rw-lp-map-muted: rgb(var(--rw-lp-text-rgb) / .72);
+  padding: 32px 0 24px;
+  background: var(--rw-lp-ink);
+  color: var(--rw-lp-text);
+  font-family: var(--rw-font-body), sans-serif;
 }
-
-.rw-lp-future-inner {
-  /* `width: 100%` is load-bearing. The section is a column flex container, so
-     this is a flex item; its `margin: 0 auto` then wins over the default
-     `align-self: stretch` and collapses the block to fit-content, silently
-     narrowing everything inside it. */
-  width: 100%;
-  max-width: var(--rw-lp-inner-max, 102rem);
-  margin: 0 auto;
-  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+.rw-lp-final-roadmap *,
+.rw-lp-final-roadmap *::before,
+.rw-lp-final-roadmap *::after { box-sizing: border-box; }
+.rw-lp-final-roadmap :where(h2, h3, p, ol) { margin: 0; }
+.rw-lp-final-roadmap button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.rw-lp-final-roadmap button:focus-visible {
+  outline: 3px solid var(--rw-lp-accent);
+  outline-offset: 5px;
+  box-shadow: 0 0 0 7px var(--rw-lp-ink);
+  z-index: 5;
 }
-
-/* ---------- header: the argument left, its conclusion + legend right ---------- */
-.rw-lp-future-head {
+.rw-lp-final-roadmap-inner { width: min(100% - 96px, 1440px); margin: 0 auto; }
+.rw-lp-final-roadmap-intro {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: clamp(1.5rem, 4vw, 4rem);
+  grid-template-columns: 1.2fr 1fr;
   align-items: end;
-  margin-bottom: clamp(1.5rem, 3.5vh, 2.5rem);
+  gap: 56px;
+  margin-bottom: 24px;
 }
-
-.rw-lp-future-aside {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: clamp(1rem, 2.5vh, 1.5rem);
-}
-
-/* From 1280px up the header is a map title: absolute over the chart's title
-   band, still inside the reading column. `pointer-events: none` so the band
-   never shadows a stop; nothing in the header is interactive. */
-@media (min-width: 1280px) {
-  .rw-lp-future-inner {
-    position: absolute;
-    top: clamp(2.5rem, 5vh, 4.5rem);
-    left: 0;
-    right: 0;
-    z-index: 4;
-    pointer-events: none;
-  }
-  .rw-lp-future-head {
-    margin-bottom: 0;
-  }
-  .rw-lp-future-heading,
-  .rw-lp-future-lead,
-  .rw-lp-future-closing-quote {
-    /* A thin ink shadow keeps the title legible over the chart's linework. */
-    text-shadow: 0 1px 14px rgb(var(--rw-lp-ink-rgb) / 0.9);
-  }
-}
-
-.rw-lp-future-intro {
-  max-width: 36rem;
-}
-
-/* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
-.rw-lp-future-eyebrow {
-  margin: 0 0 0.625rem;
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: var(--rw-lp-label-size);
-  letter-spacing: var(--rw-lp-label-tracking);
+.rw-lp-final-roadmap-eyebrow,
+.rw-lp-final-ledger-heading,
+.rw-lp-final-stop-status {
+  font: 11px/1.55 var(--rw-lp-label-font), monospace;
   text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
+  letter-spacing: .04em;
 }
-
-.rw-lp-future-heading {
-  margin: 0;
-  font-family: var(--rw-font-display);
-  font-weight: 200;
-  /* The shared section-heading scale (2026-08-24 header-grammar pass). */
-  font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
-  line-height: 1.06;
-  letter-spacing: -0.025em;
-  color: var(--rw-lp-future-text);
+.rw-lp-final-roadmap-eyebrow { color: var(--rw-lp-accent); margin-bottom: 20px !important; }
+.rw-lp-final-roadmap h2 {
+  font: 400 clamp(32px, 3.1vw, 48px)/1.08 var(--rw-font-serif), serif;
+  letter-spacing: -.025em;
+  max-width: 700px;
 }
-
-.rw-lp-future-heading-accent {
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-.rw-lp-future-lead {
-  margin: clamp(0.5rem, 1.4vh, 1rem) 0 0;
-  max-width: 34rem;
-  font-family: var(--rw-font-display);
-  font-weight: 400;
-  /* The shared lead scale (2026-08-24 header-grammar pass). */
-  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
-  line-height: 1.6;
-  color: var(--rw-lp-future-muted);
-}
-
-/* The conclusion, set beside the argument so the visitor reads the promise
-   ("the same supervised fleet") before exploring what joins it. */
-.rw-lp-future-closing {
-  margin: 0;
-  padding: clamp(0.875rem, 2.2vh, 1.25rem) 0 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  max-width: 28rem;
-}
-
-.rw-lp-future-closing-quote {
-  margin: 0;
-  font-family: var(--rw-font-display);
-  font-weight: 200;
-  font-size: clamp(0.9375rem, min(1.5vw, 2.2vh), 1.25rem);
-  line-height: 1.45;
-  letter-spacing: -0.015em;
-  color: var(--rw-lp-future-text);
-}
-
-.rw-lp-future-closing-accent {
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-/* ---------- the chart ----------
-   Full-bleed: a direct child of the section (a column flex container), so
-   `width: 100%` runs it edge to edge while the header above keeps the reading
-   measure. 20:9, not 16:9 — at viewport width a 16:9 chart is taller than a
-   laptop screen. The ground is 16:9 and crops top and bottom under `cover`;
-   it is decorative, and the lamp light stays on the left. */
-.rw-lp-future-map {
+.rw-lp-final-roadmap h2 em { display: block; color: var(--rw-lp-accent); font-weight: 400; }
+.rw-lp-final-roadmap-lead { max-width: 530px; color: var(--rw-lp-map-muted); font-size: 14px; line-height: 1.8; }
+.rw-lp-final-chapters { display: flex; gap: 0; border-top: 1px solid var(--rw-lp-map-rule); border-bottom: 1px solid var(--rw-lp-map-rule); }
+.rw-lp-final-chapters button {
   position: relative;
-  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 70px;
+  flex: 1;
+  padding: 14px 24px;
+  border: 0;
+  border-right: 1px solid var(--rw-lp-map-rule);
+  color: var(--rw-lp-map-muted);
+  background: transparent;
+  text-align: left;
+  transition: background .18s ease, color .18s ease;
+}
+.rw-lp-final-chapters button:last-child { border-right: 0; }
+.rw-lp-final-chapters button[aria-pressed='true'] { color: var(--rw-lp-text); background: rgb(var(--rw-lp-text-rgb) / .055); }
+.rw-lp-final-chapters button::after { content: ''; position: absolute; bottom: -1px; left: 24px; right: 24px; height: 2px; background: var(--rw-lp-text); opacity: 0; }
+.rw-lp-final-chapters button[aria-pressed='true']::after { opacity: .8; }
+.rw-lp-final-chapters button[data-state='shipped'][aria-pressed='true']::after { background: var(--rw-lp-accent); }
+.rw-lp-final-chapter-number { font: 11px var(--rw-lp-label-font); align-self: flex-start; padding-top: 6px; }
+.rw-lp-final-chapters strong { display: block; font-size: 15px; font-weight: 500; }
+.rw-lp-final-chapters small { display: block; margin-top: 5px; font-size: 12px; }
+.rw-lp-final-chapter-arrow { font-size: 22px; margin-left: auto; }
+.rw-lp-final-map-ground { position: absolute; inset: 0; pointer-events: none; z-index: -2; }
+.rw-lp-final-map-ground img { object-fit: cover; }
+.rw-lp-final-map-ground::after { content: ''; position: absolute; inset: 0; background: rgb(var(--rw-lp-ink-rgb) / .2); }
+.rw-lp-final-compass { position: absolute; width: 68px; height: 68px; color: rgb(var(--rw-lp-text-rgb) / .45); stroke: currentColor; stroke-width: .7; pointer-events: none; }
+.rw-lp-final-landmark { display: block; position: relative; width: 100%; height: 100%; }
+.rw-lp-final-landmark img { display: block; position: relative; width: 100%; height: 100%; object-fit: contain; object-position: bottom; filter: drop-shadow(0 12px 10px rgb(var(--rw-lp-ink-rgb) / .5)); }
+.rw-lp-final-landmark[data-state='planned'] img { filter: saturate(.7) brightness(.88) drop-shadow(0 12px 10px rgb(var(--rw-lp-ink-rgb) / .5)); }
+.rw-lp-final-beacon { display: block; width: 100%; height: 100%; stroke: var(--rw-lp-text); stroke-width: 1.1; opacity: .65; }
+.rw-lp-final-map-caption {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--rw-lp-map-muted);
+  font: 10px/1.5 var(--rw-lp-label-font), monospace;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.rw-lp-final-stop-index { list-style: none; padding: 0; }
+.rw-lp-final-stop-index button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 66px;
   width: 100%;
-  /* 25:18 (2000×1440), not 20:9: the top ~36% is the title band the header
-     sits over from 1280px up (`--rw-lp-title-band`). Stops keep to y ≥ 820. */
-  --rw-lp-title-band: 36%;
-  aspect-ratio: 25 / 18;
-  overflow: hidden;
-  background: rgb(var(--rw-lp-ink-rgb));
+  padding: 10px 0;
+  background: transparent;
+  color: var(--rw-lp-map-muted);
+  border: 0;
+  border-bottom: 1px solid var(--rw-lp-map-rule);
+  text-align: left;
 }
+.rw-lp-final-index-number { align-self: flex-start; padding-top: 5px; font: 10px/1.4 var(--rw-lp-label-font); }
+.rw-lp-final-index-copy { flex: 1; min-width: 0; }
+.rw-lp-final-index-copy small { display: block; font: 9px/1.5 var(--rw-lp-label-font); text-transform: uppercase; letter-spacing: .02em; }
+.rw-lp-final-index-copy strong { display: block; font-size: 13px; line-height: 1.4; font-weight: 400; margin-top: 3px; }
+.rw-lp-final-index-arrow { margin-left: auto; font-size: 19px; opacity: 0; }
+.rw-lp-final-stop-index button[aria-pressed='true'] { color: var(--rw-lp-text); }
+.rw-lp-final-stop-index button[data-state='shipped'][aria-pressed='true'] .rw-lp-final-index-number { color: var(--rw-lp-accent); }
+.rw-lp-final-stop-index button[aria-pressed='true'] .rw-lp-final-index-arrow { opacity: 1; }
+.rw-lp-final-stop-detail { padding-top: 24px; }
+.rw-lp-final-stop-status { color: var(--rw-lp-map-muted); }
+.rw-lp-final-stop-detail[data-state='shipped'] .rw-lp-final-stop-status { color: var(--rw-lp-accent); }
+.rw-lp-final-stop-detail h3 { font: 400 28px/1.1 var(--rw-font-serif), serif; margin: 10px 0 14px; }
+.rw-lp-final-stop-body { font-size: 13px; line-height: 1.8; color: var(--rw-lp-map-muted); }
+.rw-lp-final-availability { display: block; font: 10px/1.5 var(--rw-lp-label-font); margin-top: 18px; color: var(--rw-lp-map-muted); }
+.rw-lp-final-roadmap-footer { display: flex; gap: 64px; align-items: flex-start; justify-content: space-between; padding-top: 16px; border-top: 1px solid var(--rw-lp-map-rule); margin-top: 16px; }
+.rw-lp-final-roadmap-footer p { max-width: 620px; font-size: 13px; line-height: 1.8; color: var(--rw-lp-map-muted); }
+.rw-lp-final-roadmap-footer strong { color: var(--rw-lp-text); font-weight: 400; }
+.rw-lp-final-roadmap-footer > span { min-width: 280px; font: 10px/1.8 var(--rw-lp-label-font); color: var(--rw-lp-map-muted); }
 
-/* Soft bands at the top and bottom edges so the full-bleed chart settles
-   into the section's ink instead of ending on a hard line. */
-.rw-lp-future-map::before,
-.rw-lp-future-map::after {
+.rw-lp-final-atlas-spread { display: grid; grid-template-columns: minmax(0, 1fr) 304px; border-bottom: 1px solid var(--rw-lp-map-rule); }
+.rw-lp-final-atlas-map { position: relative; isolation: isolate; min-height: 480px; overflow: hidden; background: var(--rw-lp-map-stage); }
+/* Each chapter frames the left, centre or right of the original map. A 1.75x
+   crop retains its fine contours on Retina screens; only the ground pans. */
+.rw-lp-final-atlas-map { --rw-lp-map-ground-position: 0%; --rw-lp-map-ground-shade: .08; --rw-lp-map-cloud-opacity: 0; }
+.rw-lp-final-atlas-map[data-state='planned'] { --rw-lp-map-ground-position: 50%; --rw-lp-map-ground-shade: .2; }
+.rw-lp-final-atlas-map[data-state='horizon'] { --rw-lp-map-ground-position: 100%; --rw-lp-map-ground-shade: .24; --rw-lp-map-cloud-opacity: .42; }
+.rw-lp-final-atlas-map > .rw-lp-final-map-ground img { transform: scale(1.75); transform-origin: var(--rw-lp-map-ground-position) 50%; transition: transform-origin .35s ease; }
+.rw-lp-final-atlas-map > .rw-lp-final-map-ground::after { background: rgb(var(--rw-lp-ink-rgb) / var(--rw-lp-map-ground-shade)); }
+.rw-lp-final-atlas-map > .rw-lp-final-map-ground::before {
   content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  /* Above the fog and the clouds (z 2), so the mist cannot spill over the
-     chart's edges; the stops (z 3, later in the DOM) still paint over it. */
-  z-index: 3;
-  height: clamp(3rem, 8vh, 6rem);
-  pointer-events: none;
-}
-.rw-lp-future-map::before {
-  top: 0;
-  background: linear-gradient(180deg, rgb(var(--rw-lp-ink-rgb)), transparent);
-}
-
-/* The title band: solid ink at the seam with the dial section, then a long
-   dissolve into the chart under the header's copy. */
-@media (min-width: 1280px) {
-  .rw-lp-future-map::before {
-    height: var(--rw-lp-title-band);
-    background: linear-gradient(
-      180deg,
-      rgb(var(--rw-lp-ink-rgb)) 0%,
-      rgb(var(--rw-lp-ink-rgb) / 0.92) 30%,
-      rgb(var(--rw-lp-ink-rgb) / 0.55) 68%,
-      transparent 100%
-    );
-  }
-}
-.rw-lp-future-map::after {
-  bottom: 0;
-  background: linear-gradient(0deg, rgb(var(--rw-lp-ink-rgb)), transparent);
-}
-
-.rw-lp-future-ground {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
-.rw-lp-future-ground-img {
-  object-fit: cover;
-}
-
-/* Fog past the horizon. Under the stops (which dim themselves) and over the
-   ground and roads, so the branches sink into it. */
-.rw-lp-future-fog {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(
-    90deg,
-    transparent 70%,
-    rgb(var(--rw-lp-ink-rgb) / 0.45) 82%,
-    rgb(var(--rw-lp-ink-rgb) / 0.72) 100%
-  );
-}
-
-/* ---- clouds past the horizon ----
-   Screen blend: the plates are white mist on pure black, so black is a no-op
-   and only the mist lightens the chart. Under the stops (z 3), over the fog
-   wash (z 2) — the hints stay legible through them. Masked so they fade in
-   from the horizon line rather than starting on a hard edge. */
-.rw-lp-future-clouds {
-  position: absolute;
-  top: 22%;
-  bottom: -8%;
-  left: 58%;
-  right: -6%;
-  z-index: 2;
-  pointer-events: none;
-  overflow: hidden;
-  /* Two masks intersected: fade in from the horizon line (left) AND thin
-     out at the layer's top and bottom, so its box never shows as an edge —
-     without the vertical fade the plates were cut flat at the layer's top,
-     a visible horizontal line under the legend (owner, 2026-09-06). */
-  -webkit-mask-image:
-    linear-gradient(90deg, transparent 0%, #000 38%, #000 100%),
-    linear-gradient(180deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
-  -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(90deg, transparent 0%, #000 38%, #000 100%),
-    linear-gradient(180deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
-  mask-composite: intersect;
-}
-
-.rw-lp-future-cloud {
-  object-fit: cover;
-  mix-blend-mode: screen;
-  will-change: transform;
-}
-
-.rw-lp-future-cloud-a {
-  opacity: 0.55;
-  animation: rw-lp-future-drift-a 90s ease-in-out infinite alternate;
-}
-
-.rw-lp-future-cloud-b {
-  opacity: 0.4;
-  transform: scale(1.15);
-  animation: rw-lp-future-drift-b 130s ease-in-out infinite alternate;
-}
-
-@keyframes rw-lp-future-drift-a {
-  from {
-    transform: translate3d(-3%, 0, 0) scale(1.05);
-  }
-  to {
-    transform: translate3d(3%, -2%, 0) scale(1.1);
-  }
-}
-
-@keyframes rw-lp-future-drift-b {
-  from {
-    transform: translate3d(4%, 2%, 0) scale(1.15);
-  }
-  to {
-    transform: translate3d(-4%, -1%, 0) scale(1.2);
-  }
-}
-
-.rw-lp-future-chart {
   position: absolute;
   inset: 0;
   z-index: 1;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+  background-image: url('/future/clouds-a.jpg'), url('/future/clouds-b.jpg');
+  background-size: cover;
+  background-position: center, right center;
+  background-blend-mode: screen;
+  mix-blend-mode: screen;
+  opacity: var(--rw-lp-map-cloud-opacity);
+  mask-image: linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent);
+  transition: opacity .35s ease;
 }
+.rw-lp-final-atlas-map > .rw-lp-final-compass { left: 26px; bottom: 25px; }
+.rw-lp-final-atlas-route { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.rw-lp-final-atlas-route path { stroke: var(--rw-lp-accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; opacity: .68; }
+.rw-lp-final-atlas-map[data-state='planned'] .rw-lp-final-atlas-route path { stroke: var(--rw-lp-text); stroke-dasharray: 7 8; opacity: .4; }
+.rw-lp-final-atlas-map[data-state='horizon'] .rw-lp-final-atlas-route path { stroke: var(--rw-lp-text); stroke-dasharray: 1 9; opacity: .36; }
+.rw-lp-final-atlas-stop { position: absolute; left: var(--rw-lp-map-x); top: var(--rw-lp-map-y); transform: translate(-50%, calc(-100% + 12px)); width: min(15%, 145px); height: 148px; display: flex; flex-direction: column; align-items: center; padding: 0; border: 0; color: var(--rw-lp-text); background: none; }
+.rw-lp-final-atlas-stop > .rw-lp-final-landmark { flex: 1; min-height: 0; width: 100%; padding-bottom: 5px; transition: transform .18s ease; }
+.rw-lp-final-map-pin { display: grid; place-items: center; flex: 0 0 24px; width: 24px; border: 1px solid var(--rw-lp-map-muted); border-radius: 50%; background: var(--rw-lp-ink); color: var(--rw-lp-text); font: 9px var(--rw-lp-label-font); }
+.rw-lp-final-atlas-stop[data-state='shipped'] .rw-lp-final-map-pin { color: var(--rw-lp-accent); border-color: var(--rw-lp-accent); }
+.rw-lp-final-atlas-stop[aria-pressed='true'] .rw-lp-final-map-pin { outline: 1px solid currentColor; outline-offset: 4px; }
+.rw-lp-final-atlas-stop[aria-pressed='true'] > .rw-lp-final-landmark { transform: translateY(-4px); }
+.rw-lp-final-map-stop-label { position: absolute; top: calc(100% + 12px); left: -10px; right: -10px; display: block; text-align: center; text-shadow: 0 2px 10px var(--rw-lp-ink); }
+.rw-lp-final-map-stop-label small { display: block; font: 9px/1.5 var(--rw-lp-label-font); text-transform: uppercase; color: var(--rw-lp-map-muted); }
+.rw-lp-final-map-stop-label strong { display: block; font-size: 12px; line-height: 1.5; font-weight: 400; margin-top: 4px; }
+.rw-lp-final-map-footnote { position: absolute; bottom: 29px; right: 26px; max-width: 240px; color: var(--rw-lp-map-muted); font: 10px/1.6 var(--rw-lp-label-font); text-align: right; }
+.rw-lp-final-atlas-ledger { padding: 20px 0 20px 26px; border-left: 1px solid var(--rw-lp-map-rule); }
+.rw-lp-final-atlas-ledger > .rw-lp-final-ledger-heading { color: var(--rw-lp-map-muted); margin-bottom: 10px; }
+.rw-lp-final-atlas-ledger .rw-lp-final-stop-index button { min-height: 54px; }
+.rw-lp-final-atlas-ledger .rw-lp-final-stop-detail { min-height: 180px; padding-top: 18px; }
+.rw-lp-final-atlas-ledger .rw-lp-final-stop-detail h3 { margin: 8px 0 12px; font-size: 26px; }
+.rw-lp-final-atlas-ledger .rw-lp-final-availability { margin-top: 12px; }
 
-/* ---- roads ---- */
-.rw-lp-future-road-glow,
-.rw-lp-future-road-lit,
-.rw-lp-future-road-planned,
-.rw-lp-future-road-branch,
-.rw-lp-future-horizon-line {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  /* Keep the stroke a screen-pixel width no matter how the chart scales. */
-  vector-effect: non-scaling-stroke;
+@media (hover: hover) and (pointer: fine) {
+  .rw-lp-final-chapters button:hover,
+  .rw-lp-final-stop-index button:hover { color: var(--rw-lp-text); background: rgb(var(--rw-lp-text-rgb) / .04); }
+  .rw-lp-final-atlas-stop:hover > .rw-lp-final-landmark { transform: translateY(-4px); }
 }
-
-.rw-lp-future-road-glow {
-  stroke: rgb(var(--rw-lp-accent-rgb) / 0.32);
-  stroke-width: 14px;
-  filter: blur(6px);
+@media (max-width: 1100px) {
+  .rw-lp-final-roadmap-inner { width: calc(100% - 56px); }
+  .rw-lp-final-roadmap-intro { gap: 32px; }
+  .rw-lp-final-atlas-spread { grid-template-columns: minmax(0, 1fr) 270px; }
+  .rw-lp-final-atlas-ledger { padding-left: 20px; }
+  .rw-lp-final-atlas-stop { height: 124px; }
+  .rw-lp-final-map-stop-label { left: -13px; right: -13px; }
+  .rw-lp-final-map-stop-label strong { font-size: 11px; }
 }
-
-.rw-lp-future-road-lit {
-  stroke: var(--rw-lp-accent, #dcc489);
-  stroke-width: 2px;
+@media (max-width: 900px) and (min-width: 761px) {
+  .rw-lp-final-atlas-spread { grid-template-columns: 1fr; }
+  .rw-lp-final-atlas-map { min-height: 440px; }
+  .rw-lp-final-atlas-ledger { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 32px; padding: 24px 0; border-left: 0; }
+  .rw-lp-final-atlas-ledger > .rw-lp-final-ledger-heading { grid-column: 1 / -1; margin: 0; }
+  .rw-lp-final-atlas-ledger .rw-lp-final-stop-detail { padding-top: 0; }
 }
-
-.rw-lp-future-road-planned {
-  stroke: rgb(var(--rw-lp-text-rgb) / 0.42);
-  stroke-width: 1.5px;
-  stroke-dasharray: 5 8;
-  opacity: 0;
-  transition: opacity 0.7s ease-out 1.1s;
+@media (max-width: 760px) {
+  .rw-lp-final-roadmap { padding: 24px 0 20px; }
+  .rw-lp-final-roadmap-inner { width: calc(100% - 40px); }
+  .rw-lp-final-roadmap-intro { grid-template-columns: 1fr; gap: 18px; margin-bottom: 22px; }
+  .rw-lp-final-roadmap h2 { font-size: 34px; line-height: 1.08; }
+  .rw-lp-final-roadmap-eyebrow { margin-bottom: 15px !important; font-size: 10px; }
+  .rw-lp-final-roadmap-lead { font-size: 13px; line-height: 1.75; }
+  .rw-lp-final-chapters button { flex-direction: column; align-items: flex-start; padding: 13px 10px; gap: 7px; min-width: 0; min-height: 90px; }
+  .rw-lp-final-chapter-number { padding: 0; font-size: 9px; }
+  .rw-lp-final-chapters strong { font-size: 12px; }
+  .rw-lp-final-chapters small { font-size: 10px; line-height: 1.45; margin-top: 3px; }
+  .rw-lp-final-chapter-arrow { display: none; }
+  .rw-lp-final-chapters button::after { left: 10px; right: 10px; }
+  .rw-lp-final-map-caption { top: 17px; left: 16px; right: 16px; font-size: 8px; }
+  .rw-lp-final-map-caption > span:last-child { display: none; }
+  .rw-lp-final-atlas-spread { display: block; }
+  .rw-lp-final-atlas-map { min-height: 248px; margin-inline: -20px; }
+  .rw-lp-final-atlas-stop { height: 70px; width: 15%; }
+  .rw-lp-final-map-stop-label { display: none; }
+  .rw-lp-final-map-pin { width: 25px; flex-basis: 25px; font-size: 9px; }
+  .rw-lp-final-atlas-map > .rw-lp-final-compass { width: 42px; height: 42px; bottom: 15px; left: 15px; }
+  .rw-lp-final-map-footnote { bottom: 20px; right: 16px; max-width: 190px; font-size: 9px; }
+  .rw-lp-final-atlas-ledger { padding: 12px 0 0; border-left: 0; display: flex; flex-direction: column; }
+  .rw-lp-final-atlas-ledger .rw-lp-final-stop-detail { min-height: 180px; padding: 14px 0; order: -1; border-bottom: 1px solid var(--rw-lp-map-rule); margin-bottom: 20px; }
+  .rw-lp-final-atlas-ledger .rw-lp-final-stop-index button { min-height: 48px; }
+  .rw-lp-final-stop-detail h3 { font-size: 28px; }
+  .rw-lp-final-stop-body { font-size: 13px; }
+  .rw-lp-final-roadmap-footer { flex-direction: column; gap: 12px; margin-top: 18px; padding-top: 18px; }
+  .rw-lp-final-roadmap-footer > span { min-width: 0; font-size: 9px; }
+  .rw-lp-final-roadmap-footer p { font-size: 12px; }
 }
-
-.rw-lp-future-road-branch {
-  stroke: rgb(var(--rw-lp-text-rgb) / 0.26);
-  stroke-width: 1.25px;
-  stroke-dasharray: 2 9;
-  opacity: 0;
-  transition: opacity 0.9s ease-out 1.5s;
-}
-
-.rw-lp-future-horizon-line {
-  stroke: rgb(var(--rw-lp-text-rgb) / 0.16);
-  stroke-width: 1px;
-  stroke-dasharray: 1 6;
-  opacity: 0;
-  transition: opacity 0.9s ease-out 1.5s;
-}
-
-.rw-lp-future-chart[data-armed='true'] .rw-lp-future-road-planned,
-.rw-lp-future-chart[data-armed='true'] .rw-lp-future-road-branch,
-.rw-lp-future-chart[data-armed='true'] .rw-lp-future-horizon-line {
-  opacity: 1;
-}
-
-.rw-lp-future-horizon-label {
-  position: absolute;
-  z-index: 2;
-  top: clamp(1.5rem, 4vh, 2.5rem);
-  left: var(--rw-lp-stop-x);
-  transform: translateX(0.75rem);
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: 0.625rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgb(var(--rw-lp-text-rgb) / 0.34);
-  white-space: nowrap;
-}
-
-@media (min-width: 1280px) {
-  .rw-lp-future-horizon-label {
-    top: calc(var(--rw-lp-title-band) + 1rem);
-  }
-}
-
-/* ---- "Today": the end of the lit road ---- */
-.rw-lp-future-today {
-  position: absolute;
-  z-index: 2;
-  left: 0;
-  bottom: calc(var(--rw-lp-landmark) + 0.625rem);
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.1875rem 0.5rem 0.1875rem 0.375rem;
-  border-radius: 999px;
-  background: rgb(var(--rw-lp-ink-rgb) / 0.7);
-  box-shadow: 0 0 0 1px rgb(var(--rw-lp-accent-rgb) / 0.35);
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: 0.5625rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
-  white-space: nowrap;
-  pointer-events: none;
-}
-.rw-lp-future-today::before {
-  content: '';
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 50%;
-  background: var(--rw-lp-accent, #dcc489);
-  box-shadow: 0 0 8px rgb(var(--rw-lp-accent-rgb) / 0.8);
-}
-
-/* ---- legend (in the header's right column, under the closing quote) ---- */
-.rw-lp-future-legend {
-  width: 100%;
-  max-width: 28rem;
-  padding: 1rem 1.125rem;
-  border-radius: 0.875rem;
-  background: rgb(var(--rw-lp-ink-rgb) / 0.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 0 0 1px rgba(255, 255, 255, 0.06);
-}
-
-.rw-lp-future-legend-label {
-  margin: 0;
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: var(--rw-lp-label-size);
-  letter-spacing: var(--rw-lp-label-tracking);
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-/* The disclaimer. Do not fade it further: this is the text that keeps the
-   section honest, and it should be comfortably readable. */
-.rw-lp-future-legend-note {
-  margin: 0.25rem 0 0.625rem;
-  font-family: var(--rw-font-display);
-  font-weight: 400;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: rgb(var(--rw-lp-text-rgb) / 0.68);
-}
-
-.rw-lp-future-legend-keys {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.rw-lp-future-legend-key {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-family: var(--rw-font-display);
-  font-weight: 400;
-  font-size: 0.75rem;
-  color: rgb(var(--rw-lp-text-rgb) / 0.78);
-}
-
-.rw-lp-future-legend-key::before {
-  content: '';
-  width: 1.25rem;
-  height: 0;
-  border-top: 2px solid var(--rw-lp-accent, #dcc489);
-}
-
-.rw-lp-future-legend-key[data-state='planned']::before {
-  border-top: 2px dashed rgb(var(--rw-lp-text-rgb) / 0.5);
-}
-
-.rw-lp-future-legend-key[data-state='horizon']::before {
-  border-top: 2px dotted rgb(var(--rw-lp-text-rgb) / 0.3);
-}
-
-/* ---------- stops ---------- */
-.rw-lp-future-stops {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.rw-lp-future-stop-item {
-  position: absolute;
-  left: var(--rw-lp-stop-x);
-  top: var(--rw-lp-stop-y);
-  width: 0;
-  height: 0;
-}
-
-.rw-lp-future-stop-item[data-active='true'] {
-  z-index: 6;
-}
-
-/* Horizon stops carry no landmark, only the glyph — a short stage keeps their
-   label beside the point instead of a landmark's height away from it. Lit
-   stops stand a little taller than the planned ones: what is real is bigger. */
-.rw-lp-future-stop-item[data-state='horizon'] {
-  --rw-lp-landmark: 1.375rem;
-}
-.rw-lp-future-stop-item[data-state='shipped'] {
-  --rw-lp-landmark: clamp(4.75rem, 8.7vw, 9.75rem);
-}
-
-/* The button is the whole stop: landmark above the road point, label below
-   (or, on every other stop, above the landmark — neighbours along the road
-   never share a side, which is what lets fifteen stops fit one chart).
-   Its box is centred on the point horizontally and its landmark's base sits
-   ON the point, so the road appears to arrive at the object's feet. */
-.rw-lp-future-stop {
-  position: absolute;
-  left: 0;
-  top: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.375rem;
-  width: max-content;
-  max-width: 10rem;
-  margin: 0;
-  padding: 0.25rem;
-  border: 0;
-  border-radius: 0.75rem;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  transform: translate(-50%, calc(-1 * var(--rw-lp-landmark) - 0.125rem));
-  transition: transform 0.2s ease-out;
-}
-
-.rw-lp-future-stop:focus-visible {
-  outline: 2px solid var(--rw-lp-accent);
-  outline-offset: 3px;
-}
-
-.rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop {
-  transform: translate(-50%, calc(-1 * var(--rw-lp-landmark) - 0.375rem));
-}
-
-/* Label above: the column flips and the box is pulled up by its own height,
-   so the landmark's base still lands on the road point. */
-.rw-lp-future-stop-item[data-label='above'] .rw-lp-future-stop {
-  flex-direction: column-reverse;
-  transform: translate(-50%, calc(-100% + 0.125rem));
-}
-.rw-lp-future-stop-item[data-label='above'][data-active='true'] .rw-lp-future-stop {
-  transform: translate(-50%, calc(-100% - 0.125rem));
-}
-
-.rw-lp-future-landmark {
-  position: relative;
-  display: block;
-  /* Height is the stage; width follows the cutout's aspect (never narrower
-     than the stage, so a tall cutout keeps its halo). A wide cutout in a
-     square box sat small at the bottom with its label floating above it. */
-  width: calc(var(--rw-lp-landmark) * max(1, var(--rw-lp-landmark-aspect, 1)));
-  height: var(--rw-lp-landmark);
-}
-
-.rw-lp-future-landmark-img {
-  object-fit: contain;
-  object-position: center bottom;
-}
-
-/* The lit stop's halo: a pool of gold light under the landmark that breathes.
-   CSS keyframes on purpose — the ambient pause rule freezes them. */
-.rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: -22%;
-  width: 210%;
-  height: 70%;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: radial-gradient(
-    closest-side,
-    rgb(var(--rw-lp-accent-rgb) / 0.5),
-    rgb(var(--rw-lp-accent-rgb) / 0.14) 55%,
-    transparent 100%
-  );
-  animation: rw-lp-future-breathe 4.5s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes rw-lp-future-breathe {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
-}
-
-/* The marker glyph — the chart's marker for a stop with no landmark cutout,
-   and the trail's own bullet below 900px (where the cutouts are hidden). */
-.rw-lp-future-landmark[data-landmark='true'] .rw-lp-future-glyph {
-  display: none;
-}
-
-.rw-lp-future-glyph {
-  position: absolute;
-  left: 50%;
-  bottom: 0.25rem;
-  width: 1.125rem;
-  height: 1.125rem;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  border: 2px solid var(--rw-lp-accent, #dcc489);
-  background: rgb(var(--rw-lp-accent-rgb) / 0.22);
-  box-shadow: 0 0 0 4px rgb(var(--rw-lp-accent-rgb) / 0.12);
-}
-
-.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-glyph {
-  border: 1.5px dashed rgb(var(--rw-lp-text-rgb) / 0.55);
-  background: rgb(var(--rw-lp-ink-rgb) / 0.6);
-  box-shadow: none;
-}
-
-.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-glyph {
-  width: 0.75rem;
-  height: 0.75rem;
-  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.4);
-  background: rgb(var(--rw-lp-ink-rgb) / 0.6);
-  box-shadow: none;
-  transform: translateX(-50%) rotate(45deg);
-  border-radius: 0.125rem;
-}
-
-.rw-lp-future-stop-label {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.125rem;
-  text-align: center;
-}
-
-.rw-lp-future-stop-marker {
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: 0.625rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-.rw-lp-future-stop-name {
-  font-family: var(--rw-font-display);
-  font-weight: 300;
-  font-size: clamp(0.8125rem, 1vw, 1rem);
-  line-height: 1.2;
-  letter-spacing: -0.005em;
-  color: var(--rw-lp-future-text);
-  text-wrap: balance;
-  /* A thin ink shadow keeps the label legible over the chart's linework. */
-  text-shadow: 0 1px 8px rgb(var(--rw-lp-ink-rgb) / 0.9);
-}
-
-/* Planned and horizon stops are dim — the temperature of "not yet". */
-.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-stop-marker {
-  color: rgb(var(--rw-lp-text-rgb) / 0.6);
-}
-.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-stop-name {
-  color: rgb(var(--rw-lp-text-rgb) / 0.72);
-}
-.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-landmark {
-  opacity: 0.72;
-}
-
-.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-stop-marker {
-  color: rgb(var(--rw-lp-text-rgb) / 0.42);
-}
-.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-stop-name {
-  color: rgb(var(--rw-lp-text-rgb) / 0.5);
-}
-.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-landmark {
-  opacity: 0.5;
-}
-
-/* Hover/active lifts the dim stops a little into the light, never to lit. */
-.rw-lp-future-stop-item[data-active='true'][data-state='planned'] .rw-lp-future-stop-name,
-.rw-lp-future-stop-item[data-active='true'][data-state='horizon'] .rw-lp-future-stop-name {
-  color: rgb(var(--rw-lp-text-rgb) / 0.9);
-}
-
-/* ---- the detail card ---- */
-.rw-lp-future-stop-card {
-  position: absolute;
-  z-index: 2;
-  width: var(--rw-lp-card-width);
-  padding: 0.875rem 1rem 1rem;
-  border-radius: 1rem;
-  background: rgb(var(--rw-lp-ink-rgb) / 0.82);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 18px 40px rgb(var(--rw-lp-ink-rgb) / 0.6);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity 0.18s ease-out,
-    visibility 0s linear 0.18s;
-}
-
-.rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop-card {
-  opacity: 1;
-  visibility: visible;
-  transition:
-    opacity 0.18s ease-out,
-    visibility 0s;
-}
-
-/* Side: away from the nearer edge. Anchor: level with the stop, or pushed
-   down/up when the stop sits near the chart's top or bottom. */
-.rw-lp-future-stop-item[data-side='right'] .rw-lp-future-stop-card {
-  left: 1.5rem;
-}
-.rw-lp-future-stop-item[data-side='left'] .rw-lp-future-stop-card {
-  right: 1.5rem;
-}
-.rw-lp-future-stop-item[data-anchor='mid'] .rw-lp-future-stop-card {
-  top: calc(-0.5 * var(--rw-lp-landmark));
-  transform: translateY(-50%);
-}
-.rw-lp-future-stop-item[data-anchor='below'] .rw-lp-future-stop-card {
-  top: calc(-1 * var(--rw-lp-landmark));
-}
-.rw-lp-future-stop-item[data-anchor='above'] .rw-lp-future-stop-card {
-  bottom: 0;
-}
-
-.rw-lp-future-stop-card-marker {
-  display: block;
-  font-family: var(--rw-lp-label-font);
-  font-weight: 400;
-  font-size: 0.625rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--rw-lp-accent, #dcc489);
-}
-
-.rw-lp-future-stop-item[data-state='planned'] .rw-lp-future-stop-card-marker,
-.rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-stop-card-marker {
-  color: rgb(var(--rw-lp-text-rgb) / 0.6);
-}
-
-.rw-lp-future-stop-card-name {
-  display: block;
-  margin-top: 0.125rem;
-  font-family: var(--rw-font-display);
-  font-weight: 200;
-  font-size: 1.125rem;
-  line-height: 1.15;
-  letter-spacing: -0.015em;
-  color: var(--rw-lp-future-text);
-}
-
-.rw-lp-future-stop-card-body {
-  margin: 0.5rem 0 0;
-  font-family: var(--rw-font-display);
-  font-weight: 400;
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  color: rgb(var(--rw-lp-text-rgb) / 0.82);
-}
-
-/* ---------- reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before,
-  .rw-lp-future-cloud-a,
-  .rw-lp-future-cloud-b {
-    animation: none;
-  }
-  .rw-lp-future-stop,
-  .rw-lp-future-stop-card,
-  .rw-lp-future-road-planned,
-  .rw-lp-future-road-branch,
-  .rw-lp-future-horizon-line {
-    transition: none;
-  }
-}
-
-/* ---------- narrow: header stacks above the chart ---------- */
-@media (max-width: 1279px) {
-  .rw-lp-future {
-    padding-top: clamp(1rem, 3vh, 2rem);
-  }
-  .rw-lp-future-head {
-    grid-template-columns: minmax(0, 1fr);
-    gap: clamp(1rem, 3vh, 1.75rem);
-  }
-  .rw-lp-future-aside {
-    align-items: flex-start;
-  }
-  .rw-lp-future-intro,
-  .rw-lp-future-lead {
-    max-width: none;
-  }
-  .rw-lp-future-closing {
-    max-width: 34rem;
-  }
-}
-
-/* ---------- the trail (≤ 900px) ----------
-   The chart is abandoned — 15 stops cannot share a phone-wide frame — for a
-   vertical trail, and the trail is an ACCORDION (2026-09-06; with every body
-   open it ran ~2,300px, which the owner called "not functional"): one row per
-   stop — glyph on the trail line, marker, name, a chevron — and a tap opens
-   the hint under the row. Same stops, same order, same three states. The
-   ground stays as a faint backdrop so the section keeps its world; the
-   roads, fog, clouds and horizon label go. */
-@media (max-width: 900px) {
-  /* No section padding below the trail either: the ground fades into ink
-     under the last rows (the bottom fade stays on), and that fade is the
-     hand-off to the closing band — a block of plain ink after a hard edge
-     read as a gap (owner, 2026-09-06). */
-  .rw-lp-future {
-    padding-bottom: 0;
-  }
-  .rw-lp-future-map {
-    aspect-ratio: auto;
-    padding: 0.5rem var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem)) clamp(4rem, 10vh, 6rem);
-  }
-  .rw-lp-future-map::before {
-    display: none;
-  }
-  .rw-lp-future-map::after {
-    height: clamp(5rem, 14vh, 8rem);
-  }
-  .rw-lp-future-ground-img {
-    opacity: 0.45;
-  }
-  .rw-lp-future-chart,
-  .rw-lp-future-fog,
-  .rw-lp-future-clouds,
-  .rw-lp-future-horizon-label,
-  .rw-lp-future-today {
-    display: none;
-  }
-  .rw-lp-future-legend {
-    max-width: none;
-  }
-  .rw-lp-future-stops {
-    position: relative;
-    inset: auto;
-    display: flex;
-    flex-direction: column;
-    padding-left: 0.25rem;
-  }
-  /* The trail line the bullets sit on. It runs past the last stop and
-     thins out, so the route reads as continuing rather than stopping. */
-  .rw-lp-future-stops::before {
-    content: '';
-    position: absolute;
-    top: 1.25rem;
-    bottom: -3rem;
-    left: 0.8125rem;
-    border-left: 1px dashed rgb(var(--rw-lp-text-rgb) / 0.22);
-    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
-    mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
-  }
-  .rw-lp-future-stop-item {
-    position: relative;
-    left: auto;
-    top: auto;
-    width: auto;
-    height: auto;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  }
-  .rw-lp-future-stop-item:last-child {
-    border-bottom: 0;
-  }
-  /* The row: a full-width button, 44px+ tall. */
-  .rw-lp-future-stop {
-    position: relative;
-    display: grid;
-    grid-template-columns: 1.375rem minmax(0, 1fr) 1rem;
-    align-items: center;
-    column-gap: 0.875rem;
-    width: 100%;
-    max-width: none;
-    min-height: 3.25rem;
-    padding: 0.625rem 0;
-    border-radius: 0.5rem;
-    transform: none;
-  }
-  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop,
-  .rw-lp-future-stop-item[data-label='above'] .rw-lp-future-stop,
-  .rw-lp-future-stop-item[data-label='above'][data-active='true'] .rw-lp-future-stop {
-    flex-direction: row;
-    transform: none;
-  }
-  .rw-lp-future-landmark {
-    width: 1.375rem;
-    height: 1.375rem;
-  }
-  .rw-lp-future-landmark-img,
-  .rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before {
-    display: none;
-  }
-  .rw-lp-future-landmark[data-landmark='true'] .rw-lp-future-glyph {
-    display: block;
-  }
-  .rw-lp-future-glyph {
-    bottom: auto;
-    top: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .rw-lp-future-stop-item[data-state='horizon'] .rw-lp-future-glyph {
-    transform: translate(-50%, -50%) rotate(45deg);
-  }
-  /* Marker and name on one row, left-set. */
-  .rw-lp-future-stop-label {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: flex-start;
-    column-gap: 0.625rem;
-    row-gap: 0;
-    text-align: left;
-  }
-  .rw-lp-future-stop-name {
-    font-size: 0.9375rem;
-    text-shadow: none;
-    text-wrap: pretty;
-  }
-  /* The chevron: a bordered corner, turned when the row is open. */
-  .rw-lp-future-stop::after {
-    content: '';
-    width: 0.5rem;
-    height: 0.5rem;
-    justify-self: end;
-    margin-right: 0.25rem;
-    border-right: 1.5px solid rgb(var(--rw-lp-text-rgb) / 0.45);
-    border-bottom: 1.5px solid rgb(var(--rw-lp-text-rgb) / 0.45);
-    transform: translateY(-0.125rem) rotate(45deg);
-    transition: transform 0.2s ease-out;
-  }
-  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop::after {
-    transform: translateY(0.125rem) rotate(225deg);
-  }
-  /* The hint: static under the row, only while the row is open; the row
-     already shows the marker and the name, so the card shows the body alone. */
-  .rw-lp-future-stop-card {
-    display: none;
-    position: static;
-    width: auto;
-    padding: 0 0 0.875rem 2.25rem;
-    background: transparent;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    box-shadow: none;
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: none;
-    transition: none;
-  }
-  .rw-lp-future-stop-item[data-active='true'] .rw-lp-future-stop-card {
-    display: block;
-  }
-  .rw-lp-future-stop-item[data-anchor='mid'] .rw-lp-future-stop-card,
-  .rw-lp-future-stop-item[data-anchor='below'] .rw-lp-future-stop-card,
-  .rw-lp-future-stop-item[data-anchor='above'] .rw-lp-future-stop-card {
-    top: auto;
-    bottom: auto;
-    transform: none;
-  }
-  .rw-lp-future-stop-card-marker,
-  .rw-lp-future-stop-card-name {
-    display: none;
-  }
-  .rw-lp-future-stop-card-body {
-    margin: 0;
-    font-size: 0.9375rem;
-  }
+  .rw-lp-final-roadmap *,
+  .rw-lp-final-roadmap *::before,
+  .rw-lp-final-roadmap *::after { transition: none !important; animation: none !important; }
 }

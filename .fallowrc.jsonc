@@ -1,5 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  // Brand Asset Library collections are archived design records. Their render
+  // and browser-check scripts (`*.mjs`) are evidence run by hand against a
+  // past tree — no entry point imports them, and they are not app code — so
+  // they are out of scope for dead-code, duplication and complexity analysis.
+  "ignorePatterns": ["docs/brand-asset-library/collections/**"],
   "ignoreDependencies": [
     "react-dom",
     "postcss-load-config",
