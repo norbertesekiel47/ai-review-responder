@@ -1,0 +1,69 @@
+{
+  "origin": "http://localhost:3101",
+  "records": [
+    {
+      "id": "F1",
+      "width": 1440,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 896.03125
+    },
+    {
+      "id": "F1",
+      "width": 390,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 1298.703125
+    },
+    {
+      "id": "F2",
+      "width": 1440,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 843.71875
+    },
+    {
+      "id": "F2",
+      "width": 390,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 1292.703125
+    },
+    {
+      "id": "F3",
+      "width": 1440,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 887.921875
+    },
+    {
+      "id": "F3",
+      "width": 390,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 1292.296875
+    },
+    {
+      "id": "F4",
+      "width": 1440,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 858.734375
+    },
+    {
+      "id": "F4",
+      "width": 390,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 1276.546875
+    }
+  ]
+}

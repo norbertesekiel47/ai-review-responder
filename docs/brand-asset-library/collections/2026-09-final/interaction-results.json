@@ -1,0 +1,391 @@
+{
+  "origin": "http://localhost:3101",
+  "browser": "Playwright Chromium",
+  "computerUse": false,
+  "journeys": [
+    {
+      "id": "F1",
+      "width": 1440,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    },
+    {
+      "id": "F1",
+      "width": 390,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    },
+    {
+      "id": "F2",
+      "width": 1440,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    },
+    {
+      "id": "F2",
+      "width": 390,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    },
+    {
+      "id": "F3",
+      "width": 1440,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    },
+    {
+      "id": "F3",
+      "width": 390,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    },
+    {
+      "id": "F4",
+      "width": 1440,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    },
+    {
+      "id": "F4",
+      "width": 390,
+      "film": "passed",
+      "gallery": "passed both directions",
+      "jobMotion": [
+        {
+          "job": "respond",
+          "playing": true
+        },
+        {
+          "job": "protect",
+          "playing": true
+        },
+        {
+          "job": "request",
+          "playing": true
+        },
+        {
+          "job": "brief",
+          "playing": true
+        },
+        {
+          "job": "measure",
+          "playing": true
+        }
+      ],
+      "modeChanges": "passed including rapid reversal and reduced motion",
+      "roadmapStops": [
+        "The run spine",
+        "Review responses",
+        "Review requests",
+        "The Review QR",
+        "The Restraint tab",
+        "Something is plugging in",
+        "A second chance",
+        "What is slipping",
+        "Facts and rules",
+        "Your hand on the dial",
+        "More than one map",
+        "Numbers you can defend",
+        "Doors for other tools",
+        "Beyond reviews",
+        "The one that was never a customer"
+      ],
+      "cta": "/book-a-demo",
+      "errors": []
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "ownerVideoR2": {
+    "jobs": [
+      {
+        "index": 17,
+        "job_id": "c255caf5-0956-4520-97c1-f6f0805bdd43",
+        "status": "completed",
+        "type": "video",
+        "model": "flux_3_video",
+        "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/hf_20260910_114839_c255caf5-0956-4520-97c1-f6f0805bdd43.mp4",
+        "thumbnail_url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/8c2ac668-eedd-4f69-9a62-c70713a00a3c.png"
+      }
+    ],
+    "summary": {
+      "total": 1,
+      "completed": 1,
+      "failed": 0,
+      "active": 0,
+      "errors": 0
+    },
+    "all_terminal": true
+  },
+  "ownerVideoParamsR2": {
+    "model": "flux_3_video",
+    "resolution": "720p",
+    "duration": 5,
+    "aspect_ratio": "21:9",
+    "generate_audio": false,
+    "medias": [
+      {
+        "role": "start_image",
+        "value": "8c2ac668-eedd-4f69-9a62-c70713a00a3c"
+      },
+      {
+        "role": "end_image",
+        "value": "20dce18d-60e1-402b-b4ce-9ce19955a62f"
+      }
+    ],
+    "prompt": "A rigorously LOCKED camera single shot: animate ONLY the central brass lever in this exact wide miniature dispatch photograph. Both provided frames are the same photograph with a different lever position. The black horizontal letterbox bars must stay exactly black, identical thickness and completely stationary. NEVER zoom, pan, crop, recenter, reframe, dolly or change exposure. Keep the entire left approval tray AND entire right three-dial machine visible at exactly their original positions and scale for EVERY frame. Everything except the lever stays rigidly fixed. Starting at the supplied right-leaning lever frame, swing the ONE brass lever smoothly through upright to the supplied left-leaning lever endpoint over the FIRST THREE SECONDS; hold motionless at the left endpoint for the remaining TWO seconds. Fixed circular pivot, rigid brass shaft and ball, smooth continuous circular arc, not a cut, not a morph. The existing left tray papers may tremble almost imperceptibly, and as the lever arrives left the three right-side dial needles make one tiny coordinated tick. Do not change or move paper locations, stone texture, machines, plants, rails, walls or shadows. No new objects, people, televisions, hands, text, glow or digital effects. No audio. Exact matched start and end composition, no camera movement whatsoever."
+  },
+  "ownerOutputsR2": [
+    {
+      "media_id": "09ad1fde-aed6-4116-8fe8-6520de4a95b6",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/09ad1fde-aed6-4116-8fe8-6520de4a95b6.mp4"
+    },
+    {
+      "media_id": "9f6e3c49-1e0d-4fb4-944e-f7f5d73f145b",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/9f6e3c49-1e0d-4fb4-944e-f7f5d73f145b.mp4"
+    },
+    {
+      "media_id": "87d09449-aa6f-46e6-9043-d2a2219284db",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/87d09449-aa6f-46e6-9043-d2a2219284db.webp"
+    },
+    {
+      "media_id": "66d7fabb-cd45-4549-8fcb-1e44214997c2",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/66d7fabb-cd45-4549-8fcb-1e44214997c2.webp"
+    },
+    {
+      "media_id": "b9556309-1b29-4d32-a851-3c0594cfdf35",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/b9556309-1b29-4d32-a851-3c0594cfdf35.jpg"
+    }
+  ],
+  "letterboxFrames": [
+    {
+      "media_id": "8c2ac668-eedd-4f69-9a62-c70713a00a3c",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/8c2ac668-eedd-4f69-9a62-c70713a00a3c.png"
+    },
+    {
+      "media_id": "20dce18d-60e1-402b-b4ce-9ce19955a62f",
+      "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3DRC2joP1phdMAEIZKKR0iQOdxx/20dce18d-60e1-402b-b4ce-9ce19955a62f.png"
+    }
+  ],
+  "processing": "Matched 1440×608 letterboxed first/end frames; original scene retained outside feathered lever area. FLUX 3 Video 5 seconds at 720p without audio. Crop 1440×480 to restore 3:1 photo, H.264 CRF21 faststart, exact reverse for inverse click transition. Posters extracted from exact clip endpoints.",
+  "replacedFirstVideoBecause": "Initial generation reframed the camera and cropped the side machines."
+}

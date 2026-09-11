@@ -1,0 +1,21 @@
+{
+  "origin": "http://localhost:3101",
+  "records": [
+    {
+      "id": "selected",
+      "width": 1440,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 896.03125
+    },
+    {
+      "id": "selected",
+      "width": 390,
+      "errors": [],
+      "overflow": false,
+      "missing": [],
+      "roadmapHeight": 1298.703125
+    }
+  ]
+}

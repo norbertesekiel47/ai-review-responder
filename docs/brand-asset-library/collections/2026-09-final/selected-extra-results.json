@@ -1,0 +1,69 @@
+{
+  "origin": "http://localhost:3101",
+  "widths": [
+    {
+      "id": "selected",
+      "width": 320,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 375,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 428,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 760,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 900,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 1100,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 1440,
+      "overflow": false
+    },
+    {
+      "id": "selected",
+      "width": 1920,
+      "overflow": false
+    }
+  ],
+  "checks": [
+    {
+      "invalidId": 404
+    },
+    {
+      "oldPreviewsPreserved": true,
+      "selectedComposition": true,
+      "noindex": true
+    },
+    {
+      "mobileMenu": true,
+      "keyboardFocus": true,
+      "modeTouchTargets": true
+    },
+    {
+      "jobMediaFailure": "still remains",
+      "leverMediaFailure": "correct selected endpoint remains"
+    }
+  ]
+}
