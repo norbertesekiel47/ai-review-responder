@@ -193,16 +193,28 @@ the **Admin API** (`src/app/api/admin/**`, which stays here) with a bearer.
 | Repo | `RepWorth/admin-app` (private, `main` protected by ruleset `22481865`) | same repo, `staging` branch |
 | Vercel | project `admin-app` = `prj_ofJWgjS87xsApuw6f0s3p0OyzxKc`, branch `main` | Custom Env `staging` = `env_TL3MujrjZCSGGoRSj0LLnDA5KHjo`, branch `staging` |
 | Host | `admin.repworth.net` | `admin.staging.repworth.net` |
-| Supabase | project `udeyaqnvpojbwgoaxwdg` — **not issued until go-live** | project `kubdiqdhqbhwmqfditeg` |
+| Supabase | project `udeyaqnvpojbwgoaxwdg` — Admin app public runtime configured with owner approval on 2026-09-11 | project `kubdiqdhqbhwmqfditeg` |
 
 Both hosts are `CNAME → cname.vercel-dns.com`, DNS-only in Cloudflare, matching
 `staging.repworth.net`. TLS is `cert_AHM0E2mEnTxpO24gOjapOA4m`, covering both names.
 
 These two hostnames are the production and staging **CORS allowlist** values.
 
-> **The Admin app holds the Supabase URL + publishable (or anon) key and nothing
-> else** — ADR 0024 D1. Never a `service_role` key, never a `secret` key, never a
-> database URL. The Vercel GitHub App must be granted access to each new org repo
+The production Admin app now has its Supabase URL, enabled modern publishable
+key and `NEXT_PUBLIC_ADMIN_API_URL=https://repworth.net` configured. Its production
+deployment is READY and `/login` returns 200. Source production
+`ADMIN_APP_ORIGINS` and `ADMIN_APP_URL` are configured for
+`https://admin.repworth.net`; the rebuilt existing source main returns exact-origin
+preflight 204 and unrelated-origin 403. The deployment and configuration evidence
+is in `evidence/2026-09-11-admin-production-readiness-evidence.md`. This runtime setup does not
+issue the second developer's production account: **#1179 still waits for the
+owner's go-live date**.
+
+> **The Admin app holds public runtime configuration only** — ADR 0024 D1 and
+> ADR 0030 D4. Use the modern publishable key, never the legacy anon key; optional
+> public documentation/Maps settings remain limited to the named ADR exceptions.
+> Never a `service_role` key, never a `secret` key, never a database URL. The Vercel
+> GitHub App must be granted access to each new org repo
 > by hand; org-level installs here are scoped to selected repositories.
 
 - [ ] Add the `worker.` CNAME in your DNS panel once the Railway project exists (§5)

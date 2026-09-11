@@ -101,6 +101,26 @@ record planned setup, prior state, and rollback before execution.
   navigation. Existing port parity approvals do not claim those new paths. No
   new real impersonation session is needed or requested for the manual check.
 
+- D-7 update: The owner reported the default source login reached
+  `https://admin.staging.repworth.net/login?next=%2F`, and the explicit return
+  reached `https://staging.repworth.net/admin/impersonate` correctly. Both match
+  the intended destinations: the new Admin app has its own session and may
+  require sign-in. No particular viewport or separate MFA challenge observation
+  was reported. Desktop/mobile sidebar and live post-End-Session navigation
+  remain unverified in a live browser.
+
+- D-5 update: The owner explicitly approved the corrected production rollout:
+  "Authorize the corrected production rollout". Execution has its own
+  `2026-09-11-admin-production-readiness-evidence.md` ledger. This does not
+  authorize #1179's developer account or waive the cutover's remaining gates.
+
+- D-5 completion (2026-09-11T20:29:34Z): The corrected production readiness
+  rollout passed. Both existing merged versions were rebuilt, Admin `/login`
+  returns 200, and source exact-origin CORS returns 204 while unrelated-origin
+  requests return 403. Details and all five created setting IDs are recorded in
+  the separate production evidence ledger. No cutover code or developer account
+  was promoted by that rollout.
+
 - D-5 (2026-09-11T19:58Z): The prepared production proposal incorrectly allowed
   the source app's legacy anon JWT. ADR 0030 D4 requires a modern publishable key.
   That proposal was withdrawn before any production write. Read-only Supabase
@@ -139,8 +159,6 @@ record planned setup, prior state, and rollback before execution.
 ## Unproven paths
 
 - Server redirect sites, including admin on onboarding paths.
-- Admin login default reaches external Admin app; explicit
-  `from=/admin/impersonate` stays on the source app.
 - MFA challenge keeps its existing same-origin return restrictions and completes
   the new default destination without a login loop.
 - End-impersonation navigation changes to a single full document navigation;
