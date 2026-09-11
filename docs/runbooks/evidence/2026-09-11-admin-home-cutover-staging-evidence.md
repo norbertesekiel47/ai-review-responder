@@ -15,7 +15,8 @@ Runbook: `docs/runbooks/deployment-guide.md`; execution contract:
   (#1202, PR #1252); worktree `codex-1192-1201-admin-home-cutover`.
 - Starting Admin app main/staging: `44452f060f78c691cc81188b6bbd05a6d3be82c1`.
 - Preparation UTC: 2026-09-11T18:55:00Z.
-- Candidate source SHA: pending implementation and gates.
+- Reviewed code SHA: `d65d182c669554a26fd29e7ae8fa88cdb37e5c92`; the staging
+  candidate will include the preparation-ledger commit immediately after it.
 - Designated staging account: `gate-a-admin-20260907@repworth.net` only if
   authenticated verification is needed. Credentials stay in sealed CI inputs.
 - No provider actions, customer edits, global logout, or impersonation session
@@ -41,6 +42,8 @@ Runbook: `docs/runbooks/deployment-guide.md`; execution contract:
 | Source staging baseline deployment | `dpl_BVG4ZwXR1AwtXz2E2AY1S4qKm1JM`, READY; alias `staging.repworth.net`, source SHA `0ad5c1bdc4375e45474d487256ebd2d34d4c74b6`; expected custom env | 2026-09-11T19:50Z |
 | Admin staging baseline deployment | `dpl_5Mq5BLSYQ9rVAnM2YCiFPSQEkJv1`, READY; alias `admin.staging.repworth.net`, SHA `44452f060f78c691cc81188b6bbd05a6d3be82c1`; expected custom env | 2026-09-11T19:50Z |
 | Public baseline (before candidate) | Nine read-only checks passed: both login pages 200; anonymous `/admin`, `/admin/impersonate`, and expired `/mfa/challenge?next=%2Fadmin` each 307 to same-origin `/admin/login`; Overview/nav-counts APIs 401; allowed CORS 204 with exact origin and no credentials header; unrelated origin 403 without allowance | 2026-09-11T19:51:38Z |
+| Candidate local gates | `d65d182c`: lint/typecheck/build + nine relevant audits passed; full suite with both DB variables pinned to validated local test DB: 15,705 passed, 11 skipped, 1,158 files passed | Before staging push |
+| Single code-review pass | Spec: zero actionable findings; Standards: zero actionable findings at `0ad5c1bdc...d65d182c` | Before staging push |
 
 ## Candidate verification procedure
 
@@ -75,6 +78,7 @@ record planned setup, prior state, and rollback before execution.
 |---|---|---|---|
 | [x] Source staging `ADMIN_APP_URL` | Created `FrDfGVWVmn4xsGyC`; project `prj_wIMnzHKefoQRdzCeMZesg2mIgNc0`, custom env `env_Xdvi79MDL9zMt5LmTMRLFSBBeKGT` only | Retain `https://admin.staging.repworth.net` as cutover delivery config. If cutover abandoned, delete only this created entry and verify absent. Exact value, empty target list, and custom env verified by API. | 2026-09-11T19:47Z |
 | [ ] Source cutover preview `ADMIN_APP_URL` | Branch `codex/1192-1201-admin-home-cutover` not yet on remote; creation failed and metadata confirms no preview entry | Deferred until branch exists. Delete any subsequently created branch entry after merged PR/preview retirement and verify absent. | Not created, verified 2026-09-11T19:47Z |
+| [ ] Candidate source staging deployment | Prior branch `0ad5c1bdc4375e45474d487256ebd2d34d4c74b6`, deployment `dpl_BVG4ZwXR1AwtXz2E2AY1S4qKm1JM` | Normal fast-forward push of reviewed code plus this ledger; record actual candidate/deployment SHA. After owner-authorized merge, realign staging to main per deployment guide. If candidate abandoned, restore recorded prior staging ref with exact lease and verify deployment. | Planned, not pushed |
 
 ## Deviations
 
