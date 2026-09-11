@@ -56,24 +56,30 @@ describe('compiler-derived response contracts', () => {
   });
 
   it('rejects unsupported wire response types', () => {
-    const { program, source } = fixture('const body: unknown = {}; export function GET() { return NextResponse.json(body); }');
-    expect(() => describeResponses(program, source, 'GET')).toThrow('unknown');
-    const bigint = fixture('export function GET() { return NextResponse.json({value: 1n}); }');
-    expect(() => describeResponses(bigint.program, bigint.source, 'GET')).toThrow('bigint');
-    const absent = fixture('export function GET() { return NextResponse.json(undefined); }');
-    expect(() => describeResponses(absent.program, absent.source, 'GET')).toThrow('undefined');
+    const cases = [
+      { text: 'const body: unknown = {}; export function GET() { return NextResponse.json(body); }', error: /unknown/ },
+      { text: 'export function GET() { return NextResponse.json({value: 1n}); }', error: /bigint/ },
+      { text: 'export function GET() { return NextResponse.json(undefined); }', error: /undefined/ },
+      { text: 'export function GET() { return NextResponse.json(Symbol("value")); }', error: /unsupported JSON type/ },
+      { text: 'export function GET<T>() { let body!: T; return NextResponse.json(body); }', error: /unsupported JSON type/ },
+      ...['{ toJSON() { return "different"; } }', '{} as { nested: {toJSON(): string} }', '[] as [string, number?]'].map((body) => ({
+        text: `export function GET() { return NextResponse.json(${body}); }`, error: /toJSON|tuple/,
+      })),
+    ];
+    // Each exported GET remains a separate module; only standard-library parsing
+    // is shared instead of rebuilding the same compiler program eight times.
+    const root = mkdtempSync(join(tmpdir(), 'admin-contract-unsupported-'));
+    roots.push(root);
+    const files = cases.map(({ text }, index) => {
+      const file = join(root, `route-${index}.ts`);
+      writeFileSync(file, `declare class NextResponse { static json(body: unknown, init?: {status: number}): NextResponse; }\n${text}`);
+      return file;
+    });
+    const program = ts.createProgram(files, { strict: true, target: ts.ScriptTarget.ES2022 });
+    cases.forEach(({ text, error }, index) => {
+      expect(() => describeResponses(program, program.getSourceFile(files[index]!)!, 'GET'), text).toThrow(error);
+    });
     expect(() => Response.json(undefined)).toThrow(TypeError);
-    for (const text of [
-      'export function GET() { return NextResponse.json(Symbol("value")); }',
-      'export function GET<T>() { let body!: T; return NextResponse.json(body); }',
-    ]) {
-      const unsupported = fixture(text);
-      expect(() => describeResponses(unsupported.program, unsupported.source, 'GET')).toThrow('unsupported JSON type');
-    }
-    for (const body of ['{ toJSON() { return "different"; } }', '{} as { nested: {toJSON(): string} }', '[] as [string, number?]']) {
-      const custom = fixture(`export function GET() { return NextResponse.json(${body}); }`);
-      expect(() => describeResponses(custom.program, custom.source, 'GET')).toThrow(/toJSON|tuple/);
-    }
   });
 
   it('preserves distinct response calls and nested bindings on the same line', () => {

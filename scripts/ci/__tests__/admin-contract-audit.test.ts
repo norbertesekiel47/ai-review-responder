@@ -70,7 +70,9 @@ describe('admin contract audit', () => {
     expect(emitPortableDeclarations('export type Result = { at: Date };')).toContain('at: Date');
   });
 
-  it('reproduces the current contract including enriched responses and existing DTO exports', async () => {
+  // This integration parses the complete application type graph. Parallel CI
+  // coverage measured 5.75s; retain a bounded 10s budget without narrowing inputs.
+  it('reproduces the current contract including enriched responses and existing DTO exports', { timeout: 10_000 }, async () => {
     const generated = await generateAdminContract(process.cwd());
     expect(await auditContractFiles(resolve('docs/admin-api'), generated.files)).toEqual([]);
     const declarations = generated.files.get('admin-api.d.ts')!;

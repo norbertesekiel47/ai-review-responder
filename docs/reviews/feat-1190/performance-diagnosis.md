@@ -1,5 +1,67 @@
 # Contract generator performance diagnosis
 
+## Final CI configuration correction — 2026-09-11
+
+The sections below retain the historical five-second experiments; that value
+was Vitest's generic default, not a product SLO or a locked intake/ADR/ticket
+requirement. The final configuration gives only the whole-repository compiler
+integration case a bounded **10000 ms** timeout. All other test defaults,
+coverage, concurrency, compiler inputs and complete golden/provenance assertions
+remain unchanged. This supersedes the historical characterization of five
+seconds as the integration regression signal; ten seconds remains its hang bound.
+
+PR #1232's CI run `34561092588` failed two cases at head
+`430b9cede8c788e76c66de0ed954008a76398688`: whole-repository generation took
+5754 ms and the unsupported-wire fixture took 5110 ms. The run passed 15879
+tests, failed two and skipped eleven. Local full verification and staging had
+passed at that same head; those facts did not imply cloud CI was green. The
+canonical local gate counter remained zero after its prior green; this separate
+completed CI failure was preserved rather than manually changing the counter.
+
+The tight reproduction ran the two cases together with coverage and two workers:
+
+```bash
+pnpm exec vitest run scripts/ci/__tests__/admin-contract-audit.test.ts \
+  scripts/ci/__tests__/admin-contract-types.test.ts \
+  -t 'reproduces the current contract|rejects unsupported wire response types' \
+  --coverage --maxWorkers=2 --reporter=json
+```
+
+It reproduced a 5186 ms generator timeout; the unsupported case took 4458 ms.
+Fresh Node CPU profiles attributed approximately 3007 ms of the unsupported case
+to eight separate TypeScript programs, with approximately 2926 ms parsing.
+The generator's approximately 3997 ms included 2124 ms of program creation,
+617 ms response analysis, 490 ms schema analysis and 168 ms portable emission.
+Inclusive profiler values overlap and are not additive.
+
+The fixture correction keeps all eight source bodies and expected refusal
+categories, plus native `Response.json(undefined)` throwing `TypeError`, but
+places each exported GET in its own module within one compiler program. The
+same parallel reproduction then passed at 4362 ms / 669 ms. All five affected
+suites passed 224 tests with four-worker coverage (4699 ms / 499 ms); a broader
+58-file CI-tooling workload passed 1489 tests (4959 ms / 513 ms). These results
+proved the fixture speedup but left insufficient margin for the compiler
+integration under cloud contention, motivating its explicitly bounded timeout.
+
+Speculative production caching was rejected: a symbol cache had no repeatable
+timing benefit, and expression/map caching was unsound because traversal mutates
+the binding map. A temporary old-program fixture reuse experiment also showed
+no measurable benefit and was removed. No such cache or production change ships.
+All nineteen artifacts remained byte-identical during the independent generator
+probe. Scratch profiles and timing JSON remain under `/private/tmp/1190-ci-*`.
+
+The original correctness reviewer independently confirmed eight-case assertion
+parity and module isolation. A separate independent reviewer confirmed the
+10000 ms integration setting is appropriate for the measured complete compiler
+workload and found no locked five-second SLO. These are candidate diagnostic
+verdicts, not claims of a new gate, CI pass or mutation round. Final verification
+and fresh review after the required main alignment remain explicit next steps.
+
+After the bounded timeout was applied, the same broader four-worker coverage
+workload passed all 1489 tests in 58 files: whole-repository generation 4577 ms,
+unsupported-wire fixture 510 ms. These are local results; the failed cloud run
+is not replaced by a claim of new cloud verification.
+
 The full gate at `024297b928ecb527c4d7c0834265427d088d69f9` failed only the
 real-repository contract integration test's existing 5000 ms timeout. The other
 14,696 tests, build and audits passed. This was the first full failure after the
