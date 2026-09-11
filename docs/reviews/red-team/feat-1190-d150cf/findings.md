@@ -1,8 +1,14 @@
 # #1190 red-team verification — round 2
 
+**Continuation status:** the owner has authorized the third review round and
+exact main documentation alignment under the authorization below. Round two
+remains the latest completed measurement at its original immutable head; its
+results are historical evidence, not a claim that the subsequently corrected
+and merged tree is currently reviewed. No round-three measurement has started.
+
 **Status: CLEAR.** Every one of the 25 in-scope cases has a green individual baseline and a valid mutation kill. The original P0 and P1 are fixed. No new actionable finding was identified within the fix hunks and their directly affected callers.
 
-This is the current report. The retained round-1 report at the end is historical; its former OPEN_P0 verdict is superseded by the measured fixes below. The strict JSON sidecar contains only the current round, as required by its schema. The original round-1 JSON remains in Git history at report-only commit `fc3f2ac8ceb757fde370a6ad35ed8dcbe01e18d6`.
+This is the latest completed measurement report. The retained round-1 report at the end is historical; its former OPEN_P0 verdict is superseded by the measured fixes below. The strict JSON sidecar retains round two until the authorized third pass completes, as required by its schema. The original round-1 JSON remains in Git history at report-only commit `fc3f2ac8ceb757fde370a6ad35ed8dcbe01e18d6`.
 
 ## Immutable scope and inventory
 
@@ -137,6 +143,19 @@ The performance evidence documents remain explicitly historical measurements. Th
 ## Authorizations
 
 This section is rendered from the sidecar's authorization array. Both original finding ids are listed because the approved continuation measures their fixes. The scope is operational, not an accepted-risk disposition.
+
+### owner-1190-third-round-operation
+
+Date: 2026-09-11 UTC. Finding references: `RT-1190-P0-1`, `RT-1190-P1-1`;
+their earlier fixed dispositions are preserved and require fresh proof.
+
+> Scope presented: 1. Incorporate the exact upstream documentation commit `72fdea40` into the feature branch. GitHub’s strict protection currently marks the PR **BEHIND**. 2. Run the required **third review round**, covering 32 cases with a ceiling of **96 total supervised launches**, including baselines and retries. 3. Temporarily pause the shared local preview during mutation testing—estimated **35–55 minutes**, with measurement stopped at **60 minutes**, followed by mandatory cleanup and restart. 4. Repeat the final gate, staging deployment, and current-commit PR checks, then return for your separate merge approval.
+>
+> Question: Do you approve that feature-branch update, the third review round with its 96-launch ceiling, and the bounded preview pause?
+>
+> Owner: Looks good.
+>
+> Approved proposal SHA-256: 24a21a8a9a4ed979b46e2c780f2a41fc7e84187af92c4f13d910f6d6d44d6442; independent operation review SHA-256: a78c289e14bd88e9181bb2ef3022978d7a177e854782d42261def284d1846694. This authorizes the third round and scoped operation, not acceptance of findings, a fourth round, production writes or PR merge.
 
 ### owner-1190-round2-operation
 
