@@ -55,7 +55,7 @@ export default async function AdminSolicitationPage() {
   // verdict — and that throw is the SEND path's halt signal. This is a READ
   // surface, so it is handled the way the sibling GET route handles it
   // (`breaker/route.ts` → internalError), and for the same reason the
-  // /admin/costs page catches its margin read: a failing breaker read is
+  // costs API catches its margin read: a failing breaker read is
   // precisely the halt scenario, and an admin who opens this page to
   // investigate must land on the panel, not on Next's error boundary.
   //
