@@ -27,7 +27,7 @@ against `.env.example`.
 | **Anthropic** | Fallback LLM (`claude-haiku-4-5-20251001`) | `@anthropic-ai/sdk` | `ANTHROPIC_API_KEY` | worker |
 | **Zernio** | **GBP review ingestion + reply posting** (core) | custom client `src/lib/zernio/*` (no SDK) | `ZERNIO_*` | worker |
 | **SerpAPI** | Review/ranking data prefill | `serpapi` | `SERPAPI_*` | worker |
-| **Google Maps Platform** | Onboarding PlaceAutocomplete (Essentials tier) | `@googlemaps/js-api-loader` | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | browser |
+| **Google Maps Platform** | Onboarding PlaceAutocomplete; separate Admin Demos picker under ADR 0030 D4's named browser exception | `@googlemaps/js-api-loader` | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | browser |
 | **Google Sheets** | Optional owner-lead mirror (service-account JWT) | REST/JWT | `OWNER_LEADS_*`, `GOOGLE_SHEETS_*` | server |
 | **Google GBP API** | *Phase 5 — not yet wired* | placeholder | `GOOGLE_CLIENT_*`, `GCP_PROJECT_ID` | — |
 | **Resend** | Transactional + marketing email + custom SMTP | `resend` | `RESEND_*`, `LIST_UNSUBSCRIBE_*`, `CONTACT_NOTIFY_TO`, `ADMIN_NOTIFICATION_EMAIL` | worker |
