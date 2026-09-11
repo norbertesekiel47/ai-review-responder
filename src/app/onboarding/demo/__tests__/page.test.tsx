@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockGetUser, mockRedirect, mockSql } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
@@ -38,7 +38,10 @@ vi.mock('../PaywallWithDemoClient', () => ({
 const { default: OnboardingDemoPage } = await import('../page');
 
 describe('OnboardingDemoPage guard', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
+    vi.stubEnv('ADMIN_APP_URL', 'https://admin.example.com');
     vi.clearAllMocks();
     process.env.ONBOARDING_DEMO_ENABLED = 'true';
     mockGetUser.mockResolvedValue({
@@ -47,7 +50,7 @@ describe('OnboardingDemoPage guard', () => {
     });
   });
 
-  it('redirects admin away from owner onboarding to /admin/overview', async () => {
+  it('redirects admin away from owner onboarding to the configured Admin app', async () => {
     mockSql.mockResolvedValueOnce([
       {
         role: 'admin',

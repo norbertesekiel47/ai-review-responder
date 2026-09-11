@@ -88,6 +88,15 @@ configuration, cleanup, and remaining post-merge work.
 
 ## Deviations
 
+- D-8: Cloud CI run `34648212118` passed lint/audits, build, LLM evaluation
+  and install, but eight redirect assertions in seven suites failed. The
+  suites expected `admin.example.com` while CI supplied `admin.example.invalid`;
+  production code correctly respected the configured value. Each affected
+  suite now explicitly stubs and restores its own `ADMIN_APP_URL` fixture.
+  The complete seven-suite regression slice passes 66 tests with CI's ambient
+  origin present. No production code, workflow fixture, global test setup,
+  mutation journal or counter changed. Full verification and fresh CI follow.
+
 - D-6: The first normal atomic push was rejected by `ci:merge-ledger` because
   the committed diff lacked a descriptive architecture review-log addition.
   No ref moved. Two documentation lines were added, no counter or journal was

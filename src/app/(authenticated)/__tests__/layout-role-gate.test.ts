@@ -11,7 +11,7 @@
 // is what the gate is about — every case here redirects before the first
 // element is built.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 class RedirectSignal extends Error {
   constructor(public readonly url: string) {
@@ -80,7 +80,10 @@ async function expectRedirect(to: string): Promise<void> {
 }
 
 describe('AuthenticatedLayout role gate', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
+    vi.stubEnv('ADMIN_APP_URL', 'https://admin.example.com');
     vi.clearAllMocks();
     mockPathname.value = null;
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1', email: 'o@example.com' } } });
