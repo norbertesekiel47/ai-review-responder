@@ -8,7 +8,6 @@ paths:
   - "worker/ingress/resend/**"
   - "src/app/api/dashboard/solicitation/**"
   - "src/app/api/admin/solicitation/**"
-  - "src/app/admin/solicitation/**"
   - "src/app/api/dashboard/contacts/**"
   - "src/app/api/u/**"
 ---

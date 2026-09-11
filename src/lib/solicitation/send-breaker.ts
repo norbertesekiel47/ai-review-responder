@@ -417,11 +417,9 @@ function classifyBreach(w: BreakerWindow): BreakerTripReason | null {
 }
 
 // The breaker-rate rendering lives in `@/lib/shared/format-rate` (#910 B3.10)
-// — the ONE owner both this module's Sentry titles and `SendBreakerClient.tsx`
-// read, closing the deliberate twin std-5/B1.11 recorded. The client still
-// must never import from THIS module at runtime (the module-scope worker
-// logger drags node:async_hooks into the client chunk); the zero-import leaf
-// is what makes the sharing legal.
+// for this module's Sentry titles. Browser code must never import from THIS
+// module at runtime: the module-scope worker logger drags node:async_hooks
+// into the client chunk. The formatter remains a zero-import leaf.
 
 /**
  * The page. DETAIL IS AGGREGATE-ONLY — counts, rates, thresholds and the window
