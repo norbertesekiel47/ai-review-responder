@@ -1,4 +1,5 @@
 import { LoginFormClient } from '@/components/auth/LoginFormClient';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 
 export default function AdminLoginPage() {
   return (
@@ -6,7 +7,7 @@ export default function AdminLoginPage() {
       portal="admin"
       brandName="RepWorth Admin"
       showGoogleButton={false}
-      defaultRoute="/admin/overview"
+      defaultRoute={adminAppUrl()}
       allowedRoles={['admin']}
     />
   );

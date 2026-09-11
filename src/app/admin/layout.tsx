@@ -4,6 +4,7 @@ import { sql } from '@/lib/db/server';
 import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import { loadAdminShellContext } from '@/lib/admin/shell-context';
 import { AdminShellFrame } from '@/components/admin/AdminShellFrame';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { AdminProviders } from './providers';
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required), and
@@ -39,7 +40,7 @@ export default async function AdminLayout({
 
   return (
     <AdminProviders>
-      <AdminShellFrame identity={shell.identity} impersonation={shell.impersonation}>
+      <AdminShellFrame identity={shell.identity} impersonation={shell.impersonation} adminAppUrl={adminAppUrl()}>
         {children}
       </AdminShellFrame>
     </AdminProviders>

@@ -135,10 +135,15 @@ export function useLoginSubmit({
       const destination =
         destinationOverride ??
         resolvePostLoginDestination(portal, from, defaultRoute);
+      // Only the server-provided admin default can leave this app. Untrusted
+      // from values still pass the existing same-origin resolver unchanged.
+      const externalAdminDefault = portal === 'admin' && destination === defaultRoute &&
+        /^https?:\/\//.test(defaultRoute);
 
       const aal = await requireAal2FromSupabase(supabase);
       if (!aal.ok && aal.reason === 'mfa_required') {
-        router.push(mfaChallengePath(destination));
+        // /admin is the gated local relay; never put an external URL in next.
+        router.push(mfaChallengePath(externalAdminDefault ? '/admin' : destination));
         return;
       }
       if (!aal.ok && aal.reason === 'mfa_check_failed') {
@@ -146,6 +151,10 @@ export function useLoginSubmit({
         return;
       }
 
+      if (externalAdminDefault) {
+        window.location.assign(defaultRoute);
+        return;
+      }
       router.push(destination);
       router.refresh();
     } catch {

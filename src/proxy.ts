@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { createServerClient } from '@supabase/ssr';
 import {
   isAdminApiRoute,
@@ -300,6 +301,11 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
     if (aal !== 'ok') {
       return redirectToMfaChallenge();
     }
+    // Exact local MFA return only: no redirect for other surviving admin pages.
+    // The same host retains any refreshed session cookies on the redirect response.
+    if (routePath === '/admin') {
+      return withSupabaseCookies(NextResponse.redirect(adminAppUrl()));
+    }
   }
 
   // 4. Admin API routes
@@ -416,7 +422,7 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
     }
     if (self.role === 'admin') {
       // Admin landed here by mistake — bounce to admin home, not owner login.
-      return NextResponse.redirect(new URL('/admin/overview', request.url));
+      return withSupabaseCookies(NextResponse.redirect(adminAppUrl()));
     }
     if (self.role !== 'owner' || !self.account_id) {
       return redirectToLogin(request, 'owner');

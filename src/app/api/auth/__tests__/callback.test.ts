@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // ── Hoisted mocks ───────────────────────────────────────────────────
@@ -63,7 +63,10 @@ function buildUrl(params: Record<string, string>): string {
   return `https://app.example.com/api/auth/callback${qs ? `?${qs}` : ''}`;
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
+  vi.stubEnv('ADMIN_APP_URL', 'https://admin.example.com');
   mockExchangeCodeForSession.mockReset();
   mockExchangeCodeForSession.mockResolvedValue({
     data: { user: { id: 'auth-uuid-123' } },
@@ -399,7 +402,7 @@ describe('GET /api/auth/callback', () => {
     );
   });
 
-  it('falls back to /admin/overview when admin role + next=/onboarding/pay (defense)', async () => {
+  it('falls back to the configured Admin app when admin role + next=/onboarding/pay (defense)', async () => {
     mockSingle.mockResolvedValueOnce({
       data: { role: 'admin' },
       error: null,
@@ -416,7 +419,7 @@ describe('GET /api/auth/callback', () => {
     );
     // /onboarding/pay isn't an admin path → ignore + default to /admin/overview.
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/admin/overview',
+      'https://admin.example.com/',
     );
   });
 
@@ -461,7 +464,7 @@ describe('GET /api/auth/callback', () => {
     expect(mockSignOut).not.toHaveBeenCalled();
   });
 
-  it('redirects admin to /admin/overview with valid code + no next', async () => {
+  it('redirects admin to the configured Admin app with valid code + no next', async () => {
     mockSingle.mockResolvedValueOnce({
       data: { role: 'admin' },
       error: null,
@@ -469,7 +472,7 @@ describe('GET /api/auth/callback', () => {
 
     const res = await GET(mkReq(buildUrl({ code: 'valid-code' })));
     expect(res.headers.get('Location')).toBe(
-      'https://app.example.com/admin/overview',
+      'https://admin.example.com/',
     );
   });
 

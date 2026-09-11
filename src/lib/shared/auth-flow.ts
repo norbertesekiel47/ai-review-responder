@@ -25,9 +25,9 @@ export type CallbackResolution =
  * Single source of truth for post-auth-callback redirect safety. Callers pass
  * the RAW `next` query param; this function sanitizes it (same-origin internal
  * paths only) and applies the role/path allowlists in the same order the
- * callback route used to inline. `destination` is always an internal path that
- * begins with a single `/` — never an absolute or protocol-relative URL — so a
- * hostile `next` can never escape origin.
+ * callback route used to inline. Requested destinations stay internal; only
+ * the server-provided admin default can leave this app. This shared module
+ * never reads server configuration or accepts an external rawNext.
  *
  *  - `finish` — Google-signup edge: a session exists but no `users` row yet and
  *    `next` is exactly `/signup/finish`. The route keeps the session.
@@ -39,6 +39,8 @@ export function resolveCallbackDestination(input: {
   role: string | null;
   rawNext: string;
   flow: AuthFlow | undefined;
+  /** Trusted server configuration; never sourced from a request parameter. */
+  adminDestination: string;
 }): CallbackResolution {
   const { role, rawNext, flow } = input;
   const loginUrl = loginUrlForFlow(flow);
@@ -86,7 +88,7 @@ export function resolveCallbackDestination(input: {
         : '/dashboard'
       : nextIsAdmin
         ? requestedNext
-        : '/admin/overview';
+        : input.adminDestination;
 
   return { kind: 'redirect', destination };
 }

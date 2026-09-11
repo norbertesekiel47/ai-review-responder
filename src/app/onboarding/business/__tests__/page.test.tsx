@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockGetUser, mockRedirect, mockSql } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
@@ -46,7 +46,10 @@ const ownerRow = {
 };
 
 describe('OnboardingBusinessPage', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
+    vi.stubEnv('ADMIN_APP_URL', 'https://admin.example.com');
     vi.clearAllMocks();
     process.env.ONBOARDING_DEMO_ENABLED = 'true';
     mockGetUser.mockResolvedValue({
@@ -63,12 +66,12 @@ describe('OnboardingBusinessPage', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
-  it('redirects an admin to /admin/overview', async () => {
+  it('redirects an admin to the configured Admin app', async () => {
     mockSql.mockResolvedValueOnce([{ ...ownerRow, role: 'admin' }]);
 
     await expect(OnboardingBusinessPage()).rejects.toThrow('NEXT_REDIRECT');
 
-    expect(mockRedirect).toHaveBeenCalledWith('/admin/overview');
+    expect(mockRedirect).toHaveBeenCalledWith('https://admin.example.com');
   });
 
   it('redirects an owner who has not paid to /onboarding/pay', async () => {

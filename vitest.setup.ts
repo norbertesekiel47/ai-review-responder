@@ -23,6 +23,9 @@ process.env.REDIS_QUEUE_URL =
 process.env.WORKER_PUBLIC_URL =
   process.env.WORKER_PUBLIC_URL ?? 'http://localhost:3001';
 
+// Harmless trusted Admin app destination for server redirect tests.
+process.env.ADMIN_APP_URL = process.env.ADMIN_APP_URL ?? 'https://admin.example.com';
+
 // Extend jest-dom matchers (toBeInTheDocument, etc.) for jsdom-environment tests.
 // The import is a no-op in node-environment tests because the global `document`
 // doesn't exist there — but the module itself is safe to import regardless.

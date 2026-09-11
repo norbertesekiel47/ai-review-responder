@@ -17,7 +17,7 @@ function renderFrame(props: Partial<Parameters<typeof AdminShellFrame>[0]> = {})
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <AdminShellFrame {...props}>
+      <AdminShellFrame adminAppUrl="https://admin.example.com" {...props}>
         <div>page content</div>
       </AdminShellFrame>
     </QueryClientProvider>,
@@ -46,7 +46,7 @@ describe('AdminShellFrame', () => {
   });
 
   it('renders the sidebar and children inside <main> on non-auth pages', () => {
-    mockUsePathname.mockReturnValue('/admin/overview');
+    mockUsePathname.mockReturnValue('/admin/jobs');
     renderFrame();
 
     expect(screen.getByRole('complementary')).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe('AdminShellFrame', () => {
   });
 
   it('passes the identity through to the sidebar footer (X7)', () => {
-    mockUsePathname.mockReturnValue('/admin/overview');
+    mockUsePathname.mockReturnValue('/admin/jobs');
     renderFrame({ identity: { email: 'ops@repworth.com', aal2: true } });
 
     expect(screen.getByRole('complementary')).toHaveTextContent('ops@repworth.com');

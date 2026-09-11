@@ -378,6 +378,32 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 7 | `refusal-vocabulary-hole → discord` | `fault` equals `unmapped_block_reason` | **every event** | `error` |
 | 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
 | 9 | `stripe-out-of-order-ack → discord` **BUILT 2026-09-04, rule `3946648`** | `feature` equals `stripe_subscription_out_of_order` **AND** the issue has happened at least **4** times | **every event**, throttled to 1/hour | any |
+| 10 | Admin home configuration failure → Discord **REQUIRED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE** | Source Next.js project; exception type Error and message equal to the constant below, scoped to the affected deployment environment | **every event**, action throttle 60 minutes per issue | error |
+
+**Rule 10 — Admin home configuration failure (#1192).** The emitted identity is
+Error with the exact message:
+
+    ADMIN_APP_URL must be a configured HTTP(S) origin without credentials, path, query or fragment
+
+The lazy accessor in src/lib/config/admin-app-url.ts throws this request-fatal
+error; src/instrumentation.ts exports Sentry.captureRequestError as
+onRequestError. No fault/subsystem tag or custom fingerprint is emitted for
+this error. Filter on the actual exception message and the source app's Sentry
+project/environment, not invented tags. The message is constant and contains
+no configured value, but default stack-based grouping may create separate
+issues for different call sites; do not promise a single global group or
+global 60-minute throttle. Use every-event delivery with the per-issue action
+throttle so a recurring configuration fault is not silent after first sight.
+
+The operator checks the affected source Vercel deployment and exact
+production/custom-staging/branch-preview scope, validates ADMIN_APP_URL as the
+intended Admin origin without printing its value into incident logs, and
+repairs that scope or restores the last known-good deployment. Rebuild and
+verify the affected Admin login/redirect path against the intended Admin
+host; leave role/AAL2 and request-supplied from/next restrictions intact.
+Confirm rule delivery in staging before marking this requirement complete.
+This is a runbook requirement only: no Sentry rule, grouping override,
+destination integration, or delivery drill was installed or executed here.
 
 > **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
 > This table is the design; these are the rules. Re-read them before assuming a signal

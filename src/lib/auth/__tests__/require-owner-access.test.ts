@@ -11,7 +11,7 @@
 // so @/lib/db/server no longer needs mocking here — the fragment-aware
 // createMockSql harness stands in for `sql` directly.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Sql } from 'postgres';
 import { createMockSql, type MockSqlHarness } from '../../../../worker/__tests__/helpers/mock-sql';
 
@@ -91,7 +91,10 @@ let mockSql: Sql;
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('requireOwnerAccess', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
+    vi.stubEnv('ADMIN_APP_URL', 'https://admin.example.com');
     vi.clearAllMocks();
     harness = createMockSql();
     mockSql = harness.mockSql as unknown as Sql;
@@ -191,7 +194,7 @@ describe('requireOwnerAccess', () => {
 
     const { redirect } = await import('next/navigation');
     await expect(requireOwnerAccess(mockSql)).rejects.toThrow('NEXT_REDIRECT');
-    expect(redirect).toHaveBeenCalledWith('/admin/overview');
+    expect(redirect).toHaveBeenCalledWith('https://admin.example.com');
   });
 
   it('redirects sales_partner to owner login instead of admin overview', async () => {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { adminAppUrl } from '@/lib/config/admin-app-url';
 import { createServerClient } from '@supabase/ssr';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import {
@@ -157,7 +158,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ? await lookupUserRole(supabase, exchanged.userId)
     : null;
 
-  const resolution = resolveCallbackDestination({ role, rawNext, flow });
+  const resolution = resolveCallbackDestination({
+    role, rawNext, flow,
+    adminDestination: role === 'admin' ? adminAppUrl() : '',
+  });
 
   // A `signout-redirect` means "no users row in any non-finish flow, or an
   // unsupported role" → sign out so the user can retry cleanly. signOut writes

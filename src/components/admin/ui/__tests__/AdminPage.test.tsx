@@ -28,7 +28,7 @@ describe('AdminPage', () => {
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(nav).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Businesses' })).toHaveAttribute('href', '/admin/locations/csv-import');
-    // Operate's landing page is Overview; Safety's is Flagged.
+    // Operate's landing page is Jobs; Safety's is Flagged.
     expect(nav.querySelectorAll('li')).toHaveLength(1);
   });
 
@@ -51,7 +51,7 @@ describe('AdminPage', () => {
   });
 
   it.each([
-    ['Operate', '/admin/overview'],
+    ['Operate', '/admin/jobs'],
     ['Safety', '/admin/flagged'],
     ['Growth', '/admin/demos'],
   ] as const)('links the %s group to %s', (group, href) => {

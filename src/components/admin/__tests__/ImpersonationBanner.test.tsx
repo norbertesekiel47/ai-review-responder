@@ -11,6 +11,7 @@ describe('ImpersonationBanner', () => {
   it('names the session, the account, the UTC end time, and offers End (X25)', () => {
     render(
       <ImpersonationBanner
+        adminAppUrl="https://admin.example.com"
         impersonation={{
           sessionId: 'sess-1',
           expiresAt: '2026-09-02T12:45:00.000Z',

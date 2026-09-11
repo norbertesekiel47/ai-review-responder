@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockGetUser, mockRedirect, mockNotFound, mockSql } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
@@ -32,7 +32,10 @@ const { default: PaymentSuccessPage } = await import('../page');
 
 const searchParams = Promise.resolve({ session_id: 'cs_test_1' });
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
+  vi.stubEnv('ADMIN_APP_URL', 'https://admin.example.com');
   vi.clearAllMocks();
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
@@ -53,13 +56,13 @@ describe('PaymentSuccessPage guard', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
-  it('redirects an admin session to the admin overview', async () => {
+  it('redirects an admin session to the configured Admin app', async () => {
     mockSql.mockResolvedValueOnce([{ role: 'admin' }]);
 
     await expect(PaymentSuccessPage({ searchParams })).rejects.toThrow(
       'NEXT_REDIRECT',
     );
-    expect(mockRedirect).toHaveBeenCalledWith('/admin/overview');
+    expect(mockRedirect).toHaveBeenCalledWith('https://admin.example.com');
   });
 
   it('renders for an owner in pending_payment AND post-payment states', async () => {

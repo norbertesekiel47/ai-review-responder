@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 const TONE_CLASSES = {
   /** On a light surface — the view page's session card. */
@@ -15,18 +14,19 @@ const TONE_CLASSES = {
  * clears the signed cookie. Rendered on the view page AND in the shell banner,
  * so it lives with the shell rather than under one route.
  *
- * `router.refresh()` after the push is load-bearing: the banner is rendered by
- * the server layout from the cookie, and a push to a route the admin is already
- * on is a no-op — without the refresh the banner would outlive the session.
+ * Successful termination leaves this app with a full document navigation to
+ * the trusted server-provided Admin app home. The endpoint still clears the
+ * same signed cookie; no session or termination behavior changes.
  */
 export function EndImpersonationButton({
   tone = 'dark',
   compact = false,
+  adminAppUrl,
 }: {
   tone?: keyof typeof TONE_CLASSES;
   compact?: boolean;
+  adminAppUrl: string;
 }) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,8 +43,7 @@ export function EndImpersonationButton({
         setError(json.error ?? `HTTP ${res.status}`);
         return;
       }
-      router.push('/admin/overview');
-      router.refresh();
+      window.location.assign(adminAppUrl);
     } catch (err) {
       console.error('[EndImpersonationButton] end failed:', err);
       setError('Failed to end impersonation session.');

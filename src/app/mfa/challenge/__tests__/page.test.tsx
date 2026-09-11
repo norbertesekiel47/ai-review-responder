@@ -3,14 +3,15 @@ import { createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockListFactors, routerPush, routerRefresh } = vi.hoisted(() => ({
+const { mockListFactors, routerPush, routerRefresh, search } = vi.hoisted(() => ({
   mockListFactors: vi.fn(),
   routerPush: vi.fn(),
   routerRefresh: vi.fn(),
+  search: { value: '' },
 }));
 
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(search.value),
   useRouter: () => ({
     push: routerPush,
     replace: () => {},
@@ -60,6 +61,7 @@ async function submitCode(code: string) {
 describe('MfaChallengeForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    search.value = '';
     // motion/react's useReducedMotion reads window.matchMedia, which jsdom
     // does not implement. Stub it so the brand shell renders deterministically.
     vi.stubGlobal('matchMedia', (query: string) => ({
@@ -114,6 +116,21 @@ describe('MfaChallengeForm', () => {
   });
 
   describe('submit flow', () => {
+    it.each([
+      ['/admin', '/admin'],
+      ['https://evil.example/admin', '/dashboard'],
+      ['//evil.example/admin', '/dashboard'],
+    ])('keeps the post-verification destination %s inside the existing local allowlist', async (next, expected) => {
+      search.value = new URLSearchParams({ next }).toString();
+      vi.stubGlobal('fetch', vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ challengeId: 'chal-1' }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) }));
+      await renderWithVerifiedFactor();
+      await submitCode('123456');
+      await waitFor(() => expect(routerPush).toHaveBeenCalledWith(expected));
+      expect(routerRefresh).toHaveBeenCalledOnce();
+    });
+
     it('happy path: posts challenge then verify, then navigates', async () => {
       const fetchMock = vi
         .fn()
