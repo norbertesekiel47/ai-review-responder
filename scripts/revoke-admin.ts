@@ -570,7 +570,7 @@ export function formatRevokeReport(
           : `RESTORED: users.id=${result.identity.userId} auth_id=${result.identity.authId} — ` +
             'the ban was lifted. Under MFA enforcement an identity WITH a verified factor is ' +
             'challenged at the next sign-in; one with NO factor signs in at aal1 and must ' +
-            'enrol manually at /admin/security, because the proxy\'s owner/admin form is ' +
+            'enrol manually at /admin/security in the Admin app, because the proxy\'s owner/admin form is ' +
             'lenient and does not prompt (ADR 0025 § Consequences).',
       );
       lines.push(

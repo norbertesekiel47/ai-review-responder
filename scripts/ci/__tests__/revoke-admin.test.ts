@@ -828,7 +828,7 @@ describe('formatRevokeReport', () => {
     const report = formatRevokeReport(
       { status: 'changed', action: 'restore', identity }, target,
     ).join('\n');
-    expect(report).toMatch(/must\s+enrol manually at \/admin\/security/);
+    expect(report).toMatch(/must\s+enrol manually at \/admin\/security in the Admin app/);
     // Positive assertions only: `not.toMatch` on a string that no longer exists
     // anywhere can never fail again (red team RT2-05). This one CAN: it pins the
     // lenient-form claim ADR 0025 § Consequences actually makes.
