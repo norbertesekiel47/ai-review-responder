@@ -27,14 +27,6 @@ const CONVERGED_PAGES = [
     description: 'Outbox, queue depth, and failed jobs',
   },
   {
-    page: 'src/app/admin/costs/page.tsx',
-    client: 'src/app/admin/costs/CostsClient.tsx',
-    component: 'CostsClient',
-    group: 'Operate',
-    title: 'Costs',
-    description: 'LLM + API spend and margin by account',
-  },
-  {
     page: 'src/app/admin/notifications/page.tsx',
     client: 'src/app/admin/notifications/NotificationsClient.tsx',
     component: 'NotificationsClient',

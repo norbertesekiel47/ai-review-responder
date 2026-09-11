@@ -27,8 +27,6 @@ const SWEPT_FILES = [
   // (CF-4: page.tsx now carries the chrome + actions markup, so it is swept too)
   'src/app/admin/jobs/page.tsx',
   'src/app/admin/jobs/JobsClient.tsx',
-  'src/app/admin/costs/page.tsx',
-  'src/app/admin/costs/CostsClient.tsx',
   'src/app/admin/notifications/page.tsx',
   'src/app/admin/notifications/NotificationsClient.tsx',
   'src/app/admin/flagged/page.tsx',

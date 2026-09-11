@@ -57,10 +57,6 @@ vi.mock('@/lib/auth/page-gate', () => ({ requireAdminPage: mockRequireAdminPage 
 vi.mock('@/lib/db/server', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/shared/report-caught-error', () => ({ reportCaughtError: vi.fn() }));
 
-vi.mock('@/lib/admin/cost-report-service', () => ({
-  getCostReport: service('read', { byProvider: [], byDay: [], byBusiness: [] }),
-}));
-vi.mock('@/lib/admin/margin-service', () => ({ getMarginReport: service('read', null) }));
 vi.mock('@/lib/admin/jobs-service', () => ({ getAdminJobsData: service('read', { jobs: [] }) }));
 vi.mock('@/lib/admin/queue-health', () => ({
   fetchQueueHealth: service('read', { queueHealth: { unavailable: true }, pool: null }),
@@ -71,7 +67,6 @@ vi.mock('@/lib/admin/notifications-service', () => ({
 
 vi.mock('next/link', () => ({ default: ({ children }: { children?: unknown }) => children }));
 vi.mock('@/components/admin/ui/AdminPage', () => ({ AdminPage: () => null }));
-vi.mock('../costs/CostsClient', () => ({ CostsClient: () => null }));
 vi.mock('../jobs/JobsClient', () => ({ JobsClient: () => null }));
 vi.mock('../notifications/NotificationsClient', () => ({ NotificationsClient: () => null }));
 
@@ -83,12 +78,6 @@ vi.mock('../notifications/NotificationsClient', () => ({ NotificationsClient: ()
  * the wrong page.
  */
 const PAGES = [
-  {
-    name: '/admin/costs',
-    load: () => import('../costs/page'),
-    props: undefined as unknown,
-    from: '/admin/costs',
-  },
   {
     name: '/admin/jobs',
     load: () => import('../jobs/page'),
@@ -133,7 +122,7 @@ describe('admin page gate parity (P2) — proven at runtime, not only in source'
       throw new Error('NEXT_REDIRECT');
     });
 
-    const mod = await import('../costs/page');
+    const mod = await import('../jobs/page');
     await expect((mod.default as () => Promise<unknown>)()).rejects.toThrow('NEXT_REDIRECT');
     expect(callOrder).toEqual(['gate']);
   });

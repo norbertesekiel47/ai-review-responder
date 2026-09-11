@@ -16,7 +16,6 @@ export const ADMIN_NAV_GROUPS = [
     label: 'Operate',
     items: [
       { href: '/admin/jobs', label: 'Jobs', badge: 'failedJobs' },
-      { href: '/admin/costs', label: 'Costs' },
       { href: '/admin/notifications', label: 'Notifications' },
     ],
   },
