@@ -4,6 +4,7 @@ Operational scripts. Run with `tsx scripts/<name>.ts`. Not part of the runtime.
 
 | File | What it does |
 |------|--------------|
+| `admin-contract-delivery.ts` | Copies `docs/admin-api/` to one bot-owned branch/PR in `RepWorth/admin-app`; target-only token, no target main write. Workflow and bootstrap procedure: `docs/runbooks/admin-contract-delivery.md`. |
 | `redis.ts` | Helpers for the other scripts to construct Redis clients from env vars (avoids re-implementing `getCacheRedis` outside the app). |
 | `clear-signup-rate-limits.ts` | Wipes signup rate-limit keys in Redis. Used when a real owner gets stuck behind rate limits during dev / first-customer onboarding. |
 | `zernio-count-reviews.ts` | One-shot diagnostic: hits Zernio `listReviews` for a given business and prints counts per page. Used during the Zernio ingestion smoke test to verify pagination + tier caps. |
