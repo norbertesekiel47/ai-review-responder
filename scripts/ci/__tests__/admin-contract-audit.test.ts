@@ -86,7 +86,9 @@ describe('admin contract audit', () => {
     });
   });
 
-  it('regenerates an isolated contract and rejects drift through the real CLI', () => {
+  // Five fresh CLI processes build the TypeScript graph. An isolated local run
+  // takes ~13s; bound the complete round trip without dropping drift checks.
+  it('regenerates an isolated contract and rejects drift through the real CLI', { timeout: 30_000 }, () => {
     const { root, run } = cliFixture();
     const generated = run('--write');
     expect(generated.stderr).toBe(''); expect(generated.status).toBe(0);

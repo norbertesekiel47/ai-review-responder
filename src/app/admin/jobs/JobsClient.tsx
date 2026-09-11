@@ -228,7 +228,7 @@ function JobsContent({
             better than an operator hunting for a control that does not exist. */}
         <p className="mt-1 text-xs text-gray-500">
           Retrying is CLI-only — a failed row is re-enqueued from the command line once the error is
-          understood. See the <Link href="/admin/runbook" className="underline hover:text-gray-900">runbook</Link>.
+          understood. See the runbook in the Admin app.
         </p>
         <div className="mt-3">
           <DataTable

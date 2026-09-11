@@ -41,7 +41,6 @@ const SWEPT_FILES = [
   'src/app/admin/error.tsx',
   'src/app/admin/loading.tsx',
   'src/app/admin/autonomy/AutonomySuspensionsClient.tsx',
-  'src/app/admin/runbook/page.tsx',
   'src/app/admin/businesses/page.tsx',
   'src/app/admin/businesses/BusinessesClient.tsx',
   'src/app/admin/businesses/[id]/page.tsx',

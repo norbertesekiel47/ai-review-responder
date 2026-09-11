@@ -19,7 +19,6 @@ export const ADMIN_NAV_GROUPS = [
       { href: '/admin/jobs', label: 'Jobs', badge: 'failedJobs' },
       { href: '/admin/costs', label: 'Costs' },
       { href: '/admin/notifications', label: 'Notifications' },
-      { href: '/admin/runbook', label: 'Runbook' },
     ],
   },
   {
@@ -37,7 +36,6 @@ export const ADMIN_NAV_GROUPS = [
       { href: '/admin/autonomy', label: 'Autonomy' },
       { href: '/admin/suppressions', label: 'Suppressions' },
       { href: '/admin/solicitation', label: 'Send breaker' },
-      { href: '/admin/security', label: 'Security' },
     ],
   },
   {
