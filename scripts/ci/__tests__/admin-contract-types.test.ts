@@ -60,10 +60,47 @@ describe('compiler-derived response contracts', () => {
     expect(() => describeResponses(program, source, 'GET')).toThrow('unknown');
     const bigint = fixture('export function GET() { return NextResponse.json({value: 1n}); }');
     expect(() => describeResponses(bigint.program, bigint.source, 'GET')).toThrow('bigint');
+    const absent = fixture('export function GET() { return NextResponse.json(undefined); }');
+    expect(() => describeResponses(absent.program, absent.source, 'GET')).toThrow('undefined');
+    expect(() => Response.json(undefined)).toThrow(TypeError);
     for (const body of ['{ toJSON() { return "different"; } }', '{} as { nested: {toJSON(): string} }', '[] as [string, number?]']) {
       const custom = fixture(`export function GET() { return NextResponse.json(${body}); }`);
       expect(() => describeResponses(custom.program, custom.source, 'GET')).toThrow(/toJSON|tuple/);
     }
+  });
+
+  it('preserves distinct response calls and nested bindings on the same line', () => {
+    const { program, source } = fixture(`
+      function reply(body: unknown, status: number): NextResponse { return NextResponse.json(body, {status}); }
+      function nested(body: unknown, status: number): NextResponse { return reply(body, status); }
+      export function GET() { if (Date.now()) return nested({ok: true}, 200); return nested({error: 'later'}, 418); }
+    `);
+    const responses = describeResponses(program, source, 'GET');
+    expect(responses.map((item) => item.status).sort()).toEqual(['200', '418']);
+    expect(responses.find((item) => item.status === '200')?.body).toContain('"ok"');
+    expect(responses.find((item) => item.status === '418')?.body).toContain('"error"');
+  });
+
+  it('refuses mutable status bindings instead of reporting their initial values', () => {
+    for (const assignment of ['status = 418;', 'if (Date.now()) status = 418;']) {
+      const { program, source } = fixture(`export function GET() {
+        let status = 200; ${assignment} return NextResponse.json({ok:true}, {status});
+      }`);
+      expect(() => describeResponses(program, source, 'GET')).toThrow('unresolved status');
+    }
+  });
+
+  it('preserves inline dictionary signatures and refuses unresolved object spreads', () => {
+    const { program, source } = fixture(`
+      declare const values: Record<string, number>;
+      export function GET() { return NextResponse.json({...values}); }
+      export function POST() { const body = {...values}; return NextResponse.json(body); }
+    `);
+    const inline = describeResponses(program, source, 'GET')[0]!.body;
+    expect(inline).toContain('[key: string]: number | null | undefined');
+    expect(inline).toBe(describeResponses(program, source, 'POST')[0]!.body);
+    const unknown = fixture('declare const value: any; export function GET() { return NextResponse.json({...value}); }');
+    expect(() => describeResponses(unknown.program, unknown.source, 'GET')).toThrow('unknown/any');
   });
 
   it('rejects unresolved response-producing callbacks', () => {

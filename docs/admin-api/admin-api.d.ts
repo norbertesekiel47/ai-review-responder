@@ -827,6 +827,14 @@ export type ZernioPanelData = {
 };
 /** GET /api/admin/autonomy/suspensions; derived from actual JSON response expressions. */
 export type AutonomySuspensionsGETResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "suspensions": Array<{
@@ -868,12 +876,28 @@ export type AutonomySuspensionsGETResponse = {
 };
 /** POST /api/admin/autonomy/unsuspend; derived from actual JSON response expressions. */
 export type AutonomyUnsuspendPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "rearmed": false | true;
 };
 /** POST /api/admin/billing/grant-extension; derived from actual JSON response expressions. */
 export type BillingGrantExtensionPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "extension": {
@@ -896,16 +920,40 @@ export type BusinessesIdChannelsGETResponse = {
         "verified_at": null | string;
     }>;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** PUT /api/admin/businesses/[id]/keywords; derived from actual JSON response expressions. */
 export type BusinessesIdKeywordsPUTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "success": true;
 };
 /** POST /api/admin/businesses/[id]/ranking; derived from actual JSON response expressions. */
 export type BusinessesIdRankingPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "id"?: JsonValue;
@@ -915,6 +963,14 @@ export type BusinessesIdRankingPOSTResponse = {
 export type BusinessesIdResendInvitePOSTResponse = {
     "code": "APP_URL_MISCONFIGURED" | "BUSINESS_NOT_FOUND" | "INVITE_ALREADY_REGISTERED" | "INVITE_FAILED_UNKNOWN" | "INVITE_RATE_LIMITED" | "INVITE_REJECTED" | "NOT_PENDING_PAYMENT" | "OWNER_ALREADY_SIGNED_IN" | "OWNER_NOT_LINKED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_USER_MISSING";
     "error": string;
+} | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": string;
 } | {
@@ -1093,10 +1149,26 @@ export type BusinessesIdGETResponse = {
         }>;
     };
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** PATCH /api/admin/businesses/[id]; derived from actual JSON response expressions. */
 export type BusinessesIdPATCHResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "success": true;
@@ -1110,11 +1182,27 @@ export type BusinessesIdZernioQueuePOSTResponse = {
     "action": string;
     "ok": true;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** GET /api/admin/businesses/options; derived from actual JSON response expressions. */
 export type BusinessesOptionsGETResponse = {
     "betaCompActive": false | true;
+} | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": string;
 };
@@ -1149,10 +1237,26 @@ export type BusinessesGETResponse = {
     "responseMetricsWindowDays": number | null;
     "total": number | null;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** POST /api/admin/businesses; derived from actual JSON response expressions. */
 export type BusinessesPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
     "rollback"?: {
         "orphanAuthUserId"?: string;
@@ -1166,7 +1270,15 @@ export type BusinessesPOSTResponse = {
 };
 /** POST /api/admin/channels/telegram/cancel; derived from actual JSON response expressions. */
 export type ChannelsTelegramCancelPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
     "error": "businessId required";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": "not_found";
 } | {
@@ -1182,7 +1294,15 @@ export type ChannelsTelegramCancelPOSTResponse = {
 };
 /** POST /api/admin/channels/telegram/disable; derived from actual JSON response expressions. */
 export type ChannelsTelegramDisablePOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
     "error": "businessId required";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": "not_found";
 } | {
@@ -1202,11 +1322,19 @@ export type ChannelsTelegramStartPOSTResponse = {
     "expiresAt": string;
     "qrDataUrl": string;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
     "error": "already_verified";
 } | {
     "error": "businessId required";
 } | {
     "error": "internal";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": "multiple_mobile_channels";
 } | {
@@ -1222,7 +1350,15 @@ export type ChannelsTelegramStartPOSTResponse = {
 };
 /** POST /api/admin/channels/whatsapp/cancel; derived from actual JSON response expressions. */
 export type ChannelsWhatsappCancelPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
     "error": "businessId required";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": "not_found";
 } | {
@@ -1238,7 +1374,15 @@ export type ChannelsWhatsappCancelPOSTResponse = {
 };
 /** POST /api/admin/channels/whatsapp/disable; derived from actual JSON response expressions. */
 export type ChannelsWhatsappDisablePOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
     "error": "businessId required";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": "not_found";
 } | {
@@ -1258,11 +1402,19 @@ export type ChannelsWhatsappStartPOSTResponse = {
     "expiresAt": string;
     "qrDataUrl": string;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
     "error": "already_verified";
 } | {
     "error": "businessId required";
 } | {
     "error": "internal";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": "multiple_mobile_channels";
 } | {
@@ -1338,10 +1490,26 @@ export type CostsGETResponse = {
     "todayTotalUsd": number | null;
     "totalBusinesses": number | null;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** POST /api/admin/demos/generate; derived from actual JSON response expressions. */
 export type DemosGeneratePOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "id": string;
@@ -1359,10 +1527,26 @@ export type DemosGETResponse = Array<{
     "slug": string;
     "viewCount": number | null;
 }> | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** GET /api/admin/flagged; derived from actual JSON response expressions. */
 export type FlaggedGETResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "flagged": Array<{
@@ -1391,16 +1575,40 @@ export type FlaggedPOSTResponse = {
     "action": "approved_for_owner_review" | "dismissed_false_positive" | "requires_regeneration";
     "ok": true;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** POST /api/admin/impersonation/end; derived from actual JSON response expressions. */
 export type ImpersonationEndPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "ok": true;
 };
 /** POST /api/admin/impersonation/start; derived from actual JSON response expressions. */
 export type ImpersonationStartPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "expiresAt": string;
@@ -1409,6 +1617,14 @@ export type ImpersonationStartPOSTResponse = {
 };
 /** GET /api/admin/jobs; derived from actual JSON response expressions. */
 export type JobsGETResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "failedJobs": Array<{
@@ -1463,10 +1679,26 @@ export type LocationsCsvImportPOSTResponse = {
     }>;
     "failedCount": number | null;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** GET /api/admin/nav-counts; derived from actual JSON response expressions. */
 export type NavCountsGETResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "failedJobs": number | null;
@@ -1494,6 +1726,14 @@ export type NotificationsGETResponse = {
     "offset": number | null;
     "total": number | null;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** POST /api/admin/offboardings/[offboardingId]/provider-disposition; derived from actual JSON response expressions. */
@@ -1513,10 +1753,26 @@ export type OffboardingsOffboardingIdProviderDispositionPOSTResponse = {
     "ok": true;
     "transitionedToPurgeScheduled": false | true;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** GET /api/admin/offboardings; derived from actual JSON response expressions. */
 export type OffboardingsGETResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "limit": number | null;
@@ -1604,6 +1860,14 @@ export type OverviewGETResponse = {
     };
     "totalBusinesses": number | null;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** POST /api/admin/solicitation/batch/halt; derived from actual JSON response expressions. */
@@ -1613,10 +1877,26 @@ export type SolicitationBatchHaltPOSTResponse = {
     "state"?: "approved" | "built" | "closed" | "expired" | "halted" | "pending" | "sending" | "veto_window";
     "status": "already_halted" | "halted" | "not_found" | "not_haltable";
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 };
 /** POST /api/admin/solicitation/breaker/reset; derived from actual JSON response expressions. */
 export type SolicitationBreakerResetPOSTResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "reset": true;
@@ -1624,6 +1904,14 @@ export type SolicitationBreakerResetPOSTResponse = {
 };
 /** GET /api/admin/solicitation/breaker; derived from actual JSON response expressions. */
 export type SolicitationBreakerGETResponse = {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
+} | {
     "error": string;
 } | {
     "open": false | true;
@@ -1643,6 +1931,16 @@ export type SolicitationBreakerGETResponse = {
 /** POST /api/admin/suppressions/correct; derived from actual JSON response expressions. */
 export type SuppressionsCorrectPOSTResponse = {
     "corrected": true;
+} | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "invalid_body";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": string;
 };
@@ -1672,7 +1970,17 @@ export type SuppressionsLookupPOSTResponse = {
         "suppressedAt": string;
     }>;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "invalid_body";
+} | {
     "error": "invalid_handle";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": string;
 };
@@ -1681,7 +1989,17 @@ export type SuppressionsPOSTResponse = {
     "created": false | true;
     "handle": string;
 } | {
+    "error": "Forbidden";
+} | {
+    "error": "Unauthorized";
+} | {
+    "error": "invalid_body";
+} | {
     "error": "invalid_handle";
+} | {
+    "error": "mfa_check_failed";
+} | {
+    "error": "mfa_required";
 } | {
     "error": string;
 };

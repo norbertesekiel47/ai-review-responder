@@ -49,10 +49,14 @@ describe('admin request schema source analysis', () => {
     expect(entry.approximation).toBe(true);
     expect(entry.limitations).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'normalization', path: '$.keywords[]', operation: 'trim' })]));
     const runtime = z.string().trim().min(1).max(3);
+    const properties = entry.schema.properties as Record<string, { items: { type: string; minLength: number; maxLength: number } }>;
+    const projected = properties.keywords!.items;
+    expect(projected).toMatchObject({ type: 'string', minLength: 1, maxLength: 3 });
+    const acceptsProjectedLength = (value: string) => value.length >= projected.minLength && value.length <= projected.maxLength;
     expect(runtime.safeParse(' abc ').success).toBe(true);
-    expect(' abc '.length > 3).toBe(true); // JSON Schema maxLength rejects this valid runtime input.
+    expect(acceptsProjectedLength(' abc ')).toBe(false);
     expect(runtime.safeParse('   ').success).toBe(false);
-    expect('   '.length >= 1 && '   '.length <= 3).toBe(true); // JSON Schema alone accepts it.
+    expect(acceptsProjectedLength('   ')).toBe(true);
   });
 
   it('records refinements without executing their callbacks', () => {
@@ -94,8 +98,9 @@ describe('admin request schema source analysis', () => {
       const Input = z.object({ name: z.union([z.string().trim(), z.number()]),
         email: z.preprocess(value => String(value), z.string()) });
       export async function POST(req: Request) { return Input.safeParse(await req.json()); }` });
-    expect(result.schemas[0]?.limitations.map((entry) => entry.path)).toEqual(['$.name', '$.email']);
-    expect(result.schemas[0]?.schema).toMatchObject({ properties: { email: {} } });
+    expect(result.schemas[0]?.limitations.map((entry) => entry.path).sort()).toEqual(['$.email', '$.name']);
+    const properties = result.schemas[0]!.schema.properties as Record<string, unknown>;
+    expect(properties.email).toEqual({});
   });
 
   it('separates parameters, JSON bodies, multipart, and bodyless methods', () => {
@@ -107,10 +112,26 @@ describe('admin request schema source analysis', () => {
       export async function GET() { return {}; }
       export async function PUT(req: Request) { return req.formData(); }
       export async function PATCH(req: Request) { return req.json(); }` };
-    expect(fixture(files).schemas.map((item) => item.location)).toEqual(['path', 'body']);
+    expect(fixture(files).schemas.map((item) => item.location).sort()).toEqual(['body', 'path']);
     expect(fixture(files, 'GET').body).toBe('none');
     expect(fixture(files, 'PUT').body).toBe('multipart');
     expect(fixture(files, 'PATCH').body).toBe('hand-parsed-json');
+  });
+
+  it('refuses unmodeled request-derived parser inputs and follows imported body parsers', () => {
+    for (const input of ['(await req.json()) ?? {}', '(await req.json()).payload']) {
+      expect(() => fixture({ 'route.ts': `import { z } from 'zod'; const Input = z.object({name: z.string().max(12)});
+        export async function POST(req: Request) { return Input.safeParse(${input}); }` })).toThrow(/request-derived parser input/);
+    }
+    const result = fixture({
+      'helper.ts': `import { z } from 'zod'; const Input = z.object({name: z.string().max(12)});
+        export function parse(body: unknown) { return Input.safeParse(body); }`,
+      'route.ts': `import { parse } from './helper';
+        export async function POST(req: Request) { const body = await req.json(); return parse(body); }`,
+    });
+    expect(result.body).toBe('json-schema');
+    expect(result.schemas).toHaveLength(1);
+    expect(result.schemas[0]?.schema).toMatchObject({properties: {name: {maxLength: 12}}});
   });
 
   it('recognizes current imported schemas and shared channel parsing', () => {

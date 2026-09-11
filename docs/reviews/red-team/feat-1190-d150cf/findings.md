@@ -255,4 +255,12 @@ Rendered from findings.json authorizations: none. Both findings remain open; no 
 
 ## Validation result
 
+Lead triage after restoration: ACCEPT RT-1190-P0-1, supported by its measured
+non-equivalent survivor; the schema test now asserts the emitted email projection
+equals an empty object exactly. ACCEPT RT-1190-P1-1: the contract does not promise
+traversal order, so both assertions now compare sorted complete lists, preserving
+membership and cardinality. These fixes pass focused tests; the round-1 sidecar
+retains open dispositions until scoped independent mutation verification proves
+the fixes. No risk acceptance or CLEAR result is claimed here.
+
 Canonical strict-shape, authorization-link and arbiter-reasoning validators passed before artifact creation. Counts and status are computed by the canonical checker helpers. The complete checker must block reviewed because OPEN_P0 remains, and the high-risk P1 also lacks user adjudication. No mutation remains for a later process to execute.

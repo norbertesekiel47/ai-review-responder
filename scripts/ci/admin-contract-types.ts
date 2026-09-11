@@ -43,7 +43,10 @@ function renderUncachedJsonType(
   }
   if (type.flags & ts.TypeFlags.Never) return 'never';
   if (type.flags & ts.TypeFlags.Null) return 'null';
-  if (type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return wire ? 'null' : 'undefined';
+  if (type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) {
+    if (wire && !nested) throw new Error(`${location(at)}: top-level undefined JSON body is unsupported`);
+    return wire ? 'null' : 'undefined';
+  }
   if (type.flags & ts.TypeFlags.StringLiteral) return JSON.stringify((type as ts.StringLiteralType).value);
   if (type.flags & ts.TypeFlags.NumberLiteral) return String((type as ts.NumberLiteralType).value);
   if (type.flags & ts.TypeFlags.BooleanLiteral) return checker.typeToString(type);
@@ -76,6 +79,17 @@ function renderUncachedJsonType(
     if (wire && nested) return 'null'; // JSON array slots retain omitted values as null.
     throw new Error(`${location(at)}: callable JSON body is unsupported`);
   }
+  if (type.flags & (ts.TypeFlags.ESSymbolLike | ts.TypeFlags.TypeParameter)) {
+    throw new Error(`${location(at)}: unsupported JSON type ${checker.typeToString(type)}`);
+  }
+  return renderObjectType(checker, type, at, wire, render);
+}
+
+function renderObjectType(
+  checker: ts.TypeChecker, type: ts.Type, at: ts.Node, wire: boolean,
+  render: (type: ts.Type) => string,
+  override?: (property: ts.Symbol) => string | undefined,
+): string {
   const fields: string[] = [];
   for (const property of checker.getPropertiesOfType(type)) {
     if (property.getName().startsWith('__@')) continue;
@@ -85,16 +99,13 @@ function renderUncachedJsonType(
     const omitted = wire && parts.some((part) => part.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Any | ts.TypeFlags.Unknown) || part.getCallSignatures().length > 0);
     const present = wire ? parts.filter((part) => !(part.flags & ts.TypeFlags.Undefined) && part.getCallSignatures().length === 0) : parts;
     if (present.length === 0) continue;
-    const rendered = [...new Set(present.map((part) => render(part)))].sort().join(' | ');
+    const rendered = override?.(property) ?? [...new Set(present.map((part) => render(part)))].sort().join(' | ');
     const optional = omitted || Boolean(property.flags & ts.SymbolFlags.Optional);
     fields.push(`${JSON.stringify(property.getName())}${optional ? '?' : ''}: ${rendered};`);
   }
   for (const index of checker.getIndexInfosOfType(type)) {
     const key = index.keyType.flags & ts.TypeFlags.NumberLike ? 'number' : 'string';
     fields.push(`[key: ${key}]: ${render(index.type)}${wire ? ' | undefined' : ''};`);
-  }
-  if (fields.length === 0 && type.flags & (ts.TypeFlags.ESSymbolLike | ts.TypeFlags.TypeParameter)) {
-    throw new Error(`${location(at)}: unsupported JSON type ${checker.typeToString(type)}`);
   }
   return `{ ${fields.sort().join(' ')} }`;
 }
@@ -141,7 +152,18 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
   const handler = symbols.find((symbol) => symbol.name === method);
   if (!handler) throw new Error(`${source.fileName}: unresolved method ${method}`);
   const visited = new Set<string>();
+  const environments = new WeakMap<Bindings, number>();
+  let nextEnvironment = 0;
   let steps = 0;
+
+  function identity(node: ts.Node): string {
+    return `${node.getSourceFile().fileName}:${node.getStart()}:${node.end}`;
+  }
+  function environmentIdentity(env: Bindings): number {
+    let value = environments.get(env);
+    if (value === undefined) { value = ++nextEnvironment; environments.set(env, value); }
+    return value;
+  }
 
   function symbolAt(node: ts.Node): ts.Symbol | undefined {
     if (node.parent && ts.isShorthandPropertyAssignment(node.parent)) {
@@ -160,7 +182,7 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
         const bound = env.get(symbol);
         if (bound) return resolveBinding(bound.node, bound.env, new Set([...seen, symbol]));
         const declaration = symbol.valueDeclaration;
-        if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) {
+        if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && ts.isVariableDeclarationList(declaration.parent) && declaration.parent.flags & ts.NodeFlags.Const) {
           return resolveBinding(declaration.initializer, env, new Set([...seen, symbol]));
         }
         if (declaration && (ts.isFunctionDeclaration(declaration) || ts.isArrowFunction(declaration) || ts.isFunctionExpression(declaration))) return { node: declaration, env };
@@ -214,22 +236,23 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
       // The compiler owns spread/optional/intersection semantics; override only
       // direct fields whose values contain call-site parameter substitutions.
       const type = checker.getTypeAtLocation(bound.node);
-      if (type.getProperty('toJSON')) throw new Error(`${location(bound.node)}: custom toJSON conversion is unsupported`);
-      const properties = new Map(checker.getPropertiesOfType(type).map((property) => [property.name, property]));
-      const entries: string[] = [];
-      for (const [name, property] of properties) {
-        const declaration = bound.node.properties.find((part) => part.name?.getText().replace(/['"]/g, '') === name);
-        const expression = declaration && ts.isPropertyAssignment(declaration) ? declaration.initializer : undefined;
-        const substituted = expression && ts.isIdentifier(expression) && bound.env.has(symbolAt(expression)!);
-        const propertyType = checker.getTypeOfSymbolAtLocation(property, bound.node);
-        const parts = propertyType.isUnion() ? propertyType.types : [propertyType];
-        const optional = Boolean(property.flags & ts.SymbolFlags.Optional) || parts.some((part) => part.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Unknown | ts.TypeFlags.Any) || part.getCallSignatures().length > 0);
-        const present = parts.filter((part) => !(part.flags & ts.TypeFlags.Undefined) && part.getCallSignatures().length === 0);
-        if (!present.length) continue;
-        const value = substituted ? renderExpression(expression, bound.env) : [...new Set(present.map((part) => renderJsonType(checker, part, bound.node, true, true)))].sort().join(' | ');
-        entries.push(`${JSON.stringify(name)}${optional ? '?' : ''}: ${value};`);
+      // Validate through the common renderer before specialized fields can bypass
+      // unknown/any, serialization or dictionary handling.
+      const ordinary = renderJsonType(checker, type, bound.node);
+      const overrides = new Map<string, ts.Expression>();
+      for (const property of bound.node.properties) {
+        const expression = ts.isPropertyAssignment(property) ? property.initializer : ts.isShorthandPropertyAssignment(property) ? property.name : undefined;
+        if (expression && ts.isIdentifier(expression) && bound.env.has(symbolAt(expression)!)) {
+          overrides.set(property.name!.getText().replace(/['"]/g, ''), expression);
+        }
       }
-      return `{ ${entries.sort().join(' ')} }`;
+      if (!overrides.size) return ordinary;
+      return renderObjectType(checker, type, bound.node, true,
+        (part) => renderJsonType(checker, part, bound.node, true, true),
+        (property) => {
+          const expression = overrides.get(property.name);
+          return expression ? renderExpression(expression, bound.env) : undefined;
+        });
     }
     const typed = bound.node === node ? node : bound.node;
     return renderJsonType(checker, checker.getTypeAtLocation(typed), typed);
@@ -396,7 +419,7 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
       if (symbol && argument) next.set(symbol, { node: argument, env });
       else if (symbol && parameter.initializer) next.set(symbol, { node: parameter.initializer, env: next });
     });
-    const key = `${location(node)}:${location(fn)}:${[...next.values()].map((value) => location(value.node)).join('|')}`;
+    const key = `${identity(node)}:${identity(fn)}:${environmentIdentity(bound.env)}:${[...next.values()].map((value) => `${identity(value.node)}@${environmentIdentity(value.env)}`).join('|')}`;
     if (!visited.has(key)) { visited.add(key); visit(fn.body, next, Boolean(factory)); }
     return true;
   }

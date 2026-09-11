@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, mkdir, writeFile, rm, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,7 +36,11 @@ export function emitPortableDeclarations(sourceText: string): string {
 
 async function listFiles(root: string, prefix = ''): Promise<string[]> {
   let entries;
-  try { entries = await readdir(join(root, prefix), { withFileTypes: true }); }
+  try {
+    const directory = join(root, prefix);
+    if ((await lstat(directory)).isSymbolicLink()) throw new Error(`Contract artifact symlink is unsupported: ${directory}`);
+    entries = await readdir(directory, { withFileTypes: true });
+  }
   catch (error) {
     if (prefix === '' && (error as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw error;
@@ -201,8 +205,18 @@ async function writeArtifacts(root: string, files: ReadonlyMap<string, string>):
 
 async function main(): Promise<void> {
   const root = process.cwd();
-  const generated = await generateAdminContract(root);
   const destination = join(root, 'docs/admin-api');
+  // Check the bounded output ancestry before any artifact read, cleanup or write.
+  for (const directory of [join(root, 'docs'), destination]) {
+    try {
+      const stat = await lstat(directory);
+      if (stat.isSymbolicLink()) throw new Error(`Contract artifact symlink is unsupported: ${directory}`);
+      if (!stat.isDirectory()) throw new Error(`Contract artifact directory is required: ${directory}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  const generated = await generateAdminContract(root);
   if (process.argv.includes('--write')) {
     // Only generated files inside the contract directory are removed; caller chose regeneration.
     for (const file of await listFiles(destination)) if (!generated.files.has(file)) await rm(join(destination, file));

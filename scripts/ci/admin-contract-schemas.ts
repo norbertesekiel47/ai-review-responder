@@ -220,6 +220,17 @@ export function generateRequestSchemas(program: ts.Program, routeSource: ts.Sour
     if (ts.isPropertyAccessExpression(node) && node.name.text === 'searchParams') return 'query';
     return undefined;
   };
+  const requestDerived = (expression: ts.Expression, bindings: Bindings, seen = new Set<ts.Node>()): boolean => {
+    const node = boundExpression(expression, bindings);
+    if (seen.has(node)) return false;
+    seen.add(node);
+    if (origin(node, bindings) || isRequest(node, bindings)) return true;
+    let found = false;
+    ts.forEachChild(node, (child) => {
+      if (ts.isExpression(child) && requestDerived(child, bindings, seen)) found = true;
+    });
+    return found;
+  };
   const schemaName = (expression: ts.Expression, bindings: Bindings, depth = 0): string => {
     if (depth > 32) return refuse(expression, 'schema name dependency limit');
     const node = unwrap(expression);
@@ -255,6 +266,10 @@ export function generateRequestSchemas(program: ts.Program, routeSource: ts.Sour
     }
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
+      const resolved = boundExpression(callee, bindings);
+      const declaration = symbolAt(checker, resolved)?.valueDeclaration;
+      const fn = ts.isArrowFunction(resolved) || ts.isFunctionExpression(resolved) ? resolved
+        : declaration && ts.isFunctionDeclaration(declaration) ? declaration : undefined;
       if (ts.isPropertyAccessExpression(callee)) {
         const operation = callee.name.text;
         if (isRequest(callee.expression, bindings)) {
@@ -262,7 +277,7 @@ export function generateRequestSchemas(program: ts.Program, routeSource: ts.Sour
           if (operation === 'formData') multipart = true;
           if (['text', 'arrayBuffer', 'blob', 'bytes'].includes(operation)) return refuse(node, `unmodeled request body reader ${operation}`);
         }
-        if (['parse', 'safeParse', 'parseAsync', 'safeParseAsync'].includes(operation) && node.arguments[0]) {
+        if (!fn && ['parse', 'safeParse', 'parseAsync', 'safeParseAsync'].includes(operation) && node.arguments[0]) {
           const location = origin(node.arguments[0], bindings);
           if (location) {
             const receiver = boundExpression(callee.expression, bindings);
@@ -272,16 +287,14 @@ export function generateRequestSchemas(program: ts.Program, routeSource: ts.Sour
               schemas.push({ name: schemaName(callee.expression, bindings), location, ...result, approximation: result.limitations.length > 0, source: at(receiver) });
               seenSchemas.add(key);
             }
+          } else if (requestDerived(node.arguments[0], bindings)) {
+            return refuse(node.arguments[0], 'unmodeled request-derived parser input');
           }
         }
       }
-      const resolved = boundExpression(callee, bindings);
-      const declaration = symbolAt(checker, resolved)?.valueDeclaration;
-      const fn = ts.isArrowFunction(resolved) || ts.isFunctionExpression(resolved) ? resolved
-        : declaration && ts.isFunctionDeclaration(declaration) ? declaration : undefined;
       if (fn && !fn.getSourceFile().isDeclarationFile && !fn.getSourceFile().fileName.includes('/node_modules/')) {
         const local = fn.getSourceFile() === routeSource;
-        if (local || node.arguments.some((argument) => isRequest(argument, bindings))) visitFunction(fn, node.arguments, bindings);
+        if (local || node.arguments.some((argument) => requestDerived(argument, bindings))) visitFunction(fn, node.arguments, bindings);
       }
     }
     ts.forEachChild(node, (child) => walk(child, bindings));

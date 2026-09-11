@@ -27,3 +27,9 @@ Independent axis: authorization provenance, source-evaluation safety, exported-d
 The filesystem finding has not been executed because this axis is explicitly source-only. No other uncertain concern is promoted to a finding. The lead should reproduce SEC-1 in an isolated fixture and rerun the normal artifact checks after correction.
 
 REVISE
+
+## Lead triage after restored round 1
+
+- SEC-1 / SEC1 — ACCEPT. An isolated CLI fixture reproduced --write succeeding through a linked output directory instead of refusing. The generator now checks both docs and docs/admin-api before generation or artifact access, and listFiles also refuses a linked root. Regression fixtures cover both root and ancestor symlinks in read-only audit and regeneration modes, verifying that an external temporary sentinel remains unchanged.
+
+The new boundary tests pass after correction. No real external directory was used by the regression; all targets were disposable test fixtures. Independent fix verification remains pending.

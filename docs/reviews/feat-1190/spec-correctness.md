@@ -136,3 +136,13 @@ The committed intake, full plan, owner-amended ADR 0028, deviations, new/changed
 The README status column contains duplicate numeric entries where one response's status is itself a comma-separated set (for example resend-invite). The underlying known status vocabulary is still present. This is a presentation/deduplication issue, not a separate correctness blocker here.
 
 No browser journey changed in the pinned diff. This review does not claim browser verification. Fresh integration/mutation execution and delivery evidence belong to the feature lead under the supplied protocol.
+
+## Lead triage after restored round 1
+
+- F1 / C1 — ACCEPT. A same-line nested-helper regression produced only status 200 instead of 200 and 418 before the fix. Specialization identity now includes unique AST positions and binding environments.
+- F2 / C2 — ACCEPT. Reassigned numeric status variables failed the new refusal regression. Initializer reduction now applies only to constant bindings; mutable values retain compiler flow typing or fail as unresolved.
+- F3 / C3 — ACCEPT. The inline dictionary regression produced an empty object before the fix. Literal and ordinary objects now share property/index rendering and the common unknown/serialization validation. The test also covers an any spread and equivalent inline/local forms.
+- F4 / C4 — ACCEPT. The nullish request-input regression did not refuse before the fix. Unsupported request-derived inputs now fail with a source location; imported parsers receiving already-read body values are followed. Existing parser callbacks remain distinct from Zod methods.
+- Lead serialization check — ACCEPT. Top-level undefined previously emitted null although Response.json(undefined) throws. Generation now refuses it while preserving nested JSON omission/null behavior.
+
+The focused regression suites reproduced the failures before implementation and pass after correction. This triage does not replace the pending exact-head gate and scoped independent verification.

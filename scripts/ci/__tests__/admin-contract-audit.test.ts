@@ -7,6 +7,33 @@ import { auditContractFiles, checkRouteTable, emitPortableDeclarations, generate
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+
+function cliFixture() {
+  const root = mkdtempSync(join(tmpdir(), 'admin-contract-cli-')); roots.push(root);
+  const files = {
+    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', paths: { '@/*': ['./src/*'] } } }),
+    'src/lib/admin/dto.ts': 'export interface Example { name: string; }',
+    'src/lib/admin/api-contract.ts': "export type { Example } from './dto';",
+    'src/lib/auth/admin-mfa-gate.ts': 'export async function requireAdminWithAal2(_req: Request) { return {ok: true}; }',
+    'src/app/api/admin/example/route.ts': `import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+      import { z } from 'zod';
+      const Input = z.object({name: z.string().trim().min(1)});
+      export async function POST(req: Request) {
+        await requireAdminWithAal2(req);
+        const parsed = Input.safeParse(await req.json());
+        return Response.json({success: parsed.success}, {status: 201});
+      }`,
+  };
+  for (const [file, contents] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, file)), { recursive: true }); writeFileSync(join(root, file), contents);
+  }
+  symlinkSync(resolve('node_modules'), join(root, 'node_modules'), 'dir');
+  const run = (...args: string[]) => spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/ci/admin-contract-audit.ts'), ...args], {
+    cwd: root, encoding: 'utf8', timeout: 120_000,
+  });
+  return { root, run };
+}
+
 describe('admin contract audit', () => {
   it('fails on edited declarations and missing or stale route rows', async () => {
     const root = mkdtempSync(join(tmpdir(), 'admin-contract-audit-')); roots.push(root);
@@ -51,28 +78,7 @@ describe('admin contract audit', () => {
   });
 
   it('regenerates an isolated contract and rejects drift through the real CLI', () => {
-    const root = mkdtempSync(join(tmpdir(), 'admin-contract-cli-')); roots.push(root);
-    const files = {
-      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', paths: { '@/*': ['./src/*'] } } }),
-      'src/lib/admin/dto.ts': 'export interface Example { name: string; }',
-      'src/lib/admin/api-contract.ts': "export type { Example } from './dto';",
-      'src/lib/auth/admin-mfa-gate.ts': 'export async function requireAdminWithAal2(_req: Request) { return {ok: true}; }',
-      'src/app/api/admin/example/route.ts': `import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
-        import { z } from 'zod';
-        const Input = z.object({name: z.string().trim().min(1)});
-        export async function POST(req: Request) {
-          await requireAdminWithAal2(req);
-          const parsed = Input.safeParse(await req.json());
-          return Response.json({success: parsed.success}, {status: 201});
-        }`,
-    };
-    for (const [file, contents] of Object.entries(files)) {
-      mkdirSync(dirname(join(root, file)), { recursive: true }); writeFileSync(join(root, file), contents);
-    }
-    symlinkSync(resolve('node_modules'), join(root, 'node_modules'), 'dir');
-    const run = (...args: string[]) => spawnSync(process.execPath, ['--import', 'tsx', resolve('scripts/ci/admin-contract-audit.ts'), ...args], {
-      cwd: root, encoding: 'utf8', timeout: 120_000,
-    });
+    const { root, run } = cliFixture();
     const generated = run('--write');
     expect(generated.stderr).toBe(''); expect(generated.status).toBe(0);
     const audit = run(); expect(audit.status, audit.stderr).toBe(0);
@@ -86,5 +92,23 @@ describe('admin contract audit', () => {
     expect(run('--write').status).toBe(0);
     expect(existsSync(join(destination, 'schemas/stale.json'))).toBe(false);
     expect(run().status).toBe(0);
+  });
+
+  it('rejects linked output roots and ancestors before reading or deleting outside artifacts', () => {
+    for (const linked of ['docs/admin-api', 'docs']) {
+      const { root, run } = cliFixture();
+      const external = mkdtempSync(join(tmpdir(), 'admin-contract-sentinel-')); roots.push(external);
+      const target = linked === 'docs' ? join(external, 'admin-api') : external;
+      mkdirSync(target, { recursive: true });
+      const sentinel = join(target, 'sentinel.txt'); writeFileSync(sentinel, 'preserve unrelated data');
+      mkdirSync(dirname(join(root, linked)), { recursive: true });
+      symlinkSync(external, join(root, linked), 'dir');
+      for (const args of [['--write'], []]) {
+        const result = run(...args);
+        expect(result.status, result.stderr).toBe(1);
+        expect(result.stderr).toContain('symlink');
+        expect(readFileSync(sentinel, 'utf8')).toBe('preserve unrelated data');
+      }
+    }
   });
 });

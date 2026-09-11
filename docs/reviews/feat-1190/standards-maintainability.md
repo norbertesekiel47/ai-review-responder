@@ -13,3 +13,10 @@ Reviewed immutable base `8b92d85395f902879d93748b5929b0b503c0ad86` → head `6c4
 Checked every standards-maintainability checklist entry: provenance/count/comment claims, duplicate and vacuous tests, naming/locality, and inventory identity; UI-specific hover, focus, pointer, layout, and animation cases do not apply. Read AGENTS/CLAUDE context, CI rules and lab notes, ADR 0028/amendment, intake/plan, and admin-aal2/directory-map precedents. Gate ownership, module seams, error propagation, barrel scope, and dependency growth otherwise fit the approved design. Mechanical green-tool concerns were excluded. Broader compiler completeness and runtime safety are outside this verdict; no unexecuted sensitivity claim is presented as measured evidence.
 
 REVISE
+
+## Lead triage after restored round 1
+
+- M1 — ACCEPT. The reproduced inline dictionary failure is the same defect as correctness C3. One shared object-property/index renderer now owns both paths; literal call-site substitutions are the only override.
+- M2 — ACCEPT. The old witness assertions never read generated constraints. The corrected test extracts and asserts generated minLength/maxLength, then compares both padded and whitespace-only witnesses against those values and the authoritative runtime parser.
+
+Focused suites pass after correction. Exact-head verification and the scoped adversarial pass remain pending.
