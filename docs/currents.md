@@ -9,7 +9,13 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-10 (the selected landing design ships as plain sections; the exploration code and the superseded sections are removed.)
+Last updated: 2026-09-11 (legacy Security and Runbook retired after the Admin app tranche-1 parity approval).
+
+## Quick summary — legacy Security and Runbook retirement (#1200, 2026-09-11)
+
+The legacy `/admin/security` and `/admin/runbook` pages and their page-specific tests are removed after the owner's #1224 Page parity approval and [Admin app PR #3](https://github.com/RepWorth/admin-app/pull/3) merge (`0104047b69aa774e1ebd8a4f70c6f4ef93d82fd2`). The legacy sidebar no longer links to either route. Jobs now directs operators to the runbook in the Admin app in plain text, without reading `ADMIN_APP_URL` before ADR 0029's Overview retirement batch.
+
+The MFA and other Admin APIs, shared enrollment hooks, auth/support pages, and synthetic gate-audit fixtures remain. The unrelated past-replies empty-state assertion survives the runbook hard-pin removal. This is ADR 0031 tranche 1 under the owner's LEAN rule; #1192 and #1203 retain their separate staging and red-team requirements.
 
 ## Quick summary — selected editorial landing (2026-09-10)
 

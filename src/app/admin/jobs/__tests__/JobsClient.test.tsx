@@ -132,10 +132,11 @@ describe('JobsClient', () => {
     });
   });
 
-  it('says retry is CLI-only and points at the runbook', () => {
+  it('says retry is CLI-only and directs operators to the Admin app runbook', () => {
     renderClient(baseData);
     expect(screen.getByText(/Retrying is CLI-only/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'runbook' })).toHaveAttribute('href', '/admin/runbook');
+    expect(screen.getByText(/See the runbook in the Admin app/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'runbook' })).not.toBeInTheDocument();
   });
 
   it('bounds the failed-jobs table so its header sticks', () => {
