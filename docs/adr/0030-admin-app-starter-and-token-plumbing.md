@@ -10,6 +10,11 @@ second developer needs before they can start.
 Depends on ADR 0024 (the split), ADR 0025 (the dual-mode gate), ADR 0026
 (CORS) and ADR 0027 (the read gaps). It amends nothing.
 
+Owner amendment — 2026-09-11, port #1224: D4 permits the optional public
+`NEXT_PUBLIC_DOCS_BASE_URL` required by ADR 0027 D3. This resolves the
+three-variable limit's conflict with the runbook's configurable documentation
+links; the no-runtime-secret boundary is unchanged.
+
 Terms: `docs/context/core-accounts-channels-admin.md` → **Admin app fetch
 seam** (coined here), **Admin app**, **Admin API**, **Admin transport**,
 **Verified admin**, **Admin origin allowlist**, **Legacy admin portal**.
@@ -146,14 +151,22 @@ resolve it:
    rewrite. A relative path with no `Authorization` header is not a base-path
    problem; it is an auth problem wearing one.
 
-4. **The Admin app holds three variables, all public, and NO secret at
-   runtime.**
+4. **The Admin app holds three required variables and one optional docs URL,
+   all public, and NO secret at runtime.**
 
    | Variable | Staging | Production |
    |---|---|---|
    | `NEXT_PUBLIC_SUPABASE_URL` | staging project URL | production project URL |
    | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | staging publishable key | production publishable key |
    | `NEXT_PUBLIC_ADMIN_API_URL` | `https://staging.repworth.net` | `https://repworth.net` |
+   | `NEXT_PUBLIC_DOCS_BASE_URL` (optional) | operator-configured documentation base URL | operator-configured documentation base URL |
+
+   **Owner exception — 2026-09-11 (#1224).** The optional docs URL moves with
+   `/admin/runbook` as required by ADR 0027 D3. Preserve the existing behavior:
+   an HTTP(S) base URL makes document references clickable; an unset or invalid
+   value renders the filename as code. Register this fourth name in the Admin
+   app's environment inventory and audit allowlist. This is a named exception,
+   not permission to add other variables or runtime secrets.
 
    **The publishable key, never the legacy anon key.** It rotates
    independently of the JWT signing secret, and
