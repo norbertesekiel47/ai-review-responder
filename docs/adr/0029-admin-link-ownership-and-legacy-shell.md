@@ -37,9 +37,12 @@ Sites 1–8 are the same event: an admin reached an owner surface, and the app
 bounces them to the admin home. Sites 9–11 are on pages that outlive the
 retirement and would otherwise push an admin at a deleted page.
 
-The remaining `/admin/overview` mentions are nav data or comments
-(`AdminSidebar.tsx:180,189`, `nav-config.ts:18`, `ui/AdminPage.tsx:36`, and four
-prose comments). They are deleted with the pages they serve, not repointed.
+**Corrected 2026-09-11:** `AdminSidebar.tsx` also has two live brand anchors
+to `/admin/overview`, one desktop and one mobile. Under the revised D5 timing,
+the sidebar survives Overview retirement. Repoint both through the same
+server-provided Admin app URL in #1192 + #1201, alongside the eleven sites above.
+Prune Overview's nav entry and check `AdminPage`'s group fallback against the
+remaining routes; prose comments are not navigation sites.
 
 **The impersonation preselect cannot work.** `ImpersonationStartClient` takes four
 free-text fields — `accountId`, `impersonatedUserId`, `ticketId`, `reason` — and has
@@ -143,20 +146,36 @@ bar.
 `src/components/admin/EndImpersonationButton.tsx`,
 `src/lib/admin/shell-context.ts`, `src/lib/admin/impersonation/**`.
 
-**Deleted with the last non-survivor page**: `src/components/admin/AdminSidebar.tsx`,
-`src/components/admin/nav-config.ts`, `src/components/admin/nav-counts-query.ts`,
-the three enrollment widgets, `src/components/admin/ui/**` (the Console kit, already
-exported in #1167), `src/app/admin/page-sizes.ts`, and the sixteen retiring pages
-with their path-pinning tests.
+**Deleted after the last non-survivor page, in #1193**:
+`src/components/admin/AdminSidebar.tsx`,
+`src/components/admin/nav-counts-query.ts`, the three enrollment widgets,
+`src/app/admin/page-sizes.ts`, and unused Console kit modules and tests. Each
+retiring page and its path-pinning tests are deleted in its own retirement.
+
+**Owner correction (2026-09-11):** #1192 and #1201 run together after Overview
+parity and #1202; #1193 follows the last tranche-4 retirement. This supersedes
+the earlier instruction to batch all three tickets before tranche 4. The ten
+remaining pages still import the Console kit, and five import page-size
+constants. Removing those modules before their callers is not a valid cut.
+
+The permanent impersonation pages also use `AdminPage`, `DataTable`, `states`
+and `format`; `AdminPage` depends on `nav-config`. Retain the minimal modules
+and transitive dependencies those survivors need, with tests, in #1193. Do not
+delete the entire `ui/**` directory or change impersonation behavior to make
+the deletion compile. Remove obsolete navigation entries as their pages retire.
+
+**Keep `GET /api/admin/nav-counts` and its service.** The separate Admin app's
+Sidebar and Overview call it through the fetch seam. The legacy browser query
+module can retire with the sidebar; the API has a continuing consumer.
 
 **`AdminShellFrame` keeps identity, the impersonation banner and
 `EndImpersonationButton`, drops the sidebar, and gains one "Open Admin app" link**
 built from `ADMIN_APP_URL`.
 
-Keeping the sidebar to render one nav item is rejected: it keeps `AdminSidebar`,
-`nav-config`, `nav-counts-query`, the nav-counts route and their tests alive to draw
-a single link, and leaves a second visual system to maintain in a repo that no
-longer owns the admin UI. Deleting the layout's chrome entirely is also rejected —
+Keeping the sidebar to render one nav item is rejected: it keeps `AdminSidebar`
+and its browser query alive to draw a single link. The survivor UI dependencies
+and nav-counts API remain for the separate reasons above. Deleting the layout's
+chrome entirely is also rejected —
 `EndImpersonationButton` and the impersonation banner live there, and ending a
 support session is the one thing this portal still has to do well.
 

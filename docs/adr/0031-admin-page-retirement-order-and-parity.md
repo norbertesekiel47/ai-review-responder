@@ -80,7 +80,7 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
    | Tranche | Pages | Why here |
    |---|---|---|
    | T1 (#1200) | `/admin/security`, `/admin/runbook` | Neither reads anything and neither needs a route (ADR 0027 D3). They move while #1184/#1185/#1186 are still being built, and they are the developer's first pages (ADR 0030 D7). |
-   | T2 (#1201) | `/admin/overview` | The **Admin app**'s version already exists as Gate B's proof (ADR 0030 D8 check 6, #1197), so the deletion is nearly free. Blocked by #1192 and #1193. |
+   | T2 (#1201) | `/admin/overview` | The **Admin app**'s version already exists as Gate B's proof (ADR 0030 D8 check 6, #1197). Runs with #1192 after Overview parity and #1202; #1193 follows T4 (owner correction 2026-09-11). |
    | T3 (#1202) | `/admin/businesses`, `/admin/businesses/[id]`, `/admin/businesses/new` | The developer's main work surface; `[id]` is eleven client components and twelve fetch sites. Needs #1189's fold and options route. |
    | T4 | the remaining TEN — `autonomy`, `costs`, `demos`, `flagged`, `jobs`, `locations/csv-import`, `notifications`, `offboardings`, `solicitation`, `suppressions` | Owner priority, which does not exist yet. Tickets are cut when it does (D7). |
 
@@ -153,8 +153,9 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
    fire on a retirement: a stale href, and — for `/admin/businesses/new` only
    — a stale `NON_NAV_PAGES` entry. Treat the prune as ordinary checklist work
    whose omission the gate reports, not as a hazard the reviewer must catch.
-   The file dies entirely at the end: ADR 0029 D5 drops the sidebar from
-   `AdminShellFrame`.
+   ADR 0029 D5 drops the sidebar from `AdminShellFrame` at the end, while
+   retaining the minimal navigation configuration needed by the permanent
+   impersonation pages' shared UI.
 
    **Corrected 2026-09-07, after this ADR merged.** It first claimed the prune
    was the one omission with a user-visible failure. That was wrong — the
@@ -204,7 +205,12 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
 
 - Deletions start before the bearer path opens. T1 depends on no ticket in this
   repo; its precondition is **Page parity** sign-off, which is a human gate.
-- #1192 and #1193 unblock the moment this ADR merges.
+- **Owner ordering correction (2026-09-11):** #1192 + #1201 are one PR after
+  Overview parity and #1202. #1193 follows the last tranche-4 retirement and
+  precedes #1203; it no longer blocks #1201. ADR 0029 D5 retains the minimal
+  UI dependencies of the permanent impersonation pages and the nav-counts API
+  used by the separate Admin app. No shared module is deleted while a remaining
+  page still imports it.
 - **Owner execution amendment (2026-09-11):** the remaining split uses the
   LEAN sequence recorded in the orchestrator handoff §4 and map #1159 Notes.
   The earlier blanket high-risk `/feature` requirement is superseded. Only
