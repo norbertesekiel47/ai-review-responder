@@ -5,194 +5,200 @@
   "branch": "feat/1190",
   "fork_sha": "8b92d85395f902879d93748b5929b0b503c0ad86",
   "merge_base_sha": "8b92d85395f902879d93748b5929b0b503c0ad86",
-  "head_sha": "6c42b8050acdeac698171a57d26b56d4fcbd8fcf",
+  "head_sha": "24715f20b19ab6ab2720ced39bb3f6e7717192d6",
   "intake_sha256": "16436c490ea7897e2d478ff0c914889ba89b6d6cb8634b9d2fe555bc169ec95d",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-11T00:00:06.277Z",
+  "round": 2,
+  "generated_at": "2026-09-11T03:43:41.505Z",
   "inventory": [
     {
       "id": "T1",
       "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
       "test": "compiler-derived response contracts emits portable wire declarations for composed responses and JSON serialization",
       "outcome": "killed",
-      "reason": "Baseline launch 1: passed, exactly one test. mutant launch 27: assertion failure, exactly one test. Target scripts/ci/admin-contract-types.ts:62. Oracle: Date wire type must include null. AssertionError: expected '{ \"batchSummary\": null | { \"id\": stri…' to contain '\"date\": string | null'"
+      "reason": "Baseline launch 1: passed, exactly one test. mutant launch 26: killed, exactly one test; scripts/ci/admin-contract-types.ts:103. JSON-omittable unknown/callable union properties must remain optional. AssertionError: expected '{ \"batchSummary\": null | { \"id\": stri…' to contain '\"payload\"?: JsonValue'"
     },
     {
       "id": "T2",
       "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
       "test": "compiler-derived response contracts specializes nested response helpers and configuration callbacks",
       "outcome": "killed",
-      "reason": "Baseline launch 2: passed, exactly one test. mutant2 launch 29: assertion failure, exactly one test. Target scripts/ci/admin-contract-types.ts:242. Oracle: Default successful response status is 200. AssertionError: expected [ '201', '503' ] to deeply equal [ '200', '503' ] Attempt 1 (launch 28) changed the missing-status default but the fixture binds its 200 from a helper parameter initializer, so that branch was unexecuted. It was not counted as a kill or P0; the permitted second mutation changes the exercised bound numeric literal and resolves the case."
+      "reason": "Baseline launch 2: passed, exactly one test. mutant2 launch 28: killed, exactly one test; scripts/ci/admin-contract-types.ts:549. Helper-call traversal must retain each bound specialization rather than deduplicate by helper declaration. AssertionError: expected [ '503' ] to deeply equal [ '200', '503' ] First mutant launch 27 passed after node identities were collapsed to filenames. Binding-environment identities remained in the traversal key, so the inspected fixture did not establish a meaningful behavioral difference from that first mutation. It is retained as inconclusive/oracle, not equivalent or confirmed P0; the permitted second mutation removes binding specialization from the traversal key, loses the 200 branch, and resolves this candidate with a valid kill."
     },
     {
       "id": "T3",
       "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
       "test": "compiler-derived response contracts rejects unsupported wire response types",
       "outcome": "killed",
-      "reason": "Baseline launch 3: passed, exactly one test. mutant launch 30: assertion failure, exactly one test. Target scripts/ci/admin-contract-types.ts:41. Oracle: Top-level unknown source must refuse generation. AssertionError: expected [Function] to throw an error"
+      "reason": "Baseline launch 3: passed, exactly one test. mutant launch 29: killed, exactly one test; scripts/ci/admin-contract-types.ts:47. Top-level undefined must be refused rather than advertised as null. AssertionError: expected [Function] to throw an error"
     },
     {
       "id": "T4",
       "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
-      "test": "compiler-derived response contracts rejects unresolved response-producing callbacks",
+      "test": "compiler-derived response contracts preserves distinct response calls and nested bindings on the same line",
       "outcome": "killed",
-      "reason": "Baseline launch 4: passed, exactly one test. mutant launch 31: assertion failure, exactly one test. Target scripts/ci/admin-contract-types.ts:419. Oracle: Opaque response return beside a JSON response must refuse. AssertionError: expected [Function] to throw an error"
+      "reason": "Baseline launch 4: passed, exactly one test. mutant launch 30: killed, exactly one test; scripts/ci/admin-contract-types.ts:162. Distinct source calls with different bindings must remain separate. AssertionError: expected [ '200' ] to deeply equal [ '200', '418' ]"
     },
     {
       "id": "T5",
       "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
-      "test": "compiler-derived response contracts derives finite status codes from domain errors and constant lookup maps",
+      "test": "compiler-derived response contracts refuses mutable status bindings instead of reporting their initial values",
       "outcome": "killed",
-      "reason": "Baseline launch 5: passed, exactly one test. mutant launch 32: assertion failure, exactly one test. Target scripts/ci/admin-contract-types.ts:258. Oracle: Finite domain statuses must preserve actual codes. AssertionError: expected [ '405, 423', '410' ] to deeply equal [ '404, 422', '409' ]"
+      "reason": "Baseline launch 5: passed, exactly one test. mutant launch 31: killed, exactly one test; scripts/ci/admin-contract-types.ts:277. Mutated helper status and escaped/mutated init bindings must be refused. AssertionError: function reply(status:number): NextResponse { status=418; return NextResponse.json({ok:true},{status}); } export function GET(){return reply(200);}: expected [Function] to throw an error mutant2 launch 32: killed, exactly one test; scripts/ci/admin-contract-types.ts:288. Plain-object status-source guard must refuse getter side effects and unsupported overriding members. AssertionError: export function GET(){const init:{status:number;read:number}={status:200,get read(){this.status=418;return 0;}}; void init.read; return NextResponse.json({ok:true},{status:init.status});}: expected [Function] to throw an error"
     },
     {
       "id": "T6",
       "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
-      "test": "compiler-derived response contracts does not include uncalled local response helpers or erase mutated local flow types",
+      "test": "compiler-derived response contracts preserves inline dictionary signatures and refuses unresolved object spreads",
       "outcome": "killed",
-      "reason": "Baseline launch 6: passed, exactly one test. mutant launch 33: assertion failure, exactly one test. Target scripts/ci/admin-contract-types.ts:407. Oracle: Uncalled local helper must not contribute 418 response. AssertionError: expected [ '418', '400' ] to deeply equal [ '400' ]"
+      "reason": "Baseline launch 6: passed, exactly one test. mutant launch 33: killed, exactly one test; scripts/ci/admin-contract-types.ts:106. Dictionary signatures must survive shared object rendering. AssertionError: expected '{  }' to contain '[key: string]: number | null | undefi…'"
     },
     {
       "id": "T7",
       "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
+      "test": "compiler-derived response contracts derives finite status codes from domain errors and constant lookup maps",
+      "outcome": "killed",
+      "reason": "Baseline launch 7: passed, exactly one test. mutant launch 34: killed, exactly one test; scripts/ci/admin-contract-types.ts:313. Constant status maps must resolve from their actual initializers. Error: <fixture>/route.ts:8: unresolved status expression (codes[Math.random() ? 'absent' : 'blocked']) The failure is an intended analyzer Error raised for a supported input after the semantic mutation. It occurs inside the tested subject during the case, not during import, setup, compilation, or environment initialization."
+    },
+    {
+      "id": "T8",
+      "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
+      "test": "compiler-derived response contracts does not include uncalled local response helpers or erase mutated local flow types",
+      "outcome": "killed",
+      "reason": "Baseline launch 8: passed, exactly one test. mutant launch 35: killed, exactly one test; scripts/ci/admin-contract-types.ts:106. Dictionary signatures must survive shared object rendering. AssertionError: expected '{  }' to contain '[key: string]: JsonValue'"
+    },
+    {
+      "id": "T9",
+      "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
       "test": "compiler-derived response contracts preserves source DTO uncertainty separately from successful JSON wire types",
       "outcome": "killed",
-      "reason": "Baseline launch 7: passed, exactly one test. mutant launch 34: assertion failure, exactly one test. Target scripts/ci/admin-contract-types.ts:40. Oracle: Source DTO unknown must remain unknown. AssertionError: expected '{ \"date\": Date; \"payload\": JsonValue;…' to contain '\"payload\": unknown'"
+      "reason": "Baseline launch 9: passed, exactly one test. mutant launch 36: killed, exactly one test; scripts/ci/admin-contract-types.ts:102. Source DTO unknown must survive the shared object renderer. AssertionError: expected '{ \"date\": Date; \"payload\": JsonValue;…' to contain '\"payload\": unknown'"
     },
     {
       "id": "S1",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis generates request schemas without importing runtime modules",
       "outcome": "killed",
-      "reason": "Baseline launch 8: passed, exactly one test. mutant launch 35: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:158. Oracle: Imported max constant must project exact maxLength 12. AssertionError: expected { …(5) } to match object { Object (type, properties) }"
+      "reason": "Baseline launch 10: passed, exactly one test. mutant launch 37: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:281. Reachable schema parser dispatch must distinguish parser methods from helper callbacks. AssertionError: expected 'hand-parsed-json' to be 'json-schema' // Object.is equality"
     },
     {
       "id": "S2",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis labels padded and whitespace-only normalization disagreements",
       "outcome": "killed",
-      "reason": "Baseline launch 9: passed, exactly one test. mutant launch 36: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:272. Oracle: Normalization must mark approximation. AssertionError: expected false to be true // Object.is equality"
+      "reason": "Baseline launch 11: passed, exactly one test. mutant launch 38: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:158. Changed normalization-disagreement oracle must derive exact bounds from the emitted schema. AssertionError: expected { type: 'string', minLength: 2, …(1) } to match object { type: 'string', minLength: 1, …(1) }"
     },
     {
       "id": "S3",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis records refinements without executing their callbacks",
       "outcome": "killed",
-      "reason": "Baseline launch 10: passed, exactly one test. mutant launch 37: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:132. Oracle: Refinement callback source must be retained. AssertionError: expected '' to contain 'never execute'"
+      "reason": "Baseline launch 12: passed, exactly one test. mutant launch 39: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:281. Reachable schema parser dispatch must distinguish parser methods from helper callbacks. AssertionError: expected undefined to match object { kind: 'refinement', path: '$.name' }"
     },
     {
       "id": "S4",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis refuses unsupported dynamic schema dependencies and getters",
       "outcome": "killed",
-      "reason": "Baseline launch 11: passed, exactly one test. mutant launch 38: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:104. Oracle: Mutable schema dependency must refuse. AssertionError: expected [Function] to throw an error"
+      "reason": "Baseline launch 13: passed, exactly one test. mutant launch 40: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:281. Reachable schema parser dispatch must distinguish parser methods from helper callbacks. AssertionError: expected [Function] to throw an error"
     },
     {
       "id": "S5",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis binds callback and parser parameters without including unused callbacks",
       "outcome": "killed",
-      "reason": "Baseline launch 12: passed, exactly one test. mutant launch 39: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:158. Oracle: Strict object through bound parser must forbid additionalProperties. AssertionError: expected { …(5) } to match object { type: 'object', …(1) }"
+      "reason": "Baseline launch 14: passed, exactly one test. mutant launch 41: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:281. Reachable schema parser dispatch must distinguish parser methods from helper callbacks. Error: Unsupported request schema at <fixture>/helper.ts:1:109: unmodeled request-derived parser input The failure is an intended analyzer Error raised for a supported input after the semantic mutation. It occurs inside the tested subject during the case, not during import, setup, compilation, or environment initialization."
     },
     {
       "id": "S6",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis preserves union normalization paths and preprocessing uncertainty",
-      "outcome": "survived-confirmed-P0",
-      "reason": "Baseline launch 13: passed, exactly one test. mutant launch 40: passed despite a meaningful narrowing, exactly one test. Target scripts/ci/admin-contract-schemas.ts:143. Oracle: Preprocessed input must retain unknown input domain. Arbiter confirmation is recorded in RT-1190-P0-1.",
-      "finding_id": "RT-1190-P0-1"
+      "outcome": "killed",
+      "reason": "Baseline launch 15: passed, exactly one test. mutant launch 42: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:143. Round-one P0 fix must reject an invented string restriction on preprocessing input. AssertionError: expected { type: 'string' } to deeply equal {}"
     },
     {
       "id": "S7",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis separates parameters, JSON bodies, multipart, and bodyless methods",
       "outcome": "killed",
-      "reason": "Baseline launch 14: passed, exactly one test. mutant launch 41: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:308. Oracle: FormData reader must classify multipart. AssertionError: expected 'none' to be 'multipart' // Object.is equality"
+      "reason": "Baseline launch 16: passed, exactly one test. mutant launch 43: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:281. Reachable schema parser dispatch must distinguish parser methods from helper callbacks. AssertionError: expected [] to deeply equal [ 'body', 'path' ]"
     },
     {
       "id": "S8",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
-      "test": "admin request schema source analysis recognizes current imported schemas and shared channel parsing",
+      "test": "admin request schema source analysis refuses unmodeled request-derived parser inputs and follows imported body parsers",
       "outcome": "killed",
-      "reason": "Baseline launch 15: passed, exactly one test. mutant launch 42: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:308. Oracle: Current channel start must classify hand-parsed JSON. AssertionError: expected 'none' to be 'hand-parsed-json' // Object.is equality"
+      "reason": "Baseline launch 17: passed, exactly one test. mutant launch 44: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:291. Transformed request-derived inputs must fail closed. AssertionError: expected [Function] to throw an error"
     },
     {
       "id": "S9",
       "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
+      "test": "admin request schema source analysis recognizes current imported schemas and shared channel parsing",
+      "outcome": "killed",
+      "reason": "Baseline launch 18: passed, exactly one test. mutant launch 45: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:281. Reachable schema parser dispatch must distinguish parser methods from helper callbacks. AssertionError: expected 'hand-parsed-json' to be 'json-schema' // Object.is equality"
+    },
+    {
+      "id": "S10",
+      "file": "scripts/ci/__tests__/admin-contract-schemas.test.ts",
       "test": "admin request schema source analysis accounts for every current admin method without runtime imports",
       "outcome": "killed",
-      "reason": "Baseline launch 16: passed, exactly one test. mutant launch 43: assertion failure, exactly one test. Target scripts/ci/admin-contract-schemas.ts:308. Oracle: Current unsuspend and suppression lookup must classify JSON schema. AssertionError: expected 'hand-parsed-json' to be 'json-schema' // Object.is equality"
+      "reason": "Baseline launch 19: passed, exactly one test. mutant launch 46: killed, exactly one test; scripts/ci/admin-contract-schemas.ts:281. Reachable schema parser dispatch must distinguish parser methods from helper callbacks. AssertionError: expected 'hand-parsed-json' to be 'json-schema' // Object.is equality"
     },
     {
       "id": "A1",
       "file": "scripts/ci/__tests__/admin-contract-audit.test.ts",
       "test": "admin contract audit fails on edited declarations and missing or stale route rows",
       "outcome": "killed",
-      "reason": "Baseline launch 17: passed, exactly one test. mutant launch 44: assertion failure, exactly one test. Target scripts/ci/admin-contract-audit.ts:61. Oracle: Edited declaration must report changed artifact. AssertionError: expected '' to contain 'admin-api.d.ts'"
+      "reason": "Baseline launch 20: passed, exactly one test. mutant launch 47: killed, exactly one test; scripts/ci/admin-contract-audit.ts:42. Public artifact audit must refuse a linked root rather than report ordinary drift. Error: promise resolved \"[ …(2) ]\" instead of rejecting"
     },
     {
       "id": "A2",
       "file": "scripts/ci/__tests__/admin-contract-audit.test.ts",
-      "test": "admin contract audit detects route method and gate provenance drift",
+      "test": "admin contract audit reproduces the current contract including enriched responses and existing DTO exports",
       "outcome": "killed",
-      "reason": "Baseline launch 18: passed, exactly one test. mutant launch 45: assertion failure, exactly one test. Target scripts/ci/admin-contract-audit.ts:87. Oracle: Wrong gate column must report provenance drift. AssertionError: expected '' to contain 'gate'"
+      "reason": "Baseline launch 21: passed, exactly one test. mutant launch 48: killed, exactly one test; scripts/ci/admin-contract-types.ts:103. Generated golden must preserve omitted properties from response JSON projection. AssertionError: expected [ Array(1) ] to deeply equal []"
     },
     {
       "id": "A3",
       "file": "scripts/ci/__tests__/admin-contract-audit.test.ts",
-      "test": "admin contract audit emits standalone declarations without repository aliases",
+      "test": "admin contract audit regenerates an isolated contract and rejects drift through the real CLI",
       "outcome": "killed",
-      "reason": "Baseline launch 19: passed, exactly one test. mutant launch 46: assertion failure, exactly one test. Target scripts/ci/admin-contract-audit.ts:29. Oracle: Unresolved private type must fail standalone compiler check. AssertionError: expected [Function] to throw an error"
+      "reason": "Baseline launch 22: passed, exactly one test. mutant launch 49: killed, exactly one test; scripts/ci/admin-contract-audit.ts:157. The source host must preserve JS JSDoc numeric field information. AssertionError: expected '// Generated by pnpm admin-contract:g…' to contain '\"value\": number | null'"
     },
     {
       "id": "A4",
       "file": "scripts/ci/__tests__/admin-contract-audit.test.ts",
-      "test": "admin contract audit reproduces the current contract including enriched responses and existing DTO exports",
+      "test": "admin contract audit rejects linked output roots and ancestors before reading or deleting outside artifacts",
       "outcome": "killed",
-      "reason": "Baseline launch 20: passed, exactly one test. mutant launch 47: assertion failure, exactly one test. Target src/lib/admin/api-contract.ts:20. Oracle: Missing existing DTO must cause artifact drift and missing export. AssertionError: expected [ Array(1) ] to deeply equal []"
+      "reason": "Baseline launch 23: passed, exactly one test. mutant launch 50: killed, exactly one test; scripts/ci/admin-contract-audit.ts:218. Linked CLI output ancestry must fail rather than return false success; no artifact actions run. AssertionError: expected +0 to be 1 // Object.is equality"
     },
     {
       "id": "A5",
       "file": "scripts/ci/__tests__/admin-contract-audit.test.ts",
-      "test": "admin contract audit regenerates an isolated contract and rejects drift through the real CLI",
+      "test": "admin contract audit emits standalone declarations without repository aliases",
       "outcome": "killed",
-      "reason": "Baseline launch 21: passed, exactly one test. mutant launch 48: assertion failure, exactly one test. Target scripts/ci/admin-contract-audit.ts:208. Oracle: Regeneration must remove stale fixture artifact. AssertionError: expected true to be false // Object.is equality"
+      "reason": "Baseline launch 24: passed, exactly one test. mutant launch 51: killed, exactly one test; scripts/ci/admin-contract-audit.ts:19. Standalone declarations must reject ambient DOM names. AssertionError: expected [Function] to throw an error"
     },
     {
-      "id": "G1",
-      "file": "scripts/ci/__tests__/admin-aal2-audit.test.ts",
-      "test": "scanRouteFile — admin AAL2 gate audit reports canonical gate names for every exported method",
+      "id": "A6",
+      "file": "scripts/ci/__tests__/admin-contract-audit.test.ts",
+      "test": "admin contract audit rejects non-directory output ancestors without overwriting existing files",
       "outcome": "killed",
-      "reason": "Baseline launch 22: passed, exactly one test. mutant launch 49: assertion failure, exactly one test. Target scripts/ci/admin-aal2-audit.ts:574. Oracle: Canonical gate name must survive alias and wrapped handler. AssertionError: expected [ { method: 'GET', gates: [] }, …(2) ] to deeply equal [ { method: 'GET', …(1) }, …(2) ]"
+      "reason": "Baseline launch 25: passed, exactly one test. mutant launch 52: killed, exactly one test; scripts/ci/admin-contract-audit.ts:219. Non-directory CLI ancestry must fail rather than return false success; no artifact actions run. AssertionError: expected +0 to be 1 // Object.is equality"
     },
     {
-      "id": "W1",
-      "file": "src/__tests__/ci-audit-wiring.test.ts",
-      "test": "ci:* audit wiring includes the generated Admin API contract in package, lint CI and local pre-push",
-      "outcome": "killed",
-      "reason": "Baseline launch 23: passed, exactly one test. mutant launch 50: assertion failure, exactly one test. Target package.json:33. Oracle: Package must register ci:admin-contract. AssertionError: expected [ 'ci:tenant-scope', …(22) ] to include 'ci:admin-contract'"
+      "id": "X1",
+      "file": "scripts/ci/__tests__/admin-contract-types.test.ts",
+      "test": "compiler-derived response contracts rejects unresolved response-producing callbacks",
+      "outcome": "excluded",
+      "reason": "Unchanged opaque callback/response fixtures refuse before the changed object renderer, helper call-identity registration, or status-binding proof. The local T5 matrix does not change their shared fixture helper."
     },
     {
-      "id": "W2",
-      "file": "src/__tests__/ci-audit-wiring.test.ts",
-      "test": "ci:* audit wiring ci:admin-contract runs in some workflow, or is ungated with a reason",
-      "outcome": "killed",
-      "reason": "Baseline launch 24: passed, exactly one test. mutant launch 51: assertion failure, exactly one test. Target .github/workflows/ci.yml:184. Oracle: Registered contract audit must execute in a workflow. AssertionError: expected { script: 'ci:admin-contract', …(2) } to deeply equal { script: 'ci:admin-contract', …(2) }"
-    },
-    {
-      "id": "W3",
-      "file": "src/__tests__/ci-audit-wiring.test.ts",
-      "test": "ci:* audit wiring ci:admin-contract also runs in lefthook.yml",
-      "outcome": "killed",
-      "reason": "Baseline launch 25: passed, exactly one test. mutant launch 52: assertion failure, exactly one test. Target lefthook.yml:35. Oracle: CI contract audit must also execute on local pre-push. AssertionError: expected false to be true // Object.is equality"
-    },
-    {
-      "id": "W4",
-      "file": "src/__tests__/ci-audit-wiring.test.ts",
-      "test": "ci:* audit wiring ci:admin-contract is a real package.json script",
-      "outcome": "killed",
-      "reason": "Baseline launch 26: passed, exactly one test. mutant launch 53: assertion failure, exactly one test. Target package.json:33. Oracle: Invoked contract audit must exist in package scripts. AssertionError: expected [ 'ci:tenant-scope', …(22) ] to include 'ci:admin-contract'"
+      "id": "X2",
+      "file": "scripts/ci/__tests__/admin-contract-audit.test.ts",
+      "test": "admin contract audit detects route method and gate provenance drift",
+      "outcome": "excluded",
+      "reason": "Calls unchanged checkRouteTable only; no changed filesystem traversal, generator, compiler host, helper, or artifact dependency."
     }
   ],
   "findings": [
@@ -200,38 +206,48 @@
       "id": "RT-1190-P0-1",
       "severity": "P0",
       "title": "Empty schema matcher does not protect preprocessing input uncertainty",
-      "at": "scripts/ci/__tests__/admin-contract-schemas.test.ts:98",
+      "at": "scripts/ci/__tests__/admin-contract-schemas.test.ts:103",
       "duty": 1,
-      "disposition": "open",
-      "reason": "A meaningful mutation narrowing the preprocess input projection from unknown to string survives the individual test. Assert the email schema itself equals an unrestricted schema, and check a representative non-string input accepted after preprocessing; the current nested empty-object partial matcher accepts arbitrary added constraints.",
-      "arbiter_reasoning": "The test fixture at lines 93–96 actually reaches the preprocess branch with z.preprocess(value => String(value), z.string()). The mutant replaces return z.unknown() with return z.string() at scripts/ci/admin-contract-schemas.ts:143, so the input projection now adds type: string and rejects non-string inputs that preprocessing can convert successfully. The baseline and mutant each ran exactly this one test and both passed. This is not equivalent and not an unexecuted branch: that fixture contains the preprocess expression, the source-only evaluator returns the mutated schema for its email field, and z.toJSONSchema projects that schema. The line-98 toMatchObject expectation contains email: {}, which accepts any extra properties on email, including the incorrect type restriction. Therefore the assertion does not enforce the preprocessing uncertainty named by the test."
+      "disposition": "fixed",
+      "reason": "Round 2 independently measured the original preprocessing unknown-to-string mutation. Baseline launch 15 passed; mutant launch 42 failed the exact email-schema equality at line 103: expected { type: string } to deeply equal {}. Both selected exactly one test. The former empty nested partial matcher is now an exact unrestricted-schema assertion.",
+      "arbiter_reasoning": "The fixture still reaches z.preprocess(value => String(value), z.string()). At the pinned source, the evaluator returns z.unknown() to avoid inventing an input restriction. Changing that return to z.string() adds an incorrect type restriction. This pass observed the exact resulting assertion failure at test line 103, so the former false-coverage defect is fixed; no risk acceptance is used."
     },
     {
       "id": "RT-1190-P1-1",
       "severity": "P1",
       "title": "Schema discovery assertions require an undocumented array order",
-      "at": "scripts/ci/__tests__/admin-contract-schemas.test.ts:97",
+      "at": "scripts/ci/__tests__/admin-contract-schemas.test.ts:101",
       "duty": 2,
-      "disposition": "open",
-      "reason": "Line 97 requires limitation paths in the exact order [$.name, $.email], and line 110 requires schema locations in the exact order [path, body]. The locked intake, ADR 0028 and RequestSchemasResult interface require complete deterministic output but specify neither of these source-traversal orders. Another deterministic traversal can preserve the behavior while failing these tests. Compare normalized sets or sorted arrays, or use unordered membership plus exact cardinality; retain direct assertions for each schema and body classification."
+      "disposition": "fixed",
+      "reason": "Round 2 source inspection confirms limitation paths are sorted at line 101 and schema locations are sorted at line 115 before equality. These compare complete normalized sets rather than undocumented traversal order. Green individual baselines 15 and 16 retain their other schema/body oracles; S6 and S7 mutations demonstrate the relevant assertions remain effective."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-1190-round2-operation",
+      "date": "2026-09-10",
+      "finding_ids": [
+        "RT-1190-P0-1",
+        "RT-1190-P1-1"
+      ],
+      "text": "Question: Do you approve this round-two operation at 24715f20, including the 75-launch ceiling and temporary preview pause?\nOwner: Go for it"
+    }
+  ],
   "counts": {
-    "inventory_total": 26,
+    "inventory_total": 27,
     "killed": 25,
-    "survived_confirmed_p0": 1,
+    "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 0,
+    "excluded": 2,
     "findings_total": 2,
-    "p0_open": 1,
-    "p1_open": 1,
+    "p0_open": 0,
+    "p1_open": 0,
     "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 2,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }
