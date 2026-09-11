@@ -37,18 +37,6 @@ export default async function AdminOverviewPage() {
           >
             Demos
           </Link>
-          <Link
-            href="/admin/businesses"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            All Businesses
-          </Link>
-          <Link
-            href="/admin/businesses/new"
-            className="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700"
-          >
-            + Add Business
-          </Link>
         </>
       }
     >

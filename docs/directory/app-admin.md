@@ -28,9 +28,8 @@ is declared once, in the client, and imported by the server page.
 > exemptions derived from `src/proxy.ts`), and a page whose sibling route gates
 > `GET` with `requireAdminWithAal2` must pass `{ aal2: true }` — **read-gate
 > parity**, because the page reads the DB directly and is otherwise a parallel
-> path around the route's step-up. Deliberately NOT "a page rendering a mutation
-> surface needs AAL2" (`/admin/businesses/[id]` correctly hosts AAL2-gated
-> mutations while gating plain).
+> path around the route's step-up. Mutation handlers retain their own AAL2
+> requirements independently of the page's read gate.
 
 | Path | What it does |
 |------|--------------|
@@ -41,33 +40,14 @@ is declared once, in the client, and imported by the server page.
 | `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). Renders outside the shell (`ADMIN_AUTH_ROUTES`). |
 | `forgot-password/page.tsx` | Admin forgot-password. Outside the shell. |
 | `reset-password/page.tsx` | Admin reset-password. Outside the shell. |
-| `overview/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminOverview` + `getAdminNavCounts`, owns the `<AdminPage group="Operate">` chrome and its three action links. |
-| `overview/OverviewClient.tsx` | Client island: the five system-health tiles, the needs-attention strip (shares `navCountsQueryOptions`' cache entry with the sidebar badge), and the **At-risk list** — heading `At risk (N of M)` where N is `atRisk.length` and M is `totalBusinesses`, a `View all →` link to `/admin/businesses`, name + `HealthBadge` rows linking to the detail page, and `EmptyState` when nothing is at risk. **(§5.3)** No `DataTable`, no pagination and no `PAGE_SIZE` any more — Overview stopped paginating and started ranking. |
+| `overview/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminOverview` + `getAdminNavCounts`, owns the `<AdminPage group="Operate">` chrome and the surviving Demos action. |
+| `overview/OverviewClient.tsx` | Client island: system-health tiles (shares `navCountsQueryOptions`' cache entry with the sidebar badge) and the **At-risk list** — heading `At risk (N of M)`, business name + status/activity + `HealthBadge` rows, and `EmptyState` when nothing is at risk. Business management lives in the Admin app; retired legacy business links are replaced by plain-text guidance. **(§5.3)** No `DataTable`, pagination or `PAGE_SIZE` — Overview ranks rather than paginates. |
 | `jobs/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminJobsData` + `fetchQueueHealth`, `<AdminPage group="Operate" title="Jobs">`. |
 | `jobs/JobsClient.tsx` | Client island: outbox summary tiles + failed-jobs table + per-queue depth/pool-wait; owns `PAGE_SIZE`. |
 | `costs/page.tsx` | **(Phase 2/3)** Server component: gate, `getCostReport` + `getMarginReport`, `<AdminPage group="Operate" title="Costs">`. |
 | `costs/CostsClient.tsx` | Client island: API cost report + margin mini-tables; owns `PAGE_SIZE`. |
 | `notifications/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminNotifications`, `<AdminPage group="Operate" title="Notifications">`. |
 | `notifications/NotificationsClient.tsx` | Client island: notification delivery log + businesses filter dropdown; owns `PAGE_SIZE`. |
-| `businesses/page.tsx` | **(Phase 3)** Server component: gate, `getBusinessSummaries` (**§5.2**, page 1 at `BUSINESSES_PAGE_SIZE` — it replaced the deleted `getAdminBusinessesList`), `<AdminPage group="Businesses">` with the Import CSV / + Add Business actions. |
-| `businesses/BusinessesClient.tsx` | **(Phase 3)** Client island: the businesses table (`DataTable`, server-paginated, `rowHref` → detail), shared `StatusBadge`, `Last Sync (UTC)`; page size from `BUSINESSES_PAGE_SIZE`. **(§5.4)** Now the single inventory owner — it absorbed Overview's Reconnect (≥3 / >0 / 0 badge ladder), Response rate, Avg time, Last activity and Health (`HealthBadge`) columns. The two window-labelled headers are built by a function, not a module constant, so their `N` comes from `responseMetricsWindowDays` rather than a literal `30`. |
-| `businesses/[id]/page.tsx` | **(Phase 3)** Server component: gate, `Promise.all([getBusinessDetail, getBusinessChannelEnrollments])`, `notFound()` on a missing business, `<AdminPage>` titled with the business name. |
-| `businesses/[id]/BusinessDetailClient.tsx` | **(Phase 3)** Client island: meta row (health badge, tier/subscription pills, Maps link), the panels below, and both audit logs as client-paginated `DataTable`s. |
-| `businesses/[id]/types.ts` | TypeScript types for the business detail page. |
-| `businesses/[id]/_hooks/useBusinessDetail.ts` | Detail + channels react-query pair, both seeded from the server page's `initialDetail`/`initialChannels`; exposes the channels query's load/error state separately, plus `invalidate()` and `clearBounceFlag()`. |
-| `businesses/[id]/_components/ChannelsPanel.tsx` | Channel enrollments table + the Telegram/WhatsApp enrollment widgets. Distinguishes "no enrollments" from "channels fetch failed". Owns `CHANNEL_ENROLLMENT_BADGE_STYLES`/`ChannelEnrollmentBadge` — deliberately not the shared `StatusBadge` (none of its four keys exist there). |
-| `businesses/[id]/_components/ZernioConnectionPanel.tsx` | Zernio connection status, disconnect, reconnect queue, finalize incidents. Owns `ZERNIO_CONNECTION_BADGE_STYLES`/`ZernioConnectionBadge` — `pending` means something different here than in the shared map. |
-| `businesses/[id]/_components/ProfileEditor.tsx` | Inline editor for business profile fields. |
-| `businesses/[id]/_components/ReviewsList.tsx` | Reviews + responses list for the admin detail view. Star glyphs stay `text-rw-teal` (locked by `no-yellow-star-colors.test.ts`). |
-| `businesses/[id]/_components/ManualRankingSection.tsx` | Manual ranking snapshot input. |
-| `businesses/[id]/_components/TrackedKeywordsSection.tsx` | Add/remove ranking keywords. |
-| `businesses/[id]/_components/PastDueExtensionPanel.tsx` | Grants a bounded past-due grace extension against a ticket. |
-| `businesses/[id]/_components/AutoApprovalDiagnosticsPanel.tsx` | **(WS4)** Auto-approval readiness: block reasons, threshold/source, recent verdicts. |
-| `businesses/new/page.tsx` | **(Phase 3)** Server component: gate + `<AdminPage group="Businesses" title="Onboard new business">`; no read (it is a form). |
-| `businesses/new/NewBusinessClient.tsx` | **(Phase 3)** Client island: the `react-hook-form` onboarding form at the `max-w-2xl` form measure. |
-| `businesses/new/schema.ts` | Zod schema for the new-business form. |
-| `businesses/new/_components/{BusinessInfoSection,OwnerInfoSection}.tsx` | The two surviving form sections: business name, and owner email + name. **(2026-08-14)** The admin invite form is exactly three fields — the Place capture, `VoiceContextSection` (tone + product context), `SubscriptionTierSection` (tier picker) and `_hooks/useBusinessPrefill.ts` were **deleted**, because the owner now supplies their own location at `/onboarding/start`, their own voice in the wizard, and their own tier at `/onboarding/pay`. |
-| `businesses/new/_components/_shared.tsx` | Shared field primitives for the new-business form. |
 | `locations/csv-import/page.tsx` | **(Phase 3)** Server component: gate + `<AdminPage group="Businesses" title="Locations import">` (title matches the sidebar label). |
 | `locations/csv-import/CsvImportClient.tsx` | **(Phase 3)** Client island: upload → validate → preview → import, at the `max-w-3xl` upload/report measure. The preview/result tables stay plain `<table>`s — a transient validation preview, not a data page. |
 | `locations/csv-import/csv-validation.ts` | Client-side CSV parse + per-row validation feeding the preview. |

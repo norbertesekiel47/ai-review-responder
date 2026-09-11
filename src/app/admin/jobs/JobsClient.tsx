@@ -2,7 +2,6 @@
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
 
-import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -82,9 +81,9 @@ const columns: DataTableColumn<FailedJob>[] = [
     header: 'Business',
     render: (j) =>
       j.businessId ? (
-        <Link href={`/admin/businesses/${j.businessId}`} className="text-gray-900 underline hover:text-gray-600">
+        <span className="text-gray-900">
           {j.businessName ?? j.businessId}
-        </Link>
+        </span>
       ) : (
         <span className="text-gray-400">—</span>
       ),
@@ -230,6 +229,7 @@ function JobsContent({
           Retrying is CLI-only — a failed row is re-enqueued from the command line once the error is
           understood. See the runbook in the Admin app.
         </p>
+        <p className="mt-1 text-xs text-gray-500">View business details in the Admin app.</p>
         <div className="mt-3">
           <DataTable
             columns={columns}

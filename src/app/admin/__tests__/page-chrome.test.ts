@@ -101,13 +101,13 @@ describe('admin page chrome lives on the server page, not the client', () => {
 });
 
 describe('admin overview actions are static links, safe to render on the server', () => {
-  it('keeps the three action links on the server page and none in the client', () => {
+  it('keeps the surviving Demos action on the server without retired business links', () => {
     const page = readFileSync('src/app/admin/overview/page.tsx', 'utf8');
     const client = readFileSync('src/app/admin/overview/OverviewClient.tsx', 'utf8');
 
     expect(page).toContain('href="/admin/demos"');
-    expect(page).toContain('href="/admin/businesses"');
-    expect(page).toContain('href="/admin/businesses/new"');
-    expect(client).not.toContain('href="/admin/businesses/new"');
+    expect(page).not.toContain('href="/admin/businesses');
+    expect(client).not.toContain('/admin/businesses');
+    expect(client).not.toContain('href="/admin/demos"');
   });
 });

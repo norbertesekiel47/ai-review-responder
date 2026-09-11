@@ -199,7 +199,9 @@ describe('compiler-derived response contracts', () => {
     expect(() => describeResponses(opaque.program, opaque.source, 'GET')).toThrow('unresolved response return');
   });
 
-  it('derives finite status codes from domain errors and constant lookup maps', () => {
+  // Six fresh TypeScript programs exceeded 5s twice under parallel CI coverage
+  // (run 34637163000); bound compiler work without dropping uncertainty checks.
+  it('derives finite status codes from domain errors and constant lookup maps', { timeout: 30_000 }, () => {
     const { program, source } = fixture(`
       class DomainError extends Error { constructor(readonly status: number) { super(); } }
       function service() { throw new DomainError(409); }
