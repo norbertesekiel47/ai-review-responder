@@ -50,7 +50,7 @@ describe('AdminPage', () => {
   });
 
   it.each([
-    ['Safety', '/admin/flagged'],
+    ['Safety', '/admin/suppressions'],
     ['Growth', '/admin/demos'],
   ] as const)('links the %s group to %s', (group, href) => {
     render(

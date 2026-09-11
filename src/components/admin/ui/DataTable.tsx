@@ -57,7 +57,7 @@ function pageCountOf(totalRows: number, pageSize: number): number {
 
 /**
  * Server-pagination footer math, shared by DataTable's controlled mode and by
- * card-list pages (FlaggedClient, OffboardingsClient) that paginate
+ * card-list pages (OffboardingsClient) that paginate
  * server-side without a table. Single owner so the "Showing a–b of N" string
  * and the empty-page-with-rows-behind-you guard cannot drift between call
  * sites.
@@ -169,7 +169,7 @@ function useSortedRows<T>(rows: T[], columns: DataTableColumn<T>[], sort: SortSt
 /**
  * Both modes render the SAME footer component; only the label and the
  * visibility rule differ. `serverPaginationFooterState` owns the server-mode
- * rule so card-list pages (FlaggedClient) cannot drift from this table.
+ * rule so card-list pages cannot drift from this table.
  */
 function footerStateFor({
   serverPagination,
