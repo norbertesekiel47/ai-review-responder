@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import {
   scanRouteFile,
+  describeRouteHandlers,
   scanAdminPageFile,
   readAdminPageGate,
   readPreAuthAdminPaths,
@@ -26,6 +27,25 @@ import {
 describe('scanRouteFile — admin AAL2 gate audit', () => {
   const adminPath = 'src/app/api/admin/businesses/route.ts';
   const nonAdminPath = 'src/app/api/owner/reviews/route.ts';
+
+  it('reports canonical gate names for every exported method', () => {
+    const text = `
+      import { requireAdminWithAal2 as gate, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
+      import { resolveAdminActor as actor } from '@/app/api/_shared/channels/resolve-actor';
+      export async function GET(req: Request) { return gate(req); }
+      async function create(req: Request) { return requireAdminJson(req, schema); }
+      export const POST = wrap(create);
+      export const PATCH = wrap((req: Request) => run({ resolveActor: actor }));
+    `;
+    expect(describeRouteHandlers(adminPath, text)).toEqual([
+      { method: 'GET', gates: ['requireAdminWithAal2'] },
+      { method: 'POST', gates: ['requireAdminJson'] },
+      { method: 'PATCH', gates: ['resolveAdminActor'] },
+    ]);
+    expect(() => describeRouteHandlers(adminPath, text.replace("@/lib/auth/admin-mfa-gate", "@/evil/admin-mfa-gate"))).toThrow('handler GET');
+    expect(() => describeRouteHandlers(adminPath, "export * from './other';")).toThrow('export form');
+    expect(() => describeRouteHandlers(adminPath, text + '\nexport function DELETE() {}')).toThrow('handler DELETE');
+  });
 
   // (a) read "GET-only admin route → no finding" until #1184 widened the ROUTES
   // contract from the mutation verbs to EVERY exported handler. That fixture

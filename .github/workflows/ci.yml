@@ -180,6 +180,8 @@ jobs:
         run: pnpm ci:response-status
       - name: Run admin AAL2 mutation gate audit
         run: pnpm ci:admin-aal2
+      - name: Verify generated Admin API contract
+        run: pnpm ci:admin-contract
       - name: Run config coverage audit
         run: pnpm ci:config-coverage
       - name: Run process.env baseline audit

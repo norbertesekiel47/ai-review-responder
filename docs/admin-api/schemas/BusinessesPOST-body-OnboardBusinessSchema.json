@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "ownerName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "ownerEmail": {
+      "type": "string",
+      "maxLength": 255,
+      "format": "email",
+      "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+    }
+  },
+  "required": [
+    "name",
+    "ownerName",
+    "ownerEmail"
+  ],
+  "x-repworth-source": "src/lib/shared/schemas.ts:173:38",
+  "x-repworth-approximation": false,
+  "x-repworth-limitations": []
+}
