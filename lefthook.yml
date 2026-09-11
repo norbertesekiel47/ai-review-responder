@@ -31,6 +31,8 @@ pre-push:
       run: pnpm ci:response-status
     admin-aal2:
       run: pnpm ci:admin-aal2
+    admin-contract:
+      run: pnpm ci:admin-contract
     config-coverage:
       run: pnpm ci:config-coverage
     process-env:

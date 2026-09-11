@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "enum": [
+        "stripe",
+        "zernio",
+        "google",
+        "supabase_auth",
+        "other"
+      ]
+    },
+    "resourceType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "resourceReference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "ticket": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    }
+  },
+  "required": [
+    "provider",
+    "resourceType",
+    "resourceReference",
+    "reason"
+  ],
+  "x-repworth-source": "src/lib/account-offboarding/provider-disposition.ts:19:47",
+  "x-repworth-approximation": true,
+  "x-repworth-limitations": [
+    {
+      "kind": "normalization",
+      "path": "$.resourceType",
+      "operation": "trim",
+      "source": "z.string().trim()"
+    },
+    {
+      "kind": "normalization",
+      "path": "$.resourceReference",
+      "operation": "trim",
+      "source": "z.string().trim()"
+    },
+    {
+      "kind": "normalization",
+      "path": "$.reason",
+      "operation": "trim",
+      "source": "z.string().trim()"
+    },
+    {
+      "kind": "normalization",
+      "path": "$.ticket",
+      "operation": "trim",
+      "source": "z.string().trim()"
+    }
+  ]
+}

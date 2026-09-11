@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "googlePlaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "googleMapsUrl": {
+      "type": "string",
+      "minLength": 1
+    },
+    "businessName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "category": {
+      "type": "string",
+      "maxLength": 100
+    }
+  },
+  "required": [
+    "businessName"
+  ],
+  "x-repworth-source": "src/app/api/admin/demos/generate/route.ts:15:28",
+  "x-repworth-approximation": true,
+  "x-repworth-limitations": [
+    {
+      "kind": "refinement",
+      "path": "$",
+      "operation": "refine",
+      "source": "(data) => Boolean(data.googlePlaceId) || Boolean(data.googleMapsUrl)"
+    }
+  ]
+}

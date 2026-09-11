@@ -18,6 +18,9 @@
 
 ### `admin/` *(Wave 2 additions)*
 
+The generated Admin API contract and route-specific wire types live in
+`docs/admin-api/`; the barrel below indexes existing service DTOs only.
+
 Admin-side domain helpers.
 
 > **Admin business query — rules the code does not make obvious** (moved here
@@ -51,6 +54,7 @@ Admin-side domain helpers.
 
 | File | What it does |
 |------|--------------|
+| `api-contract.ts` | Type-only index of existing Admin API response DTOs consumed by the compiler-based contract generator; adds no types or runtime behavior. |
 | `impersonation/cookie.ts` | HMAC signs/verifies the `rw_impersonation` session cookie. |
 | `impersonation/session.ts` | Starts, ends, and loads active impersonation sessions with account audit logging. |
 | `impersonation/view.ts` | Resolves an admin-owned impersonation view session and loads account-scoped location data. |
@@ -106,4 +110,3 @@ Admin-side domain helpers.
 | `funnel-entry.ts` | **(2026-08-14)** `resolveFunnelEntry(state)` — the single owner of "where in the funnel does this owner belong?", returning one of `/onboarding/{start,demo,pay,business}` or `/dashboard`. **Pure**: no DB handle, no `process.env`, no flag read (the caller passes `onboardingDemoEnabled()` in), so the whole matrix is table-testable and flag state stays server-side (invariant #13). Its output is the `funnelUrl` field on `GET /api/auth/signup-status`, `GET /api/dashboard` and `GET /api/settings`, consumed by `loginDestination` and `PendingPaymentScreen`. Replaced three disagreeing branches — `loginDestination`'s demo-blind `pending_payment → /onboarding/pay`, `verify-otp`'s private start-vs-pay branch, and the dashboard's hardcoded `paymentUrl` (that field is **gone**, not renamed). |
 | `resend-invite.ts` | **(2026-08-14)** The re-invite decision + Supabase provider-error mapping behind `POST /api/admin/businesses/[id]/resend-invite`. Gates on account `pending_payment` AND the provider reporting `last_sign_in_at IS NULL`. ⚠️ **The error mapping is deliberately staging-unverified** — the module header carries a "staging-verify before prod" marker, an unknown provider error answers `502` with the raw provider code logged and is never auto-retried, and verifying the real Supabase re-invite error shapes on staging is an open ops step (`docs/runbooks/beta-onboarding-cofounder-guide.md` → Part 12). |
 | `flags.ts` | `onboardingDemoEnabled()` — single owner of the `ONBOARDING_DEMO_ENABLED` flag (the pre-pay onboarding demo lane: start/business/demo pages + their routes), a one-line wrapper over `readFlag` in the `<feature>/flags.ts` convention. Server-authoritative (invariant #13) — no `NEXT_PUBLIC_*` companion; the browser learns the state via API responses/props. |
-

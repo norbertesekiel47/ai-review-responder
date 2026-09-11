@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "email": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 320
+    }
+  },
+  "required": [
+    "email"
+  ],
+  "additionalProperties": false,
+  "x-repworth-source": "src/app/api/admin/suppressions/lookup/route.ts:33:22",
+  "x-repworth-approximation": true,
+  "x-repworth-limitations": [
+    {
+      "kind": "normalization",
+      "path": "$.email",
+      "operation": "trim",
+      "source": "z.string().trim()"
+    }
+  ]
+}

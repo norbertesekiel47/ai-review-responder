@@ -29,6 +29,8 @@
     "ci:env-registry": "tsx scripts/ci/env-registry-audit.ts",
     "ci:response-status": "tsx scripts/ci/response-status-audit.ts",
     "ci:admin-aal2": "tsx scripts/ci/admin-aal2-audit.ts",
+    "admin-contract:generate": "tsx scripts/ci/admin-contract-audit.ts --write",
+    "ci:admin-contract": "tsx scripts/ci/admin-contract-audit.ts",
     "ci:config-coverage": "tsx scripts/ci/config-coverage-audit.ts",
     "ci:process-env": "tsx scripts/ci/process-env-audit.ts",
     "ci:reviews-status": "tsx scripts/ci/reviews-status-audit.ts",

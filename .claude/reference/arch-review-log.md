@@ -1,5 +1,7 @@
 # Architecture review log
 
+2026-09-10 — **feat/1190 (pre-merge):** Adds the source-derived Admin API contract under the owner-approved ADR 0028 amendment: portable DTO and complete wire declarations, Zod input-schema projections with explicit limitations, and a generated route/method/gate table. The CI audit shares the existing admin-aal2 provenance resolver and detects artifact drift; package, lint CI and pre-push wiring are included. No runtime API, migration, flag, dependency or writer changes. Counter: the pass decides.
+
 2026-09-09 — **feat/1189 (pre-merge):** Closes ADR 0027's two Admin API read gaps: business detail now calls the existing tenant-scoped batch projection sequentially and returns `batchSummary`; the new business options GET exposes only `betaCompActive`. Both use the existing canonical AAL2 gate. No new database query, service module, dependency, schema, flag or writer; channels and legacy pages remain separate. Counter: the architecture pass decides.
 
 2026-09-09 — **feat/1185 (pre-merge):** Admin API bearers now bypass the cookie proxy after CORS and defer verification to the canonical gate; admin mutation exports use `withSameOriginUnlessBearer`. Shared header-presence and token-shape helpers stay unchanged; malformed Authorization explicitly returns 401/no-store without cookie fallback. Owner CSRF and impersonation's cookie path remain intact. No new production module, dependency, schema, flag or writer. Implements ADR 0025 D6–D8 with the owner-approved parser clarification and ADR 0026 D7 amendment. Counter: the pass decides.

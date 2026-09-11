@@ -45,6 +45,36 @@ done as written. There is no code vocabulary to enumerate.
 
 ## Decisions
 
+### Owner amendment — 2026-09-10, implementation of #1190
+
+The owner approved this amendment after the implementation inventory found
+that the existing service DTOs are not all complete HTTP response types.
+For example, #1189 adds `batchSummary` to the business-detail response in the
+route, and the options response is an anonymous object. Pagination and other
+route projections also extend or narrow service results.
+
+**D1 is amended:** retain the index-only barrel of existing response DTOs, and
+permit TypeScript-compiler-derived named response declarations from the actual
+JSON response expressions. Generate their portable dependency closure
+deterministically. Do not write duplicate wire shapes by hand or change runtime
+API behavior to fit the artifact. The generator must account for JSON wire
+serialization and fail closed when it cannot describe a response truthfully.
+The emitted contract includes inline, enriched and projected response bodies;
+an erased `Promise<NextResponse>` return annotation is not evidence of a body's
+shape. Existing DTO declarations remain useful exports, but do not substitute
+for complete wire response declarations.
+
+**D5 is amended:** `{ error: string }` is the general error envelope, with
+explicitly documented exceptions derived from existing responses. In particular,
+the solicitation batch halt route returns its status union on HTTP 404 and 409.
+Document these actual shapes instead of normalizing live responses or promising
+that every error uses the general envelope. The prose-message rule and proxy/MFA
+refusal vocabulary remain unchanged.
+
+This is a pre-intake design amendment authorized by the owner for #1190. The
+generation, completeness, shared gate-provenance, CI wiring and delivery decisions
+below otherwise stand.
+
 ### D1 — the contract is GENERATED from the code that already exists
 
 Three artifacts under `docs/admin-api/`, all generated, all committed:
