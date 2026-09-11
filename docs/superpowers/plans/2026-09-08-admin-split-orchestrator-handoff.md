@@ -100,11 +100,7 @@ Open tickets outside the map's feature label that the build depends on:
   `src/components/admin/nav-config.ts` (every retirement ticket),
   `src/lib/admin/shell-context.ts` (#1178, #1193). Land the earlier one
   before starting the later one.
-- **Each ticket runs the full `/feature` pipeline** in its subagent session:
-  intake from the ticket body (the ticket IS the locked intent — grill only
-  deltas), plan, eval-first tracers, verify gate, review wave with red team
-  (RISK = high), then staging ride and PR. The orchestrator never edits code
-  itself; it dispatches, reads the ≤10-line summary, and moves the next ticket.
+- LEAN (owner, 2026-09-11): each ticket = sibling worktree, implement, tests, `pnpm lint && pnpm typecheck && pnpm test` plus the relevant ci:* audits, one review pass (/code-review), PR, owner merge. No grilling round, no Codex plan review, no red team, no staging ride — EXCEPT #1192 (proxy redirects) and #1203 (cookie removal), which keep the staging ride and one red-team pass.
 - **Close each feature ticket with a resolution comment** naming the PR, the
   staging verification evidence, and the merge SHA. The tickets are the
   progress ledger; do not add another one.
