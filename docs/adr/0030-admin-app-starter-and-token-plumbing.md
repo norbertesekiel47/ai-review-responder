@@ -15,6 +15,10 @@ Owner amendment — 2026-09-11, port #1224: D4 permits the optional public
 three-variable limit's conflict with the runbook's configurable documentation
 links; the no-runtime-secret boundary is unchanged.
 
+Owner amendment — 2026-09-11, port #1227: D4 also permits the optional public
+`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` and Google Maps browser loader solely for
+the Demos place picker. All Admin API data still crosses the fetch seam.
+
 Terms: `docs/context/core-accounts-channels-admin.md` → **Admin app fetch
 seam** (coined here), **Admin app**, **Admin API**, **Admin transport**,
 **Verified admin**, **Admin origin allowlist**, **Legacy admin portal**.
@@ -151,7 +155,7 @@ resolve it:
    rewrite. A relative path with no `Authorization` header is not a base-path
    problem; it is an auth problem wearing one.
 
-4. **The Admin app holds three required variables and one optional docs URL,
+4. **The Admin app holds three required variables and two named optional settings,
    all public, and NO secret at runtime.**
 
    | Variable | Staging | Production |
@@ -160,6 +164,7 @@ resolve it:
    | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | staging publishable key | production publishable key |
    | `NEXT_PUBLIC_ADMIN_API_URL` | `https://staging.repworth.net` | `https://repworth.net` |
    | `NEXT_PUBLIC_DOCS_BASE_URL` (optional) | operator-configured documentation base URL | operator-configured documentation base URL |
+   | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (optional) | browser key restricted to approved staging Admin origins and the required Maps/Places APIs | separately authorized production configuration; not enabled by this amendment |
 
    **Owner exception — 2026-09-11 (#1224).** The optional docs URL moves with
    `/admin/runbook` as required by ADR 0027 D3. Preserve the existing behavior:
@@ -167,6 +172,20 @@ resolve it:
    value renders the filename as code. Register this fourth name in the Admin
    app's environment inventory and audit allowlist. This is a named exception,
    not permission to add other variables or runtime secrets.
+
+   **Owner exception — 2026-09-11 (#1227).** Demos may use the public Maps
+   browser key and `@googlemaps/js-api-loader` for its existing place picker.
+   This named browser-provider exception is limited to that UI; it adds no
+   server provider call, runtime secret, or alternate Admin API transport.
+   Preserve the existing Essentials fields `id`, `formattedAddress`, and
+   `location`; never request `displayName`. An unset, invalid, or rejected key
+   retains the existing load-error message and Google Maps URL input fallback.
+   Register the optional name, its sole Demos loader reader, and the exact
+   public-key exception in the Admin app's inventory/audit. Restrict a staging
+   key to the exact approved Admin staging/preview referrers and the required
+   Maps JavaScript/Places APIs; do not use an unrestricted key or broaden a
+   production key. Production environment changes still require owner go-live
+   authorization. D3 continues to own every `/api/admin/**` read and write.
 
    **The publishable key, never the legacy anon key.** It rotates
    independently of the JWT signing secret, and

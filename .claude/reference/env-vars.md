@@ -535,7 +535,7 @@ sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
 
 | Var | Notes |
 |---|---|
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Required for onboarding PlaceAutocomplete. Essentials tier (free). |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Public browser key for onboarding PlaceAutocomplete. Essentials fields only: `id`, `formattedAddress`, `location`; never `displayName`. The separate Admin app may also use this optional name solely for the Demos picker under ADR 0030 D4's owner exception (2026-09-11, #1227); staging keys require exact referrer/API restrictions, URL-input fallback remains available, and production setup requires separate authorization. |
 
 ---
 
