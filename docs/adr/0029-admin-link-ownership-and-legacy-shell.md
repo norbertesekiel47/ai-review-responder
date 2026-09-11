@@ -143,20 +143,36 @@ bar.
 `src/components/admin/EndImpersonationButton.tsx`,
 `src/lib/admin/shell-context.ts`, `src/lib/admin/impersonation/**`.
 
-**Deleted with the last non-survivor page**: `src/components/admin/AdminSidebar.tsx`,
-`src/components/admin/nav-config.ts`, `src/components/admin/nav-counts-query.ts`,
-the three enrollment widgets, `src/components/admin/ui/**` (the Console kit, already
-exported in #1167), `src/app/admin/page-sizes.ts`, and the sixteen retiring pages
-with their path-pinning tests.
+**Deleted after the last non-survivor page, in #1193**:
+`src/components/admin/AdminSidebar.tsx`,
+`src/components/admin/nav-counts-query.ts`, the three enrollment widgets,
+`src/app/admin/page-sizes.ts`, and unused Console kit modules and tests. Each
+retiring page and its path-pinning tests are deleted in its own retirement.
+
+**Owner correction (2026-09-11):** #1192 and #1201 run together after Overview
+parity and #1202; #1193 follows the last tranche-4 retirement. This supersedes
+the earlier instruction to batch all three tickets before tranche 4. The ten
+remaining pages still import the Console kit, and five import page-size
+constants. Removing those modules before their callers is not a valid cut.
+
+The permanent impersonation pages also use `AdminPage`, `DataTable`, `states`
+and `format`; `AdminPage` depends on `nav-config`. Retain the minimal modules
+and transitive dependencies those survivors need, with tests, in #1193. Do not
+delete the entire `ui/**` directory or change impersonation behavior to make
+the deletion compile. Remove obsolete navigation entries as their pages retire.
+
+**Keep `GET /api/admin/nav-counts` and its service.** The separate Admin app's
+Sidebar and Overview call it through the fetch seam. The legacy browser query
+module can retire with the sidebar; the API has a continuing consumer.
 
 **`AdminShellFrame` keeps identity, the impersonation banner and
 `EndImpersonationButton`, drops the sidebar, and gains one "Open Admin app" link**
 built from `ADMIN_APP_URL`.
 
-Keeping the sidebar to render one nav item is rejected: it keeps `AdminSidebar`,
-`nav-config`, `nav-counts-query`, the nav-counts route and their tests alive to draw
-a single link, and leaves a second visual system to maintain in a repo that no
-longer owns the admin UI. Deleting the layout's chrome entirely is also rejected —
+Keeping the sidebar to render one nav item is rejected: it keeps `AdminSidebar`
+and its browser query alive to draw a single link. The survivor UI dependencies
+and nav-counts API remain for the separate reasons above. Deleting the layout's
+chrome entirely is also rejected —
 `EndImpersonationButton` and the impersonation banner live there, and ending a
 support session is the one thing this portal still has to do well.
 

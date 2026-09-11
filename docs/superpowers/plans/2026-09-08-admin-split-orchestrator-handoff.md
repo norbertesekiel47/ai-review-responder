@@ -78,9 +78,10 @@ for the owner's merge approval (CLAUDE.md § Environments; `/feature` step 8).
 | L4 | #1191 contract push to `admin-app`; #1197 Gate B handshake proof | #1190; #1184+#1185+#1186 | Gate B needs the two re-minted admins (§2.2). |
 | Port | #1224 T1 pages (now); #1225 overview; #1226 businesses ×3; #1227 remaining ten | #1224: nothing; #1225: #1197, #1190; #1226: #1189, #1190, #1197; #1227: #1190, #1197 | Work happens in a worktree of `RepWorth/admin-app` (its own CI; no `/feature` scripts there). Owner signs off **Page parity** per page on the port ticket. |
 | L5 | #1200 tranche 1 (security, runbook); #1202 tranche 3 (three business pages) | #1190 + parity sign-off; #1189 too for #1202 | Share `nav-config.ts`, `console-admin-palette.test.ts`, `directory-map-audit.ts` → SERIAL. |
-| L6 | #1192 `ADMIN_APP_URL` + eleven redirects; #1193 shrink the shell; #1201 tranche 2 (overview) | overview parity; #1192; #1192+#1193+#1190 | ADR 0029 D3: all eleven redirects switch in ONE change at overview parity. |
+| L6 | ONE PR: #1192 `ADMIN_APP_URL` + eleven redirects and #1201 tranche 2 (overview) | overview parity + #1202 + #1190 | Owner correction 2026-09-11: repoint and retire together; staging ride + one red-team pass. #1193 no longer blocks this cut. |
 | L7 | Tranche 4 (ten pages) | owner sets priority → tickets cut per ADR 0031 D7 | Not cut yet. Ask the owner when tranche 3 closes. |
-| L8 | #1203 remove cookie mode (except impersonation) + sweep | last tranche | |
+| L7-shell | #1193 shrink the shell | last tranche-4 retirement + #1192 | Retain the permanent impersonation pages' minimal UI dependencies and the nav-counts API used by the Admin app (ADR 0029 D5, owner correction 2026-09-11). |
+| L8 | #1203 remove cookie mode (except impersonation) + sweep | last tranche + #1193 | |
 | Go-live | #1179 production admin account for the developer | owner call | |
 
 Open tickets outside the map's feature label that the build depends on:
