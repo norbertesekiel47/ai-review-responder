@@ -13,8 +13,7 @@ import { SendBreakerClient } from '../SendBreakerClient';
 
 // Unit suite for the admin Send breaker panel (#898).
 //
-// Mirrors src/app/admin/autonomy/__tests__/AutonomySuspensionsClient.test.tsx:
-// the component is rendered inside its own QueryClient with retries off, and
+// The component is rendered inside its own QueryClient with retries off, and
 // `fetch` is stubbed per case so the network is the only seam under control.
 //
 // The four locked cases are about the SHAPE of the control surface, not its
