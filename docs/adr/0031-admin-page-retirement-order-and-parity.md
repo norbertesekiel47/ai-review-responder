@@ -153,8 +153,9 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
    fire on a retirement: a stale href, and — for `/admin/businesses/new` only
    — a stale `NON_NAV_PAGES` entry. Treat the prune as ordinary checklist work
    whose omission the gate reports, not as a hazard the reviewer must catch.
-   The file dies entirely at the end: ADR 0029 D5 drops the sidebar from
-   `AdminShellFrame`.
+   ADR 0029 D5 drops the sidebar from `AdminShellFrame` at the end, while
+   retaining the minimal navigation configuration needed by the permanent
+   impersonation pages' shared UI.
 
    **Corrected 2026-09-07, after this ADR merged.** It first claimed the prune
    was the one omission with a user-visible failure. That was wrong — the
