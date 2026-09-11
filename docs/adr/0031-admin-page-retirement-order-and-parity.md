@@ -106,6 +106,17 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
    retirement PR says so out loud rather than absorbing it. The page with
    twelve fetch sites is exactly where a silently dropped call hides.
 
+   **Owner-approved route substitution (2026-09-11, #1226):** the business
+   detail port replaces legacy `POST /api/zernio/disconnect` (business ID in
+   JSON) with `POST /api/admin/businesses/[id]/disconnect` (business ID in the
+   route). The new route is part of the generated Admin API contract and uses
+   the canonical AAL2 gate and bearer-aware same-origin wrapper. The operation,
+   offboarding refusal, selected-account race guard, and bounded best-effort
+   provider cleanup are shared with the legacy handler; ADR 0001 records the
+   named runtime exception. The owner cookie endpoint remains available.
+   Route-set equality for this page accounts explicitly for this substitution;
+   it does not omit Disconnect or weaken the general parity requirement.
+
    Rejected: screenshots and sign-off alone (the ticket's answer). It needs
    nothing from #1190, and it leaves "same API paths" as a claim.
 
@@ -194,8 +205,11 @@ Facts measured at 2026-09-07, on `main` at `7bb4426e`:
 - Deletions start before the bearer path opens. T1 depends on no ticket in this
   repo; its precondition is **Page parity** sign-off, which is a human gate.
 - #1192 and #1193 unblock the moment this ADR merges.
-- Every retirement PR is a RISK = high `/feature` run: it deletes an auth-gated
-  surface. Each rides staging first.
+- **Owner execution amendment (2026-09-11):** the remaining split uses the
+  LEAN sequence recorded in the orchestrator handoff §4 and map #1159 Notes.
+  The earlier blanket high-risk `/feature` requirement is superseded. Only
+  #1192 (proxy redirects, including its retirement batch) and #1203 (cookie
+  removal) retain a staging ride and one red-team pass.
 - **Recorded reservation on D5**: `docs/directory/app-admin.md` is a live
   inventory that coding agents read, so sweeping its rows at the end leaves it
   describing deleted pages for the whole migration. The owner chose the single
