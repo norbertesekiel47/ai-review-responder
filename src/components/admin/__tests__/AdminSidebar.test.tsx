@@ -66,9 +66,9 @@ describe('AdminSidebar', () => {
   });
 
   it('marks the current page active, including sub-routes', () => {
-    mockUsePathname.mockReturnValue('/admin/businesses/abc-123');
+    mockUsePathname.mockReturnValue('/admin/locations/csv-import/preview');
     renderSidebar();
-    expect(screen.getByRole('link', { name: /All businesses/ })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /Locations import/ })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /Overview/ })).not.toHaveAttribute('aria-current');
   });
 
@@ -187,7 +187,6 @@ const NON_NAV_PAGES: Record<string, string> = {
   '/admin/login': 'auth route, renders outside the shell (ADMIN_AUTH_ROUTES)',
   '/admin/forgot-password': 'auth route, renders outside the shell',
   '/admin/reset-password': 'auth route, renders outside the shell',
-  '/admin/businesses/new': 'child of "All businesses"; reached from that page’s + Add Business action',
 };
 
 function adminPageRoutes(): string[] {

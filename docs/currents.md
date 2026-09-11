@@ -9,7 +9,13 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-11 (legacy Security and Runbook retired after the Admin app tranche-1 parity approval).
+Last updated: 2026-09-11 (legacy business pages retired after the Admin app tranche-3 parity approval).
+
+## Quick summary — legacy business-page retirement (#1202, 2026-09-11)
+
+The legacy business list, detail and new-business pages and their co-located tests are removed after the owner's #1226 Page parity approval and [Admin app PR #10](https://github.com/RepWorth/admin-app/pull/10) merge (`44452f060f78c691cc81188b6bbd05a6d3be82c1`). Navigation, runtime gate tests, file pins and inventory follow the smaller page set. Overview, Jobs and Autonomy preserve business facts and surviving actions while replacing retired business links with plain text and Admin app guidance; no early `ADMIN_APP_URL` read is introduced.
+
+All API routes, shared widgets, impersonation and synthetic audit fixtures remain. The accepted port explicitly substitutes the generated Admin Disconnect endpoint for the legacy cookie endpoint (ADR 0031 D2), and adds the owner's approved exact main-app impersonation link with adjacent account ID. Port screenshots are fixture comparisons; Computer Use remains unavailable and this retirement does not claim live browser verification.
 
 ## Quick summary — legacy Security and Runbook retirement (#1200, 2026-09-11)
 

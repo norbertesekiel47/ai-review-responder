@@ -92,10 +92,12 @@ describe('JobsClient', () => {
 
   // ── X15 ──────────────────────────────────────────────────────────────
 
-  it('links a failed job to its business and dashes a platform-wide one', () => {
+  it('keeps business names as text after retirement and dashes a platform-wide job', () => {
     renderClient(baseData);
 
-    expect(screen.getByRole('link', { name: 'Downtown Cafe' })).toHaveAttribute('href', '/admin/businesses/biz-1');
+    expect(screen.getByText('Downtown Cafe')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Downtown Cafe' })).not.toBeInTheDocument();
+    expect(screen.getByText('View business details in the Admin app.')).toBeInTheDocument();
     // job-2 has no business: an em-dash in the Business column, not a broken link.
     const rows = screen.getAllByRole('row').slice(1);
     expect(rows[1]).toHaveTextContent('—');

@@ -119,7 +119,7 @@ describe('OverviewClient', () => {
     expect(screen.getByRole('link', { name: /Email Health/ })).toHaveAttribute('href', '/admin/notifications');
   });
 
-  it('renders an at-risk row with status, last activity and the shared HealthBadge, linking to the detail page', () => {
+  it('preserves at-risk facts without linking to the retired detail page', () => {
     renderClient({
       ...baseData,
       atRisk: [
@@ -131,8 +131,9 @@ describe('OverviewClient', () => {
       ],
     });
 
-    const row = screen.getByRole('link', { name: /Acme Coffee/ });
-    expect(row).toHaveAttribute('href', '/admin/businesses/biz-1');
+    const row = screen.getByRole('listitem');
+    expect(row).toHaveTextContent('Acme Coffee');
+    expect(screen.queryByRole('link', { name: /Acme Coffee/ })).not.toBeInTheDocument();
     expect(row).toHaveTextContent('At Risk');
     expect(row).toHaveTextContent('74');
     // X14: the two triage facts ride on the row.
@@ -142,7 +143,7 @@ describe('OverviewClient', () => {
 
   it('says "none" for an at-risk row with no activity at all', () => {
     renderClient(baseData);
-    expect(screen.getByRole('link', { name: /Acme Coffee/ })).toHaveTextContent('Last activity none');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Last activity none');
   });
 
   it('renders the at-risk heading with the eligible count and the total', () => {
@@ -163,10 +164,8 @@ describe('OverviewClient', () => {
     });
 
     expect(screen.getByText('At risk (2 of 9)')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View all →' })).toHaveAttribute(
-      'href',
-      '/admin/businesses',
-    );
+    expect(screen.getByText('Manage businesses in the Admin app.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View all →' })).not.toBeInTheDocument();
   });
 
   it('renders the EmptyState when no business is at risk', () => {

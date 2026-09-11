@@ -2,7 +2,6 @@
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
 
-import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { OverviewData } from '@/lib/admin/overview-service';
 import { navCountsQueryOptions } from '@/components/admin/nav-counts-query';
@@ -70,18 +69,13 @@ function OverviewContent({ data, flaggedOpen }: { data: OverviewData; flaggedOpe
       {/* At-risk list (spec §5.1/§5.3): the eligible count N is what the service
           FILTERED to `churnScore.level !== 'healthy'` and then capped, while M is
           the unfiltered business total — so "3 of 128" reads as "3 of your 128
-          businesses need a look", and "View all →" is the way to the inventory. */}
+          businesses need a look". Business management now lives in the Admin app. */}
       <div className="mt-8">
         <div className="flex items-baseline justify-between gap-4">
           <h2 className="text-lg font-semibold text-gray-800">
             At risk ({formatAdminCount(atRisk.length)} of {formatAdminCount(data.totalBusinesses)})
           </h2>
-          <Link
-            href="/admin/businesses"
-            className="text-sm font-medium text-gray-600 underline hover:text-gray-900"
-          >
-            View all →
-          </Link>
+          <p className="text-sm text-gray-600">Manage businesses in the Admin app.</p>
         </div>
         <div className="mt-3">
           {atRisk.length === 0 ? (
@@ -96,9 +90,8 @@ function OverviewContent({ data, flaggedOpen }: { data: OverviewData; flaggedOpe
                   triage no longer opens every row to find out. */}
               {atRisk.map((business) => (
                 <li key={business.id}>
-                  <Link
-                    href={`/admin/businesses/${business.id}`}
-                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 hover:bg-gray-50"
+                  <div
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3"
                   >
                     <span className="min-w-0 flex-1 text-sm font-medium text-gray-900">{business.name}</span>
                     <StatusBadge vocab="subscription" value={business.subscriptionStatus} />
@@ -109,7 +102,7 @@ function OverviewContent({ data, flaggedOpen }: { data: OverviewData; flaggedOpe
                       level={business.churnScore.level}
                       score={business.churnScore.score}
                     />
-                  </Link>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -149,7 +142,7 @@ export function OverviewClient({
     initialData: { flaggedOpen, failedJobs: initialData.systemHealth.failedJobs },
   });
 
-  // Page chrome (group/title/description + the three static action links) lives
+  // Page chrome (group/title/description + the remaining Demos action) lives
   // on the server page so it renders in the RSC payload, never behind this
   // client's loading state.
   return (

@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -138,18 +137,6 @@ function RecoveryForm({
   );
 }
 
-/**
- * Where the account name goes (X21). A location-scoped row has a detail page;
- * an account-scoped row has no page of its own, so it deep-links the
- * Businesses list pre-filtered to the account's name (the `q` param the list's
- * server page honours).
- */
-function accountHref(item: Pick<SuspensionItem, 'locationId' | 'accountName'>): string {
-  return item.locationId
-    ? `/admin/businesses/${item.locationId}`
-    : `/admin/businesses?q=${encodeURIComponent(item.accountName)}`;
-}
-
 async function fetchSuspensions(): Promise<SuspensionListResponse> {
   const response = await fetch('/api/admin/autonomy/suspensions');
   if (!response.ok) throw new Error(`Failed to load suspensions: ${response.status}`);
@@ -208,9 +195,7 @@ function SuspensionRow({
     <tr className="align-top">
       <td className="px-4 py-4">
         <p className="font-semibold text-gray-900">
-          <Link href={accountHref(item)} className="rounded underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-gray-900">
-            {item.accountName}
-          </Link>
+          {item.accountName}
         </p>
         <p className="mt-1 text-xs text-gray-500">
           {item.locationName ?? 'All locations'} · {item.scope} scope
@@ -357,6 +342,7 @@ export function AutonomySuspensionsClient({
   });
   return (
     <section aria-label="Suspended autonomy policies">
+      <p className="mb-4 text-sm text-gray-600">View business details in the Admin app.</p>
       <LastUpdated
         updatedAt={query.dataUpdatedAt}
         refreshing={query.isFetching}

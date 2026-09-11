@@ -27,7 +27,7 @@ describe('AdminPage', () => {
     );
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(nav).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Businesses' })).toHaveAttribute('href', '/admin/businesses');
+    expect(screen.getByRole('link', { name: 'Businesses' })).toHaveAttribute('href', '/admin/locations/csv-import');
     // Operate's landing page is Overview; Safety's is Flagged.
     expect(nav.querySelectorAll('li')).toHaveLength(1);
   });
@@ -36,15 +36,15 @@ describe('AdminPage', () => {
     render(
       <AdminPage
         group="Businesses"
-        parent={{ href: '/admin/businesses', label: 'All businesses' }}
+        parent={{ href: '/admin/locations/csv-import', label: 'Locations import' }}
         title="Main Street Cafe"
       >
         <div />
       </AdminPage>,
     );
     const links = screen.getAllByRole('link');
-    expect(links.map((l) => l.textContent)).toEqual(['Businesses', 'All businesses']);
-    expect(links[1]).toHaveAttribute('href', '/admin/businesses');
+    expect(links.map((l) => l.textContent)).toEqual(['Businesses', 'Locations import']);
+    expect(links[1]).toHaveAttribute('href', '/admin/locations/csv-import');
     // The separator is decorative — hidden from the accessibility tree.
     expect(screen.getByText('›')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByRole('heading', { name: 'Main Street Cafe' })).toBeInTheDocument();

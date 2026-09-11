@@ -112,20 +112,16 @@ describe('AutonomySuspensionsClient', () => {
     await waitFor(() => expect(button).not.toBeDisabled());
   });
 
-  // X21: the account name goes somewhere. A location-scoped row has a detail
-  // page; an account-scoped row deep-links the Businesses list filtered to it.
-  it('links the account name to the location detail page or to the filtered Businesses list', async () => {
+  it('preserves account and location names without retired business links', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ suspensions: [suspension, locationSuspension] }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     })));
     renderClient();
 
-    const links = await screen.findAllByRole('link', { name: 'Northstar Dental' });
-    expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/admin/businesses?q=Northstar%20Dental',
-      `/admin/businesses/${locationSuspension.locationId}`,
-    ]);
+    expect(await screen.findAllByText('Northstar Dental')).toHaveLength(2);
+    expect(screen.queryByRole('link', { name: 'Northstar Dental' })).not.toBeInTheDocument();
+    expect(screen.getByText('View business details in the Admin app.')).toBeInTheDocument();
   });
 
   it('lets the operator cancel a revealed form without submitting', async () => {
