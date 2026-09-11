@@ -1,6 +1,6 @@
 # Chosen landing design — 2026-09-10
 
-Status: owner-selected, implemented on the local `/` route; not yet merged or deployed by this work. This is the design decision record for the current landing narrative. The earlier four-way exploration remains in [README.md](README.md).
+Status: owner-selected; `/` renders it, from the section folders under `src/components/sections/landing/` (landing cleanup PR, 2026-09-10). This is the design decision record for the current landing narrative. The earlier four-way exploration remains in [README.md](README.md).
 
 ## Composition of record
 
@@ -68,4 +68,4 @@ Verification uses local production Chromium. Native Computer Use and a local Web
 | Frontend lab notes | Yes | Record the reproduced reduced-motion hydration issue and first-paint verification. |
 | Path rules / CLAUDE.md | No | Existing frontend routing already points at the owning lab note. |
 | Directory / domain maps | No in this refinement | No production worker/library file or domain term added. The selected route's existing directory entry remains accurate. |
-| Architecture review log | No | Work is not merged; do not increment the merge counter. |
+| Architecture review log | Yes | One ledger row for `feat/landing-selected-cleanup`; the counter is the review pass's business. |

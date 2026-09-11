@@ -5,7 +5,6 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { FutureSection } from '../future/FutureSection';
 import {
   HORIZON_MARKER,
-  HORIZON_X,
   PLANNED_MARKER,
   SHIPPED_MARKER,
   STOPS,
@@ -97,12 +96,5 @@ describe('future-copy — the honesty contract', () => {
       if (stop.state === 'horizon') expect(stop.marker).toBe(HORIZON_MARKER);
     }
     expect(PLANNED_MARKER).toBe('Planned');
-  });
-
-  it('keeps the horizon stops past the horizon line and everything else before it', () => {
-    for (const stop of STOPS) {
-      if (stop.state === 'horizon') expect(stop.x).toBeGreaterThan(HORIZON_X);
-      else expect(stop.x).toBeLessThan(HORIZON_X);
-    }
   });
 });

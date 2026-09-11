@@ -7,7 +7,7 @@
 
 ## Overview
 
-**Current middle narrative — owner selection, 2026-09-10:** `/` uses **F3 with F1's Working Atlas roadmap**. Its authoritative composition, paper/ink sections, responsive refinements, imagery and motion contracts are saved in [the chosen design record](../../collections/2026-09-final/chosen-design.md). That selection supersedes the original middle-section anatomy described below. The existing hero, navigation, closing CTA, footer and their measured scrims remain current. The original middle sections and their helpers (`Staged`, the phone carousel, the agent flip card, the route-map path builder) were deleted from the codebase in the same day's cleanup, together with the `design-*` comparison routes: where this page describes sections 2–8, it is history, not a spec.
+**Middle sections — owner selection, 2026-09-10.** Sections 2–8 follow the owner-selected composition. Its exact decisions, measurements and interaction contracts live in [the chosen design record](../../collections/2026-09-final/chosen-design.md); this page covers the page-wide system, the bookends, the chrome, and a summary of each middle section.
 
 **The landing page is deliberately unlocked from the Island system.** `PRODUCT.md`
 records this exception (agreed 2026-08-03): `/` may establish its own world; the rest of
@@ -26,33 +26,18 @@ Plus Jakarta Sans at 200/300, weights that exist for this page.
 - Warm near-white text, never pure `#fff`.
 - Every colour carried as a channel token so any translucent shade rides the token
   instead of a hand-written `rgba()` copy.
-- Full-bleed video bookends (sections 1 and 9), liquid-glass narrative sections between.
+- Full-bleed video bookends (sections 1 and 9). Between them, editorial sections on warm
+  paper and ink, set in two type scopes (`section-scopes.css`): serif headings over the
+  body face, and Georgia editorial headings.
 - **Native scroll, content-height sections (2026-08-16 Linear pass).** No smooth-scroll
   layer, no snap, no scroll-linked dissolve, no chapter rail or markers, no scroll cue.
-  The narrative sections (2–6, 8) are as tall as their content plus
-  `--rw-lp-section-gap`; the one motion a block gets on arrival is `Reveal`'s ≤200ms
-  opacity fade. One gold-filled pill is the primary action (nav, hero, closing band).
-  Every label is the mono `--rw-lp-label-*` role.
-- **Bookend cinema + arrival choreography (2026-08-24, owner override).** Three motions
-  were deliberately added back inside the Linear pass's constraints: the two film
+  Every section except the two bookends is as tall as its content. One gold-filled pill
+  is the primary action (nav, hero, closing band). Labels use the mono `--rw-lp-label-*`
+  role.
+- **Bookend cinema + arrival choreography (2026-08-24, owner override).** The two film
   bookends carry a scroll-linked push-in/settle (≤1.045, on an internal zoom layer,
-  reader-driven), the hero copy enters in five staged beats on load, and the tiers
-  gauge halo breathes. Native scroll is untouched, no section wrapper transforms, and no
-  transform ever sits on an ancestor of the future section's glow.
-- **The sections revamp (2026-08-24, owner-directed).** Sections 2–7 were elevated in
-  place: every section's blocks enter as `Staged` beats (the hero-entrance grammar made
-  shareable — motion-driven and finite, so the ambient pause rule cannot strand them),
-  the fleet diagram assembles on arrival (wires draw in via motion `pathLength`) and a
-  hovered node brightens its own wire, the autonomy dial is a circular OPERABLE gauge
-  (two `aria-pressed` mode buttons swing a sprung needle), the problem section pairs the
-  essay with an ambient generated diagram clip, and the future cards open with a
-  generated off-CRT still. One header grammar binds all six: prose sections set left,
-  instrument sections (fleet, tiers) centered, one heading scale
-  (`clamp(1.75rem, min(4.4vw, 5.2vh), 3rem)`) and one lead scale
-  (`clamp(0.9375rem, 1.1vw, 1.0625rem)`) — the problem essay's larger heading is the one
-  stated exception. Constraints kept: native scroll, no snap, no transform on any
-  ancestor of the future glow (future-section entrances are opacity-only), reduced
-  motion renders settled frames everywhere.
+  reader-driven), and the hero copy enters in five staged beats on load. Native scroll
+  is untouched and no section wrapper transforms.
 
 **Sections 1 and 9 are a deliberate pair:** the same world, opened in daylight with the
 copy set RIGHT and closed at night with it set LEFT. They are the only two full-bleed
@@ -152,56 +137,40 @@ site. One label style for the page, instead of 10–11px display-face caps at 0.
 |---|---|---|---|
 | Content gutter | `clamp(1.5rem, 4vw, 4rem)` | `--rw-lp-gutter` | contained blocks (the sections' inner columns, the footer's inner row) |
 | Content column | `75rem` | `--rw-lp-inner-max` | the narrative sections' column (2–5) and the footer, single owner — 1200px |
-| Section gap | `clamp(4rem, 8vw, 6rem)` | `--rw-lp-section-gap` | top + bottom padding of sections 2–5 — 96px at desktop; replaces the `100svh` bind |
 | Page edge | `clamp(1.25rem, 3vw, 3rem)` | `--rw-lp-edge` | full-bleed chrome in the viewport corners (the nav); drops to `1rem` below 380px |
 
 `--rw-lp-inner-max` is a **reading ceiling** since 2026-08-16 (it was a measured
 fit-the-viewport ceiling of 102rem while sections were bound to `100svh`), and
 `--rw-lp-edge` is deliberately tighter than the content gutter so the corners read as
-corners. Sections 2–5 are as tall as their content plus `--rw-lp-section-gap` — never as
-tall as the screen. Sections 1 and 9 keep `min-height: 100svh`: they are full-bleed film,
+corners. Sections 2–8 are as tall as their content — never as tall as the screen. Sections 1 and 9 keep `min-height: 100svh`: they are full-bleed film,
 the clip is the content, and their scrim geometry is measured against the full frame. The
 reasoning and the numbers are in [`measurements.md`](measurements.md).
 
 ### Shape & surface
 
-- **Liquid glass** (`.rw-lp-glass`) is the shared surface for the narrative sections. Its
-  border is a gradient **stroke**, not a flat 1px rule: a `::before` inset with
-  `padding: 1.4px` filled with a vertical white gradient, then the interior punched out
-  with `mask-composite: exclude`. That leaves only the ring, so the edge is bright at top
-  and bottom and vanishes at the sides — the way real glass catches light. A plain
-  `border` cannot vary along its own length.
-- `-webkit-` prefixes are load-bearing: Safari still requires them for both
-  `mask-composite` (as `xor`) and `backdrop-filter`.
+- The middle sections have no shared surface. Each paints its own paper or ink ground,
+  and the two type scopes carry their tokens (`section-scopes.css`). Framed media — the
+  problem house's tilted square, the courtyard, the agents' CRT arch, the watchdogs' arched
+  scene — is shaped per section; shapes and radii are in the chosen design record.
+- A curved frame owns `overflow: hidden`, so its media cannot protrude through the curve.
 
 ### Motion
 
 | Name | Value | Where |
 |---|---|---|
-| Arrival fade | `0.2s`, opacity only, `easeOut` | `Reveal` — the quiet default for a block entering the viewport |
-| Arrival stagger | `60ms` per index, capped at 6 | `Reveal` |
-| Staged beat | `650ms` fade + 14px rise, `110ms` per beat, once in view | `Staged` / `StagedLine` (`staged.tsx`) — the hero-entrance grammar shared by sections 2–7; `rise={0}` (opacity only) exists for any fixed-attachment surface (none on the page since the 2026-09-06 route map); reduced motion renders the final frame via `initial: false` |
 | Pill hover | `translateY(-1px)` + lifted gold, `200–240ms` | nav pill, hero CTA, closing action |
 | Hero entrance | 5 beats, `650ms` fade + 14px rise, `110ms` apart, once on load | hero copy column (`useHeroEntrance`); reduced motion renders the final frame via `initial: false` |
 | Bookend push-in / settle | scale `1 → 1.045` (hero exit) and `1.045 → 1` (closing-band arrival), scroll-linked | `.rw-lp-hero-zoom` / `.rw-lp-cta-zoom` — internal zoom layers, never the media wrapper (a transformed box grows the page's scrollable overflow) |
-| Route map arrival | ground fades (0.9s); lit road draws (`pathLength 0 → 1`, 1.1s); stops rise in travel order (0.55s, 70ms stagger); dashed roads and horizon fade after | `FutureSection` + `future.css`; one `useInView` arming signal, `amount: 'some'` |
-| Stop card | glass card fades 180ms beside the hovered/focused stop; stop lifts 4px | `.rw-lp-future-stop-item[data-active='true']` |
-| Lit-stop halo | opacity `1 → 0.55`, `4.5s`, infinite | `.rw-lp-future-stop-item[data-state='shipped'] .rw-lp-future-landmark::before`; covered by the universal pause rule, skipped under reduced motion |
-| Fleet assembly | live wires draw in (motion `pathLength 0 → 1`, `0.9s`, `90ms` stagger); nodes/centre fade (opacity ONLY — they are measured); flow current + dashed NEXT wire fade in after (`data-armed` transitions) | `FleetSection` + `fleet.css`; one `useInView` arming signal |
-| Wire hover | hovered node's wire goes steady full-strength, flow to `0.85` | `g[data-hot='true']` in `fleet.css`, driven by node `pointerenter` |
-| Dial travel | needle + fill on a spring (`stiffness 170, damping 26`); needle swings via sprung endpoint math, never a CSS rotate on SVG | `TiersSection` — `useSpring`/`useTransform`; reduced motion jumps |
-| Halo breathe | opacity `1 → 0.55`, `4.5s`, infinite | `.rw-lp-tiers-gauge-halo`; covered by the universal pause rule, skipped under reduced motion |
-| Problem finale | gold rule draws (`scaleX 0 → 1`, `0.8s`), pivot beats land on it | `.rw-lp-problem-pivot-rule` — transform on the span itself, never an ancestor |
+| Agent selection | the CRT shows the agent whose paragraph crosses the reading line: 50% of the viewport on desktop; on phones the sticky strip's bottom + 64px, capped at 80% | `PersonasSection` — `useScroll` plus a resize listener |
+| Lever swing | `0.7s` (the film plays at `duration / 0.7`); the film into Autopilot starts at 44% | `TiersSection`; reduced motion or pause switches instantly |
+| Roadmap chapter | the ground pans by `transform-origin` (`.35s`); the cloud plates fade in on Horizon (`.35s`) | `.rw-lp-final-atlas-map` in `future.css`; reduced motion drops the transitions |
+| Ambient clips | load near the viewport, play only in view, keep their still under reduced motion or on failure | `AmbientVideo`, through `brand-clip.tsx` and each section's clip helper |
 
 Native scroll. There is no smooth-scroll layer, no snap (Lenis or CSS), and no
 scroll-linked section dissolve — all removed 2026-08-16 so the reader owns the wheel and
-content is present when the viewport arrives. `Reveal` is opacity-only on purpose: it
-never puts a transform on an ancestor of the future section's `background-attachment:
-fixed` glow. The 2026-08-24 bookend cinema is scroll-LINKED, not scroll-hijacking: the
-push-in rides the reader's own scroll on a layer inside sections 1 and 9, which are
-siblings — not ancestors — of the future section. Zero layout-animating transitions remain on the page; zero `transition:
-all`; zero `will-change` at rest. The reasoning is in
-[`measurements.md`](measurements.md).
+content is present when the viewport arrives. The 2026-08-24 bookend cinema is
+scroll-LINKED, not scroll-hijacking: the push-in rides the reader's own scroll on a layer
+inside sections 1 and 9. The reasoning is in [`measurements.md`](measurements.md).
 
 ## Components
 
@@ -237,130 +206,61 @@ ink. Hover lifts to `#e8d3a1` and `translateY(-1px)`.
 - **These three are the only gold-FILLED elements on the page.** That is what lets the
   gold read as "the action" rather than as decoration. Do not add a fourth.
 
-### Fleet (section 2)
+### Problem (section 2)
 
-Role: the agent map — a LIVING diagram since 2026-08-24. Centred flex tiers of
-nodes; a click opens the film in `VideoLightbox`.
+`problem/`. A warm paper band: the heading, the house film in a tilted square (16px
+corners, −3°) and the explanation, in one row on desktop; on phones the film sits small
+beside the heading. The film is decorative, `aria-hidden`, claim-free (asset rules in
+`problem/problem-copy.ts`), and shows its still under reduced motion.
 
-- The **node cap**, not the container, sets the drawing width (`.rw-lp-fleet-node`).
-- Unshipped capabilities render with a dashed border, dimmed media, a `COMING` tag, and a
-  dashed unanimated connector.
-- The diagram assembles on first view (one `useInView` arming signal): live wires draw
-  in, nodes and centre fade up, the flow current starts after. Hovering a node lifts it
-  and brightens its own wire (`data-hot`).
-- **Measured elements enter by opacity only.** The nodes and the media card are measured
-  for the wire endpoints (`getBoundingClientRect` includes transforms, and the observer
-  re-fires only on size change) — an entrance transform would bake a mid-flight position
-  into the wires. Nodes carry the object craft: lit top edge, inset highlight, hover lift
-  with an ink shadow and a faint gold halo.
+### Fleet (section 3)
 
-### Persona / watchdog flip cards (sections 3 + 4)
+`fleet/`. The pivot line, the heading and the film button above a full-width 3:1
+courtyard (`public/fleet/courtyard.webp`) with four station pills; each pill links to its
+agent in section 4. The film opens in `VideoLightbox`. Phones keep the whole scene with
+numbered pins and move the pills into a two-column index under it. Never crop the scene
+to fill a taller box.
 
-Role: the action layer and the oversight layer, distinguished by temperature.
-`agent-flip-card.tsx` is shared; each section styles it.
+### The agents that act (section 4)
 
-- Personas are the shared portrait shape; **watchdog cards are the ROW form**, not the
-  portrait shape. Since 2026-08-24 the row WORKS its width: a larger avatar stage
-  (`clamp(5.5rem, 19vh, 9.5rem)`, teal rim) and the governing rule stamped as a mono
-  plate in column 3 (`frontRule` prop on `AgentFlipCard`; hidden below 560px, where the
-  rule stays on the back). The backs carry a teal cast that deepens on hover
-  (hover-gated like every flip arm).
-- **Three flip selectors, all required:** `:hover` (hover-capable fine pointers —
-  media-gated, because sticky tap-hover latched cards flipped on touch),
-  `[data-flipped='true']` (touch — the click toggle is gated to non-hover devices,
-  since on a pointer device a click would latch the card flipped after the pointer
-  left), `:focus-visible` (keyboard).
-- `.rw-lp-flip .rw-lp-flip-face` is scoped deliberately — flattening the selector drops
-  both faces into normal flow.
+`personas/`. Copy alternates left and right of a tall central CRT arch on desktop; the
+CRT shows the agent whose paragraph sits on the reading line (see the Motion table). On
+phones the CRT is a sticky strip, `min(190px, 28svh)` tall, with four 44px numbered
+controls below its arch on a solid paper ground. Each agent states its limit
+(`publishLabel`).
 
-### The five jobs (between personas and watchdogs)
+### The five jobs (section 5)
 
-`jobs/JobsSection.tsx` + `jobs.css` + `jobs-copy.ts`. A hairline ledger, not a card
-grid: index + verb (display 200, `clamp(1.5rem, 2.6vw, 2.25rem)`) · claim + body · two
-meta cells ("Who does it", "Where you see it") under a column head that disappears ≤ 900px
-in favour of per-row labels. `data-tone` follows the page's temperature rule — acting
-agents gold, the watching layer and the run spine teal (the teal channels are copied from
-`--rw-lp-watch-accent`; keep them in step). Static: no controls, so nothing joins
-`focus-visible-marketing.test.ts`.
+`jobs/`. One row per job — Respond, Protect, Request, Brief, Measure — with a sticky
+verb, the job's own film (`public/jobs/*.{webp,mp4}`), a claim, a body, and where the
+owner meets the result. Equal rows are the argument: no job grows a card or a bigger type
+step than its neighbours.
 
-### Problem (section 6)
+### The agents that watch (section 6)
 
-Role: the kinetic essay + the reputation diagram (v0.2, owner-directed 2026-08-24).
-The essay owns the left column — staged heading lines, trimmed body, and the pivot
-landing on a drawn gold rule; the right carries the section's one visual: an ambient
-generated clip of a café orbited by what a customer finds (stars, a review bubble, a
-reply arrow, one dark card — the silence). Grid AREAS keep the pivot the section's
-exit at every width. Framed at reputation width (owner direction, 2026-08-24) so the
-copy cannot go stale as new agents ship; the only product claim is the pivot line's
-existence claim ("So we built the staff"). The diagram is decorative, `aria-hidden`,
-claim-free (asset rules in `problem/problem-copy.ts`), rides `AmbientVideo`, and
-shows its still under reduced motion.
+`watchdogs/`. The Judge and Governor on the left; the paired original CRTs inside an
+arched scene on the right, above the trust statement. The scene owns `overflow: hidden`.
+The section ends with the gold text link to `/how-it-works`: the pipeline is deliberately
+not a landing section (owner decision, 2026-08-24).
 
-### Tiers — Copilot vs Autopilot (section 8)
+### Owner controls — Copilot vs Autopilot (section 7)
 
-Role: the circular dial (v4, owner-directed 2026-08-24 — v3's straight track was
-rejected in favour of the round instrument). A semicircular machined gauge sits
-between the two modes: recessed groove, three detents and two end ticks ("a range,
-not a toggle"), a sprung gold needle, and a fill that measures the granted autonomy.
-It is OPERABLE: the mode names are two `aria-pressed` buttons (keyboard tab stops, no
-custom key handling) that swing the needle and shift the modes' emphasis
-(`data-active`); the gauge itself stays `aria-hidden` — it is the needle, not the
-control. Both buttons ring in `--rw-lp-accent` and sit in the focus test. The needle
-starts on Copilot — where every account starts — and the dial is an ILLUSTRATION: it
-changes nothing but the page. Below 720px the gauge centres above the stacked modes
-on a vertical travel line whose active node takes the gold. Neither mode takes a tier
-temperature — they are modes, not agents — and nothing here is gold-filled in the
-pill sense (the three pills stay the whole set).
+`tiers/`. Light paper: the heading spans the left column; the dispatch scene
+(`public/tiers/`) and a two-button selector stack on the right. Copilot is the lever at
+the left, over the approval tray; Autopilot is the lever at the right, over the dispatch
+desk. The selector explains the plans — it changes no subscription. This section is the
+page's door to `/pricing`. Its controls ring in the darker brass `#b17f30` on this light
+paper.
 
-### The watchdogs' door (section 4 → /how-it-works)
+### Where this is going (section 8)
 
-The pipeline is deliberately NOT a landing section (owner decision, 2026-08-24):
-`/how-it-works` already tells it in depth, so the watchdogs section ends with a gold
-text link there — `.rw-lp-watch-pipeline-link`, asserted in the focus test. Gold, not
-teal: it is an action, not part of the oversight diagram. A text link, not a pill.
-
-### Future (section 5)
-
-Role: where this is going — the **route map** since 2026-09-06 (owner-directed; it
-replaced the four "screens not yet on" cards). One **full-bleed** survey chart — a
-sibling of the content column, edge to edge, 25:18 — a generated ground
-(`/future/roadmap-ground.jpg`, made against the agent stills), an SVG road in the
-chart's own 2000×1440 space, and fifteen HTML stops positioned by the same
-coordinates (`future-copy.ts` owns them). **From 1280px up the header is the map's
-title**: the section starts straight under the dial with no ink gap, the chart fades
-up from ink over its top 36% (`--rw-lp-title-band`), and the header — eyebrow,
-heading, lead, closing quote, legend — sits over that band inside the reading column
-(`pointer-events: none`). Below 1280px the header stacks above the chart; below 900px
-the chart is a trail, and the trail is an **accordion** — one row per stop (glyph,
-marker, name, chevron), a tap opens the hint under it, one open at a time. Three states, and the difference is the
-honesty mechanism: **shipped** stops are lit — a solid gold road, a gold `Shipped`
-marker, a breathing halo, a landmark cutout with its screen on; **planned** stops are
-the roadmap's locked Phases 1–5 — dashed dim road, `Phase n` marker, unpowered
-landmark; **horizon** stops sit past the horizon line in fog — dotted branches fanning
-out from Phase 5 (the order past it "may be re-ordered"), a `Later` marker, a glyph and
-no landmark. A `Today` pin marks the end of the lit road. Every stop is a button:
-hover, focus or tap opens a glass card with the body beside it (`aria-pressed`,
-`aria-describedby` to the always-present body), and the chart's legend carries the
-"not available yet" disclaimer. Below 900px the chart is abandoned for a trail — same
-stops, same order, every body visible.
-
-- The road draws in (`pathLength`) and the stops rise in travel order on one
-  `useInView` arming signal (`amount: 'some'` — the trail is taller than a phone
-  viewport, so a fraction never arms). Reduced motion renders the settled frame.
-- Landmarks are cutouts under `public/future/stops/*.webp` (asset rules in
-  `future-copy.ts`); lit stops stand taller than planned ones (`--rw-lp-landmark`).
-- Labels alternate above/below the road along its length (`data-label`), which is what
-  lets fifteen stops share one chart; neighbours never share a side.
-- The marker beside every unbuilt name is load-bearing: a skim reads names before
-  bodies. Do not give a planned or horizon stop the lit treatment, and do not move the
-  legend off the chart.
-- **Clouds past the horizon**: two generated plates screen-blended over the fog, drifting
-  on CSS keyframes (pause-rule covered), under the stops. See `measurements.md` assets.
-- **Unbuilt stops are hinted, not named** (owner decision 2026-09-06): the name is a
-  short tease, the body one future-tense sentence about the outcome, the landmark the
-  only literal clue. The stop-to-phase mapping is a comment in `future-copy.ts`.
-- The old cards' `background-attachment: fixed` glow left with them; this section no
-  longer forbids transforms on its ancestors (see `staged.tsx` on `rise=0`).
+`future/`. The Working Atlas: three chapter buttons (Shipped, Planned, Horizon), a map
+of the chapter's five illustrated stops, and a detail ledger. The chapter only reframes
+the ground — Shipped bright left, Planned darker centre, Horizon right under cloud plates
+— from the original 3840px `public/future/roadmap-ground.jpg` at 1.75×. Landmark cutouts
+live under `public/future/stops/`. Every stop's detail says "Available today" or "Not
+available yet", and the section footer repeats it. Unbuilt stops are hinted, not named
+(owner decision 2026-09-06; the stop-to-phase mapping is a comment in `future-copy.ts`).
 
 ### CTA (section 9)
 
@@ -381,8 +281,8 @@ Role: the night bookend. Full-bleed video, copy set LEFT.
 
 ### Ambient-motion control
 
-Role: the WCAG 2.2.2 pause control. **One** control (`ambient-motion.tsx`) governs all 9
-looping clips *and* every infinite CSS animation. The CSS half is a single universal
+Role: the WCAG 2.2.2 pause control. **One** control (`ambient-motion.tsx`) governs every
+looping clip *and* any keyframe animation. The CSS half is a single universal
 `animation-play-state` rule on `.rw-lp[data-ambient-motion]`, so an animation added later
 is covered without anyone remembering to.
 
@@ -403,9 +303,8 @@ is covered without anyone remembering to.
 - **Do** use `--rw-lp-*` tokens only. Any translucent shade of ink, text, or gold rides
   its channel token.
 - **Do** keep the `.rw-lp-` prefix on every class in this folder.
-- **Do** add any new interactive element to `focus-visible-marketing.test.ts` (it asserts
-  a ring on **16** landing controls today, across 15 rows — the dial's two mode buttons
-  share one).
+- **Do** add any new interactive element to `focus-visible-marketing.test.ts` (one row per
+  control, or per scope where a scope rule rings all its controls).
 - **Do** take the **structure** from a reference and keep RepWorth's palette and Plus
   Jakarta. Four references were adapted, never copied — each shipped its own palette
   (EOSAI dark/gold; a `#0a0a0a` + Playfair spec; an Orbis `#010828` + Anton spec; a
@@ -440,8 +339,8 @@ is covered without anyone remembering to.
 
 ## Surfaces & Elevation
 
-There is one ground and one surface: the page ink, and liquid glass on top of it. Depth
-comes from the gradient stroke and a `1px` inner highlight, not from shadow stacks.
+There is no shared surface. The chrome sits on the page ink; the middle sections paint
+their own paper or ink grounds. Depth comes from framed media, not from shadow stacks.
 The two video sections have no surface at all — the clip *is* the ground, darkened by a
 measured scrim ramp.
 
@@ -468,6 +367,10 @@ and ten landmark cutouts under
 cutouts via a PIL flood-fill, WebP with alpha). Asset rules for the diagram live in
 `problem/problem-copy.ts`, for the map in `future/future-copy.ts`.
 
+The 2026-09-10 selection added `public/fleet/courtyard.webp`, the five job films
+(`public/jobs/*.{webp,mp4}`) and the owner-control media (`public/tiers/`: lever stills,
+transition films, station activity). Provenance is in the 2026-09-final collection.
+
 ### Ambient video
 
 Every looping background clip must go through `AmbientVideo` (`ambient-motion.tsx`) so
@@ -475,10 +378,9 @@ none can escape the WCAG 2.2.2 pause control.
 
 ### Scroll
 
-Native. Nothing intercepts the wheel, nothing snaps, nothing dissolves on scroll. Blocks
-inside a section arrive with `Reveal` (opacity, ≤200ms) or as `Staged` beats (the
-hero-entrance grammar, once, on first view — see the Motion table); both are
-viewport-triggered arrivals, never scroll-scrubbed. The Lenis + Snap layer, the CSS snap fallback, `SectionTransition`, the
+Native. Nothing intercepts the wheel, nothing snaps, nothing dissolves on scroll.
+Sections do not animate in on arrival; only the hero copy stages its entrance, once, on
+load. The Lenis + Snap layer, the CSS snap fallback, `SectionTransition`, the
 chapter rail and the chapter markers were removed together on 2026-08-16 — see
 [`measurements.md`](measurements.md) §2 for what was measured and why it went.
 
@@ -497,9 +399,7 @@ across all of them:
 
 - **Solicitor is present tense since 2026-09-06** (owner decision, on the commitment to
   flip `SOLICITATION_WATCH_ENABLED` + `SOLICITATION_SEND_ENABLED` on in production;
-  PRODUCT.md "Shipped today"). `status: 'live'` in `fleet-copy.ts` and
-  `personas-copy.ts`; the `'next'` treatment (dashed border, dimmed media, `COMING` tag,
-  dashed connector) stays wired for the next unshipped agent. Solicitor sends **email
+  PRODUCT.md "Shipped today"). Solicitor sends **email
   only** and never posts — never name SMS, Telegram, or WhatsApp for it.
 - **The five jobs ledger (`jobs/`) is the balance device.** Respond, Protect, Request,
   Brief, Measure get one equal row each. Do not let a job's row grow a card, a control,
@@ -508,10 +408,9 @@ across all of them:
   not in that path. Never "reviews everything that goes out".
 - **Guardian never acts publicly** — that is its whole identity.
 - **Reply is the only persona that can publish**, and only inside owner bounds.
-- **Section 5's `PLANNED` tag is load-bearing.** A skim reads the four names before it
-  reads a body, and the tag is what marks them as unbuilt at that glance (the body — and
-  every future-tense "will" — is on the card since 2026-08-16; before that it was behind a
-  flip). Do not remove it.
+- **The roadmap's markers are load-bearing.** Every unbuilt stop shows `Planned · Phase n`
+  or `Horizon · Later` beside its name, and its detail says "Not available yet". A skim
+  reads names before bodies; the marker is what marks a stop as unbuilt at that glance.
 - **The exploring tier was cut** (owner decision). The eight ideas survive as a comment in
   `future-copy.ts`, not an export, so they cannot render by accident. If they return:
   plain text lines under their own label, never cards.
@@ -539,11 +438,10 @@ accuracy contracts, and keeping prose out of JSX makes them reviewable as prose.
   `--rw-lp-accent` for the ring and the label, `rgb(var(--rw-lp-accent-rgb) / a)` for any
   translucent state. Never `--rw-teal-strong`.
 - **"Add a narrative section"** → a new module under `sections/landing/<section>/` with
-  its own CSS and `*-copy.ts`, placed directly in `<main>`, width bound to
-  `--rw-lp-inner-max`, `width: 100%` on its `-inner` wrapper, registered in
-  `scroll/section-map.ts`.
-- **"Add a surface"** → `.rw-lp-glass`. Do not hand-roll a border; the gradient stroke is
-  the surface.
+  its own CSS and `*-copy.ts`, rendered in order from `LandingExperience.tsx`, with its
+  stylesheet imported there after `landing-experience.css`.
+- **"Add a surface"** → render inside one of the two type scopes (`section-scopes.css`) and
+  paint the section's own ground; there is no shared glass surface.
 - **"Add a looping background clip"** → `AmbientVideo`, `aria-hidden` on the wrapper.
 - **"Add an interactive control"** → give it a `--rw-lp-accent` focus ring and add it to
   `focus-visible-marketing.test.ts`.

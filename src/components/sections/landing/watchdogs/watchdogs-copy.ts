@@ -23,7 +23,7 @@
  * "had no hand in writing it" is the claim we can stand behind.
  */
 
-export interface Watchdog {
+interface Watchdog {
   id: string;
   name: string;
   /** What it supervises, in one line. */
@@ -50,13 +50,6 @@ export const WATCHDOGS: readonly Watchdog[] = [
   },
 ];
 
-export const EYEBROW = 'The agents that watch';
-export const HEADING_LEAD = 'Something is always';
-export const HEADING_ACCENT = 'watching the agents.';
-
-export const LEAD_IN =
-  'These two never touch your reviews. They exist only to supervise the agents that do.';
-
 /**
  * The pull-quote. The reference doc calls this "the strongest trust statement
  * RepWorth owns" and asks for it to stop the scroll, so it gets a panel of its
@@ -66,23 +59,9 @@ export const LEAD_IN =
  * availability gates auto-posting (invariant #3). Do not soften "stops" into
  * "pauses" or "may be delayed" — the whole force of the claim is that it is
  * absolute. "On its own" is scope, not softening: owner-approved replies still
- * post when the judge is down, so the bare "nothing posts" overclaimed. It
- * mirrors fleet-copy's deliberate "posts on its own" phrasing.
+ * post when the judge is down, so the bare "nothing posts" overclaimed.
  */
 export const STATEMENT_LEAD = 'If the supervisor is down,';
 export const STATEMENT_ACCENT = 'nothing posts on its own.';
 export const STATEMENT_FOOTNOTE =
   'Judge availability is a precondition for posting without you. When the Judge cannot run, replies wait for your approval instead.';
-
-/** Framing above the two cards. */
-export const TIER_LABEL = 'Oversight layer';
-
-/**
- * The door to /how-it-works (owner decision, 2026-08-24): the landing page
- * does NOT retell the pipeline — the How It Works page already tells it in
- * depth, step by step. This link stands where a pipeline section would have
- * gone: at the end of the supervision story, where "so how does a review
- * actually move through all of this?" is the question the reader is holding.
- * The href comes from MARKETING_LINKS.howItWorks (single owner of that fact).
- */
-export const PIPELINE_LINK_LABEL = 'See how a review moves through the fleet, step by step';

@@ -1,5 +1,5 @@
 /**
- * The problem — section 6 copy.
+ * The problem — section 2 copy.
  *
  * ── Scope: the WHOLE reputation, not reviews (owner direction, 2026-08-24) ─
  * This section deliberately frames the problem at the width of the product's
@@ -31,14 +31,6 @@
  * Copy was trimmed 2026-08-24 (owner direction, v0.2 course-correct): same
  * claims, fewer words — the diagram now carries part of the picture.
  */
-
-export const EYEBROW = 'The problem';
-
-export const HEADING_LEAD = 'Your reputation is public.';
-export const HEADING_ACCENT = 'Tending it is a job.';
-
-/** Flat string for `aria-label`, since the visible heading is split. */
-export const HEADING_PLAIN = `${HEADING_LEAD} ${HEADING_ACCENT}`;
 
 export const BODY_PARAGRAPHS: readonly string[] = [
   'Before anyone calls, books, or walks in, they look you up. Ratings, reviews, replies, and the ones left unanswered all add up to your reputation, working for or against you around the clock.',

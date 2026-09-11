@@ -1,8 +1,8 @@
 /**
- * Where RepWorth is going — the route map (2026-09-06 revamp).
+ * Where RepWorth is going — the Working Atlas roadmap.
  *
  * ── What is on the map, and why ───────────────────────────────────────────
- * The section became a survey chart: one route from what has shipped into
+ * The section is one route in three chapters, from what has shipped into
  * what comes next. Three states, and the difference between them is the
  * whole honesty mechanism:
  *
@@ -49,28 +49,13 @@
  *
  * ── The tag is load-bearing ───────────────────────────────────────────────
  * Every unbuilt stop carries its `marker` beside its name, so the roadmap
- * status survives a skim that never opens a stop. The legend states "Not
- * available yet" on the map itself. Do not remove either, and do not give a
- * planned or horizon stop the lit treatment.
- *
- * ── Coordinates ───────────────────────────────────────────────────────────
- * `x`/`y` are positions on a 2000×1440 stage (the chart bleeds to the
- * viewport edges — 2026-09-06 owner direction: "use the space on the left
- * and right"). The top ~520 units are the TITLE BAND: from 1280px up the
- * section header (eyebrow, heading, lead, closing quote, legend) sits over
- * the chart there, so the section starts straight under the dial with no
- * ink gap (owner, 2026-09-06: "I really do not like the transition"). Keep
- * every road point at y ≥ 820. The road is a long serpentine — bottom-left, up
- * over a crest, down through a trough, up again to the horizon — so
- * consecutive stops sit ~230 units apart along it instead of ~130 on a
- * flat line (owner: the flat road read "convoluted" and "cramped"). Keep
- * every point in y 300–740: the top and bottom 100 units are fades. The lit
- * stops sit in the left two-fifths, under the chart's lamp light; the fog
- * starts at `HORIZON_X`. Below 900px the stage is abandoned for a trail and
- * the coordinates are ignored.
+ * status survives a skim that never opens a stop. Each stop's detail states
+ * "Available today" or "Not available yet", and the section footer repeats
+ * it. Do not remove either, and do not give a planned or horizon stop the lit
+ * treatment.
  */
 
-export type StopState = 'shipped' | 'planned' | 'horizon';
+type StopState = 'shipped' | 'planned' | 'horizon';
 
 export interface RoadmapStop {
   id: string;
@@ -80,11 +65,6 @@ export interface RoadmapStop {
   state: StopState;
   /** The mono tag beside the name: "Shipped", "Phase 1", "Later". */
   marker: string;
-  x: number;
-  y: number;
-  /** Which side of the road point the label sits. Chosen per stop so labels
-   *  stay on the OUTSIDE of each bend and clear of the top/bottom fades. */
-  label: 'above' | 'below';
   /** Path under /public for the landmark cutout; undefined renders the marker glyph. */
   landmark?: string;
   /** The cutout's width ÷ height. The landmark box is sized by it so a wide
@@ -92,11 +72,6 @@ export interface RoadmapStop {
    *  small at the bottom of a square one with its label floating above. */
   landmarkAspect?: number;
 }
-
-export const STAGE_WIDTH = 2000;
-export const STAGE_HEIGHT = 1440;
-/** Where the fog begins. Horizon stops all sit to the right of it. */
-export const HORIZON_X = 1590;
 
 export const SHIPPED_MARKER = 'Shipped';
 export const PLANNED_MARKER = 'Planned';
@@ -110,9 +85,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Every action every agent takes is recorded here, so “what did it do, and why?” always has an answer.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 170,
-    y: 1240,
-    label: 'below',
     landmark: '/future/stops/spine.webp',
     landmarkAspect: 0.35,
   },
@@ -122,9 +94,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Reply drafts a response to every review. It is the only agent that can publish, and only inside your bounds.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 330,
-    y: 1080,
-    label: 'below',
     landmark: '/future/stops/reply.webp',
     landmarkAspect: 0.79,
   },
@@ -134,9 +103,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Solicitor asks your past customers for reviews by email, in batches you approve first. Every opt-out is honoured for good.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 490,
-    y: 895,
-    label: 'below',
     landmark: '/future/stops/solicitor.webp',
     landmarkAspect: 0.76,
   },
@@ -146,9 +112,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'One printable code per location sends walk-ins straight to your Google review form. No landing page, no contact capture.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 690,
-    y: 820,
-    label: 'above',
     landmark: '/future/stops/qr.webp',
     landmarkAspect: 0.45,
   },
@@ -158,9 +121,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'The refusal ledger: everything the agents decided not to do, when, and why.',
     state: 'shipped',
     marker: SHIPPED_MARKER,
-    x: 890,
-    y: 920,
-    label: 'below',
     landmark: '/future/stops/restraint.webp',
     landmarkAspect: 1.42,
   },
@@ -170,9 +130,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Your booking system will have something to say, and the ask will take care of itself.',
     state: 'planned',
     marker: 'Phase 1',
-    x: 1085,
-    y: 1140,
-    label: 'above',
     landmark: '/future/stops/connectors.webp',
     landmarkAspect: 1.56,
   },
@@ -182,9 +139,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'A bad review will not be the end of the story.',
     state: 'planned',
     marker: 'Phase 2',
-    x: 1165,
-    y: 1265,
-    label: 'below',
     landmark: '/future/stops/recovery.webp',
     landmarkAspect: 1.04,
   },
@@ -194,9 +148,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Your reviews will start telling you which part of the job is drifting, and where.',
     state: 'planned',
     marker: 'Phase 3',
-    x: 1320,
-    y: 1200,
-    label: 'above',
     landmark: '/future/stops/topics.webp',
     landmarkAspect: 0.68,
   },
@@ -206,9 +157,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'The agents will know your business the way you do, and say why they wrote what they wrote.',
     state: 'planned',
     marker: 'Phase 4',
-    x: 1450,
-    y: 1020,
-    label: 'above',
     landmark: '/future/stops/truth.webp',
     landmarkAspect: 0.89,
   },
@@ -218,9 +166,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'You will decide exactly how much rope each agent gets, action by action.',
     state: 'planned',
     marker: 'Phase 5',
-    x: 1550,
-    y: 840,
-    label: 'above',
     landmark: '/future/stops/autonomy.webp',
     landmarkAspect: 0.74,
   },
@@ -230,9 +175,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Google will not be the only place the fleet keeps watch.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1700,
-    y: 770,
-    label: 'below',
   },
   {
     id: 'impact',
@@ -240,9 +182,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'What the fleet did for you will be counted the conservative way.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1870,
-    y: 940,
-    label: 'above',
   },
   {
     id: 'api',
@@ -250,9 +189,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Other software will be able to knock.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1855,
-    y: 1290,
-    label: 'above',
   },
   {
     id: 'social',
@@ -260,9 +196,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'The fleet will have more than reviews to speak for you.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1690,
-    y: 1320,
-    label: 'above',
   },
   {
     id: 'disputes',
@@ -270,9 +203,6 @@ export const STOPS: readonly RoadmapStop[] = [
     body: 'Some reviews will get a second look.',
     state: 'horizon',
     marker: HORIZON_MARKER,
-    x: 1770,
-    y: 1120,
-    label: 'below',
   },
 ];
 
@@ -295,23 +225,6 @@ export const HEADING_ACCENT = 'every business deserves.';
 
 export const LEAD_IN =
   'No small business can staff a review team, a CRM, a social manager and a fraud-dispute process. The ambition is to be all of it: one supervised fleet covering everything your business’s reputation touches, not only its reviews.';
-
-/** The legend on the chart. The note is the section's disclaimer — it sits ON
- *  the map, so it cannot be scrolled past independently of the stops. */
-export const LEGEND_LABEL = 'The route';
-export const LEGEND_NOTE = 'Lit stops are live today. The rest are hints of what comes next, not available yet.';
-export const LEGEND_SHIPPED = 'Live today';
-export const LEGEND_PLANNED = 'Planned, in order';
-export const LEGEND_HORIZON = 'Sequenced later';
-
-/** The pin at the end of the lit road. */
-export const TODAY_LABEL = 'Today';
-
-/** The fog's own label, stamped on the horizon line. */
-export const HORIZON_LABEL = 'Beyond the horizon';
-
-/** Accessible name for the stop list. */
-export const STOPS_LABEL = 'The roadmap, in order';
 
 /**
  * §2.2 — flagged in the source as "the strongest strategic sentence in the

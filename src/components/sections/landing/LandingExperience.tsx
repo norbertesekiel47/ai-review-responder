@@ -69,16 +69,14 @@ import './future/future.css';
  * Scroll note (2026-08-16 Linear pass): the page scrolls natively. The Lenis
  * smooth-scroll + snap layer, the scroll-linked section dissolve, the chapter
  * rail and the vertical chapter markers were removed together — the reader
- * owns the wheel, sections are as tall as their content, and the only motion
- * on arrival is `Reveal`'s single opacity fade. Rationale and the measurements
- * that changed: docs/brand-asset-library/design-systems/landing/measurements.md §2.
+ * owns the wheel and sections are as tall as their content. Rationale:
+ * docs/brand-asset-library/design-systems/landing/measurements.md §2.
  *
- * 2026-08-24, owner override of part of that pass: the two film bookends now
- * carry a scroll-linked push-in/settle on their internal zoom layers, the hero
- * copy enters in five staged beats on load, and the tiers thumb breathes. All
- * three stay inside the Linear pass's real constraints — native scroll, no
- * snap, no transform on any ancestor of the future section — see
- * measurements.md §2 ("Bookend cinema").
+ * Motion that remains: the hero copy's five staged beats on load and the two
+ * film bookends' scroll-linked push-in/settle (measurements.md §2, "Bookend
+ * cinema"); the personas CRT following the paragraph in view; the owner
+ * lever's film. Every clip honours reduced motion and the footer's pause
+ * control (chosen-design.md, "Interaction and motion contract").
  */
 
 interface LandingExperienceProps {

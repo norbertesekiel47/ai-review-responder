@@ -58,7 +58,7 @@ export function JobsSection() {
             <p>{LEAD_IN}</p>
           </header>
           {JOBS.map((job) => (
-            <article className="rw-lp-syn-l-job" key={job.id} data-tone={job.tone}>
+            <article className="rw-lp-syn-l-job" key={job.id}>
               <div className="rw-lp-syn-l-job-title">
                 <p className="rw-lp-syn-l-eyebrow">
                   {job.index} / {job.agents}
