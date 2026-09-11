@@ -144,7 +144,6 @@ export async function getAdminNotifications(
   // overlapping requests, so this bundle multiplied across concurrent admins.
   // A pipelined response parks server-side in `state=active,
   // wait_event=ClientRead` and no `statement_timeout` heals it. Reached from
-  // BOTH composition roots — `admin/notifications/page.tsx` and
   // `api/admin/notifications/route.ts`.
   const notificationRows = await sql.unsafe<NotificationRow[]>(
     dataQuery,
