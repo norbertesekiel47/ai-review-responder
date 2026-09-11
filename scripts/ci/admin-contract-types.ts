@@ -168,7 +168,7 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
   }
 
   function symbolAt(node: ts.Node): ts.Symbol | undefined {
-    if (node.parent && ts.isShorthandPropertyAssignment(node.parent)) {
+    if (node.parent && ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node) {
       return checker.getShorthandAssignmentValueSymbol(node.parent);
     }
     const symbol = checker.getSymbolAtLocation(node);
@@ -190,13 +190,44 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
     referenceCache.set(symbol, references);
     return references;
   }
-  function isWritten(reference: ts.Identifier): boolean {
-    for (let parent = reference.parent; parent && !ts.isFunctionLike(parent); parent = parent.parent) {
-      if (ts.isBinaryExpression(parent) && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
-        && reference.pos >= parent.left.pos && reference.end <= parent.left.end) return true;
-      if (ts.isDeleteExpression(parent) || ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent))
-        && (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken))) return true;
-      if (ts.isStatement(parent)) break;
+  function isProvenRead(reference: ts.Identifier): boolean {
+    let node: ts.Node = reference;
+    while (node.parent) {
+      const parent = node.parent;
+      if (ts.isShorthandPropertyAssignment(parent) && parent.objectAssignmentInitializer === node) return true;
+      // Keep walking value/pattern containers: the outer use decides whether
+      // {status}, [status], or a wrapped property is a read or an assignment target.
+      if (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isTypeAssertionExpression(parent)
+        || ts.isNonNullExpression(parent) || ts.isSatisfiesExpression(parent)
+        || ts.isArrayLiteralExpression(parent) || ts.isObjectLiteralExpression(parent)
+        || ts.isArrayBindingPattern(parent) || ts.isObjectBindingPattern(parent)
+        || ts.isSpreadElement(parent) || ts.isSpreadAssignment(parent) || ts.isShorthandPropertyAssignment(parent)
+        || ((ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === node)
+        || (ts.isPropertyAssignment(parent) && parent.initializer === node)
+        || (ts.isBindingElement(parent) && parent.name === node)) {
+        node = parent;
+        continue;
+      }
+      if (ts.isBinaryExpression(parent)) return parent.right === node || parent.operatorToken.kind < ts.SyntaxKind.FirstAssignment || parent.operatorToken.kind > ts.SyntaxKind.LastAssignment;
+      if (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) return parent.operator !== ts.SyntaxKind.PlusPlusToken && parent.operator !== ts.SyntaxKind.MinusMinusToken;
+      if (ts.isVariableDeclaration(parent)) {
+        if (parent.initializer === node) return true;
+        const owner = parent.parent.parent;
+        return !parent.initializer && !ts.isForInStatement(owner) && !ts.isForOfStatement(owner);
+      }
+      if (ts.isParameter(parent) || ts.isBindingElement(parent) || ts.isPropertyDeclaration(parent)) return parent.initializer === node;
+      if (ts.isForInStatement(parent) || ts.isForOfStatement(parent)) return parent.expression === node;
+      if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) return parent.expression === node || Boolean(parent.arguments?.some((argument) => argument === node));
+      if (ts.isConditionalExpression(parent) || ts.isReturnStatement(parent) || ts.isThrowStatement(parent)
+        || ts.isAwaitExpression(parent) || ts.isYieldExpression(parent) || ts.isTypeOfExpression(parent) || ts.isVoidExpression(parent)
+        || ts.isExpressionStatement(parent) || ts.isExportAssignment(parent) || ts.isTemplateSpan(parent)
+        || ts.isTaggedTemplateExpression(parent) || ts.isComputedPropertyName(parent) || ts.isTypeNode(parent)) return true;
+      if (ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent) || ts.isSwitchStatement(parent) || ts.isCaseClause(parent)) return parent.expression === node;
+      if (ts.isForStatement(parent)) return parent.condition === node || parent.incrementor === node || parent.initializer === node;
+      if (ts.isArrowFunction(parent)) return parent.body === node;
+      if (ts.isElementAccessExpression(parent)) return parent.argumentExpression === node;
+      // Unknown reference positions are unsupported, never implicitly unwritten.
+      return false;
     }
     return false;
   }
@@ -209,8 +240,9 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
       throw new Error(`${location(declaration)}: unresolved status object is exported`);
     }
     for (const reference of referencesTo(symbol)) {
-      if (declaration && 'name' in declaration && reference === declaration.name) continue;
-      if (isWritten(reference)) throw new Error(`${location(reference)}: unresolved status binding is written`);
+      if (declaration && 'name' in declaration && reference === declaration.name && (ts.isParameter(declaration)
+        || (ts.isVariableDeclaration(declaration) && ts.isVariableDeclarationList(declaration.parent) && declaration.parent.flags & ts.NodeFlags.Const))) continue;
+      if (!isProvenRead(reference)) throw new Error(`${location(reference)}: unresolved status binding has an unproven read`);
       if (!object) continue;
       // Named objects may alias or escape despite const. Only property reads and
       // this exact analyzed argument are supported; other uses need a proof we
@@ -252,6 +284,20 @@ export function describeResponses(program: ts.Program, source: ts.SourceFile, me
   function resolveBinding(node: ts.Node, env: Bindings, seen = new Set<ts.Symbol>()): Binding {
     if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isAwaitExpression(node) || ts.isNonNullExpression(node)) {
       return resolveBinding(node.expression, env, seen);
+    }
+    if (provingStatus && ts.isObjectLiteralExpression(node)) {
+      // Status provenance requires plain source data: types can hide getters,
+      // and spread/computed/prototype members can override an earlier value.
+      const names = new Set<string>();
+      for (const member of node.properties) {
+        if ((!ts.isPropertyAssignment(member) && !ts.isShorthandPropertyAssignment(member))
+          || (!ts.isIdentifier(member.name) && !ts.isStringLiteral(member.name) && !ts.isNumericLiteral(member.name))) {
+          throw new Error(`${location(member)}: unresolved status object member`);
+        }
+        const name = ts.isNumericLiteral(member.name) ? String(Number(member.name.text)) : member.name.text;
+        if (name === '__proto__' || names.has(name)) throw new Error(`${location(member)}: unresolved status object key`);
+        names.add(name);
+      }
     }
     if (ts.isIdentifier(node)) {
       const symbol = symbolAt(node);

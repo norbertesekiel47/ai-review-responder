@@ -107,6 +107,30 @@ describe('compiler-derived response contracts', () => {
       'function reply(init:{status:number}):NextResponse {init.status=418; return NextResponse.json({ok:true},init);} export function GET(){return reply({status:200});}',
       'function reply(status:number):NextResponse {status+=218; return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
       'function reply(status:number):NextResponse {--status; return NextResponse.json({ok:true},{status});} export function GET(){return reply(419);}',
+      'function reply(status:number):NextResponse {for(status of [418]){} return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'export function GET(){const init={status:200}; for(init.status of [418]){} return NextResponse.json({ok:true},init);}',
+      'function reply(status:number):NextResponse {for([status] of [[418]]){} return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {for({code:status} of [{code:418}]){} return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:any):NextResponse {for(status in {418:true}){} return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'async function reply(status:number):Promise<NextResponse> {for await(status of [418]){} return NextResponse.json({ok:true},{status});} export async function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {var status=418; return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {var {code:status}={code:418}; return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {for(var status=418;false;){} return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {for(var status of [418]){} return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:any):NextResponse {for(var status in {418:true}){} return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {var [status]=[418]; return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:any):NextResponse {[...status]=[418]; return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:any):NextResponse {({...status}={code:418}); return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {({status=418}={}); return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'export function GET(){const init={status:200}; let copy={status:0}; ({copy=init}={}); copy.status=418; return NextResponse.json({ok:true},{status:init.status});}',
+      'export function GET(){const init:{status:number;read:number}={status:200,get read(){this.status=418;return 0;}}; void init.read; return NextResponse.json({ok:true},{status:init.status});}',
+      'export function GET(){const init:{status:number;read?:number;__proto__?:object}={status:200,__proto__:{get read(){Reflect.set(this,"status",418);return 0;}}}; void init.read; return NextResponse.json({ok:true},{status:init.status});}',
+      'export function GET(){const patch:Record<string,number>={status:418}; const init={status:200,...patch}; return NextResponse.json({ok:true},{status:init.status});}',
+      'export function GET(){const key:string="status"; const init={status:200,[key]:418}; return NextResponse.json({ok:true},{status:init.status});}',
+      'const init={status:200}; export {init}; export function GET(){return NextResponse.json({ok:true},init);}',
+      'export function GET(){const init={status:200,status:418}; return NextResponse.json({ok:true},{status:init.status});}',
+      'export function GET(){const choices={ok:{status:200,get read(){this.status=418;return 0;}}}; void choices.ok.read; return NextResponse.json({ok:true},{status:choices.ok.status});}',
+      'export function GET(){const init={status:200,1:0,"1":1}; return NextResponse.json({ok:true},{status:init.status});}',
     ];
     const preserved = [
       { text: 'function reply(status:number):NextResponse {return NextResponse.json({ok:true},{status});} export function GET(){const status=200; return reply(status);}', statuses: ['200'] },
@@ -116,6 +140,18 @@ describe('compiler-derived response contracts', () => {
       { text: 'function reply(status:number):NextResponse {function shadow(){let status=0; status=418; return status;} shadow(); let copied=0; copied=status; const read=()=>status; read(); return NextResponse.json({copied},{status});} export function GET(){return reply(200);}', statuses: ['200'] },
       { text: 'export function GET(){const known={status:200}; if(!known) return NextResponse.json({ok:false},{status:404}); const selected=known?200:404; return NextResponse.json({selected},known);}', statuses: ['200','404'] },
       { text: 'export function GET(){const choices={ok:{status:200}}; const known=(choices.ok as {status:number})!; const direct=choices.ok.status; return NextResponse.json({direct},{status:known.status});}', statuses: ['200'] },
+      { text: 'function reply(status:number):NextResponse {var status; for(var status;false;){} for(const value of [status]){void value;} for(const key in {[status]:true}){void key;} const {copy=status}={}; return NextResponse.json({copy},{status});} export function GET(){return reply(200);}', statuses: ['200'] },
+      { text: 'function reply(status:number):NextResponse {let copy=0; ({copy=status}={}); return NextResponse.json({copy},{status});} export function GET(){return reply(200);}', statuses: ['200'] },
+      { text: 'export function GET(){const init={"status":200,1:0,"meta":0}; return NextResponse.json({ok:true},init);}', statuses: ['200'] },
+      { text: `const status=200; export default status;
+        function defaults(value=status){return value;} class Holder {value=status;}
+        const nested=[...[(<number>status satisfies number)],{...{status}}];
+        const boxed=new Number(status); const table:Record<number,string>={}; const indexed=table[status];
+        type Status=typeof status; const text=\`value:\${status}\`;
+        function returns(){return status;} function throws(){throw status;}
+        async function waits(){await status;} function* yields(){yield status;}
+        function controls(){while(status){break;} do{break;}while(status); switch(status){case status:break;} for(status;status;status){break;}}
+        export function GET(){return NextResponse.json({ok:true},{status});}`, statuses: ['200'] },
     ];
     // Each source remains an independent module; load the standard library once
     // for this behavioral matrix instead of rebuilding it for every fixture.
