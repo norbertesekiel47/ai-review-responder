@@ -19,12 +19,6 @@ export const ADMIN_NAV_GROUPS = [
     ],
   },
   {
-    label: 'Safety',
-    items: [
-      { href: '/admin/suppressions', label: 'Suppressions' },
-    ],
-  },
-  {
     label: 'Growth',
     items: [
       { href: '/admin/demos', label: 'Demos' },
