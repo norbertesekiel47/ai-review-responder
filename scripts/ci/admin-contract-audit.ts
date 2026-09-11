@@ -15,7 +15,8 @@ export function emitPortableDeclarations(sourceText: string): string {
   const options: ts.CompilerOptions = {
     strict: true, declaration: true, emitDeclarationOnly: true,
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
-    skipLibCheck: true, types: [],
+    // Portable contracts may use ES built-ins such as Date, never ambient DOM APIs.
+    skipLibCheck: true, types: [], lib: ['lib.es2022.d.ts'],
   };
   const host = ts.createCompilerHost(options);
   const originalRead = host.readFile.bind(host);
@@ -150,7 +151,11 @@ export async function generateAdminContract(root: string): Promise<{ files: Map<
   await collectRouteFiles(join(root, 'src/app/api/admin'), root, routes);
   if (!routes.length) throw new Error('No Admin API route files found');
   const barrelPath = join(root, 'src/lib/admin/api-contract.ts');
-  const program = ts.createProgram([...routes.map((file) => join(root, file)), barrelPath], parsed.options);
+  const host = ts.createCompilerHost(parsed.options);
+  // This program extracts types, not diagnostics. Preserve JS JSDoc type info
+  // without building unused documentation ASTs for the full TS dependency graph.
+  host.jsDocParsingMode = ts.JSDocParsingMode.ParseForTypeInfo;
+  const program = ts.createProgram([...routes.map((file) => join(root, file)), barrelPath], parsed.options, host);
   const checker = program.getTypeChecker();
   const barrel = program.getSourceFile(barrelPath);
   if (!barrel) throw new Error('Admin DTO barrel is missing');

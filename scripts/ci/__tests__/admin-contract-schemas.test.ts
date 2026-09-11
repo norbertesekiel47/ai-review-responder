@@ -119,7 +119,7 @@ describe('admin request schema source analysis', () => {
   });
 
   it('refuses unmodeled request-derived parser inputs and follows imported body parsers', () => {
-    for (const input of ['(await req.json()) ?? {}', '(await req.json()).payload']) {
+    for (const input of ['(await req.json()) ?? {}', '(await req.json()).payload', '{ payload: await req.json() }']) {
       expect(() => fixture({ 'route.ts': `import { z } from 'zod'; const Input = z.object({name: z.string().max(12)});
         export async function POST(req: Request) { return Input.safeParse(${input}); }` })).toThrow(/request-derived parser input/);
     }

@@ -11,17 +11,19 @@ afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true
 function cliFixture() {
   const root = mkdtempSync(join(tmpdir(), 'admin-contract-cli-')); roots.push(root);
   const files = {
-    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', paths: { '@/*': ['./src/*'] } } }),
+    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, allowJs: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', paths: { '@/*': ['./src/*'] } } }),
     'src/lib/admin/dto.ts': 'export interface Example { name: string; }',
     'src/lib/admin/api-contract.ts': "export type { Example } from './dto';",
+    'src/lib/admin/value.js': '/** @returns {{ value: number }} */ export function typedValue() { return JSON.parse("{}"); }',
     'src/lib/auth/admin-mfa-gate.ts': 'export async function requireAdminWithAal2(_req: Request) { return {ok: true}; }',
     'src/app/api/admin/example/route.ts': `import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+      import { typedValue } from '@/lib/admin/value';
       import { z } from 'zod';
       const Input = z.object({name: z.string().trim().min(1)});
       export async function POST(req: Request) {
         await requireAdminWithAal2(req);
         const parsed = Input.safeParse(await req.json());
-        return Response.json({success: parsed.success}, {status: 201});
+        return Response.json({success: parsed.success, value: typedValue().value}, {status: 201});
       }`,
   };
   for (const [file, contents] of Object.entries(files)) {
@@ -48,6 +50,9 @@ describe('admin contract audit', () => {
     expect(checkRouteTable('| `/api/admin/test` | GET | GET: requireAdminWithAal2 | none | Test | 200 |', rows)).toEqual([]);
     expect(checkRouteTable('', rows).join()).toContain('missing');
     expect(checkRouteTable('| `/api/admin/gone` | GET | GET: requireAdminWithAal2 | none | Test | 200 |', rows).join()).toContain('stale');
+    const aliases = mkdtempSync(join(tmpdir(), 'admin-contract-alias-')); roots.push(aliases);
+    const alias = join(aliases, 'contract'); symlinkSync(root, alias, 'dir');
+    await expect(auditContractFiles(alias, files)).rejects.toThrow('symlink');
   });
 
   it('detects route method and gate provenance drift', () => {
@@ -61,6 +66,8 @@ describe('admin contract audit', () => {
     expect(declaration).toContain('export type Result');
     expect(declaration).not.toContain('@/');
     expect(() => emitPortableDeclarations('export type Result = MissingPrivateName;')).toThrow('MissingPrivateName');
+    expect(() => emitPortableDeclarations('export type Result = HTMLElement;')).toThrow('HTMLElement');
+    expect(emitPortableDeclarations('export type Result = { at: Date };')).toContain('at: Date');
   });
 
   it('reproduces the current contract including enriched responses and existing DTO exports', async () => {
@@ -83,6 +90,7 @@ describe('admin contract audit', () => {
     expect(generated.stderr).toBe(''); expect(generated.status).toBe(0);
     const audit = run(); expect(audit.status, audit.stderr).toBe(0);
     const destination = join(root, 'docs/admin-api');
+    expect(readFileSync(join(destination, 'admin-api.d.ts'), 'utf8')).toContain('"value": number | null');
     expect(readFileSync(join(destination, 'README.md'), 'utf8')).toContain('POST: 201');
     const schema = JSON.parse(readFileSync(join(destination, 'schemas/ExamplePOST-body-Input.json'), 'utf8'));
     expect(schema).toMatchObject({ 'x-repworth-approximation': true, properties: {name: {type: 'string', minLength: 1}} });
@@ -108,6 +116,20 @@ describe('admin contract audit', () => {
         expect(result.status, result.stderr).toBe(1);
         expect(result.stderr).toContain('symlink');
         expect(readFileSync(sentinel, 'utf8')).toBe('preserve unrelated data');
+      }
+    }
+  });
+
+  it('rejects non-directory output ancestors without overwriting existing files', () => {
+    for (const blocked of ['docs', 'docs/admin-api']) {
+      const { root, run } = cliFixture();
+      const existing = join(root, blocked);
+      mkdirSync(dirname(existing), { recursive: true }); writeFileSync(existing, 'preserve existing file');
+      for (const args of [[], ['--write']]) {
+        const result = run(...args);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('directory is required');
+        expect(readFileSync(existing, 'utf8')).toBe('preserve existing file');
       }
     }
   });

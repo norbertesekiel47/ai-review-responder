@@ -63,6 +63,13 @@ describe('compiler-derived response contracts', () => {
     const absent = fixture('export function GET() { return NextResponse.json(undefined); }');
     expect(() => describeResponses(absent.program, absent.source, 'GET')).toThrow('undefined');
     expect(() => Response.json(undefined)).toThrow(TypeError);
+    for (const text of [
+      'export function GET() { return NextResponse.json(Symbol("value")); }',
+      'export function GET<T>() { let body!: T; return NextResponse.json(body); }',
+    ]) {
+      const unsupported = fixture(text);
+      expect(() => describeResponses(unsupported.program, unsupported.source, 'GET')).toThrow('unsupported JSON type');
+    }
     for (const body of ['{ toJSON() { return "different"; } }', '{} as { nested: {toJSON(): string} }', '[] as [string, number?]']) {
       const custom = fixture(`export function GET() { return NextResponse.json(${body}); }`);
       expect(() => describeResponses(custom.program, custom.source, 'GET')).toThrow(/toJSON|tuple/);

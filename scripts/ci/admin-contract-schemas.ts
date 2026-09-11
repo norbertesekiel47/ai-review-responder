@@ -221,15 +221,16 @@ export function generateRequestSchemas(program: ts.Program, routeSource: ts.Sour
     return undefined;
   };
   const requestDerived = (expression: ts.Expression, bindings: Bindings, seen = new Set<ts.Node>()): boolean => {
-    const node = boundExpression(expression, bindings);
-    if (seen.has(node)) return false;
-    seen.add(node);
-    if (origin(node, bindings) || isRequest(node, bindings)) return true;
-    let found = false;
-    ts.forEachChild(node, (child) => {
-      if (ts.isExpression(child) && requestDerived(child, bindings, seen)) found = true;
-    });
-    return found;
+    const visit = (node: ts.Node): boolean => {
+      const bound = ts.isExpression(node) ? boundExpression(node, bindings) : node;
+      if (seen.has(bound)) return false;
+      seen.add(bound);
+      if (ts.isExpression(bound) && (origin(bound, bindings) || isRequest(bound, bindings))) return true;
+      // Property assignments and other non-expression nodes can contain request
+      // values; skipping their children would silently lose parser provenance.
+      return ts.forEachChild(bound, visit) ?? false;
+    };
+    return visit(expression);
   };
   const schemaName = (expression: ts.Expression, bindings: Bindings, depth = 0): string => {
     if (depth > 32) return refuse(expression, 'schema name dependency limit');
