@@ -184,8 +184,13 @@ or dirty path remained, and preserved the round/run counters.
 The pass has 15,661 inventory rows, including 15,618 skipped-budget rows and
 four uncovered wiring rows. Its historical `OPEN_P0` status is preserved; it
 must not be represented as a clean or exhaustive pass after later changes.
-No second mutation round is authorized or performed. The normal LEAN release
-needs an explicit disposition of this partial-pass limitation.
+No second mutation round is authorized or performed. The owner's explicit
+2026-09-11 LEAN decision requires one pass for this batch and normal change
+gates, rather than the `/feature` pipeline. That disposition retains this
+partial-coverage limitation while requiring all concrete findings to be fixed
+and reviewed; it does not claim a CLEAR sidecar or use the feature `reviewed`
+transition. The owner's subsequent authorization to merge and proceed applies
+after the normal checks pass.
 
 | Finding | Subsequent correction | Verification |
 |---|---|---|
@@ -205,14 +210,14 @@ static-policy, directory-map, agent-config and live-db-suites. The same review
 pass's targeted fix continuation returned Spec 0 / Standards 0 at `80e6882a`.
 These tests and documentation are later changes to the inspected tree; the
 original sidecar's head, outcomes and counters are not rewritten to imply
-re-verification. Fresh cloud CI and owner disposition of the partial pass
-remain required before merge.
+re-verification. Fresh cloud CI remains required before the already-authorized
+merge; the single-pass coverage limitation remains explicitly recorded.
 
 ## Verdict
 
 Staging functional acceptance is complete with the owner's explicit browser-gap
 disposition and the automated evidence above. Overall release/teardown remains
 PENDING: the post-merge preview-setting cleanup and staging realignment are
-still open, and partial-pass disposition and fresh cloud CI must be completed
-before merge. No complete Computer Use or authenticated
+still open, and fresh cloud CI must be completed before merge. No complete
+Computer Use or authenticated
 production browser verification is claimed.
