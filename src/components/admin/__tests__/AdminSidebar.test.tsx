@@ -41,7 +41,7 @@ describe('AdminSidebar', () => {
     pushMock.mockClear();
     refreshMock.mockClear();
     signOutMock.mockReset().mockResolvedValue({ error: null });
-    mockUsePathname.mockReturnValue('/admin/jobs');
+    mockUsePathname.mockReturnValue('/admin/flagged');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ flaggedOpen: 3, failedJobs: 1 }), { status: 200 }),
     ));
@@ -76,14 +76,13 @@ describe('AdminSidebar', () => {
     mockUsePathname.mockReturnValue('/admin/locations/csv-import/preview');
     renderSidebar();
     expect(screen.getByRole('link', { name: /Locations import/ })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /Jobs/ })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: /Flagged/ })).not.toHaveAttribute('aria-current');
   });
 
   it('shows badge counts from nav-counts', async () => {
     renderSidebar();
     await waitFor(() => {
       expect(screen.getByText('3')).toBeInTheDocument(); // flagged
-      expect(screen.getByText('1')).toBeInTheDocument(); // failed jobs
     });
   });
 
