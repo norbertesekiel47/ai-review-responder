@@ -60,3 +60,32 @@ CPU profiles and temporary timing files remain debug artifacts under
 `/private/tmp/1190-cpu-profile` and `/private/tmp/1190-contract-*-timing.*`; no
 instrumentation was inserted into production source. Final full verification and
 independent scoped review are still required after the consolidated commit.
+
+## Expanded C2 fixture matrix
+
+The full gate at `6bb33d9d73e1219931a85b088470cb2895a37ccb` passed the real-repository
+contract check and 14,697 other tests, but the expanded mutable-status test hit
+its existing 5000 ms limit. All other gate rows, including the focused tests,
+build and audits, passed. This completed failure was recorded once; the durable
+counter became 1 after the preceding full green. No counter was manually reset.
+
+The mutable-status test created fourteen independent TypeScript programs, each
+loading the same standard library. The bounded hypothesis was repeated fixture
+program creation, not the production proof: the production generator passed its
+full-coverage integration case. The correction batches the test's separate module
+files into one program. Every file still exports its own GET and owns its own
+NextResponse/helper declarations, so fixture names do not become shared globals.
+The shared fixture helper and cleanup hook are unchanged.
+
+The same patch completed the independently enumerated U4–U10 coverage gaps. It
+retains all eleven previous refusal and three previous preservation scenarios,
+adding five refusals and four preservation scenarios: sixteen plus seven modules
+inside the existing single test case. No oracle or timeout was relaxed.
+
+All three affected compiler suites then passed **27/27 tests with coverage**.
+The expanded status test took **494.3 ms** and the real-repository contract case
+took **4381.4 ms**. Generated artifact bytes remained unchanged. The independent
+inventory verified the complete fixture matrix and identified no remaining
+coverage edit before the next committed gate. This evidence validates the narrow
+fixture-cost correction; it does not substitute for the final full gate or
+independent source and mutation verification.

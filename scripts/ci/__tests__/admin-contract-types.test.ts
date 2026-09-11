@@ -89,13 +89,10 @@ describe('compiler-derived response contracts', () => {
   });
 
   it('refuses mutable status bindings instead of reporting their initial values', () => {
-    for (const assignment of ['status = 418;', 'if (Date.now()) status = 418;']) {
-      const { program, source } = fixture(`export function GET() {
+    const refused = [
+      ...['status = 418;', 'if (Date.now()) status = 418;'].map((assignment) => `export function GET() {
         let status = 200; ${assignment} return NextResponse.json({ok:true}, {status});
-      }`);
-      expect(() => describeResponses(program, source, 'GET')).toThrow('unresolved status');
-    }
-    for (const text of [
+      }`),
       'function reply(status:number): NextResponse { status=418; return NextResponse.json({ok:true},{status}); } export function GET(){return reply(200);}',
       'function reply(status:number): NextResponse { (() => {status++;})(); return NextResponse.json({ok:true},{status}); } export function GET(){return reply(200);}',
       'export function GET(){const init={status:200}; init.status=418; return NextResponse.json({ok:true},init);}',
@@ -105,16 +102,39 @@ describe('compiler-derived response contracts', () => {
       'export function GET(){const init={status:200,change(){this.status=418;}}; init.change(); return NextResponse.json({ok:true},init);}',
       'export function GET(){const choices={ok:{status:200}}; const alias=choices.ok; alias.status=418; return NextResponse.json({ok:true},{status:choices.ok.status});}',
       'export const init={status:200}; export function GET(){return NextResponse.json({ok:true},init);}',
-    ]) {
-      const {program, source} = fixture(text);
-      expect(() => describeResponses(program, source, 'GET')).toThrow('unresolved status');
+      'export function GET(){const init:{status?:number}={status:418}; delete init.status; return NextResponse.json({ok:true},{status:init.status!});}',
+      'function change(init:{status:number}){init.status=418;} export function GET(){const choices={ok:{status:200}}; change(choices.ok); return NextResponse.json({ok:true},{status:choices.ok.status});}',
+      'function reply(init:{status:number}):NextResponse {init.status=418; return NextResponse.json({ok:true},init);} export function GET(){return reply({status:200});}',
+      'function reply(status:number):NextResponse {status+=218; return NextResponse.json({ok:true},{status});} export function GET(){return reply(200);}',
+      'function reply(status:number):NextResponse {--status; return NextResponse.json({ok:true},{status});} export function GET(){return reply(419);}',
+    ];
+    const preserved = [
+      { text: 'function reply(status:number):NextResponse {return NextResponse.json({ok:true},{status});} export function GET(){const status=200; return reply(status);}', statuses: ['200'] },
+      { text: 'export function GET(){const choices={ok:{status:200}}; const known=Math.random() ? choices.ok : undefined; if(known) return NextResponse.json({ok:true},{status:known.status}); return NextResponse.json({ok:false},{status:404});}', statuses: ['200','404'] },
+      { text: 'export function GET(){const init={status:200}; return NextResponse.json({ok:true},init);}', statuses: ['200'] },
+      { text: 'function reply(init:{status:number}):NextResponse {return NextResponse.json({ok:true},init);} export function GET(){return reply({status:200});}', statuses: ['200'] },
+      { text: 'function reply(status:number):NextResponse {function shadow(){let status=0; status=418; return status;} shadow(); let copied=0; copied=status; const read=()=>status; read(); return NextResponse.json({copied},{status});} export function GET(){return reply(200);}', statuses: ['200'] },
+      { text: 'export function GET(){const known={status:200}; if(!known) return NextResponse.json({ok:false},{status:404}); const selected=known?200:404; return NextResponse.json({selected},known);}', statuses: ['200','404'] },
+      { text: 'export function GET(){const choices={ok:{status:200}}; const known=(choices.ok as {status:number})!; const direct=choices.ok.status; return NextResponse.json({direct},{status:known.status});}', statuses: ['200'] },
+    ];
+    // Each source remains an independent module; load the standard library once
+    // for this behavioral matrix instead of rebuilding it for every fixture.
+    const root = mkdtempSync(join(tmpdir(), 'admin-status-matrix-'));
+    roots.push(root);
+    const texts = [...refused, ...preserved.map((entry) => entry.text)];
+    const files = texts.map((text, index) => {
+      const file = join(root, `route-${index}.ts`);
+      writeFileSync(file, `declare class NextResponse { static json(body:unknown, init?:{status:number}):NextResponse; }\n${text}`);
+      return file;
+    });
+    const program = ts.createProgram(files, {strict:true, target:ts.ScriptTarget.ES2022});
+    for (const [index, text] of refused.entries()) {
+      expect(() => describeResponses(program, program.getSourceFile(files[index]!)!, 'GET'), text).toThrow('unresolved status');
     }
-    const stable = fixture('function reply(status:number): NextResponse {return NextResponse.json({ok:true},{status});} export function GET(){const status=200; return reply(status);}');
-    expect(describeResponses(stable.program, stable.source, 'GET').map((response) => response.status)).toEqual(['200']);
-    const guarded = fixture('export function GET(){const choices={ok:{status:200}}; const known=Math.random() ? choices.ok : undefined; if(known) return NextResponse.json({ok:true},{status:known.status}); return NextResponse.json({ok:false},{status:404});}');
-    expect(describeResponses(guarded.program, guarded.source, 'GET').map((response) => response.status).sort()).toEqual(['200','404']);
-    const namedInit = fixture('export function GET(){const init={status:200}; return NextResponse.json({ok:true},init);}');
-    expect(describeResponses(namedInit.program, namedInit.source, 'GET').map((response) => response.status)).toEqual(['200']);
+    for (const [index, entry] of preserved.entries()) {
+      const source = program.getSourceFile(files[refused.length + index]!)!;
+      expect(describeResponses(program, source, 'GET').map((response) => response.status).sort(), entry.text).toEqual(entry.statuses);
+    }
   });
 
   it('preserves inline dictionary signatures and refuses unresolved object spreads', () => {
