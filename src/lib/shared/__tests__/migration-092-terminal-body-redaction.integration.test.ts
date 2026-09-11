@@ -353,17 +353,19 @@ describeWithDb(
     it('plans the sweep predicate as an index scan with no residual filter', async () => {
       // The predicate is what makes the arm bounded: if the planner cannot
       // prove it implies the partial index, the sweep degrades to a seq scan of
-      // every outreach row on every cycle. Sequential scan is disabled so this
-      // asserts the index is USABLE rather than merely cheapest on an empty
-      // table; an unmatched predicate would still show a Seq Scan or a Filter.
+      // every outreach row on every cycle. Sequential and bitmap scans are
+      // disabled so this asserts the ordered index scan is USABLE rather than
+      // cheapest on a tiny table (a bitmap scan discards index ordering and
+      // adds a Sort). An unmatched predicate still shows a Seq Scan or Filter.
       //
-      // Run inside a transaction with SET LOCAL so the seqscan setting is
+      // Run inside a transaction with SET LOCAL so the planner settings are
       // scoped to this probe, and through template queries rather than the
       // raw-SQL escape hatch: `ci:live-db-suites` treats that call form, in a
       // file that also names the migrations directory, as run-time DDL — which
       // this is not, and the audit cannot tell the difference from text alone.
       const plan = await db!.begin(async (tx) => {
         await tx`SET LOCAL enable_seqscan = off`;
+        await tx`SET LOCAL enable_bitmapscan = off`;
         return tx<{ 'QUERY PLAN': string }[]>`
           EXPLAIN SELECT id FROM solicitation_outreach
           WHERE rendered_at < NOW() - make_interval(days => 90)
