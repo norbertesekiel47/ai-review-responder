@@ -196,16 +196,23 @@ needs an explicit disposition of this partial-pass limitation.
 | RT-5: error recovery destination untested | Render the real error boundary with Admin configuration absent | Recovery link remains the local support-access path |
 | RT-6: configuration failure lacks an alert mapping | Add exact emitted identity, project/environment filter, level, default grouping limits, cadence, and repair/delivery action to alerting rule 10 | Static documentation correction only; no live Sentry rule or delivery test is claimed |
 
-The focused regression run passed 23 tests in two files. Full normal checks and
-the same review pass's targeted fix continuation are pending. These tests and
-documentation are later changes to the inspected tree; the original sidecar's
-head, outcomes and counters are not rewritten to imply re-verification.
+The focused regression run passed 23 tests in two files. The full normal suite
+passed 15,712 tests with 11 expected skips across 1,159 passing files (one file
+skipped), with both database variables pinned to the validated loopback test
+container. Lint, typecheck, build and all nine relevant audits passed:
+admin-aal2, admin-contract, env-registry, config-coverage, process-env,
+static-policy, directory-map, agent-config and live-db-suites. The same review
+pass's targeted fix continuation returned Spec 0 / Standards 0 at `80e6882a`.
+These tests and documentation are later changes to the inspected tree; the
+original sidecar's head, outcomes and counters are not rewritten to imply
+re-verification. Fresh cloud CI and owner disposition of the partial pass
+remain required before merge.
 
 ## Verdict
 
 Staging functional acceptance is complete with the owner's explicit browser-gap
 disposition and the automated evidence above. Overall release/teardown remains
 PENDING: the post-merge preview-setting cleanup and staging realignment are
-still open, and the red-team fixes, partial-pass disposition, and fresh cloud CI
-must be completed before merge. No complete Computer Use or authenticated
+still open, and partial-pass disposition and fresh cloud CI must be completed
+before merge. No complete Computer Use or authenticated
 production browser verification is claimed.
