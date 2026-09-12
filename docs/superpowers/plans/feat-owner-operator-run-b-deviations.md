@@ -124,6 +124,15 @@ RED on three rows, every other row green (lint, typecheck, test, build, all 24 a
 
 **Round-1 fix wave (server fixer, `aa7fd157a`) — one deviation from the RT-07 remedy:** an out-of-vocabulary `zernio_connections.status` cannot be seeded in the live-DB suite — migration 026's CHECK rejects the insert, and dropping the constraint would be run-time DDL, which `.claude/rules/live-db-tests.md` forbids. Asserted as both halves instead: the CHECK rejects the insert, and `asConnectionStatus('revoked')` throws. **Verdict:** ACCEPT — the throw path is pinned at the parse site and the database proves the vocabulary; a DDL-bearing test would have been the worse fix.
 
+## CI after `reviewed` — 2026-09-12 (root)
+
+PR #1273's first CI run failed two non-required-but-expected checks that the local gate does not run: **`fallow`** (`ci:fallow:coverage`, new-only: 10 unused exports, 6 complexity findings incl. `writeProposal` at 0% coverage, 2 clone groups = the three identical route preambles) and **React Doctor** (`effect-needs-cleanup` on the poll hook's nested `setTimeout`). Both reproduced locally.
+
+- **Surface amendment #4:** `src/app/api/operator/gate.ts` joins the surface — one `requireOperatorWriter` helper beside the routes (`dashboard/policy.ts` precedent). This reverses the root's round-1 REJECT of standards finding F11: the CI duplication gate is the authority the rejection lacked. Reason recorded in `.feature/state.json`.
+- **Lesson (promote at step 8):** the local review gate runs `ci:fallow` only in CI's coverage variant by design (`CI_ONLY_BY_DESIGN`) and never runs React Doctor; a UI-bearing branch should run `pnpm ci:fallow:coverage` and `npx react-doctor@<pinned> --scope changed --base origin/main --blocking error` BEFORE the review wave (Run A's handoff said the same about fallow). The `/feature` gate could carry both as rows when `surface` includes ui.
+- **Evidence consequence:** the CI fixes touch production files after the red-team close, so the closed run's sidecar is voided for those hunks. Per the Run A precedent, a FRESH red-team run scoped to the CI-fix hunks follows the gate, before the phase is re-asserted.
+- **Verdict:** ACCEPT
+
 **Reclassify WARN:** the TEST bucket measured 3,358 changed lines against an estimate of 1,650 (2.0×): the plan authored full bodies for 51 titles, 11 of them added by the three Codex rounds, and the live-DB apply suite alone is 600 lines. Step 0 re-run with the real numbers: size stays `standard` (nine tracers, one surface), risk stays `high`, lane already the heaviest — no change of lane. Production bucket: within estimate. Same disposition Run A recorded for its own TEST-bucket trigger.
 
 - **Verdict:** ACCEPT

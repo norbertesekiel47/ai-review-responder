@@ -115,6 +115,7 @@
     "src/app/api/operator/proposals/[id]/decline/route.ts",
     "src/app/api/operator/conversation/route.ts",
     "src/app/api/operator/turns/route.ts",
+    "src/app/api/operator/gate.ts",
     "src/app/api/operator/__tests__/*.ts",
     "src/app/(authenticated)/dashboard/operator/*.tsx",
     "src/app/(authenticated)/dashboard/operator/*.ts",
