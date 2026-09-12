@@ -3,6 +3,7 @@ import type postgres from 'postgres';
 import { QUEUE_NAMES } from './queue-names';
 import {
   GENERATE_RESPONSE_ORIGIN_LANES,
+  type AgentTurnPayload,
   type AutonomyAdminAlertPayload,
   type AutonomySuspendedNoticePayload,
   type AutonomySuspensionEvidence,
@@ -33,6 +34,7 @@ const AGGREGATE_TYPE_SUSPENSION_EVENT = 'suspension_event';
 const AGGREGATE_TYPE_CONTACT_CSV_UPLOAD = 'contact_csv_upload';
 const AGGREGATE_TYPE_SOLICITATION_BATCH = 'solicitation_batch';
 const AGGREGATE_TYPE_SOLICITATION_OUTREACH = 'solicitation_outreach';
+const AGGREGATE_TYPE_AGENT_TURN = 'agent_turn';
 const KNOWN_ORIGIN_LANES = new Set<string>(GENERATE_RESPONSE_ORIGIN_LANES);
 
 export interface NormalizedGenerateResponsePayload {
@@ -475,6 +477,55 @@ export async function enqueueJudgeVerdict(
     WHERE topic = 'judge_verdict' -- topic-audit-ignore: partial-index inference needs a literal
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
+  `;
+  return outboxId;
+}
+
+export interface EnqueueAgentTurnInput {
+  turnId: string;
+  accountId: string;
+  conversationId: string;
+  correlationId?: string;
+  outboxId?: string;
+}
+
+/**
+ * Enqueues one Owner Operator turn in the SAME transaction as the turn insert
+ * (invariant #2).
+ *
+ * NO `ON CONFLICT`, deliberately. Every in-flight unique index on `job_outbox`
+ * is pinned to one literal topic (004/018 for `sync_reviews`, plus 030, 091 and
+ * 114), so there is no generic `(topic, aggregate_id)` partial index for a
+ * conflict target to infer and a clause naming one would raise `42P10`.
+ * Duplicate work is impossible anyway: the caller reaches this helper only when
+ * its `agent_turns` INSERT actually created a row, and
+ * `agent_turns_account_client_key_uniq` is what makes that decision. Same shape
+ * as `enqueueCsvIngest`.
+ */
+export async function enqueueAgentTurn(
+  tx: TxClient,
+  input: EnqueueAgentTurnInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: AgentTurnPayload = {
+    turn_id: input.turnId,
+    account_id: input.accountId,
+    conversation_id: input.conversationId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.AGENT_TURN},
+      ${AGGREGATE_TYPE_AGENT_TURN},
+      ${input.turnId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
   `;
   return outboxId;
 }

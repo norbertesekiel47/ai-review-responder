@@ -227,6 +227,17 @@ export interface JudgeVerdictPayload extends BasePayload {
   account_id: string;
 }
 
+/**
+ * One Owner Operator turn to process. Ids only — never owner text, never
+ * segments. The worker re-reads the turn row under its claim, so a payload that
+ * sat in the outbox across a deploy cannot carry stale content.
+ */
+export interface AgentTurnPayload extends BasePayload {
+  turn_id: string;
+  account_id: string;
+  conversation_id: string;
+}
+
 export interface AutonomySuspendedNoticePayload extends BasePayload {
   account_id: string;
   suspension_event_id: string;

@@ -7,6 +7,7 @@ vi.mock('@/lib/db/server', () => ({
 }));
 
 import {
+  enqueueAgentTurn,
   enqueueAutonomyAdminAlert,
   enqueueAutonomySuspendedNotice,
   enqueueAutoPostNotice,
@@ -747,5 +748,44 @@ describe('job outbox helpers', () => {
 });
 
 describe('enqueueAgentTurn', () => {
-  it.todo('enqueueAgentTurn inserts one pending agent_turn outbox row keyed on the turn id');
+  it('enqueueAgentTurn inserts one pending agent_turn outbox row keyed on the turn id', async () => {
+    const tx = createMockTx();
+
+    const outboxId = await enqueueAgentTurn(tx, {
+      turnId: '00000000-0000-7000-8000-000000000011',
+      accountId: '00000000-0000-7000-8000-00000000ac01',
+      conversationId: '00000000-0000-7000-8000-00000000c001',
+      correlationId: 'corr-1',
+    });
+
+    expect(tx).toHaveBeenCalledOnce();
+    const call = tx.mock.calls[0]!;
+    const text = sqlText(call);
+    expect(text).toContain('INSERT INTO job_outbox');
+    // V1: no ON CONFLICT — job_outbox has no generic (topic, aggregate_id)
+    // in-flight unique index to infer, and writing one would raise 42P10.
+    expect(text).not.toContain('ON CONFLICT');
+    // Bound values in column order: id, topic, aggregate_type, aggregate_id,
+    // payload, status. The plan indexes these as values[0..5]; this file's tx
+    // double records `[strings, ...values]`, so each is offset by one.
+    const values = call.slice(1);
+    expect(values[1]).toBe(QUEUE_NAMES.AGENT_TURN);
+    expect(values[2]).toBe('agent_turn');
+    // aggregate_id is the TURN id — the row the watchdog re-dispatches.
+    expect(values[3]).toBe('00000000-0000-7000-8000-000000000011');
+    expect(values[5]).toBe('pending');
+    // `uuid`'s v7 is mocked to a fixed string at the top of this file
+    // (src/lib/shared/__tests__/job-outbox-helpers.test.ts:3), so the generated
+    // outbox id is that literal, not a uuid-shaped match.
+    expect(outboxId).toBe('outbox-uuid');
+    expect(values[0]).toBe('outbox-uuid');
+
+    const payload = objectArgs(tx).find((arg) => arg.turn_id === '00000000-0000-7000-8000-000000000011');
+    expect(payload).toEqual({
+      turn_id: '00000000-0000-7000-8000-000000000011',
+      account_id: '00000000-0000-7000-8000-00000000ac01',
+      conversation_id: '00000000-0000-7000-8000-00000000c001',
+      correlation_id: 'corr-1',
+    });
+  });
 });

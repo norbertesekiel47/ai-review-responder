@@ -200,3 +200,56 @@ existing, so it shipped with the other six, along with `StarBandKey` which
 
 **Verdict:** ACCEPT — the type wins over the fixture, no contract change, and
 the plan's own line 5530 is flagged for the task that owns it.
+
+## 2026-09-11 — T4 Step 1 cites two test helpers that do not exist, and Step 8's route suite omits the app URL its own Origin needs
+
+Two drifts in T4's snippets, both adapted rather than imported:
+
+(a) Step 1 calls `makeRecordingTx` and `jsonPayload` and says to reuse "the one
+the sibling `enqueueJudgeVerdict` case uses".
+`src/lib/shared/__tests__/job-outbox-helpers.test.ts` has neither: its helpers
+are `createMockTx`, `sqlText(call)` and `objectArgs(tx)`, and every sibling case
+reads the payload through `objectArgs`. T4 used those. The plan's `call.values[n]`
+indices are preserved as `call.slice(1)[n]` — this file's double records
+`[strings, ...values]`, so each bound value is offset by one — and every
+assertion the plan names (topic, `aggregate_type` `'agent_turn'`, `aggregate_id`
+= the turn id, `status` `'pending'`, the `'outbox-uuid'` id, no `ON CONFLICT`,
+the exact four-key payload) is asserted verbatim.
+
+(b) Step 8's route suite builds every request with
+`ORIGIN = 'https://app.repworth.test'`, but `withSameOrigin()` compares the
+Origin header against `NEXT_PUBLIC_APP_URL`, which `vitest.setup.ts` defaults to
+`http://localhost:3000` — as written, all five cases would have 403'd on the app
+URL rather than on the behaviour under test. T4 sets
+`process.env.NEXT_PUBLIC_APP_URL = ORIGIN` in the suite's `beforeEach`, beside
+the `OWNER_OPERATOR_ENABLED` line the plan already puts there. Two assertions
+were also added inside the plan's own titles, neither changing a contract: the
+Origin case exercises the MISSING half its title promises (no Origin header →
+the same 403), and the flag-off case asserts `requireRole` was never called,
+which is what "before any write" means for a gate that runs ahead of auth.
+
+Two further things T4 owns that its task text does not step through. The extra
+T0 seam todo in `src/lib/agents/operator/__tests__/turns.test.ts` (`createTurn
+assigns the next sequence under the conversation row lock`) has no step in T4 —
+it was written from the plan's C8/F6 lock-order decision as a mocked-`sql`
+recording double, asserting that the `FOR UPDATE` precedes the turn-key read,
+that the sequence is read after the lock and bound into the INSERT, that the
+outbox row rides the same transaction after the turn insert, and that every
+statement except the `job_outbox` one carries `account_id`. And Step 10's
+`const [{ next_sequence }] = …` destructure does not compile under
+`noUncheckedIndexedAccess` (the same drift T1 hit); `turns.ts` uses indexed
+access with a non-null assertion and says so in a comment.
+
+Two audits are RED for reasons outside T4's edit lease, neither caused by it:
+`ci:env-registry` fails on `OWNER_OPERATOR_ENABLED` having no row in
+`docs/eservices-variables.md` / `.claude/reference/env-vars.md` — those rows are
+T8's, exactly as T4's brief anticipates. `ci:directory-map` fails on all six new
+`src/lib/agents/operator/*.ts` files (T2/T3's four plus T4's `flags.ts` and
+`turns.ts`) and on T2's `src/lib/responses/voice-settings.ts`; `docs/directory*`
+is in no implementer's lease. `ci:tenant-scope` also fails, on a finding that
+predates this task and is untouched by it: a stale allowlist entry for
+`src/app/api/settings/voice/route.ts` (`git diff HEAD` shows neither that route
+nor `scripts/ci/` modified). T4's own statements add no finding.
+
+**Verdict:** ACCEPT — no contract change; every plan-named title, assertion and
+surface is honoured, and the three RED audits belong to other tasks.

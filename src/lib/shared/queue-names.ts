@@ -61,6 +61,11 @@ export const QUEUE_NAMES = {
   ESCALATION_NOTICE: 'escalation_notice',
   PENDING_POST_NOTICE: 'pending_post_notice',
   JUDGE_VERDICT: 'judge_verdict',
+  // Owner Operator Run A. NO in-flight partial index backs this topic and none
+  // is needed: enqueueAgentTurn is a plain INSERT and turn idempotency belongs
+  // to agent_turns_account_client_key_uniq, taken in the same transaction. The
+  // literal must still match migration 120's COMMENT and the worker registry.
+  AGENT_TURN: 'agent_turn',
   AUTONOMY_SUSPENDED_NOTICE: 'autonomy_suspended_notice',
   AUTONOMY_ADMIN_ALERT: 'autonomy_admin_alert',
 } as const;
