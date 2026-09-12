@@ -60,3 +60,37 @@ five seam titles (`createTurn…`, `insertProposals…`, `buildSnapshot…`,
 holds 36 todos, of which 35 are the promised titles.
 
 **Verdict:** ACCEPT — no title lost; the un-edited file carries no T0-owned title.
+
+## 2026-09-11 — T1 Step 11 cites three test helpers that do not exist
+
+T1's Step 11 snippet calls `makeRecordingExec`, `makeRecordingSql` and
+`purgeRow` and instructs "use the file's existing mock-executor helper".
+`src/lib/account-offboarding/__tests__/purge-verification.test.ts` has no such
+helpers: its only executor is the `vi.hoisted` `mockSql` template tag shared by
+the whole file. T1 defined the three locally inside the `owner operator purge`
+describe, on the hoisted mock's exact shape (a template tag recording
+`{ text, values }`, plus `.json` identity because `verificationQuery` reaches
+for `exec.json(...)` on other branches), with `makeRecordingSql` additionally
+carrying `.begin` (the stage's transaction entry) and returning an identifier
+marker when the tag is called with a bare string, which is `deleteByBusiness`'s
+`tx(tableName)` escape and must not be recorded as a statement. Per-case call
+lists rather than the file-wide one so an arm's assertions read only its own
+calls. The test title is verbatim and the assertions are exactly the ones the
+plan specifies (bound values + query text, never an assembled SQL string). The
+file also gained one import: `runContentPurgeStage` from
+`worker/jobs/account-offboarding/purge-stages`, precedented by
+`src/lib/agents/__tests__/run-spine.integration.test.ts`.
+
+Two smaller drifts in the same task, both acted on the obvious way: (a) Step 4's
+suite snippet destructures single-row results (`const [{ policy_count }] = …`),
+which does not compile under this repo's `noUncheckedIndexedAccess` — T1 used
+indexed access with a non-null assertion and said so in a comment; (b) Step 13
+says to add the `120` entry "after the `119` entry", and T1 did exactly that
+(between 119 and 118) even though the log's ordering is not strictly
+descending — head line bumped to `120`/next `121`, entry marked **LOCAL-ONLY**.
+Step 5's checkpoint ("PASS — two tests") also cannot hold before Step 6 lands
+the registry rows; the registry title was RED at Step 5 and green immediately
+after Step 6, which is the intended end state.
+
+**Verdict:** ACCEPT — no contract change; the plan's named surfaces, titles and
+assertions are all honoured.
