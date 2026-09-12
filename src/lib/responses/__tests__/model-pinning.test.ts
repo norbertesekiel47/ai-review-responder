@@ -68,4 +68,6 @@ describe('LLM model pinning', () => {
     expect(task.temperature).toBe(0.6);
     expect(task.outputSchema).toBe(SolicitationAskOutputSchema);
   });
+
+  it.todo('owner_operator task pins both providers to the snapshot models with the output schema');
 });

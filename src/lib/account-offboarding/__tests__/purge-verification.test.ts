@@ -482,3 +482,7 @@ describe('purge verification', () => {
     expect(PURGE_VERIFICATION_TABLES.length).toBeGreaterThan(20);
   });
 });
+
+describe('owner operator purge', () => {
+  it.todo('purge verification and the content purge stage remove every owner-operator row for the purged account');
+});

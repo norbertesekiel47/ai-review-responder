@@ -294,3 +294,7 @@ describe('provider data retention inventory', () => {
     )).toThrow('missing_purge_verification_sql:customer');
   });
 });
+
+describe('owner operator tables', () => {
+  it.todo('table dispositions classify the four owner-operator tables as hard_delete with direct_account_id evidence and must_be_absent verification');
+});

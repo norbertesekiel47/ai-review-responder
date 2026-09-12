@@ -745,3 +745,7 @@ describe('job outbox helpers', () => {
     });
   });
 });
+
+describe('enqueueAgentTurn', () => {
+  it.todo('enqueueAgentTurn inserts one pending agent_turn outbox row keyed on the turn id');
+});
