@@ -39,3 +39,24 @@ test (title 22) asserts the CAS runs first and that a false CAS leaves the turn
 untouched.
 
 **Verdict:** ACCEPT — an ordering fix inside one transaction; no contract change.
+
+## 2026-09-11 — T0 lists `worker/config/__tests__/startup-assertion.test.ts` as Modify but specifies no edit
+
+T0's **Files** block names `Modify:
+worker/config/__tests__/startup-assertion.test.ts`, but none of Steps 1–3
+assigns it a title (title 22, the only worker-flag title, goes to
+`worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts`), and T0's Step 6
+`git add` list omits the file. T0 therefore left it untouched: the steps and the
+commit list agree, and the Files line is the outlier. The startup-assertion
+change (the new flag-gated `agent_turn` lane in the worker-slot envelope) is
+T5's, inside its own allowed surface.
+
+Two smaller drifts in the same task text, neither acted on: T0 cites
+`model-pinning.test.ts:51` as the file's last `it` (it is line 70 at b65c57197 —
+the append landed at the true end of the `describe`), and T0's Step 1 scaffolds
+five seam titles (`createTurn…`, `insertProposals…`, `buildSnapshot…`,
+`reauthorizeTurn…`, `generateOperatorReply…`) that are not among the intake's 35
+`tests_to_add`. Those five are written verbatim as T0 specifies, so the scaffold
+holds 36 todos, of which 35 are the promised titles.
+
+**Verdict:** ACCEPT — no title lost; the un-edited file carries no T0-owned title.
