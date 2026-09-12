@@ -1,354 +1,354 @@
-# Red team — `feat/owner-operator-run-a`, round 1 (fresh run)
+# Red team — `feat/owner-operator-run-a`, round 2 (fix verification)
 
-Adversarial verification of a finished branch. Everything below is evidence produced in this pass;
-the previous closed run under `…-b83a4f-rounds1-3/` was not consulted for any conclusion.
+> **This file supersedes round 1 IN PLACE.** Same run (`feature-feat-owner-operator-run-a-b83a4f`), same journal, round 2 opened by `mutation-runner.mjs round-start`
+> over a closed round-1 journal. Round 1 ran at head `5b223e33f19499534961bf2d60d8781a41af780f`; this pass runs at the fix commit.
 
 | | |
 |---|---|
-| Run id | `feature-feat-owner-operator-run-a-b83a4f` |
-| Mode / round / risk | feature / round 1 of a fresh run / **high** |
-| Fork ref (`origin/main`) | `10c9444a9832cae0e45854f1d19cb124bb2ee5e9` |
-| Merge base | `10c9444a9832cae0e45854f1d19cb124bb2ee5e9` |
-| Head | `5b223e33f19499534961bf2d60d8781a41af780f` |
-| Intake SHA-256 | `4e5d3007b7eff17128373e835d2b079ecc315965a13cd6467e7636898af20554` |
-| Generated | 2026-09-12T09:33:06Z |
-| **Status** | **OPEN_P0** |
-
-Preconditions, all checked and passing before anything ran: `git status --porcelain` empty at head;
-`mutation-runner watchers` reported none; `round-start` opened round 1 with 30 runs available. The
-environment was the runner's allowlist with a temporary `HOME`, and `.env.local` was swapped for a
-scrubbed copy for the whole mutation phase. No environment value, token, or owner/review text is quoted
-anywhere in this report.
+| mode | `feature` |
+| branch | `feat/owner-operator-run-a` |
+| fork | `10c9444a9832cae0e45854f1d19cb124bb2ee5e9` |
+| merge-base | `10c9444a9832cae0e45854f1d19cb124bb2ee5e9` |
+| head | `3a377f6562ce564051b7fd21bd751c9bd9be49ed` |
+| fix commit under verification | `3a377f6562ce564051b7fd21bd751c9bd9be49ed` |
+| intake SHA-256 | `43b0b7ef5336f5081e6877cb6eaab8f6f8d138521332e8529df47d47cb43e89d` (after surface amendment #5) |
+| risk | `high` |
+| round | 2 |
+| generated | 2026-09-12T10:24:27Z |
+| mutation runs used | 15 of 30 (1 wasted on a mis-parameterised first launch — see Duty 1) |
 
 ## Verdict
 
-One **P0**: `claimTurn`'s 180 s lease predicate — the guard that makes exactly one dispatch reach the paid
-model call — can be deleted with the entire agent-turn test set still green (23/23). The written-state half
-of the claim protocol is well asserted (the `attempt_token` fence mutant was killed); the *spend* half is
-asserted nowhere.
+**Status: `CLEAR`.**
 
-Seven **P1**s: two uncovered production branches, three broken alert paths on the new `agent_turn` lane, and
-two false claims in docs this branch changed. One **P2**: a missed sibling on a duplicated error-class helper.
+Every one of round 1's nine findings is `fixed`, each on evidence produced in THIS pass: five
+hand-mutations killed the seven new or strengthened oracles, and every changed doc claim was
+re-resolved against head rather than re-read from round 1. No P0 and no P1 remains open.
 
-The round is also `INCOMPLETE_BUDGET` and `INCOMPLETE_ORACLE` on its own terms — 30 of 30 runs spent, 238
-in-scope candidates unexecuted, 2 inconclusive oracle rows — but `OPEN_P0` takes precedence.
+Two NEW findings were opened, both **P2** and both inside the fix hunks: wording defects in the two
+rewritten docs. Neither blocks, and the owner has authorized a third round to fix them (below).
 
-## Findings
+The status is `CLEAR` only because the owner applied the round-2 scope rule to this run's 237
+unexecuted round-1 candidates. Read the next section before treating `CLEAR` as a coverage claim —
+it is not one.
 
-| id | sev | duty | title | at | disposition |
+## Round-2 scope rule and owner decisions
+
+Two owner decisions were taken on 2026-09-12 after round 2 closed, and both are recorded here
+because they change what this sidecar asserts.
+
+**Decision 1 — apply the round-2 scope rule** (owner selected "Apply the round-2 scope rule" via
+AskUserQuestion). Round 2's mandate is to verify the fix hunks and their direct callers; a front
+against unchanged code is forbidden by the skill. Every inventory row that was `skipped-budget`
+and whose candidate lies outside that scope is therefore re-labelled `excluded` rather than left
+as an unmeasured in-scope debt. **237 rows were re-labelled.** Zero `skipped-budget` rows remain,
+which is what moves the computed status from `INCOMPLETE_BUDGET` to `CLEAR`.
+
+**This is a scope statement, not a coverage statement.** Those 237 candidates were never executed
+in ANY round of this run — not round 1 (the 30-launch cap was reached at launch 31) and not round 2.
+Each carries that fact verbatim in its `reason`. `CLEAR` here means "nothing in round 2's scope is
+unmeasured or unresolved", and must not be read as "the branch's test surface has been
+mutation-tested". The untested surface is concentrated in
+`worker/config/__tests__/startup-assertion.test.ts` (~110 rows),
+`src/lib/shared/__tests__/job-outbox-helpers.test.ts` (~29),
+`src/lib/account-offboarding/__tests__/*` (~31) and
+`src/app/api/settings/voice/__tests__/route.test.ts` (~19) — all unchanged by the fix commit.
+
+**The one borderline call, stated so it is auditable.** Five `skipped-budget` rows lived in
+`worker/jobs/agent-turn/__tests__/failed-hook.test.ts`, the test file for `failed-hook.ts` — one of
+only two PRODUCTION files the fix commit touched. Scope was applied at **hunk** granularity, not
+file granularity, which is how the rule was worded ("the fix commit's hunks and their direct
+callers") and how the skill words it ("the fix hunks and their directly affected callers"):
+
+- `:84` ("on exhaustion runs the outbox CAS FIRST …") is the only case that exercises the changed
+  line. It was executed in round 2 and **killed** by M5. Its row is `INV-263`, which now carries
+  that kill; the separate row I had opened for the same candidate (`INV-273`) was merged into it so
+  one test cannot carry both "never measured" and "killed".
+- `:58`, `:114`, `:127`, `:142` cover `isExhausted`, the ownership CAS, the catch block and the log
+  redaction — all unchanged code. Mutating any of them in round 2 would be precisely the forbidden
+  front, so they are `excluded`, not `skipped-budget`.
+
+Had scope been applied at FILE granularity those four would be in-scope debt and the status would
+be `INCOMPLETE_BUDGET`. The hunk reading is applied consistently across the whole inventory: no row
+was excluded for being in an untouched file while another in the same file was kept.
+
+**Decision 2 — fix the two P2s in a third round** (owner selected "Fix now, third round"). Recorded
+in `findings.json` as authorization `auth-round-3-docs-2026-09-12` over findings **P2-2** and
+**P2-3**. Its only function is to let `round-start` open round 3 — which the runner permits only
+when the sidecar already carries an authorization whose text names the third round. P2-2 and P2-3
+keep disposition **`open`** and carry **no** `authorization` field: they are being FIXED, not
+accepted as risk, and the two dispositions are exclusive. Round 3 is scoped to the two doc hunks
+the wording defects live in — `docs/roadmap/2026-09-11-owner-operator/README.md` line 638 and the
+`agent_turn` bullet in `docs/runbooks/beta-launch-alerting.md` §1 — after the orchestrator's fix
+commit.
+
+## Findings — round-2 disposition
+
+| id | sev | duty | at | round-2 disposition | kill / re-resolution evidence |
 |---|---|---|---|---|---|
-| P0-1 | P0 | 1 | claimTurn's 180 s lease predicate can be deleted with the entire agent-turn suite still green | `src/lib/agents/operator/turns.ts:250-254` | open |
-| P1-1 | P1 | 1 | The validator's allowedOperations gate is reached by no test | `src/lib/agents/operator/render.ts:231-233` | open |
-| P1-7 | P1 | 1 | The handleTurnError budget-decision terminal branch has no covering test | `worker/jobs/agent-turn/AgentTurnWorker.ts:282-294` | open |
-| P1-2 | P1 | 5 | agent_turn is missing from checkFailedOutboxByTopic's closed allowlist, so no health-alert finding can fire for a failed turn | `worker/background/pollers/health-alert/checks.ts:105-124` | open |
-| P1-3 | P1 | 5 | The job-failure-sink Sentry signal for queue agent_turn has no rule row in beta-launch-alerting.md | `worker/job-failure-sink.ts:64-80` | open |
-| P1-4 | P1 | 5 | The orphaned-lease signal the intake names is a log line only — no Sentry event, no rule row | `worker/background/pollers/OutboxPoller.ts:93-165` | open |
-| P1-5 | P1 | 3 | A changed doc claim is false: the agent_turn lane does not emit logger.warn uniformly across the six terminal paths | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | open |
-| P1-6 | P1 | 3 | The authoritative JSONB parse-site allowlist names the wrong file for the agent_turns.reply parse sites | `.claude/reference/lab-notes/postgres.md:17` | open |
-| P2-1 | P2 | 4 | The branch adds a fifth private boundedErrorClass copy and picks the unhardened shape, while a hardened shared export already exists | `worker/jobs/agent-turn/failed-hook.ts:26-28` | open |
+| `P0-1` | P0 | 1 | `src/lib/agents/operator/turns.ts:250-254` | **fixed** | M1 (lease arm deleted, `turns.ts` `7c5479c27ed0`→`83d244562b94`) → 3 kills: integration `:482` `expected 2 to be 1`; integration `:517` `expected { …(9) } to be null`; `turns.test.ts:131` text oracle |
+| `P1-1` | P1 | 1 | `src/lib/agents/operator/render.ts:231-233` | **fixed** | M2 (`!` removed from the `allowedOperations.some` gate, `render.ts:231`) → `render.test.ts:280` `expected true to be false` |
+| `P1-7` | P1 | 1 | `worker/jobs/agent-turn/AgentTurnWorker.ts:282-294` | **fixed** | M4 (`isBudgetDecision` → `false`, `AgentTurnWorker.ts:38`) → `promise rejected "CostLimitExceededError" instead of resolving` |
+| `P1-2` | P1 | 5 | `worker/background/pollers/health-alert/checks.ts:105-124` | **fixed** | M3 (`AGENT_TURN` removed from the closed allowlist, `checks.ts:124`) → `expected [ 'publish_response', …(6) ] to include 'agent_turn'`; emission path re-resolved through `emit.ts:10-18` |
+| `P1-3` | P1 | 5 | `worker/job-failure-sink.ts:64-80` | **fixed** | static: all six facets re-resolved against `job-failure-sink.ts:64-80` + `worker/index.ts:567-575`; none contradicts the emitter |
+| `P1-4` | P1 | 5 | `worker/background/pollers/OutboxPoller.ts:93-165` | **fixed** | static: `OutboxPoller.ts:160-166` confirmed log-only, intake promises a row state not an alert, terminal half now alerts via P1-2 — neither half orphaned |
+| `P1-5` | P1 | 3 | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **fixed** | static: `rg "logger\.(log|warn|error)\("` over `AgentTurnWorker.ts` — all seven per-path levels match the rewritten line |
+| `P1-6` | P1 | 3 | `.claude/reference/lab-notes/postgres.md:17` | **fixed** | static: `parseReplySegments` resolves to `context.ts:297`, `reads.ts:97`, `reads.ts:213` exactly as the corrected line says |
+| `P2-1` | P2 | 4 | `worker/jobs/agent-turn/failed-hook.ts:26-28` | **fixed** | M5 (`boundedErrorClass(err)` → constant, `failed-hook.ts:36`) → `expected [ …(2) ] to include 'agent_turn_exhausted:ProviderTimeout'` |
+| `P2-2` | P2 | 3 | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **open** | NEW — see below |
+| `P2-3` | P2 | 5 | `docs/runbooks/beta-launch-alerting.md:330-334` | **open** | NEW — see below |
 
 ### P0-1 — P0 (duty 1) — claimTurn's 180 s lease predicate can be deleted with the entire agent-turn suite still green
 
-**At** `src/lib/agents/operator/turns.ts:250-254` · **disposition** `open`
+- **At:** `src/lib/agents/operator/turns.ts:250-254`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. The lease predicate now has two oracles and M1 (the identical t-m4 deletion) killed both: the claim-race test's new spend assertions (turn-worker.integration.test.ts:472-483 — exactly one runLlmTask call and one recordApiCost call for the racy turn) failed "expected 2 to be 1" at :482, and the new direct case "claimTurn turns a second dispatch away inside the lease…" failed expect(second).toBeNull() at :517. A third, keyless oracle in turns.test.ts:113-136 also failed. INV-023, INV-270, INV-271.
 
-Mutation t-m4 deleted the lease predicate from claimTurn's WHERE clause — the "claimed_at IS NULL OR claimed_at < NOW() - (leaseSeconds * INTERVAL '1 second')" arm — leaving only "status IN ('accepted','running')". The covering test, "worker claim race: two dispatches of one turn produce one completed turn and one proposal set" (src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:319), still PASSED. A confirming run of the whole agent-turn test set under the same mutant — turn-worker.integration.test.ts + worker/jobs/agent-turn/__tests__ + turns.test.ts — reported 23 passed, 0 failed. The behavioural replacement: the concurrent section of that test (turn-worker.integration.test.ts:500-517) should assert that exactly one attempt reached the model and was billed (expect(runLlmTask).toHaveBeenCalledTimes(1) and one recordApiCost / api_costs row for the racy turn), and a direct claimTurn case should prove a second claim inside the lease returns null while one after lease expiry succeeds.
+ROUND-1 EVIDENCE (retained): Mutation t-m4 deleted the lease predicate from claimTurn's WHERE clause — the "claimed_at IS NULL OR claimed_at < NOW() - (leaseSeconds * INTERVAL '1 second')" arm — leaving only "status IN ('accepted','running')". The covering test, "worker claim race: two dispatches of one turn produce one completed turn and one proposal set" (src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:319), still PASSED. A confirming run of the whole agent-turn test set under the same mutant — turn-worker.integration.test.ts + worker/jobs/agent-turn/__tests__ + turns.test.ts — reported 23 passed, 0 failed. The behavioural replacement: the concurrent section of that test (turn-worker.integration.test.ts:500-517) should assert that exactly one attempt reached the model and was billed (expect(runLlmTask).toHaveBeenCalledTimes(1) and one recordApiCost / api_costs row for the racy turn), and a direct claimTurn case should prove a second claim inside the lease returns null while one after lease expiry succeeds.
 
-**Arbiter reasoning**
-
-Not an equivalent mutation. Deleting the lease predicate lets a second dispatch claim a turn whose 180 s lease is live (AGENT_TURN_LEASE_SECONDS, worker/jobs/agent-turn/constants.ts), so two attempts each run step 3, each build a snapshot and each make their own cost-guarded owner_operator model call. The intake's own risk_reasons names this consequence verbatim: "a new BullMQ worker (AgentTurnWorker) makes a cost-guarded LLM call ... a defect can double-bill or strand turns". Not an unexecuted branch either: the test's third section runs two handleAgentTurn calls under Promise.all on one freshly created turn, so both reach claimTurn inside the same lease window, and claimTurn is the first statement either executes after the flag gate. It survives because the assertions describe only the END STATE — one completed turn, one agent_proposals row, outbox completed — and completeTurnFenced's attempt_token fence delivers that end state on its own, independently of the lease. The lease predicate and the completion fence are two separate guards: the fence stops a stale attempt from WRITING, only the lease stops a second attempt from SPENDING. The suite asserts the first and never the second. Independently corroborated without spending a further run: "rg AGENT_TURN_LEASE_SECONDS|leaseSeconds|LEASE" across src/lib/agents/operator/__tests__ and worker/jobs/agent-turn/__tests__ returns no hit, the only two claimed_at writes in the suite (turn-worker.integration.test.ts:549, :585) drive loadPredecessor's age rather than the claim, and the claim-race test makes no runLlmTask or recordApiCost call-count assertion at all. Mutation t-m2, which removed completeTurnFenced's attempt_token fence, was KILLED — so the pair is asymmetric: the written-state half of the protocol is asserted and the spend half is not.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. Not an equivalent mutation. Deleting the lease predicate lets a second dispatch claim a turn whose 180 s lease is live (AGENT_TURN_LEASE_SECONDS, worker/jobs/agent-turn/constants.ts), so two attempts each run step 3, each build a snapshot and each make their own cost-guarded owner_operator model call. The intake's own risk_reasons names this consequence verbatim: "a new BullMQ worker (AgentTurnWorker) makes a cost-guarded LLM call ... a defect can double-bill or strand turns". Not an unexecuted branch either: the test's third section runs two handleAgentTurn calls under Promise.all on one freshly created turn, so both reach claimTurn inside the same lease window, and claimTurn is the first statement either executes after the flag gate. It survives because the assertions describe only the END STATE — one completed turn, one agent_proposals row, outbox completed — and completeTurnFenced's attempt_token fence delivers that end state on its own, independently of the lease. The lease predicate and the completion fence are two separate guards: the fence stops a stale attempt from WRITING, only the lease stops a second attempt from SPENDING. The suite asserts the first and never the second. Independently corroborated without spending a further run: "rg AGENT_TURN_LEASE_SECONDS|leaseSeconds|LEASE" across src/lib/agents/operator/__tests__ and worker/jobs/agent-turn/__tests__ returns no hit, the only two claimed_at writes in the suite (turn-worker.integration.test.ts:549, :585) drive loadPredecessor's age rather than the claim, and the claim-race test makes no runLlmTask or recordApiCost call-count assertion at all. Mutation t-m2, which removed completeTurnFenced's attempt_token fence, was KILLED — so the pair is asymmetric: the written-state half of the protocol is asserted and the spend half is not.
 
 ### P1-1 — P1 (duty 1) — The validator's allowedOperations gate is reached by no test
 
-**At** `src/lib/agents/operator/render.ts:231-233` · **disposition** `open`
+- **At:** `src/lib/agents/operator/render.ts:231-233`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. render.test.ts:261-307 now proposes set_highlight_facts — registered in CATALOG with a valid input, so it clears the outside-the-catalog branch — against a snapshot that omits it, and asserts the "may not use" reason; a positive control re-runs the same proposal with the id added to allowedOperations and asserts ok. M2 (negating the gate at render.ts:231) killed it at render.test.ts:280. INV-028.
 
-An uncovered behaviour-affecting production hunk (Direction B, Step 2). The rule fires only for a proposal whose operation IS registered in CATALOG but is NOT in snapshot.allowedOperations. Both validator fixtures close that set — render.test.ts:31-35 lists set_tone, set_avoid_facts, read_pending_work; model-call.test.ts:57-60 lists set_tone, read_pending_work — and no test anywhere proposes set_products_services or set_highlight_facts through validateModelOutput (rg over src/lib/agents/operator/__tests__ and src/app/api/operator/__tests__ finds those two ids only in catalog.test.ts's catalog sweep and in two read-path suites that SEED agent_proposals rows directly). The single in-catalog-but-absent id a test does use, set_daily_cap, is not registered at all, so it is rejected by the earlier branch at render.ts:227-229 and continues before reaching 231. Suggested fix: add one case proposing a catalog operation the snapshot omits and assert the "may not use" reason.
+ROUND-1 EVIDENCE (retained): An uncovered behaviour-affecting production hunk (Direction B, Step 2). The rule fires only for a proposal whose operation IS registered in CATALOG but is NOT in snapshot.allowedOperations. Both validator fixtures close that set — render.test.ts:31-35 lists set_tone, set_avoid_facts, read_pending_work; model-call.test.ts:57-60 lists set_tone, read_pending_work — and no test anywhere proposes set_products_services or set_highlight_facts through validateModelOutput (rg over src/lib/agents/operator/__tests__ and src/app/api/operator/__tests__ finds those two ids only in catalog.test.ts's catalog sweep and in two read-path suites that SEED agent_proposals rows directly). The single in-catalog-but-absent id a test does use, set_daily_cap, is not registered at all, so it is rejected by the earlier branch at render.ts:227-229 and continues before reaching 231. Suggested fix: add one case proposing a catalog operation the snapshot omits and assert the "may not use" reason.
 
-**Arbiter reasoning**
-
-Established statically rather than by mutation, because the per-test cap of 2 mutations was already spent on the only test that could cover this rule. Recorded as P1 (uncovered change) rather than P0: the rule is also unreachable in production today — modelVisibleOperations (src/lib/agents/operator/catalog.ts:193-203) returns every CATALOG entry and ignores its tier parameter, so snapshot.allowedOperations always equals the catalog — which makes this a forward guard for Run B's tier-gated operations rather than a live hole in the no-unapproved-operation path. It still blocks the round as an inconclusive oracle row, because "no test can distinguish this rule from its absence" is a claim about the oracle.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. Established statically rather than by mutation, because the per-test cap of 2 mutations was already spent on the only test that could cover this rule. Recorded as P1 (uncovered change) rather than P0: the rule is also unreachable in production today — modelVisibleOperations (src/lib/agents/operator/catalog.ts:193-203) returns every CATALOG entry and ignores its tier parameter, so snapshot.allowedOperations always equals the catalog — which makes this a forward guard for Run B's tier-gated operations rather than a live hole in the no-unapproved-operation path. It still blocks the round as an inconclusive oracle row, because "no test can distinguish this rule from its absence" is a claim about the oracle.
 
 ### P1-7 — P1 (duty 1) — The handleTurnError budget-decision terminal branch has no covering test
 
-**At** `worker/jobs/agent-turn/AgentTurnWorker.ts:282-294` · **disposition** `open`
+- **At:** `worker/jobs/agent-turn/AgentTurnWorker.ts:282-294`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. turn-worker.integration.test.ts:568-590 drives a real CostLimitExceededError through handleAgentTurn on the live DB and asserts it RESOLVES, the turn is failed/budget_exceeded, the outbox row is completed in the same transaction, and job.moveToDelayed was never called. M4 (isBudgetDecision -> false) killed it: the promise rejected instead of resolving. INV-029.
 
-An uncovered behaviour-affecting production hunk (Direction B, Step 2). This is the branch that makes an exhausted account budget TERMINAL instead of burning the BullMQ retry ladder: isBudgetDecision(error) -> failTurnFenced with TURN_FAILURE_REASON.BUDGET_EXCEEDED. Neither budget_exceeded nor BUDGET_EXCEEDED nor isBudgetDecision appears in any test file in the repository, and no test on this lane constructs a CostLimitExceededError or a GlobalCostLimitExceededError. The sibling transient branch immediately below it IS covered ("worker releases its claim on a transient failure so the retry re-claims and completes"), and so is the exhausted reason in failed-hook.test.ts:107 — budget_exceeded is the one terminal reason with no case. The intake names it in both observability ("agent_turns.status and failure_reason distinguish failed reasons (... budget_exceeded)") and edge_cases ("Terminal failure (... budget exceeded ...)").
+ROUND-1 EVIDENCE (retained): An uncovered behaviour-affecting production hunk (Direction B, Step 2). This is the branch that makes an exhausted account budget TERMINAL instead of burning the BullMQ retry ladder: isBudgetDecision(error) -> failTurnFenced with TURN_FAILURE_REASON.BUDGET_EXCEEDED. Neither budget_exceeded nor BUDGET_EXCEEDED nor isBudgetDecision appears in any test file in the repository, and no test on this lane constructs a CostLimitExceededError or a GlobalCostLimitExceededError. The sibling transient branch immediately below it IS covered ("worker releases its claim on a transient failure so the retry re-claims and completes"), and so is the exhausted reason in failed-hook.test.ts:107 — budget_exceeded is the one terminal reason with no case. The intake names it in both observability ("agent_turns.status and failure_reason distinguish failed reasons (... budget_exceeded)") and edge_cases ("Terminal failure (... budget exceeded ...)").
 
-**Arbiter reasoning**
-
-Recorded without spending a mutation run: the absence of the token from every test file is direct evidence that no oracle exists, and the round budget was exhausted. Severity P1 rather than P0 because a miss is bounded — the cost RESERVATION precedes the model call, so a budget-exceeded error that fell through to the retry ladder would spend nothing extra and would end as failure_reason "exhausted" via the failed-hook instead of "budget_exceeded". The defect would therefore be an observability regression on a reason the intake promises to distinguish, not lost money or a stranded turn.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. Recorded without spending a mutation run: the absence of the token from every test file is direct evidence that no oracle exists, and the round budget was exhausted. Severity P1 rather than P0 because a miss is bounded — the cost RESERVATION precedes the model call, so a budget-exceeded error that fell through to the retry ladder would spend nothing extra and would end as failure_reason "exhausted" via the failed-hook instead of "budget_exceeded". The defect would therefore be an observability regression on a reason the intake promises to distinguish, not lost money or a stranded turn.
 
 ### P1-2 — P1 (duty 5) — agent_turn is missing from checkFailedOutboxByTopic's closed allowlist, so no health-alert finding can fire for a failed turn
 
-**At** `worker/background/pollers/health-alert/checks.ts:105-124` · **disposition** `open`
+- **At:** `worker/background/pollers/health-alert/checks.ts:105-124`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. QUEUE_NAMES.AGENT_TURN joined checkFailedOutboxByTopic's closed allowlist (worker/background/pollers/health-alert/checks.ts:124) with a regression case; M3 (removing it again) killed that case. Re-resolved the whole emission path at head: emitHealthFindings (worker/background/pollers/health-alert/emit.ts:10-18) raises Sentry.captureMessage with tags subsystem=health_alert and finding=<key>, so key "outbox_failed:agent_turn" at level error rides the existing runbook §1 rule (beta-launch-alerting.md:28-33). failedThreshold defaults to 0 (checks.ts:78), so one failed row raises. INV-272.
 
-A missing alert-path half: the branch adds an owner-impacting outbox topic and no emitting signal watches it. The allowlist binds exactly PUBLISH_RESPONSE, SEND_NOTIFICATION, GENERATE_RESPONSE, BUILD_SOLICITATION_BATCH, GENERATE_SOLICITATION_ASKS and SOLICITATION_VETO_NOTICE; QUEUE_NAMES.AGENT_TURN (src/lib/shared/queue-names.ts:68) is absent. A failed agent_turn row therefore raises no subsystem:health_alert finding, so rule 1 of docs/runbooks/beta-launch-alerting.md can never fire for this lane. Fix: add QUEUE_NAMES.AGENT_TURN to the allowlist, or state in the runbook why a failed turn is not owner-impacting.
+ROUND-1 EVIDENCE (retained): A missing alert-path half: the branch adds an owner-impacting outbox topic and no emitting signal watches it. The allowlist binds exactly PUBLISH_RESPONSE, SEND_NOTIFICATION, GENERATE_RESPONSE, BUILD_SOLICITATION_BATCH, GENERATE_SOLICITATION_ASKS and SOLICITATION_VETO_NOTICE; QUEUE_NAMES.AGENT_TURN (src/lib/shared/queue-names.ts:68) is absent. A failed agent_turn row therefore raises no subsystem:health_alert finding, so rule 1 of docs/runbooks/beta-launch-alerting.md can never fire for this lane. Fix: add QUEUE_NAMES.AGENT_TURN to the allowlist, or state in the runbook why a failed turn is not owner-impacting.
 
-**Arbiter reasoning**
-
-The code comment directly above the allowlist names this exact defect class as a prior incident — "This is a CLOSED allowlist, so a new owner-impacting topic stays invisible until it is added here. generate_solicitation_asks shipped without it (#628 round 5), which silently voided that lane's dead-letter rationale: its terminal handler concedes the batch to 'an operator will see the failed row', and nothing was watching the row." The owner-impact test is met: a failed agent_turn means the owner's Operator message never receives a reply, and the branch's own design leans on the row being seen (docs/roadmap/2026-09-11-owner-operator/README.md:636 defers the stranded-turn case to Run B on exactly that basis). Verified independently of the subagent that surfaced it: I re-read checks.ts:105-124 and confirmed the six bound topics, and "rg -in agent_turn|owner.operator|worker_job docs/runbooks/beta-launch-alerting.md" returns zero matches.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. The code comment directly above the allowlist names this exact defect class as a prior incident — "This is a CLOSED allowlist, so a new owner-impacting topic stays invisible until it is added here. generate_solicitation_asks shipped without it (#628 round 5), which silently voided that lane's dead-letter rationale: its terminal handler concedes the batch to 'an operator will see the failed row', and nothing was watching the row." The owner-impact test is met: a failed agent_turn means the owner's Operator message never receives a reply, and the branch's own design leans on the row being seen (docs/roadmap/2026-09-11-owner-operator/README.md:636 defers the stranded-turn case to Run B on exactly that basis). Verified independently of the subagent that surfaced it: I re-read checks.ts:105-124 and confirmed the six bound topics, and "rg -in agent_turn|owner.operator|worker_job docs/runbooks/beta-launch-alerting.md" returns zero matches.
 
 ### P1-3 — P1 (duty 5) — The job-failure-sink Sentry signal for queue agent_turn has no rule row in beta-launch-alerting.md
 
-**At** `worker/job-failure-sink.ts:64-80` · **disposition** `open`
+- **At:** `worker/job-failure-sink.ts:64-80`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. A §1 checklist bullet (beta-launch-alerting.md:325-341) and click-path row 11 (:406) now carry the signal. All six duty-5 facets re-resolved against the emitter at head and none contradicts it: identity = Sentry.captureException in reportJobFailure (worker/job-failure-sink.ts:64-80); filter = tags subsystem='worker_job' AND queue=<queueName> (:75), with attachJobFailureSink applied to every worker including AGENT_TURN (worker/index.ts:567-575, QUEUE_NAMES.AGENT_TURN at :529) so queue resolves to 'agent_turn' (queue-names.ts:68); level = the captureException default error, no override; grouping = Sentry's exception fingerprint, no custom fingerprint; cadence = every event, not a first-seen rule; destination = the Discord integration named in row 11.
 
-The other missing half: an emitted signal with no rule row. worker/index.ts registers agentTurnWorker into workersByQueue, and the existing loop attaches attachJobFailureSink to every entry, so BullMQ terminal exhaustion on this lane fires Sentry.captureException tagged {subsystem: "worker_job", queue: "agent_turn", topic}. That tag set matches no _If_ filter in the runbook's rule table and is not listed in the runbook's own register of signals that knowingly have no dedicated rule. Facet compared and contradicted: signal identity and filter (no rule selects this tag set) and destination action (no documented destination). Fix: add a rule row for subsystem:worker_job scoped to this queue, with a cadence, or extend the existing register to acknowledge it.
+ROUND-1 EVIDENCE (retained): The other missing half: an emitted signal with no rule row. worker/index.ts registers agentTurnWorker into workersByQueue, and the existing loop attaches attachJobFailureSink to every entry, so BullMQ terminal exhaustion on this lane fires Sentry.captureException tagged {subsystem: "worker_job", queue: "agent_turn", topic}. That tag set matches no _If_ filter in the runbook's rule table and is not listed in the runbook's own register of signals that knowingly have no dedicated rule. Facet compared and contradicted: signal identity and filter (no rule selects this tag set) and destination action (no documented destination). Fix: add a rule row for subsystem:worker_job scoped to this queue, with a cadence, or extend the existing register to acknowledge it.
 
-**Arbiter reasoning**
-
-Scoped deliberately to the lane this branch adds rather than opened as a front against the sink, which is unchanged code: the finding is that the branch wires a NEW queue into an existing emitter and ships no rule for it. The runbook keeps an explicit list of signals that have no dedicated rule, which is what makes an unlisted, unrowed signal a reportable omission rather than an accepted posture.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. Scoped deliberately to the lane this branch adds rather than opened as a front against the sink, which is unchanged code: the finding is that the branch wires a NEW queue into an existing emitter and ships no rule for it. The runbook keeps an explicit list of signals that have no dedicated rule, which is what makes an unlisted, unrowed signal a reportable omission rather than an accepted posture.
 
 ### P1-4 — P1 (duty 5) — The orphaned-lease signal the intake names is a log line only — no Sentry event, no rule row
 
-**At** `worker/background/pollers/OutboxPoller.ts:93-165` · **disposition** `open`
+- **At:** `worker/background/pollers/OutboxPoller.ts:93-165`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. The gap was a documented-but-unemitted orphaned-lease alert. After the fix neither half of the path is orphaned: the intake's observability line promises only that "a stuck 'dispatched' row past the watchdog window is the signal a lease was orphaned" — a job_outbox row state, not a Sentry alert — and runOutboxWatchdogRecovery (OutboxPoller.ts:160-166) is confirmed at head to emit one aggregated logger.log and no Sentry call, which both changed docs now state explicitly. The half that IS operator-actionable, the row landing failed, now alerts through P1-2's allowlist entry. No rule row claims an alert that nothing emits, and no emitted signal lacks a row, so the duty-5 condition no longer holds. Recorded as fixed rather than accepted-risk for that reason; see new finding P2-3 for one wording imprecision that survives.
 
-The intake's observability section states: "job_outbox rows for topic agent_turn: a stuck 'dispatched' row past the watchdog window is the signal a lease was orphaned." Both branches of runOutboxWatchdogRecovery — re-pending a stale dispatched row, and terminalising it to failed — only emit a structured log line, aggregated across every topic rather than broken out per topic, and neither captures to Sentry. Combined with P1-2, a worker crash that strands an agent_turn row in dispatched past the watchdog window produces zero Sentry event end to end: nothing from the watchdog, and nothing from checkFailedOutboxByTopic once the row lands failed. Facet contradicted: destination action — the contract names a signal that has no operator-actionable destination.
+ROUND-1 EVIDENCE (retained): The intake's observability section states: "job_outbox rows for topic agent_turn: a stuck 'dispatched' row past the watchdog window is the signal a lease was orphaned." Both branches of runOutboxWatchdogRecovery — re-pending a stale dispatched row, and terminalising it to failed — only emit a structured log line, aggregated across every topic rather than broken out per topic, and neither captures to Sentry. Combined with P1-2, a worker crash that strands an agent_turn row in dispatched past the watchdog window produces zero Sentry event end to end: nothing from the watchdog, and nothing from checkFailedOutboxByTopic once the row lands failed. Facet contradicted: destination action — the contract names a signal that has no operator-actionable destination.
 
-**Arbiter reasoning**
-
-Reported against the contract the branch wrote rather than against OutboxPoller, which is unchanged: the claim that this row IS the orphaned-lease signal is new on this branch, and it is the claim that fails. Fixing P1-2 alone resolves the terminalised half of this; the re-pend half stays a log line, which is defensible if the runbook says so. Closing either the code or the contract sentence would settle it.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. Reported against the contract the branch wrote rather than against OutboxPoller, which is unchanged: the claim that this row IS the orphaned-lease signal is new on this branch, and it is the claim that fails. Fixing P1-2 alone resolves the terminalised half of this; the re-pend half stays a log line, which is defensible if the runbook says so. Closing either the code or the contract sentence would settle it.
 
 ### P1-5 — P1 (duty 3) — A changed doc claim is false: the agent_turn lane does not emit logger.warn uniformly across the six terminal paths
 
-**At** `docs/roadmap/2026-09-11-owner-operator/README.md:638` · **disposition** `open`
+- **At:** `docs/roadmap/2026-09-11-owner-operator/README.md:638`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. Every claim in the rewritten README:638 bullet re-resolved against head with rg "logger\.(log|warn|error)\(" over worker/jobs/agent-turn/AgentTurnWorker.ts: predecessor_stalled warn (:122), unauthorized reauthorization arm warn (:171), unauthorized vanished-voice arm warn (:229), model_output_invalid warn (:204), budget_exceeded warn (:292), operator_disabled logger.log/info (:324), lease-lost warn (:370). The false uniformity claim is gone and the per-path levels are now correct. Two residual imprecisions in the same line are recorded separately as P2-2 rather than reopening this finding.
 
-The bullet, added by this branch inside the @@ -627,14 +627,37 @@ hunk, asserts that every terminal path in AgentTurnWorker — naming operator_disabled first — "resolves the turn and emits a logger.warn line", and concludes "That is uniform across the six paths, not a gap in one of them". At HEAD the operator_disabled path emits logger.log (worker/jobs/agent-turn/AgentTurnWorker.ts:324, "agent_turn flag-off skip"); the other five use logger.warn (AgentTurnWorker.ts:122, :171, :204, :229, :292). Fix: say five of the six paths warn and the flag-off skip logs at info, or change line 324 to warn.
+ROUND-1 EVIDENCE (retained): The bullet, added by this branch inside the @@ -627,14 +627,37 @@ hunk, asserts that every terminal path in AgentTurnWorker — naming operator_disabled first — "resolves the turn and emits a logger.warn line", and concludes "That is uniform across the six paths, not a gap in one of them". At HEAD the operator_disabled path emits logger.log (worker/jobs/agent-turn/AgentTurnWorker.ts:324, "agent_turn flag-off skip"); the other five use logger.warn (AgentTurnWorker.ts:122, :171, :204, :229, :292). Fix: say five of the six paths warn and the flag-off skip logs at info, or change line 324 to warn.
 
-**Arbiter reasoning**
-
-Re-derived at HEAD, not taken from the subagent report: I read the bullet and the six call sites myself and confirmed the hunk membership with git diff. Recorded as P1 rather than P0 after weighing the "misleading FALSE claim" bar. The bullet's operative assertions are all true and independently verified here — there is no Sentry call anywhere in AgentTurnWorker.ts, and beta-launch-alerting.md carries no row for the lane — and the same sentence itself describes operator_disabled as "an orderly flag-off skip ... not an incident", which is consistent with logger.log being deliberate. A reader is therefore misled about one path's log LEVEL, not about whether the lane is alerted or about the single go-live decision the bullet defers. The concrete harm is bounded to whoever later implements that deferred decision with a level:warn filter and silently drops every operator_disabled turn. Recorded at P1 with this reasoning so the owner can escalate it to P0 if they weigh the uniformity assertion as load-bearing.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. Re-derived at HEAD, not taken from the subagent report: I read the bullet and the six call sites myself and confirmed the hunk membership with git diff. Recorded as P1 rather than P0 after weighing the "misleading FALSE claim" bar. The bullet's operative assertions are all true and independently verified here — there is no Sentry call anywhere in AgentTurnWorker.ts, and beta-launch-alerting.md carries no row for the lane — and the same sentence itself describes operator_disabled as "an orderly flag-off skip ... not an incident", which is consistent with logger.log being deliberate. A reader is therefore misled about one path's log LEVEL, not about whether the lane is alerted or about the single go-live decision the bullet defers. The concrete harm is bounded to whoever later implements that deferred decision with a level:warn filter and silently drops every operator_disabled turn. Recorded at P1 with this reasoning so the owner can escalate it to P0 if they weigh the uniformity assertion as load-bearing.
 
 ### P1-6 — P1 (duty 3) — The authoritative JSONB parse-site allowlist names the wrong file for the agent_turns.reply parse sites
 
-**At** `.claude/reference/lab-notes/postgres.md:17` · **disposition** `open`
+- **At:** `.claude/reference/lab-notes/postgres.md:17`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. .claude/reference/lab-notes/postgres.md:17 now reads "called in context.ts and twice in reads.ts"; rg at head resolves parseReplySegments to exactly src/lib/agents/operator/context.ts:297, reads.ts:97 and reads.ts:213 (plus its definition at schema.ts:229). The "(4)" count also re-resolves: one agent_turns.reply field plus agent_proposals.input/.before/.after through parseJsonbObject at proposals.ts:186,198,199.
 
-The Owner Operator bullet added by this branch says parseReplySegments is "called in context.ts and twice in turns.ts". At HEAD it is called once in src/lib/agents/operator/context.ts:297 and twice in src/lib/agents/operator/reads.ts:97 and :213; src/lib/agents/operator/turns.ts contains no call at all (rg parseReplySegments src worker). The owner reads were split out of turns.ts into reads.ts in commit eb21f55c2 and this line was not re-resolved. Fix: name reads.ts. Everything else in the bullet checks out — the site count of four is right and the entry's arithmetic closes (2+1+2+4+2+3+4+5 = 23, matching its own "Exactly 23 production JSONB field-to-parser sites today").
+ROUND-1 EVIDENCE (retained): The Owner Operator bullet added by this branch says parseReplySegments is "called in context.ts and twice in turns.ts". At HEAD it is called once in src/lib/agents/operator/context.ts:297 and twice in src/lib/agents/operator/reads.ts:97 and :213; src/lib/agents/operator/turns.ts contains no call at all (rg parseReplySegments src worker). The owner reads were split out of turns.ts into reads.ts in commit eb21f55c2 and this line was not re-resolved. Fix: name reads.ts. Everything else in the bullet checks out — the site count of four is right and the entry's arithmetic closes (2+1+2+4+2+3+4+5 = 23, matching its own "Exactly 23 production JSONB field-to-parser sites today").
 
-**Arbiter reasoning**
-
-This entry is marked AUTHORITATIVE and its one job is to let a reader find every production JSONB parse site, so pointing at a file that has none while leaving the file that has two unnamed defeats that job. Recorded as P1 rather than P0 because the substantive safety claim — each site guards typeof-string, narrows and throws — is true at the real sites, and the enumeration's count and totals are correct; what is wrong is where to look, which is a stale reference of the same family as a stale line number.
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. This entry is marked AUTHORITATIVE and its one job is to let a reader find every production JSONB parse site, so pointing at a file that has none while leaving the file that has two unnamed defeats that job. Recorded as P1 rather than P0 because the substantive safety claim — each site guards typeof-string, narrows and throws — is true at the real sites, and the enumeration's count and totals are correct; what is wrong is where to look, which is a stale reference of the same family as a stale line number.
 
 ### P2-1 — P2 (duty 4) — The branch adds a fifth private boundedErrorClass copy and picks the unhardened shape, while a hardened shared export already exists
 
-**At** `worker/jobs/agent-turn/failed-hook.ts:26-28` · **disposition** `open`
+- **At:** `worker/jobs/agent-turn/failed-hook.ts:26-28`
+- **Disposition:** `fixed`
 
-**Evidence**
+FIXED by 3a377f656. The private copy in worker/jobs/agent-turn/failed-hook.ts is deleted and the hardened shared export is imported (failed-hook.ts:8). M5 proved the call site is load-bearing and observed: replacing boundedErrorClass(err) with a constant failed failed-hook.test.ts's 'agent_turn_exhausted:ProviderTimeout' assertion. Sibling sweep at head: three private copies remain (worker/job-failure-sink.ts:59, worker/jobs/judge/failed-hook.ts:39, worker/jobs/csv-ingest/failed-hook.ts:94), all pre-existing unchanged code — job-failure-sink.ts documents its err.name shape as a deliberate divergence — and all outside round-2 scope. INV-273.
 
-Missed sibling case. Pattern searched: "function boundedErrorClass" across worker and src. Scope: the whole worker and src trees, no exclusions. Result: five definitions — the shared export at worker/jobs/solicitation-batch/failed-hook-shared.ts:36 (already imported by worker/jobs/solicitation-send/failed-hook.ts, worker/jobs/solicitation-batch/generate-failed-hook.ts and worker/jobs/solicitation-batch/failed-hook.ts) plus four private copies, the newest being this branch's. The shared one validates the class name against /^[A-Za-z][A-Za-z0-9_$]{0,99}$/ and falls back to UnknownError, with a docblock giving the reason ("so a hostile or exotic error type cannot inject structure into the log line"); this branch's copy takes err.name unvalidated and slices it to 100 characters, then interpolates it into markOutboxFailed's reason string at failed-hook.ts:56-61, i.e. into a stored job_outbox error value and a log field. The same refactor commit that produced this HEAD (15bc4a4aa) deduplicated parseJsonbObject for exactly this shape; fallow's duplication gate does not reach a two-line helper. Fix: import boundedErrorClass from the shared module, or move it somewhere both hooks can share.
+ROUND-1 EVIDENCE (retained): Missed sibling case. Pattern searched: "function boundedErrorClass" across worker and src. Scope: the whole worker and src trees, no exclusions. Result: five definitions — the shared export at worker/jobs/solicitation-batch/failed-hook-shared.ts:36 (already imported by worker/jobs/solicitation-send/failed-hook.ts, worker/jobs/solicitation-batch/generate-failed-hook.ts and worker/jobs/solicitation-batch/failed-hook.ts) plus four private copies, the newest being this branch's. The shared one validates the class name against /^[A-Za-z][A-Za-z0-9_$]{0,99}$/ and falls back to UnknownError, with a docblock giving the reason ("so a hostile or exotic error type cannot inject structure into the log line"); this branch's copy takes err.name unvalidated and slices it to 100 characters, then interpolates it into markOutboxFailed's reason string at failed-hook.ts:56-61, i.e. into a stored job_outbox error value and a log field. The same refactor commit that produced this HEAD (15bc4a4aa) deduplicated parseJsonbObject for exactly this shape; fallow's duplication gate does not reach a two-line helper. Fix: import boundedErrorClass from the shared module, or move it somewhere both hooks can share.
 
-**Arbiter reasoning**
+**Arbiter reasoning.** Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. P2, recorded and non-blocking, because there is no exploitable path today: the errors that reach this hook come from the LLM seam, Postgres and the cost guard, none of which sets .name from provider or owner text, and the value is a bound parameter rather than interpolated SQL. The finding is the divergence itself — the branch replicated the weaker of two existing siblings (worker/jobs/judge/failed-hook.ts:39) when a hardened shared export with a stated rationale was available.
 
-P2, recorded and non-blocking, because there is no exploitable path today: the errors that reach this hook come from the LLM seam, Postgres and the cost guard, none of which sets .name from provider or owner text, and the value is a bound parameter rather than interpolated SQL. The finding is the divergence itself — the branch replicated the weaker of two existing siblings (worker/jobs/judge/failed-hook.ts:39) when a hardened shared export with a stated rationale was available.
+### P2-2 — P2 (duty 3) — The rewritten go-live alerting bullet miscounts its own terminal paths and misnames the watchdog log line
+
+- **At:** `docs/roadmap/2026-09-11-owner-operator/README.md:638`
+- **Disposition:** `open`
+
+Two imprecisions inside the fix hunk, neither of them an operationally false claim. (1) The line opens "The six terminal paths in AgentTurnWorker resolve the turn" and then enumerates seven items, the last of which — "a lease lost before completion" — the same sentence says "resolves NOTHING"; and it never names account_offboarding, which IS one of the six domain terminal reasons (src/lib/agents/operator/schema.ts:55) and is written by the very reauthorization arm the line does name (AgentTurnWorker.ts:166-171), so the same logger.warn covers it. The runbook's parallel sentence counts correctly ("the six domain terminal reasons (operator_disabled through budget_exceeded)" = exactly the six non-exhausted members in declaration order). (2) The line calls the watchdog re-pend "a topic-aggregated log line in runOutboxWatchdogRecovery"; at head that call emits logger.log('Watchdog recovered stale entries', { recovered, failed, stale_dispatching }) (worker/background/pollers/OutboxPoller.ts:160-166), which carries NO topic field at all — the counts are aggregated ACROSS topics, not by topic. The same phrase appears in docs/runbooks/beta-launch-alerting.md:338-340. Suggested replacement: "the six domain terminal reasons (operator_disabled through budget_exceeded) resolve the turn; a lease lost before completion resolves nothing", and "an untyped aggregate count in runOutboxWatchdogRecovery's log line".
+
+**Arbiter reasoning.** P2, not P1: the operationally load-bearing claims of the line all re-resolve true at head (which paths warn, which logs info, that none calls Sentry, that the terminal outbox row alerts and the re-pend does not). A reader acting on the line reaches the right conclusion; only the arithmetic and one adjective are wrong, so this records rather than blocks. Not P0 under duty 3 because no claim is misleading about behaviour — account_offboarding is covered by the arm that is named, it is simply unnamed.
+
+### P2-3 — P2 (duty 5) — The new runbook bullet overstates what one agent-turn-exhausted event implies about the turn
+
+- **At:** `docs/runbooks/beta-launch-alerting.md:330-334`
+- **Disposition:** `open`
+
+The new §1 bullet tells the operator "One event means one owner's Operator message ran out of BullMQ retries and the turn ended failure_reason = exhausted through worker/jobs/agent-turn/failed-hook.ts, so the owner never receives a reply". The first clause is exact; the rest is not guaranteed. reportJobFailure fires on the terminal 'failed' event unconditionally (worker/job-failure-sink.ts:66-80), while the hook writes TURN_FAILURE_REASON.EXHAUSTED only when markOutboxFailed confirms this dispatch still OWNS the row (failed-hook.ts:52-71); the superseded branch at :59-63 logs 'agent_turn exhaustion for a superseded dispatch, leaving the turn alone' and returns, and a newer attempt may already have completed the turn. So a paged event can correspond to a turn that is running or already completed, and the owner may well receive a reply. Suggested replacement: "…ran out of BullMQ retries. If that dispatch still owned the outbox row the turn ended failure_reason = exhausted and the owner never receives a reply; if a newer dispatch had superseded it the hook leaves the turn alone, so check agent_turns.status before treating it as a lost reply." All six duty-5 facets themselves match the emitter (see P1-3) — this is the event's MEANING, not a facet.
+
+**Arbiter reasoning.** P2, not P1: duty 5's P1 trigger is a missing half of the alert path or a documented FACET that contradicts the emitted signal, and neither applies — identity, filter, level, grouping, cadence and destination all re-resolve true at head. The overstatement is in the interpretation text, and it errs toward over-investigating rather than under-paging, which is the safe direction for a go-live rule. Recorded so the sentence is corrected before OWNER_OPERATOR_ENABLED is flipped, not blocking the PR.
 
 ## Duty 1 — hand-mutation
 
-30 supervised runs, the whole round budget. Three were green baselines re-derived at HEAD (never taken from
-`gate-status.json`): `render.test.ts` 11/11, the two `worker/jobs/agent-turn/__tests__` files 7/7, and the
-live-DB `turn-worker.integration.test.ts` 15/15 against the local test database at migration 120. Twenty-six
-were mutant runs, each `assert-one-test`-confirmed to have executed exactly one test; one was a confirming
-full-suite re-run of the single survivor. Launch 31 was refused by the runner, which is why `t-m6` (the
-`failTurnFenced` token fence) is recorded `skipped-budget` rather than measured.
+Environment: `mutation-runner.mjs env --tmp-home <mktemp -d> --test-db <localhost:5499>` plus `dotenv-swap --test-db <same>`; every `run` carried the same `--tmp-home` and `--test-db`, `--timeout 120000`, an argument array (no shell string), and a regex-escaped test title verified by `assert-one-test`. A first launch omitted `--test-db` on `run`, so the live-DB suite skipped (`0 test(s) executed` → INCONCLUSIVE) and one of the 30 runs was spent learning that; it is recorded here rather than hidden. Seven green baselines were then re-derived at head before any mutation.
 
-Budget was spent as instructed: first every validator rule at its new home in `render.ts` after commit
-`15bc4a4aa`, then the four `AgentTurnWorker` step helpers (`settleClaimMiss`, `waitOrFailOnPredecessor`,
-`generateAndAssemble`, `handleTurnError`) and the fenced transitions in `turns.ts` they settle through.
+Five mutations, each applied through `mutate` (journaled original→mutant blob OIDs) and hand-restored with `git restore <named path>` before the next so no two mutants were ever live together. Targets were chosen to be the exact production lines the new oracles claim to guard.
 
-| result | n |
-|---|---|
-| killed | 25 |
-| survived, confirmed P0 | 1 |
-| equivalent | 0 |
-| inconclusive (oracle) | 2 |
-| skipped — budget | 238 |
-| excluded by rule | 3 |
-| **inventory total** | **269** |
+| # | production target | mutation | oracles re-run | outcome |
+|---|---|---|---|---|
+| M1 | `src/lib/agents/operator/turns.ts:256-259` | delete the whole lease arm `claimed_at IS NULL OR claimed_at < NOW() - (leaseSeconds * INTERVAL '1 second')` | 3 | **killed ×3** |
+| M2 | `src/lib/agents/operator/render.ts:231` | negate the gate (drop the leading `!`) | 1 | **killed** |
+| M3 | `worker/background/pollers/health-alert/checks.ts:124` | remove `${QUEUE_NAMES.AGENT_TURN}` from the closed allowlist (lands on the pre-fix blob `913698b6a5ff` exactly) | 1 | **killed** |
+| M4 | `worker/jobs/agent-turn/AgentTurnWorker.ts:38` | `isBudgetDecision` returns `false` | 1 | **killed** |
+| M5 | `worker/jobs/agent-turn/failed-hook.ts:36` | `boundedErrorClass(err)` → the constant `'UnknownError'` | 1 | **killed** |
 
-Every one of the 11 validator-rule mutants died, including the two off-by-one/inversion mutants
-(`proposal_ref` bound `>=`→`>`, `scope_check` stored-location comparison inverted) and both scrub mutants
-(block splitting removed, rating-header no longer carrying the following block). The refactor moved those
-rules into five private helpers without leaving any of them unasserted. The same is true of the handler
-split: the scrub-to-prompt hand-off, the scrub flag, the proposal-id binding, the offboarding/unauthorized
-reason split, the vanished-voice reason, the stall threshold, both claim releases, the terminal-turn outbox
-completion, the CAS-before-fail ordering, the in-transaction outbox completion, the completion fence and the
-supersession replacements all have tests that notice when they change.
+Seven kills, zero survivors, zero inconclusive. M1 is the literal round-1 mutation `t-m4` that survived the whole agent-turn suite at round-1 head; at this head it now fails three separate tests.
 
-## Duty 2 — fragile assertions
+**M5 caveat, recorded honestly.** The prompt scoped this as a call-site probe rather than a test of the shared helper, and that is what it is. It proves `failed-hook.test.ts` observes the call site. It does NOT discriminate the behavioural delta the fix introduced: the deleted private copy read `err.name`, the adopted shared export reads `err.constructor.name` (`failed-hook-shared.ts:36-41`), and the test fixture (`class ProviderTimeout extends Error { override name = 'ProviderTimeout'; }`, `failed-hook.test.ts:86`) makes the two values identical, so no test in the repo separates them. The delta is benign — both shapes are bounded, log-safe strings, nothing parses the `agent_turn_exhausted:<class>` reason, and the shared shape is the stricter of the two — so this is noted, not filed as a finding.
 
-**No finding.** All 15 changed test files were scanned for absence-of-tag proxies, exact string/row counts and
-order assertions with no ordering contract. Four candidates were examined and each is sound:
+## Duty 2 — fragile assertions in the NEW test code
 
-- `render.test.ts:300-301` and `turn-worker.integration.test.ts:430-431` — `expect(json).not.toContain('status_ref')`
-  is the absence-of-tag shape, but each sits beside a real behavioural assertion in the same block
-  (`expect(stored).toEqual([…])` at `render.test.ts:286`, the round-trip `parseReplySegments(json)).toEqual(stored)`
-  at `:303`, the filtered `.toEqual([{type:'proposal', proposalId}])` at `turn-worker.integration.test.ts:423`).
-  The proxy is redundant, not load-bearing.
-- `context.test.ts:90` — `expect(sqlCalls).toHaveLength(5)` is an exact statement count, but deliberately a
-  *closed list* whose purpose is stated in-comment ("a sixth, unscoped read is exactly the regression this
-  asserts against") and every call is separately asserted to bind the account. The closed list **is** the
-  behavioural assertion here.
-- `catalog.test.ts:81-82` — `not.toContain('undefined')` / `not.toContain('[object Object]')` are backed by
-  actually invoking `op.describe(parsed.input)` on a real parsed sample at `:75-80`, which is the point the
-  comment makes ("asserting `typeof op.describe === 'function'` would pass for a stub").
+Four new or strengthened oracles were reviewed. **No fragile-assertion finding.** The judgements, since three of them were raised explicitly:
 
-E2E/Playwright specs: none changed, so that set is empty.
+- **`expect(result.ok === false && result.reasons.join(' ')).toContain(...)`** (`render.test.ts:281-282`) — cannot pass vacuously. If `ok` were `true` the expression collapses to the boolean `false`, and Vitest's `toContain` THROWS on a non-string, non-iterable actual rather than passing. It is also already fenced by `expect(result.ok).toBe(false)` on the preceding line, which is the assertion M2 actually killed. The idiom is a TypeScript narrowing device, not a weakened assertion.
+- **The SQL-text case in `turns.test.ts:113-136`** — additive, not merely duplicative. It asserts three things about the statement `claimTurn` builds: the `claimed_at IS NULL` arm, the `INTERVAL '1 second'` unit, and that `leaseSeconds` and `accountId` are BOUND (invariant #9) rather than interpolated. The live case is the behavioural oracle, and the file's own comment says so; the text case earns its place because it is the ONLY oracle for this predicate in the keyless lane, where the live suite does not run at all. Its one weakness is the usual text-proxy weakness: a behaviour-preserving rewrite (say `COALESCE(claimed_at, 'epoch') < …`) would fail it spuriously. Acceptable for a guard labelled as a guard.
+- **The `checks.test.ts` regression case** — only its LAST assertion is load-bearing. `sql` is a mock whose return is pushed by the test, so the `expect(findings).toEqual([...])` half passes with `AGENT_TURN` absent from the allowlist; M3 was caught by `expect(values).toContain(QUEUE_NAMES.AGENT_TURN)`. That is a bind-value proxy, which is the strongest oracle available in a mocked-`sql` unit suite and is exactly what the sibling `GENERATE_SOLICITATION_ASKS` case does. Not a finding; the real discriminator is present.
+- **The claim-race spend assertions** use DELTAS (`runLlmTask.mock.calls.length - llmCallsBefore`), not absolute totals, so they do not break when an unrelated earlier case in the same file changes its call count. Good shape.
 
-## Duty 3 — docs vs reality
+## Duty 3 — changed docs vs reality, re-resolved at head
 
-`prevalidate-plan.py` was run against all three branch docs:
-
-| doc | verdict | resolution |
+| claim | verified against | result |
 |---|---|---|
-| `…-plan.md` | `PREVALIDATE: PASS` — 92 citations, 31 fixtures, 0 commits, 0 issues | clean |
-| `…-handoff.md` | `PREVALIDATE: 1 ISSUES` — `f4e02270` does not resolve to a commit | **excluded by instruction**: it is a Railway deploy id, not a git SHA, and the surrounding sentence says so |
-| `…-deviations.md` | `PREVALIDATE: 1 ISSUES` — `voice/route.ts:23` does not exist | **script false positive**: `deviations.md:701` quotes that citation as a *superseded* style while saying the plan now names the symbol instead. `src/app/api/settings/voice/route.ts` exists, and the plan carries no literal `:23` citation for it any more |
+| README:638 — five paths `logger.warn`, `operator_disabled` `logger.log`, lease-lost `logger.warn` | `rg "logger\.(log|warn|error)\(" worker/jobs/agent-turn/AgentTurnWorker.ts` → `:122`, `:171`, `:204`, `:229`, `:292` warn; `:324` log; `:370` warn | TRUE |
+| README:638 — none of the six calls Sentry | no `Sentry.` / `captureException` in `AgentTurnWorker.ts` | TRUE |
+| README:638 — `outbox_failed:agent_turn` rides runbook rule 1 | `checks.ts:127-133` key/level, `emit.ts:10-18` tags `subsystem=health_alert`,`finding=<key>`, runbook `:28-33` | TRUE |
+| README:638 — exhaustion reaches Sentry tagged `subsystem:worker_job`,`queue:agent_turn` with its own rule row | `job-failure-sink.ts:75`, `worker/index.ts:574`, runbook `:325-341` + row 11 | TRUE |
+| README:638 — the watchdog re-pend is a log line, not a Sentry event | `OutboxPoller.ts:160-166` | TRUE on the Sentry half; "topic-aggregated" is wrong → **P2-2** |
+| README:638 — "the six terminal paths … resolve the turn" | `schema.ts:52-60` + the seven enumerated items | arithmetic inconsistent → **P2-2** |
+| `postgres.md:17` — `parseReplySegments` called in `context.ts` and twice in `reads.ts` | `context.ts:297`, `reads.ts:97`, `reads.ts:213` | TRUE |
+| `postgres.md:17` — the "(4)" field count | `agent_turns.reply` + `proposals.ts:186,198,199` | TRUE |
+| runbook `:330-334` — "one event means … the turn ended `failure_reason = exhausted`" | `job-failure-sink.ts:66`, `failed-hook.ts:52-71` (superseded branch at `:59-63`) | overstated → **P2-3** |
 
-`docs/roadmap/2026-09-11-owner-operator/README.md` contains no `path:line` citations anywhere, so every
-substantive file/symbol claim in the branch's changed hunks (lines 8, 18, 627-661) was re-resolved by hand
-instead. All checked out except line 638 — see **P1-5**. Verified correct: the flag accessor and its 404
-behaviour, the `owner_operator` task's pinned models and limits, all three `agent-turn/constants.ts` numbers
-against the watchdog default, the `readTerminalTurn` → `markOutboxCompletedIfOwned` wiring, migration 120's
-four tables with deny-all RLS, `enqueueAgentTurn`, the catalog's 3 read + 4 proposable + 1 capture shape, the
-three new routes, and ADR 0005's 11 → 12 envelope against `FLAG_ON_LLM_ENVELOPE_CAP`.
+`prevalidate-plan.py` was run on both changed review docs. Both residual issues are false positives and were confirmed by hand:
 
-The refactor claim in commit `15bc4a4aa` was audited symbol by symbol and is exact: seven exports dropped
-(`PASTED_REVIEW_SEGMENT`, `SegmentSchema`, `StoredSegmentSchema`, `ProposedOperationSchema`,
-`UnsupportedRequestSchema`, `OWNER_OPERATOR_SYSTEM_PROMPT`, `VoiceField`), three symbols deleted
-(`CATALOG_OPERATION_IDS`, `ProposedOperation`, `UnsupportedRequest`), `parseJsonbObject` moved to
-`src/lib/agents/read.ts:222` and re-exported from `operator/schema.ts:222`. Every `parseJsonbObject` call site
-passes a fully-qualified column name, so the message-prefix change from `agents/operator:`/`agents/read:` to
-`agents:` loses nothing. The second doc defect this audit found is in the parse-site allowlist — see **P1-6**.
+```
+docs/superpowers/plans/feat-owner-operator-run-a-deviations.md
+  CITATIONS: 15 checked, 1 unresolved  — voice/route.ts:23 "file does not exist at HEAD"
+  COMMITS:    6 checked, 1 stale       — 43b0b7ef
+  PREVALIDATE: 2 ISSUES
+docs/reviews/feat-owner-operator-run-a/review-round-3.md
+  CITATIONS:  2 checked, 0 unresolved
+  COMMITS:    2 checked, 1 stale       — 42bc6db1
+  PREVALIDATE: 1 ISSUES
+```
 
-`feat-owner-operator-run-a-plan.md` still shows the pre-refactor shape in its code blocks. Not reported:
-the plan is the pre-build blueprint and the later-dated `deviations.md` entry for PR #1270 is the doc of
-record that supersedes it, accurately describing the post-refactor shape and retiring its own earlier note.
+- `voice/route.ts:23` — the script resolved the bare shorthand as a repo-root path. `src/app/api/settings/voice/route.ts` exists at head. The hit is at `deviations.md:701`, inside prose that is itself RECORDING that those two citations were replaced by a symbol name; it is a description of the old citation, not a live one.
+- `43b0b7ef` is the intake SHA-256 prefix (`deviations.md:824`), not a commit — the same class as the handoff's `f4e02270` Railway deploy id.
+- `42bc6db1` is the round-1 gate FINGERPRINT (`review-round-3.md:5`), not a commit. It is correctly scoped to that line's pinned head `5b223e33f…`; the fingerprint at THIS head is `2c065cb8…` (`.feature/codex-gate-fingerprint.json`), regenerated after the fix commit, so the doc's historical value is right and must not be "corrected".
 
 ## Duty 4 — missed sibling cases
 
-One **P2** (see above). Three sibling searches returned a sound zero, and one divergence was considered and
-deliberately not reported:
+Two patterns, both searched at head, both exclusions recorded:
 
-- **Pattern:** a `timestamptz` used as a *version token* round-tripped through a JS `Date`. This is the shape
-  commit `d21db9ecd` fixed, changing `updateVoiceConfig` to `RETURNING updated_at::text` because
-  `new Date(…).toISOString()` truncates the microseconds Postgres stores (the #520 gotcha).
-  **Searched:** `toISOString\(\)|new Date\(` and `::text` over `src/lib/agents/operator`,
-  `src/lib/responses/voice-settings.ts`, `worker/jobs/agent-turn`. **Excluded:** test fixtures, and unchanged
-  code outside the operator surface. **Result: zero siblings.** The three production hits are
-  `context.ts:374` and `reads.ts:271` (`asOf: new Date().toISOString()` — the instant the server read, not a
-  DB value) and `reads.ts:277` (`nullableIso`, applied only to `agent_conversations.last_turn_at`, a display
-  timestamp never compared against a DB-side value). The real token path is consistent end to end:
-  `readVoiceConfig` returns `updated_at::text` (`voice-settings.ts:85`) and `buildProposalRows` stores it
-  verbatim as `preparedVersionToken.updatedAt` (`proposals.ts:81`).
-- **Pattern:** `markOutboxCompletedIfOwned` / `markOutboxFailed` called *outside* the transaction that makes
-  the terminal state change (invariant #2). **Searched:** all four new call sites — `completeTurnFenced`
-  (`turns.ts:415`), `failTurnFenced` (`:441`), `failTurnAndCompleteOutbox` (`:497`), `handleAgentTurnFailed`
-  (`failed-hook.ts:55-74`). **Result: zero siblings.** All four are inside one `sql.begin`, CAS-first wherever
-  no attempt token exists. Mutants `t-m5` (completion moved beside the transaction) and `t-m1` (CAS ordering
-  reversed) both died, so this is asserted, not merely true.
-- **Pattern:** a statement over one of the four new tables with no `account_id` predicate (invariant #9).
-  **Searched:** every `FROM|INTO|UPDATE agent_(turns|conversations|proposals|unsupported_requests)` across
-  `src/lib/agents/operator`, `worker/jobs/agent-turn`, `worker/jobs/account-offboarding` and
-  `src/lib/account-offboarding` — 36 production statements, each `WHERE` read individually. **Excluded:**
-  `__tests__` fixtures. **Result: zero siblings.**
-- **Considered and not reported:** in-process budget-decision classification by error *name* string rather
-  than `instanceof`. `AgentTurnWorker.ts:32-39` matches `worker/jobs/judge/failed-hook.ts:27-38` — the pattern
-  the intake explicitly names as the one to follow — while `generate-draft.ts:47-48` and
-  `ask-generation.ts:952-956` use `instanceof` in the same in-process position. Not a finding: the name-list
-  idiom is the sanctioned precedent, and a miss costs nothing extra because the cost reservation precedes the
-  model call — the turn would end `exhausted` instead of `budget_exceeded`. (That reason having no test at all
-  *is* reported, as **P1-7**.)
+1. **Private `boundedErrorClass` copies** (P2-1's shape). `rg -n "function boundedErrorClass" src/ worker/` → one shared export (`worker/jobs/solicitation-batch/failed-hook-shared.ts:36`) and THREE private copies (`worker/job-failure-sink.ts:59`, `worker/jobs/judge/failed-hook.ts:39`, `worker/jobs/csv-ingest/failed-hook.ts:94`). All three are unchanged code that predates this branch, and `job-failure-sink.ts:54-58` documents its `err.name` shape as a DELIBERATE divergence. Round-2 scope forbids a front against unchanged code, so: zero in-scope siblings, three out-of-scope instances recorded for the record.
+2. **Owner-impacting `job_outbox` topics missing from the closed allowlist** (P1-2's shape, the #628 class). Scope deliberately bounded to topics THIS BRANCH introduces, since the allowlist as a whole is unchanged code. `git diff <merge-base> <head> -- src/lib/shared/queue-names.ts` adds exactly one member, `AGENT_TURN: 'agent_turn'`, and the fix adds exactly that one to `checks.ts`. **Zero siblings** — a sound search with nothing to report. Whether any of the 30 pre-existing topics outside the seven-member allowlist deserves a row is a real question and an explicit NON-finding here: it is unchanged code, and inventing it would widen round 2's scope.
 
-## Duty 5 — operational completeness
+## Duty 5 — operational completeness of the `agent_turn` alert path
 
-Static comparison only; staging delivery drills stay runbook acceptance work. Three **P1**s: **P1-2**, **P1-3**,
-**P1-4**.
+Both halves now exist statically, and the comparison is static as the protocol requires — no staging delivery drill was attempted or implied.
 
-All seven `TURN_FAILURE_REASON` members resolve through a fenced status write and a structured log line; none
-calls Sentry directly, which the branch documents as a deliberate single go-live decision. That posture is not
-itself reported. What is reported is the alert path around it: `docs/runbooks/beta-launch-alerting.md` was read
-in full and grepped for `agent_turn`, `AGENT_TURN`, `owner operator`, `operator_disabled`, `account_offboarding`,
-`predecessor_stalled`, `model_output_invalid`, `budget_exceeded` and `worker_job` — **zero matches for every
-term**, which is what makes the three findings auditable rather than assertions.
+**Half A — the outbox-row signal ↔ runbook rule 1.** `checks.ts:117-133` emits `key = outbox_failed:agent_turn`, `level = error` once `count > failedThreshold` (default `0`, `checks.ts:78`) inside `failedWindowS` (default 3600). `emit.ts:10-18` raises `Sentry.captureMessage` with `tags.subsystem = health_alert` and `tags.finding = <key>`. Runbook §1 (`:28-33`) routes `subsystem:health_alert` at `error` to Discord. Closed.
 
-| failure path | emitted signal | runbook row | verdict |
+**Half B — the BullMQ exhaustion signal ↔ the new §1 bullet + click-path row 11.** Facet by facet against the emitter:
+
+| facet | documented | emitted | match |
 |---|---|---|---|
-| `exhausted` (BullMQ retry exhaustion) | `captureException` tagged `{subsystem:worker_job, queue:agent_turn, topic}` | none | **P1-3** — signal, no row |
-| failed `agent_turn` outbox row | none (`checkFailedOutboxByTopic` allowlist omits the topic) | rule 1 would cover it | **P1-2** — row, no signal |
-| stuck `dispatched` row past the watchdog window | none (log line only, topic-aggregated) | none | **P1-4** — the contract names a signal that does not exist |
-| `agent_turn` pending backlog / stale dispatching | `outbox_pending_age`, `outbox_stale_dispatching`, `backlog_depth:job_outbox` (topic-agnostic) | rule 1 | **covered** |
-| the six domain terminal reasons | none, by design (the job completes normally) | n/a | **not a gap** — consistent with the Judge lane's own per-turn posture |
-| three new route 500s via `reportCaughtError` | `captureException` tagged `endpoint` | none | **not reported** — the same unrowed state as nearly every `reportCaughtError` site; not branch-specific |
+| signal identity | `captureException` in `reportJobFailure`, `worker/job-failure-sink.ts` | `job-failure-sink.ts:70` | ✓ |
+| filter | `subsystem` = `worker_job` **AND** `queue` = `agent_turn` (tags) | `tags: { subsystem: 'worker_job', queue: queueName, topic: job.name }` `:75`; `attachJobFailureSink(worker, queueName)` over every worker `worker/index.ts:574`, `QUEUE_NAMES.AGENT_TURN` registered `:529`, literal `agent_turn` `queue-names.ts:68` | ✓ |
+| level | `error` (the `captureException` default) | no `level` override on the call | ✓ |
+| grouping | Sentry's exception fingerprint | no custom fingerprint set | ✓ |
+| threshold / cadence | **every event** (both the bullet and row 11) | terminal-attempt gate only (`isFailedEventTerminal`, `:66`) — not a first-seen rule | ✓ |
+| destination | Discord channel via the Sentry integration, row 11 named `agent-turn-exhausted → discord` | n/a (Sentry-side) — row 11 is flagged `NOT CONFIGURED BY THIS CHANGE` | ✓, with the build still owed |
 
-Both intake observability claims were tested. *"The job-failure sink raises a Sentry issue on terminal
-exhaustion"* is **true but incomplete** — it fires only when BullMQ itself marks the job failed, never on the
-SQL-only watchdog path, and the resulting signal has no rule (**P1-3**). *"A stuck 'dispatched' row past the
-watchdog window is the signal a lease was orphaned"* is **misleading** — it is a forensic DB artifact, not a
-signal, and nothing routes it (**P1-2**, **P1-4**).
+No facet contradicts the emitter, so no duty-5 P1. The one defect found here is the bullet's INTERPRETATION of an event, filed as **P2-3**.
 
 ## Inventory
 
-269 rows, one per candidate, in `findings.json`. Every in-scope candidate has a row: executed,
-`skipped-budget`, or `excluded` with its reason. The 238 `skipped-budget` rows are the honest cost of a 30-run
-round against a ~2 800-production-line / ~2 400-test-line branch; they are not silent sampling. The two
-`inconclusive` rows carry class `oracle` and are the two uncovered production branches reported as **P1-1** and
-**P1-7**. Three `excluded` rows cover `supabase/migrations/120_owner_operator.sql` (the database is provisioned
-to head before the run, so mutating a migration changes nothing under test), the 24 changed documentation and
-reference pages (no executable behaviour — verified under duty 3 instead), and Playwright (none changed).
+272 candidates. Rows carried from round 1 keep their round-1 outcome unless the
+fix commit changed what they measure; the four rows the fix changed were re-executed at this head,
+three new rows cover the fix's other new oracles, and 237 unexecuted rows were re-labelled
+`excluded` under the owner's scope decision above.
 
-Executed candidates, all 27:
+| outcome | n |
+|---|---|
+| `killed` | 32 |
+| `survived-confirmed-P0` | 0 |
+| `equivalent` | 0 |
+| `inconclusive` | 0 |
+| `skipped-budget` | 0 |
+| `excluded` | 240 (3 by protocol rule — migrations, docs, Playwright; 237 by the round-2 scope rule) |
 
-| mutation | file | rule | covering test | outcome |
-|---|---|---|---|---|
-| `r-m1` | `render.ts` | validateTextSegments invented-count rule (render.ts:134-136) | `render.test.ts` · validator rejects a text segment that invents a count next to a metric word | killed |
-| `r-m2` | `render.ts` | validateTextSegments completion-claim rule (render.ts:137-139) | `render.test.ts` · validator rejects a text segment that claims a change was applied before any click | killed |
-| `r-m3` | `render.ts` | validateTextSegments prose-member guard, question arm (render.ts:133) | `render.test.ts` · validator applies the count and completion patterns to question segments, not only text | killed |
-| `r-m4` | `render.ts` | validateRefSegments status_ref membership rule (render.ts:152-154) | `render.test.ts` · validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot | killed |
-| `r-m5` | `render.ts` | validateRefSegments proposal_ref bound, >= to > (render.ts:155) | `render.test.ts` · validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot | killed |
-| `r-m6` | `render.ts` | validateScopeCheck stored-location comparison inverted (render.ts:172) | `render.test.ts` · validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location | killed |
-| `r-m8` | `render.ts` | validateScopeCheck coexistence rule (render.ts:183-185) | `render.test.ts` · validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location | killed |
-| `r-m11` | `render.ts` | validateProposalScope location-scoped-must-name-location rule (render.ts:207-209) | `render.test.ts` · validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default | killed |
-| `r-m12` | `render.ts` | validateProposals unknown-operation rule (render.ts:227-229) | `render.test.ts` · validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default | killed |
-| `r-m15` | `render.ts` | scrubPastedReview block splitting (render.ts:64) | `render.test.ts` · scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched | killed |
-| `r-m16` | `render.ts` | scrubPastedReview rating-header carries the next block (render.ts:73-75) | `render.test.ts` · scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched | killed |
-| `w-m14` | `AgentTurnWorker.ts` | handleAgentTurn kill-switch gate (AgentTurnWorker.ts:323) | `AgentTurnWorker.test.ts` · worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context | killed |
-| `t-m1` | `turns.ts` | failTurnAndCompleteOutbox CAS-before-fail ordering (turns.ts:496-499) | `AgentTurnWorker.test.ts` · worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context | killed |
-| `w-m7` | `AgentTurnWorker.ts` | generateAndAssemble vanished-voice terminal reason (AgentTurnWorker.ts:226) | `AgentTurnWorker.test.ts` · worker fails the turn unauthorized when the location voice row vanished after authorization | killed |
-| `t-m5` | `turns.ts` | failTurnFenced outbox completion inside the transaction (turns.ts:441) | `AgentTurnWorker.test.ts` · worker fails the turn unauthorized when the location voice row vanished after authorization | killed |
-| `w-m10` | `AgentTurnWorker.ts` | generateAndAssemble passes the SCRUBBED text to the model (AgentTurnWorker.ts:193) | `turn-worker.integration.test.ts` · worker scrubs a pasted review out of the prompt and stores the notice as the first segment | killed |
-| `w-m9` | `AgentTurnWorker.ts` | generateAndAssemble scrub flag reaches materializeReply (AgentTurnWorker.ts:264) | `turn-worker.integration.test.ts` · worker scrubs a pasted review out of the prompt and stores the notice as the first segment | killed |
-| `w-m12` | `AgentTurnWorker.ts` | handleTurnError releases the claim before a transient rethrow (AgentTurnWorker.ts:309-313) | `turn-worker.integration.test.ts` · worker releases its claim on a transient failure so the retry re-claims and completes | killed |
-| `w-m3` | `AgentTurnWorker.ts` | waitOrFailOnPredecessor stall threshold comparison (AgentTurnWorker.ts:114) | `turn-worker.integration.test.ts` · worker fails the turn predecessor_stalled after the stall limit | killed |
-| `w-m4` | `AgentTurnWorker.ts` | waitOrFailOnPredecessor releases the claim before moveToDelayed (AgentTurnWorker.ts:132-136) | `turn-worker.integration.test.ts` · worker predecessor wait releases the claim and delays the job without spending retry budget | killed |
-| `w-m6` | `AgentTurnWorker.ts` | generateAndAssemble offboarding-vs-unauthorized reason split (AgentTurnWorker.ts:166-168) | `turn-worker.integration.test.ts` · worker step 3 fails the turn account_offboarding for an offboarding account and builds no snapshot | killed |
-| `w-m8` | `AgentTurnWorker.ts` | generateAndAssemble binds stored proposal ids by index (AgentTurnWorker.ts:263) | `turn-worker.integration.test.ts` · worker claim race: two dispatches of one turn produce one completed turn and one proposal set | killed |
-| `t-m4` | `turns.ts` | claimTurn 180 s lease predicate (turns.ts:250-254) | `turn-worker.integration.test.ts` · worker claim race: two dispatches of one turn produce one completed turn and one proposal set | **SURVIVED → P0-1** |
-| `t-m2` | `turns.ts` | completeTurnFenced attempt_token fence (turns.ts:386) | `turn-worker.integration.test.ts` · worker fenced completion discards an attempt whose lease was lost | killed |
-| `w-m18` | `AgentTurnWorker.ts` | settleClaimMiss terminal-turn outbox completion (AgentTurnWorker.ts:87) | `turn-worker.integration.test.ts` · worker claim race: two dispatches of one turn produce one completed turn and one proposal set | killed |
-| `t-m3` | `turns.ts` | completeTurnFenced supersession replacements (turns.ts:400-404) | `turn-worker.integration.test.ts` · worker supersedes earlier pending proposals with the same operation and scope | killed |
-| `t-m6` | `turns.ts` | failTurnFenced attempt_token fence (turns.ts:434) | `turn-worker.integration.test.ts` · worker step 3 fails the turn unauthorized for a revoked owner and builds no snapshot | skipped — budget |
+Rows re-executed or added in round 2:
+
+| id | outcome | test |
+|---|---|---|
+| `INV-023` | `killed` | worker claim race: two dispatches of one turn produce one completed turn and one proposal set |
+| `INV-028` | `killed` | validator rejects a catalog operation the snapshot does not allow this account to use |
+| `INV-029` | `killed` | worker fails the turn budget_exceeded terminally instead of burning the retry ladder |
+| `INV-263` | `killed` | on exhaustion runs the outbox CAS FIRST and only then fails the turn, in one transaction |
+| `INV-270` | `killed` | claimTurn turns a second dispatch away inside the lease and lets one in after it expires |
+| `INV-271` | `killed` | claimTurn binds the lease predicate that makes the Turn claim exclusive |
+| `INV-272` | `killed` | health alerts include terminal agent_turn outbox failures |
+
+Round 1's 25 carried-forward `killed` rows were NOT re-executed. Their validity at this head rests
+on a property, not on trust: each targets a production line and a test body that the fix commit
+leaves byte-identical, and the only changes to the two test files they live in are ADDED cases plus
+ADDED assertions on one existing case — neither of which can weaken another test's kill. The full
+per-row evidence stays in `findings.json`.
 
 ## Authorizations
 
-None. This pass has no authority to accept risk; every finding is `open`.
+Rendered from `findings.json`'s `authorizations` array, which is the authoritative copy.
+
+**`auth-round-3-docs-2026-09-12`** — 2026-09-12 — findings `P2-2`, `P2-3`
+
+> Owner (Norbert) selected "Fix now, third round" via AskUserQuestion on 2026-09-12 after round 2 closed with P2-2 and P2-3 open (wording defects in the two doc hunks the round-1 fix commit 3a377f656 introduced). A third round is authorized, scoped to those two doc hunks — docs/roadmap/2026-09-11-owner-operator/README.md line 638 and the agent_turn bullet in docs/runbooks/beta-launch-alerting.md §1 — after the orchestrator's fix commit.
+
+This authorization grants a third ROUND. It does not accept any risk: neither P2-2 nor P2-3 carries
+an `authorization` field, and both keep disposition `open`.
 
 ## Restoration
 
-All three mutated files were verified byte-identical to HEAD before a single report byte was written:
-`render.ts`, `AgentTurnWorker.ts` and `turns.ts` all hash to their `5b223e33f` blobs, and
-`git status --porcelain` is empty apart from this report's two artifacts. The journal still carries its
-`applied` entries and the dotenv swap is still open, because `finalize` is the orchestrator's step, not this
-pass's — `red-team-status.mjs` reports exactly those two conditions and nothing else.
+All five mutations were hand-restored with `git restore <named path>` immediately after their last
+measurement, each verified back to its journaled original blob OID. The orchestrator has since run
+`finalize`: all five journal entries read `restored`, the journal is closed, the dotenv swap is
+closed and `.env.local.red-team-backup` is gone. `git status --porcelain --untracked-files=no` shows
+only this run's two report artifacts, and all five mutation targets match HEAD
+`3a377f6562ce564051b7fd21bd751c9bd9be49ed`.
