@@ -5,6 +5,14 @@
 seeding it into the expense tracker that day. No September invoices, bank
 balances or tracker records were inspected for this refresh.
 
+**September 11 strategy annotation:** vendor amounts and their verification
+dates are unchanged. For a selected operator experiment, the
+[CFO delivery-cost task](2026-09-08-founder-90-day-plan/cfo/README.md#cfo-08--measure-full-delivery-cost-and-test-the-subscription-economics)
+owns the current model for planning/context calls, failed attempts, founder
+rescue and cost per correctly completed delegated job. Record it in the
+canonical CFO register, with setup/ongoing work and cash/imputed labor
+separated. This historical snapshot is not a second live pilot-cost ledger.
+
 This is a service-budget snapshot, not complete company burn, cash on hand or
 a runway calculation. The tracker is the intended live register; reconcile
 it with invoices and payment evidence before updating actual amounts here.

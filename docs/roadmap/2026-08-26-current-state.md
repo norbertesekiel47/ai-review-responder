@@ -1,4 +1,4 @@
-# Current state — implementation inventory (updated 2026-09-07)
+# Current state — implementation inventory (updated 2026-09-11)
 
 The filename is stable. The original 2026-08-26 inventory drew on design of
 record §8 (2026-07-22), §9 (updated 2026-08-26), project instructions and dated
@@ -12,6 +12,11 @@ means implementation described by the linked code or original inventory;
 rows marked **source checked Sep 7** identify this refresh's checks. This is
 not a complete code audit. No application, browser, deployment, flag, Stripe
 or database state was inspected; no current production-readiness claim follows.
+
+**September 11 update:** added the approved operator direction as
+unimplemented product hypotheses (§2 table below), and checked the LLM
+contract and legacy admin route inventory at `0ad5c1bdc`. Other rows keep
+their dated evidence. No deployed environment or customer result was checked.
 
 ## 1. One-paragraph summary
 
@@ -29,6 +34,18 @@ net time saved, a moat, current live availability or launch readiness.
 P1–P8 below are stable roadmap topic identifiers, not a fixed chronological
 build sequence. Current selection/dependencies live in
 `2026-08-26-forward-roadmap.md`.
+
+### Operator direction: implementation is distinct from validation
+
+| Capability/hypothesis | Implementation evidence | Verified live availability | Customer validation |
+|---|---|---|---|
+| Owner instruction → operating plan → ongoing conversational delegation | Specified, not built ([spec](2026-09-11-owner-operator/README.md)); `src/lib/llm/types.ts` is single-shot and excludes tool calls/multi-turn loops (source checked Sep 11). No operator implementation exists | Not established | Not established; the spec's owner pilot is the test |
+| Confirmed operating memory | Brand fields and owner-edit voice examples are existing foundations; structured facts/rules and correction-to-later-task behavior remain future P4 scope when selected | New memory behavior not established | Requires fewer factual/repeated corrections on comparable tasks |
+| Follow-through and outcomes for the selected job | Existing run/domain records support activity evidence; a complete recovery lifecycle and operator follow-up are future scope, not consequences of having a run spine | Proposed workflow not established | Requires correctly completed work, unresolved-case tracking and less intervention; no causal revenue inference |
+| Complete operation in another market | Existing language/channel capabilities do not establish every country's workflow; use the verticals capability matrix | Must be verified per selected market and operation | Transferability unproven |
+
+These states must be updated independently. Code presence does not prove
+deployment, and a successful demonstration does not prove repeated paid use.
 
 ### 2.1 Review ingestion & sources
 
@@ -145,7 +162,7 @@ build sequence. Current selection/dependencies live in
 
 | Capability | Status | Pointer |
 |---|---|---|
-| Admin console — overview, businesses, At-risk list, Business-summary DTO, health badges | ✅ Built | spec 2026-08-15 §5, `src/lib/admin/business-summary.ts` |
+| Admin console — overview, At-risk data, Business-summary DTO, health badges | ⚠️ Partial — legacy business list/detail/new, Security and Runbook pages retired (source checked Sep 11) | `src/app/admin/overview/page.tsx`, `src/lib/admin/business-summary.ts`; API routes remain; business management moves to the separate Admin app (deployment not checked): [admin retirement notes](../currents.md) |
 | Margin/finance signals (aggregate-on-read from `api_costs`) | ✅ Built | `src/lib/admin/margin-service.ts` |
 | Flagged-response queue (`/admin/flagged`) | ✅ Built | invariant #4 |
 | Autonomy admin (`/admin/autonomy`, AAL2) | ✅ Built | WS6 |
@@ -207,7 +224,12 @@ feature is valid. Funding and beta learning proceed in parallel.
    visibility, public API/MCP, agency/white-label. Public agent access still
    needs machine identity, scoped authorization and demand evidence. (P8 / later)
 
+The owner-operator v1 is selected and specified in
+[owner-operator/README.md](2026-09-11-owner-operator/README.md); it is not a
+P8/API dependency. Rows above stay "not established" until the checkpoint
+evidence lands.
+
 Also open from the design of record (not roadmap-phase work): cadence jitter
-(pre-scale item, §8.2), calibrated-confidence router, conversational surface,
+(pre-scale item, §8.2), calibrated-confidence router,
 cross-agent coordination keys, outcome billing (§8.5), Zernio pay-per-use
 pricing-unit + written-echo follow-ups (§8.4 gate note).

@@ -1,4 +1,4 @@
-# Candidate industries (created 2026-08-26; revised 2026-09-07)
+# Candidate industries (created 2026-08-26; revised 2026-09-11)
 
 These three industries remain longer-term markets to explore. The owner
 approved focusing the next month's improvement on **one customer type**,
@@ -17,6 +17,9 @@ defaults (Phase 4), and marketing pages a customer gets. Keep shared behavior
 in the core pipeline. A future `businesses.vertical` configuration field is
 a proposal, not a prerequisite for choosing whom to serve this month.
 Phase numbers are stable roadmap references, not chronological requirements.
+Specialization should also define a complete recurring job: signal → verified
+context → owner-authorized action → follow-up → observed outcome. Topics and
+defaults support execution; they do not establish industry value by themselves.
 
 ## 1. Why these three
 
@@ -36,14 +39,30 @@ review volume, identifiable contacts, or software access.
 
 ## 2. Choose the first customer type from the beta
 
-Record each active beta account's business type, actual review volume,
-software, owner effort, and repeated problems. Favor a group where:
+Record each active beta account's buyer/operator, business type and location
+count, recurring job/current workaround, country, owner/customer languages,
+platforms/channels, software, actual activity, owner effort and acquisition
+route in the shared COO record. Favor a group where:
 
 - More than one accessible owner describes the same recurring problem.
 - There is enough real activity this month to observe the workflow.
 - The owners can use and evaluate the improvement during the beta.
 - The necessary data and access are available within the engineering limit.
 - Owners will discuss a concrete paid offer or explain why they would decline.
+
+**Provisional buyer hypothesis (this section owns it; other pages link
+here):** an independent owner with roughly 1–5 locations, subject to roster
+evidence. A regional operations manager needs delegation across managers and
+locations; an agency needs repeated client onboarding, client-specific
+approvals and reporting. Those are separate buyer/workflow hypotheses, not
+tiers of the same pilot. Existing customers keep their promised access
+regardless of the discovery focus.
+
+For the chosen group, write one operational example. An illustrative salon
+case: recurring scheduling complaints → owner-confirmed context → approved
+follow-up → a check on the unresolved case and later recurrence. Customer
+linkage, permissions and any booking integration must exist first; fewer
+later complaints alone do not prove RepWorth caused the improvement.
 
 Use a simple account list and conversation notes; do not build a scoring
 tool. If only one account is available, label its findings as a single case
@@ -143,6 +162,9 @@ grill item and a counsel touchpoint (forward-roadmap Phase 1).
 
 ## 5. Per-vertical platform posture (Phase 6 input)
 
+The table below records earlier market assumptions, not worldwide platform
+relevance or verified access. Check them for the selected country and cohort.
+
 | Platform | Home services | F&B | Beauty |
 |---|---|---|---|
 | Google | Primary (today) | Primary | Primary |
@@ -150,6 +172,28 @@ grill item and a counsel touchpoint (forward-roadmap Phase 1).
 | Facebook | Secondary | Secondary | Secondary |
 | Tripadvisor | — | Monitoring value (tourist-heavy locations) | — |
 | Trustpilot | Low fit (local trades) | Low fit | Low fit |
+
+### Market capability evidence
+
+For each selected pilot market, maintain one compact entry in the shared
+customer evidence record using these fields; this document owns the definition.
+
+| Dimension | Evidence required before claiming support |
+|---|---|
+| Country and languages | Named market, owner language, customer language(s), owner-reviewed output quality |
+| Source platform | Real access and supported read/publish operations for that account |
+| Request/notification channel | Provider availability, eligible recipients, applicable permission and sending constraints |
+| Local operation | Timezone, sending hours and support path for exceptions |
+| Complete journey | Dated setup, eligible event, approved action, verified result and follow-up evidence; identify manual steps |
+
+An international signup, translated interface and generated Japanese text are
+different capabilities from operating a complete workflow in Japan. This
+revision declares no new country supported. After the first workflow earns
+continued use and an affordable expansion decision, test transferability by
+keeping the industry and job stable while changing one market. The
+[competitor evidence](../plans/2026-09-11-reputation-competitor-landscape.md)
+shows the incumbents already sell outside North America by capability, not
+by country count.
 
 ## 6. Per-vertical compliance & tone notes (Phase 2/4 input)
 

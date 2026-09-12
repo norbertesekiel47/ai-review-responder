@@ -1,5 +1,9 @@
 # COO: turn product evidence into customer and investor decisions
 
+**Strategy revision: September 11, 2026.** Align discovery, customer evidence
+and the pitch around a defined recurring job owners will delegate and pay
+for. The operator remains an experiment candidate, not a shipped capability.
+
 **Planning period: September 8–December 6, 2026, inclusive: 90 days across 13 weeks.**
 Read the [shared four-founder plan](../README.md) first. It owns company
 targets, scorecard definitions, approval scope and the weekly rhythm; this
@@ -28,10 +32,12 @@ Own the process from qualified introduction through meeting, next step and
 customer handoff. Give the CEO a concise decision queue rather than making
 the CEO maintain the pipeline or assemble every pitch.
 
-The last report was **zero paying customers**, approximately five interested
+The September 7 planning report was **zero paying customers**, approximately five interested
 prospects, and an unspecified beta cohort. Those are different groups. The
 reported runway is one to two months; actual cash, obligations and the binding
-date remain unverified. Do not claim an investor pipeline, customer volume,
+date need the CFO's current record; the September 10 decision log records
+partial finance progress with obligations/final deadline still pending.
+Refresh dated customer inputs before use. Do not claim an investor pipeline, customer volume,
 retention or revenue that has not been recorded.
 
 The customer outcome to test is less recurring owner work, with booking or
@@ -152,8 +158,8 @@ evidence rather than delaying all discussions.
 | 2. Buyer | One provisional customer type, decision-maker, current tools and buying trigger | Actual cohort/qualified conversations; unknowns visible |
 | 3. Product demo | One complete existing journey, including owner decisions and exceptions | CEO-verified product scope; dated demo with fixture/staging/production labels |
 | 4. Customer proof | Usage, paid decisions, effort returned and what the beta still cannot prove | Last reported zero paid stays until evidence changes; distinguish interested prospects, active beta, paid commitments and received cash |
-| 5. Market | A bottom-up view of the reachable first segment and plausible expansion | CMO's sourced business counts/eligibility and buyer budgets, CFO's pricing scenarios; assumptions and method visible |
-| 6. Alternatives and why win | What buyers use today and the specific reason to choose RepWorth | Competitors, CRM/agency/manual alternatives; observed paid preference rather than “AI-native is our moat” |
+| 5. Market | Reachable first buyer/industry/job/market, followed by conditional expansion | CMO's sourced eligibility/counts and buyer budgets, CFO scenarios; second-market language/platform/channel readiness, not global coverage as an established moat |
+| 6. Alternatives and why win | Complete task comparison and why this buyer would delegate to RepWorth | Observed setup, corrections, exceptions, completion and paid preference; confirmed context and useful follow-through as hypotheses with evidence and failure cases |
 | 7. Distribution | How the first suitable buyers can be reached and served repeatedly | CMO's channel context plus CFO's canonical funnel: lead → demo → paid stages with actual denominators and elapsed time |
 | 8. Economics | Price, collection timing, delivery/support costs and remaining uncertainty | CFO's verified model, actual usage/receipts where available; historical service allowance is not full burn |
 | 9. Team | CEO/CTO, COO, CFO and CMO ownership, relevant experience and demonstrated delivery | Accurate biographies, committed capacity and actual achievements; no invented credentials |
@@ -229,6 +235,16 @@ not marked successful because an invitation was sent. Avoid collecting
 passwords in notes. Do not promise every review will be answered or that QR
 scans create sales.
 
+If the [operator experiment](../../2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment)
+runs its owner pilot ([spec §12.3](../../2026-09-11-owner-operator/README.md)),
+extend the same customer record with the owner's instructions, accepted
+plan/rule version, missing decisions, and next eligible task. Observe whether the next task completes without founder
+rescue, whether a correction improves subsequent comparable work, and what
+remains unresolved. Start the baseline at the first observation. Label
+historical simulation, manual founder service, automated execution and
+verified external completion separately; a completed setup is not recurring
+delegation.
+
 Support starts with one queue and an owner, not a new help-center project.
 Record account alias, impact, first-seen time, reproducible steps, current
 workaround, owner, next-update time, resolution and evidence. As a proposed
@@ -238,10 +254,13 @@ suspected unintended public actions, wrong-account behavior or unavailable
 core service to CEO immediately. Any customer update is drafted for approval
 unless a specific standing communication authorization already covers it.
 
-Send a product request to CEO only with the named account, paid-decision
-blocker or observed quality failure affecting an existing beta promise,
-evidence, workaround and expected benefit. CEO can reject vague UI polish.
-The first new feature has a provisional **20-hour total engineering cap**,
+Send a product request to CEO with the named account, paid-decision blocker,
+quality failure against an existing beta promise, or repeated observed burden
+that could justify a bounded hypothesis experiment. Include evidence,
+workaround and expected benefit; CEO owns selection and stop/continue criteria.
+Customers need not request chat, and vague UI polish remains insufficient.
+The owner-operator v1 is the one named exception (60-hour ceiling, 30
+committed). Any other first feature has a provisional **20-hour total engineering cap**,
 including discovery and verification, with at most four hours of connector
 investigation inside it. COO does not allocate that cap independently or
 promise it to buyers. No qualifying problem means no new feature.
@@ -304,7 +323,7 @@ under every continuation option.
 |---|---|---|
 | 1 | Sep 8–14 | Five shared records only; existing roster first, approved offer attempts by Sep 10, then the next approved prospect batch without waiting indefinitely. Review actual decisions/investor status Sep 14 |
 | 2 | Sep 15–21 | COO-03/06/08: complete approved follow-ups; reconcile actual yes/no reasons and operational burden. On Sep 21 or earlier, put CFO's costed continuation options and unresolved inputs before CEO |
-| 3 | Sep 22–28 | COO-02/04/07: refine only evidence requested by real buyers/investors; close onboarding obstacles and diligence gaps. Record CEO's selected product blocker or decision to build nothing |
+| 3 | Sep 22–28 | COO-02/04/07: refine evidence for the selected customer hypothesis and actual buyer/investor questions; close onboarding obstacles and diligence gaps. Record CEO's selected blocker/experiment or decision to build nothing |
 | 4 | Sep 29–Oct 5 | COO-07/09: prepare continuation conversations around actual beta end dates, reconcile delivered work/support effort, and assemble day-30 evidence |
 | 5 | Oct 6–12 | Conditional: COO-10, Oct 7 day-30 review with two Claude rounds; set day-60/90 targets from evidence. Update pitch using results; scale only within cash/value/capacity gates already checked |
 | 6 | Oct 13–19 | If affordable, COO-03/06: repeat the same customer demo/offer and strongest investor follow-ups. Check that the process works without repeated CEO rescue |

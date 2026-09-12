@@ -1,12 +1,12 @@
-# Agentic architecture & MCP strategy (roadmap view)
+# Agentic architecture, owner operator & MCP strategy (roadmap view)
 
-Updated **2026-09-07**; filename remains stable. This page maps the August
+Updated **2026-09-11**; filename remains stable. This page maps the August
 research memo onto existing architectural seams and states the dependencies
 for future agentic work. P1–P8 are stable topic identifiers, not a fixed
 chronological build sequence. The forward roadmap owns current priorities.
 
-Targeted source inspection at `4aa132b` supports extending the existing
-worker/outbox system; no framework rewrite is justified. It does not prove
+The September 7 targeted source inspection at `4aa132b` supports extending the
+existing worker/outbox system; no framework rewrite is justified. It does not prove
 runtime behavior, scalability, customer value or a moat. No deployed flags,
 credentials, providers or browser journeys were checked in this refresh.
 
@@ -24,9 +24,13 @@ and `.claude/CLAUDE.md` invariants. This file is the strategy view.
    checks belong at their applicable boundaries. A pure policy evaluator
    does not itself implement every control. Preserve invariants #2/#3/#7/#15
    and the cost-guard contract when adding entry points.
-2. **Event-driven, not chat-driven.** The agent reacts to events (webhook
-   ingest, Postgres-state pollers, time schedulers) — never waits to be
-   chatted with. A conversational surface is deliberately late (§4).
+2. **Owners delegate through conversation; events and schedules drive
+   execution.** A proposed owner surface turns an instruction into a visible,
+   bounded operating plan using supported operations. Once authorized, work
+   continues through webhook ingest, pollers and schedulers without another
+   chat message. The discovery experiment is independently selectable and
+   does not wait for public API/MCP demand. This is a direction; no
+   conversational runtime exists today.
 3. **One durable workflow system; personas are attribution, not processes.**
    Reply/Guardian/Insights are trigger-shaped graphs over one pipeline, with
    persona attribution on run-spine steps — not free-running agents passing
@@ -65,10 +69,11 @@ The memo's diagram, box by box:
 |---|---|---|
 | Event / Workflow layer | `job_outbox` (transactional) + BullMQ + `worker/ingress/*` + pollers/schedulers | P1 may add one justified external event source with durable event identity, replay and consent provenance |
 | Reputation Manager Agent | Persona-attributed workflows; run-spine parent/child records; solicitation-specific batch/send lifecycle | P2 recovery requires its own domain lifecycle; do not claim a generic executor already exists |
-| Brand Brain + Memory | Brand columns + voice learning from owner edits + edit-distance log | P4: minimum verified facts/policies before dependent recovery; fuller structured context later |
+| Brand Brain + Memory | Brand columns + voice learning from owner edits + edit-distance log | P4: confirmed facts/rules, owner corrections/preferences, and action/outcome evidence for the selected job; minimum context before dependent actions |
 | Policy Engine + Permissions | `auto_policy` gates, trust dial, veto window, `evaluateAsk`, server-owned policies; Refusal ledger writer/read model | P5: justified per-action matrix, Judge-on-withhold, Governor per-gate |
 | Reputation Graph | Run records, outcomes, contacts/visits, review attribution and competitor snapshots | P7: queries only when data answers useful questions; current records do not establish complete sales attribution |
 | Deterministic tools (`reviews.list`, `responses.publish`, …) | Worker jobs + `ReviewPublisher`/`ReviewSource` seams + solicitation verbs (`approveBatch`, `haltBatch`, …); these names are conceptual, not a public tool inventory | Public authentication, API contracts, quotas and audit actors still require implementation (§4) |
+| Owner-facing operator | Existing owner UI and domain operations; the proposed conversational journey is not established as built | Bounded internal experiment under §3; external machine access is a separate §4 decision |
 | Internal product ↔ MCP/API split | Internal only today | §4 below |
 
 Retain these seams. The system already supports bounded event-driven
@@ -83,7 +88,27 @@ Choose at most one improvement from an observed beta burden or barrier to
 paying; choosing no new feature is valid. Measurement can use a worksheet
 and existing records. Cash/funding preparation proceeds alongside learning.
 
-Dependencies for later topic work:
+Owner-facing work and later dependencies:
+
+**Owner-operator v1:** specified in
+[owner-operator/README.md](2026-09-11-owner-operator/README.md) with its
+[architecture page](2026-09-11-owner-operator/architecture.md) as the
+detailed owner of catalog kinds, framework posture and seam extension. The
+rules below are the summary. Add only the planning/context capability that
+job requires. A model proposes a typed plan; scoped services
+validate supported actions and required decisions. Store confirmed
+instructions and pending decisions durably, with a version. Recheck authority
+and current state at execution. A conversation is not an approval token;
+inferred preferences cannot enlarge permissions.
+
+Keep business facts, corrections and observed outcomes distinct and sourced.
+Treat reviews and imported content as untrusted data. Missing facts produce a
+question or a bounded refusal. Preserve cost reservations, attempt limits,
+idempotency, tenant scope and action-specific approvals. Workers keep long
+work and provider calls; execution stays in jobs/domain modules, not the run
+spine. The selected spec defines verified completion, pending work and
+failure handling. No general memory store, open-ended model loop or public
+tool inventory is required.
 
 1. **P1, external events:** only when multiple participating businesses share
    a provider and observed input burden justifies it. API access, event
@@ -103,9 +128,10 @@ Dependencies for later topic work:
    net owner savings. Inquiries, bookings and revenue need separate records;
    reviews or QR scans are not substitutes.
 5. **P8 API/MCP:** conditional read-only pilot under §4, with no automatic
-   trigger after P2. Chat and A2A also need named demand and capacity. A chat
-   UI can reuse governed tools but still needs its own interaction and safety
-   work; it is not automatically a thin implementation.
+   trigger after P2. A2A remains a separate demand/capacity decision. The
+   owner-operator candidate does not wait for external machine access; a
+   software slice still needs its own interaction, authorization and failure
+   handling, and a complete conversational platform does not fit the first cap.
 6. **Scale and billing:** outcome billing remains parked until definitions,
    attribution, costs and commercial terms support it. Wider worker
    replication/concurrency requires coordination and load evidence; the
@@ -180,6 +206,8 @@ checks and access records, not solicitation eligibility or reply moderation.
 - A vendor agent-framework migration (principle 6).
 - LLMs with direct DB or external-API access (principle 1).
 - Multi-agent choreography for its own sake (principle 3).
-- A chat interface before the tool layer (principle 2, §3 item 5).
+- A conversational action without a governed domain operation and applicable
+  authorization. An external API/MCP layer is not a prerequisite for the
+  internal experiment.
 - Any agent capability that skips the access, policy, moderation, or audit
   requirements applicable to that action, including future MCP tools (§4).

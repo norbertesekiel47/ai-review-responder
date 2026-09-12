@@ -1,11 +1,12 @@
 # Investor theses and validation plan
 
-Originally recorded 2026-08-29. **Revised 2026-09-07** after the founder interview.
+Originally recorded 2026-08-29. **Revised 2026-09-11** with the owner-approved operator direction.
 The filename is retained so existing references continue to work.
 
 The founder heard three themes at investor events: sell outcomes, build for
-agents, and explore work that recent AI advances make possible. **No investor
-has assessed RepWorth yet.** These themes are hypotheses to test with actual
+agents, and explore work that recent AI advances make possible. **The September
+7 record contained no investor assessment of RepWorth; refresh from actual
+COO records before using that status today.** These themes are hypotheses to test with actual
 buyers and relevant investors; event advice and broad adoption statistics do
 not establish a funding commitment or a roadmap priority.
 
@@ -52,7 +53,15 @@ interventions, corrections, unresolved cases and support effort with their
 denominators. Any calculated time-saving estimate stays labeled until checked
 against observed work. A short beta does not establish long-term retention.
 
-## 2. Build reusable operations; require demand for agent access
+## 2. Test an owner-facing operator; require separate demand for external access
+
+**Product hypothesis:** owners still coordinate reputation work even when
+individual steps are automated. RepWorth aims to take responsibility for one
+recurring job: understand the business's instructions, propose an operating
+plan, perform authorized work, follow up, and show the result. The
+[bounded experiment](2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment)
+tests this claim; the [v1 spec](2026-09-11-owner-operator/README.md) is the
+build. Conversational setup alone does not prove ongoing delegation.
 
 The [architecture](2026-08-26-agentic-architecture.md) supports keeping domain
 operations reusable behind typed, validated interfaces. Apply that pattern to
@@ -77,6 +86,32 @@ MCP listing does not prove that agents will choose or pay for RepWorth.
 Permissioned business context may become valuable, but neither a connector
 nor stored action history establishes a data moat by itself.
 
+### What could become harder to replace
+
+| Hypothesis | Evidence to seek | What would weaken it |
+|---|---|---|
+| Confirmed business facts and rules improve execution | Fewer factual corrections and policy mistakes across comparable eligible work | Stale/wrong context or no measurable improvement |
+| Owner corrections improve later comparable work | Less repeated correction and ongoing supervision, with sample and dates | Owners repeat instructions or founder rescue supplies the benefit |
+| Industry-specific action and follow-up knowledge improves the whole job | More correctly completed work, fewer unresolved cases, and observed outcomes linked to interventions | Better summaries without useful action, or unsupported causal claims |
+| A reachable acquisition route can be repeated | Qualified opportunities, paid decisions and delivery costs across comparable batches | Interest without paid continuation or prohibitive acquisition/support effort |
+
+These are prospective advantages. Incumbent comparison should cover the same
+complete task: setup, owner interventions, incorrect assumptions, exception
+handling, completion and paid preference. Within-business memory is distinct
+from any future permissioned cross-business learning; no network effect or
+data moat follows from keeping records. Before claiming competitors lack
+conversation, automation or international coverage, read the
+[competitor evidence](../plans/2026-09-11-reputation-competitor-landscape.md)
+(NiceJob, TrueReview, GatherUp; checked Sep 11): all three document AI
+replies, background automation and some non-US availability. The open
+question is the complete delegated job, not any single AI feature.
+
+International expansion is a transferability test after the initial workflow:
+hold the industry/job stable and verify the next market's languages, platforms,
+channels and complete operation using the [market capability evidence](2026-08-26-verticals.md#market-capability-evidence).
+Country count alone is not defensibility. The story should show the reachable
+first segment, proof earned there, and a conditional expansion path.
+
 No AI-answer visibility/AEO monitoring program is committed. A proposed
 probe needs named customer demand, a useful and reproducible measurement,
 an action the result would inform, and an approved cost/capacity allowance.
@@ -94,8 +129,8 @@ roster, workload and shared software are still unknown. Keep reputation as
 the starting job. Observe the existing journey and discuss a concrete paid
 offer in parallel. The [forward roadmap](2026-08-26-forward-roadmap.md) owns
 the provisional engineering/discovery limits. A limit is not an allocation:
-hold the hours in reserve until the forward roadmap's paid-decision or
-existing-beta quality test justifies a selected improvement.
+hold the hours in reserve until the forward roadmap's payment/beta blocker
+or bounded observed-burden experiment test justifies a selected improvement.
 
 P1–P8 remain stable roadmap topic identifiers, not a fixed delivery order.
 Observe impact immediately. If recovery becomes the justified slice, establish
@@ -130,8 +165,9 @@ choice forward. Missing inputs or a missing decision do not authorize
 discretionary building or spending. Use the forward roadmap's dated decision
 and escalation rules. These dates are planning targets, not completed work.
 
-In week 1, prepare an honest brief with zero paying customers, founder-reported
-beta participation, current product scope, evidence gaps and a costed funding
+In week 1, prepare an honest brief with dated, verified paying status (the
+September 7 planning input was zero), founder-reported beta participation
+clearly distinguished from active use, current product scope, evidence gaps and a costed funding
 ask once cash inputs arrive. Obtain permission before messaging anyone,
 submitting an application or spending money. The COO records actual
 responses, decisions, conditions and next dates; CFO verifies financial
@@ -173,3 +209,13 @@ research is historical context, not current proof of demand or investor fit.
 Use the [roadmap index](README.md) and [forward roadmap](2026-08-26-forward-roadmap.md)
 for the coordinated plan, with the cost snapshot's stated limits when making
 cash decisions.
+
+## 6. September 11 direction update
+
+The owner approved recurring conversational delegation as a bounded product
+hypothesis with a bounded software v1
+([spec](2026-09-11-owner-operator/README.md)), and permissioned memory and
+industry execution as possible advantages to measure. External API/MCP stays
+separately justified. Cash limits, subscription shape, evidence definitions
+and existing beta promises are unchanged. This is a strategy decision, not
+investor feedback or traction.
