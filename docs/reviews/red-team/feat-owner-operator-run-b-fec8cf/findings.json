@@ -5,11 +5,11 @@
   "branch": "feat/owner-operator-run-b",
   "fork_sha": "6edacd0b094e47a1f72008ce75b126a4eead87ed",
   "merge_base_sha": "6edacd0b094e47a1f72008ce75b126a4eead87ed",
-  "head_sha": "3512492348c43dfe4b25ed093c3e0dea374ee91b",
+  "head_sha": "77ce88f0449db0fdd1c9829e612039ae2b6bae2c",
   "intake_sha256": "3c4181464cbcee3e1bd57950773f877afdfac5bab231c294f1e1f643a5342c05",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-09-12T21:21:41.607050Z",
+  "round": 2,
+  "generated_at": "2026-09-12T21:49:47.000000Z",
   "inventory": [
     {
       "id": "B1-01",
@@ -36,93 +36,92 @@
       "id": "B1-04",
       "test": "POST apply returns 404 operator_disabled before auth when the flag is off",
       "file": "src/app/api/operator/__tests__/apply-route.test.ts",
-      "outcome": "inconclusive",
-      "reason": "M03 hoisted the uuid-or-404 check in requireOperatorProposalWriter (gate.ts:86-89) ABOVE the `await requireOperatorWriter(sql, request)` call, so the id shape is decided before the flag, the owner and the impersonation cookie -> the case PASSED. The difference the mutation makes is real but lies on a branch no test in the repository executes: see finding RT-B1. Recorded inconclusive (oracle), NOT equivalent -- equivalence cannot be proven and the documented order (gate.ts:70-79, docs/directory/app-api-b.md:86) puts the id last.",
-      "inconclusive_class": "oracle"
+      "outcome": "killed",
+      "reason": "M03 hoisted the uuid-or-404 check in requireOperatorProposalWriter (gate.ts:86-89) ABOVE the `await requireOperatorWriter(sql, request)` call, so the id shape is decided before the flag, the owner and the impersonation cookie -> the case PASSED. The difference the mutation makes is real but lies on a branch no test in the repository executes: see finding RT-B1. Recorded inconclusive (oracle), NOT equivalent -- equivalence cannot be proven and the documented order (gate.ts:70-79, docs/directory/app-api-b.md:86) puts the id last.\n\nROUND 2 (head 77ce88f0). KILLED — M03 re-applied (the uuid-or-404 check hoisted above `await requireOperatorWriter`, gate.ts:84-90) and re-measured against the two NEW `requireOperatorProposalWriter` cases the fix added: both FAILED (see R2-01, R2-02). The oracle gap this row recorded -- the mutated branch executed by no test -- is closed, so the row is no longer inconclusive. The apply-route case named in this row still cannot see M03 (it passes the flag ON with no impersonation cookie and a malformed id), which is exactly why the fix put the discriminating cases in `gate.test.ts` rather than here."
     },
     {
       "id": "B1-05",
       "test": "POST apply rejects a missing or mismatched Origin before any read",
       "file": "src/app/api/operator/__tests__/apply-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR1 removed the `withSameOrigin()` wrapper from the apply route's export (`export const POST = withSameOrigin()(postApply)` -> `postApply`) -> FAILED: `expected 200 to be 403`. The same-origin refusal is real and happens before any read."
     },
     {
       "id": "B1-06",
       "test": "POST apply rejects an impersonated session with 409 impersonation_not_allowed",
       "file": "src/app/api/operator/__tests__/apply-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR5 deleted the whole `if (hasImpersonationCookie(request))` block from `requireOperatorWriter` (gate.ts:58-60) -> FAILED: `expected 200 to be 409`. The apply route's own end-to-end impersonation refusal sees the gate's step, independently of gate.test.ts."
     },
     {
       "id": "B1-07",
       "test": "POST apply maps applied to 200 with the receipt, stale to 409 proposal_stale, contract_changed to 409, not_found to 404 and not_pending to 409",
       "file": "src/app/api/operator/__tests__/apply-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR2 changed the `not_pending` arm's status from 409 to 200 in the apply route's result switch -> FAILED: `expected 200 to be 409`. The six-way ApplyResult -> HTTP mapping is measured, not asserted loosely."
     },
     {
       "id": "B1-08",
       "test": "POST decline returns 404 operator_disabled before auth when the flag is off and rejects a mismatched Origin",
       "file": "src/app/api/operator/__tests__/decline-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR3 removed the `withSameOrigin()` wrapper from the decline route's export -> FAILED: `expected 200 to be 403`. The Origin half of this case is measured (the flag half is measured by MR6 on the same gate line, B1-13)."
     },
     {
       "id": "B1-09",
       "test": "POST decline returns 200 with the rejected proposal and 404 for another account's proposal",
       "file": "src/app/api/operator/__tests__/decline-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR4 changed the decline route's `rejected` arm from `jsonResponse({ proposal })` (200) to a 409 -> FAILED: `expected 409 to be 200`. A recorded Decline really answers 200 with the row."
     },
     {
       "id": "B1-10",
       "test": "POST turns inserts the conversation, the accepted turn, and the outbox row in one transaction and returns the ids",
       "file": "src/app/api/operator/__tests__/turns-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR7 made the turns route echo the conversation id in the `turnId` field (`turnId: result.turnId` -> `turnId: result.conversationId`) -> FAILED: `expected { ...(2) } to deeply equal { ...(2) }`. The route's id mapping is pinned. Note the suite mocks `createTurn`, so the transaction/outbox half of this title is owned by the `turns.ts` suites, which Run B does not touch."
     },
     {
       "id": "B1-11",
       "test": "POST turns returns the existing ids for a repeated clientTurnKey with the same payload and 409 for a different payload",
       "file": "src/app/api/operator/__tests__/turns-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR8 changed the turns route's conflict token (`errorResponse('turn_key_conflict', 409)` -> `errorResponse('invalid_body', 409)`) -> FAILED: `expected { error: 'invalid_body' } to deeply equal { error: 'turn_key_conflict' }`. The 409 token a differing replay gets is measured, not just the status."
     },
     {
       "id": "B1-12",
       "test": "POST turns rejects a missing or mismatched Origin before any write",
       "file": "src/app/api/operator/__tests__/turns-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR9 removed the `withSameOrigin()` wrapper from the turns route's export -> FAILED: `expected 200 to be 403`. The before-any-write Origin refusal is real."
     },
     {
       "id": "B1-13",
       "test": "POST turns returns 404 operator_disabled before any write when OWNER_OPERATOR_ENABLED is off",
       "file": "src/app/api/operator/__tests__/turns-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR6 deleted the whole `if (!ownerOperatorEnabled())` guard from `requireOperatorWriter` (gate.ts:52-54) -> FAILED: `expected 200 to be 404`. The turns route's own flag refusal sees the gate's first step."
     },
     {
       "id": "B1-14",
       "test": "POST turns rejects an impersonating admin with 409 before any write",
       "file": "src/app/api/operator/__tests__/turns-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — Same mutant MR5 (impersonation block deleted from the gate), second run -> FAILED: `expected 200 to be 409`. The turns route's before-any-write impersonation refusal is measured end to end."
     },
     {
       "id": "B1-15",
       "test": "POST turns rejects a location that is archived or belongs to another account and a conversation owned by another account",
       "file": "src/app/api/operator/__tests__/turns-route.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MR10 changed the turns route's `location_not_found` arm from 404 to 409 -> FAILED: `expected 409 to be 404`. The two not-found mappings (archived/foreign location, foreign conversation) are pinned at the route."
     },
     {
       "id": "B1-16",
       "test": "operator screen posts a turn with the stored location, shows Preparing your plan and resumes the same turn from URL state after a reload",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-17",
@@ -143,14 +142,14 @@
       "test": "operator screen renders each failure reason with its wording and stops polling on 404 operator_disabled",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-20",
       "test": "operator screen disables the composer under All locations and enables it once a location is chosen",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-21",
@@ -178,29 +177,28 @@
       "test": "operator renders every stored segment kind in order",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-25",
       "test": "terminal failures and requested capabilities survive reload and subsequent turns",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
-      "outcome": "inconclusive",
-      "reason": "M25 turned `withPatchedProposal`'s replacement into a no-op -- `turn.proposals.map((p) => (p.id === row.id ? row : p))` became `turn.proposals.map((p) => p)` (useOperatorConversation.ts:126) -> the case PASSED. The mutated expression is on a path NO test in the repository executes: see finding RT-B3. Recorded inconclusive (oracle): a claim about the oracle, not about the mutant.",
-      "inconclusive_class": "oracle"
+      "outcome": "killed",
+      "reason": "M25 turned `withPatchedProposal`'s replacement into a no-op -- `turn.proposals.map((p) => (p.id === row.id ? row : p))` became `turn.proposals.map((p) => p)` (useOperatorConversation.ts:126) -> the case PASSED. The mutated expression is on a path NO test in the repository executes: see finding RT-B3. Recorded inconclusive (oracle): a claim about the oracle, not about the mutant.\n\nROUND 2 (head 77ce88f0). KILLED — M25 re-applied (`turn.proposals.map((p) => (p.id === row.id ? row : p))` -> `.map((p) => p)`, useOperatorConversation.ts:126) and re-measured against the NEW OperatorClient case the fix added -> FAILED (see R2-03). The oracle gap this row recorded is closed: `withPatchedProposal` is now on a path a test executes. The case named in this row still cannot see M25, which is why the fix added a separate one."
     },
     {
       "id": "B1-26",
       "test": "loaded conversations retain identity and starting over stays empty",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-27",
       "test": "a delayed conversation response never replaces a newly submitted turn",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
       "outcome": "inconclusive",
-      "reason": "M08 changed the applyLoadedView call from `{ conversationId, turnId: loadRef.current.activeTurnId }` to `{ conversationId, turnId }` -- the render capture instead of the ref (useOperatorConversation.ts:320) -> the case PASSED. Measured, then read from the code: the epoch guard at useOperatorConversation.ts:314 discards the stale answer BEFORE applyLoadedView runs, and on the refetch the POST triggers (`reloadEpoch`) the state and the ref already agree, so in this case the two spellings cannot differ. The ref's own window needs a turnId change that moves no effect dependency -- `finishTurn` (useOperatorConversation.ts:360-368) is the one: it nulls turnId and the ref and bumps `reloadEpoch` but does NOT bump `loadRef.current.epoch`, so an in-flight read answers inside its own epoch with the ref already null and the capture still holding the old turn. Nothing exercises that. Recorded inconclusive (oracle) rather than equivalent -- equivalence cannot be proven. Distinct from the closed run's accepted-risk RT-12, which is about the explicit `controller.abort()` calls, not this read.",
+      "reason": "M08 changed the applyLoadedView call from `{ conversationId, turnId: loadRef.current.activeTurnId }` to `{ conversationId, turnId }` -- the render capture instead of the ref (useOperatorConversation.ts:320) -> the case PASSED. Measured, then read from the code: the epoch guard at useOperatorConversation.ts:314 discards the stale answer BEFORE applyLoadedView runs, and on the refetch the POST triggers (`reloadEpoch`) the state and the ref already agree, so in this case the two spellings cannot differ. The ref's own window needs a turnId change that moves no effect dependency -- `finishTurn` (useOperatorConversation.ts:360-368) is the one: it nulls turnId and the ref and bumps `reloadEpoch` but does NOT bump `loadRef.current.epoch`, so an in-flight read answers inside its own epoch with the ref already null and the capture still holding the old turn. Nothing exercises that. Recorded inconclusive (oracle) rather than equivalent -- equivalence cannot be proven. Distinct from the closed run's accepted-risk RT-12, which is about the explicit `controller.abort()` calls, not this read.\n\nROUND 2 (head 77ce88f0). Re-read, not re-measured. The fix commit touches neither `applyLoadedView` nor `finishTurn`, and no case added by it discriminates the ref read from the render capture (the new OperatorClient case never clears `turnId`). Stays inconclusive (oracle) with the window recorded above; round 2 did not invent a test for it, as instructed.",
       "inconclusive_class": "oracle"
     },
     {
@@ -222,7 +220,7 @@
       "test": "proposal card renders the target from the stored location and shows Prepared for the location when the selector moved",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-31",
@@ -236,28 +234,28 @@
       "test": "proposal previews expose exact fact replacements before approval",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-33",
       "test": "requested capability card has no Apply button",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-34",
       "test": "Apply posts the prepared version token and repaints the card from the returned row",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MW1 dropped the Apply body entirely (`action === 'apply' ? { expectedVersionToken: proposal.preparedVersionToken } : undefined` -> `undefined`, useProposalWrites.ts:70) -> FAILED: `expected undefined to deeply equal { expectedVersionToken: { ...(2) } }`. The client's third token really is posted."
     },
     {
       "id": "B1-35",
       "test": "Not now posts no body and still refetches the transcript",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — MW2 deleted the `reloadTranscript()` call from the success arm (useProposalWrites.ts:88-90) -> FAILED: `expected \"vi.fn()\" to be called 1 times, but got 0 times`. The sibling refetch after a landed write (D11) is measured on the Decline path too."
     },
     {
       "id": "B1-36",
@@ -271,14 +269,14 @@
       "test": "a write that never reaches the server says so on the card",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-38",
       "test": "a 404 operator_disabled ends the session rather than marking the card",
       "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds."
     },
     {
       "id": "B1-39",
@@ -326,8 +324,8 @@
       "id": "B1-45",
       "test": "applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
       "file": "src/lib/agents/operator/__tests__/apply.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — M30 dropped the `versionTokensEqual(current, prepared)` conjunct from `versionTokensAgree` (apply.ts:345-351), leaving only the prepared/expected half -> FAILED. With the row-moved token no longer compared the case falls past the stale branch into the applied path and dies on `agents/operator: applied proposal vanished inside its own transaction` -- the stub queue holds only the seven results the stale path needs, because production never makes the eighth call. The current/prepared half of D9 is measured."
     },
     {
       "id": "B1-46",
@@ -340,22 +338,22 @@
       "id": "B1-47",
       "test": "applyProposal rejects a proposal whose contract_version is not the catalog's with contract_changed before any lock",
       "file": "src/lib/agents/operator/__tests__/apply.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — M32 made the contract comparison always agree (`operation !== null && operation.contractVersion === loaded.contractVersion` -> `operation !== null`, apply.ts:73) -> FAILED: `expected { kind: 'not_pending', ...(2) } to deeply equal { kind: 'rejected', ...(2) }`. The pre-transaction contract_changed branch, and with it the before-any-lock claim, is real."
     },
     {
       "id": "B1-48",
       "test": "applyProposal returns proposal_not_found for a proposal of another account",
       "file": "src/lib/agents/operator/__tests__/apply.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — M33 changed the pre-transaction `if (!loaded) return { kind: 'not_found' }` (apply.ts:70) to answer `not_pending` instead -> FAILED: `expected { kind: 'not_pending', ...(2) } to deeply equal { kind: 'not_found' }`. The account-scoped miss really does answer not_found, and the case's `sqlCalls` length 1 / `begin` not called assertions hold that answer before any transaction."
     },
     {
       "id": "B1-49",
       "test": "applyProposal answers proposal_not_pending for a stale, rejected, superseded or failed proposal",
       "file": "src/lib/agents/operator/__tests__/apply.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — M31 deleted the non-pending arm of `settledResult` (`if (proposal.status !== PROPOSAL_STATUS.PENDING) return { kind: 'not_pending', ... }`, apply.ts:292-294) -> FAILED. All four terminal statuses then fall through to the revalidation step and die on `agents/operator: proposal vanished while recording its outcome`; none answers `not_pending`. The status gate under the lock is measured."
     },
     {
       "id": "B1-50",
@@ -368,36 +366,36 @@
       "id": "B1-51",
       "test": "applyProposal rejects the proposal location_not_found when the location was archived after preparation",
       "file": "src/lib/agents/operator/__tests__/apply.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — M34 changed `locationMissingResult`'s refusal reason from LOCATION_NOT_FOUND to CONTRACT_CHANGED (apply.ts:310) -> FAILED: `expected { kind: 'rejected', ...(2) } to deeply equal { kind: 'rejected', ...(2) }` (the `reason` field). The archived-location refusal names its own reason."
     },
     {
       "id": "B1-52",
       "test": "invariants: from any non-pending status applyProposal never writes businesses",
       "file": "src/lib/agents/operator/__tests__/apply.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — Same mutant M31, second run -> FAILED with `Property failed after 2 tests`. With the non-pending arm gone the terminal row reaches `revalidateActor`, whose users query returns `[]` under the exhausted stub, so the property's `expect(writes()).toHaveLength(0)` breaks: a terminal row DID write. The invariant's teeth -- no businesses write from any non-pending status -- are real."
     },
     {
       "id": "B1-53",
       "test": "applyProposal writes the receipt, status applied and decided_by_user_id in the same transaction as the voice write",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — Same mutant M22, second run -> FAILED at apply.integration.test.ts:286 with `expected 'warm and brief' to be null`. The fix's second assertion (`expect(receipt!.before.tone).toBeNull()` beside the existing `after.tone`) independently pins the Receipt's two ends on the happy-path case. This row's own candidate (the nine-field Receipt assertion block) is therefore measured by a killing mutation."
     },
     {
       "id": "B1-54",
       "test": "applyProposal marks sibling pending proposals on the same location stale in the same transaction and leaves other locations alone",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — M35 deleted the `await markSiblingProposalsStale(tx, { accountId, locationId, excludeProposalId })` call from inside the Apply transaction (apply.ts:267-272) -> FAILED: `expected 'pending' to be 'stale'`. The D11 sibling sweep is real and in the transaction."
     },
     {
       "id": "B1-55",
       "test": "applyProposal rejects a pending proposal whose location was archived after preparation",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — Same mutant M34, live-DB run -> FAILED: `expected { kind: 'rejected', ...(2) } to match object { kind: 'rejected', ...(1) }`. The integration half of the same refusal is measured against a really-archived location, not a stub."
     },
     {
       "id": "B1-56",
@@ -411,22 +409,21 @@
       "test": "applyProposal rolls back the receipt when the voice write throws",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
       "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). STILL NOT EXECUTED. Round 2 spent all 30 runs on 3 green full-file baselines, the 3 fix-verification mutants (M22/M03/M25, 6 runs) and 21 of the round-1 skipped-budget rows in the priority order the root set (apply.ts first, then the gate + the three write routes, then useProposalWrites). Outcome stays skipped-budget, which is why this round is not CLEAR on coverage grounds.\n\nROUND 2 (head 77ce88f0). Additionally: no single-line `apply.ts` mutation can discriminate this row's property. The rollback is Postgres-driven -- the case poisons the transaction with `SELECT 1 / 0` (22012), so every candidate that would swallow or reorder the throw is defeated by the aborted transaction itself and would survive as an equivalent mutant. Round 2 spent the run on a row a mutation can measure rather than producing a predictable non-result. Resolving this row needs a different instrument than mutation (an injected commit boundary), not another run."
     },
     {
       "id": "B1-58",
       "test": "two concurrent applies on one proposal produce one voice write and both return the same receipt",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either."
+      "outcome": "killed",
+      "reason": "NOT EXECUTED. The 30-run round-1 budget was spent on the 24 probes recorded above (4 of the 30 launches were green full-file baselines and 1 was lost to a malformed mutant that was re-measured as M19b). This candidate is in scope and unmeasured: outcome skipped-budget, which is why this round is not CLEAR on coverage grounds either.\n\nROUND 2 (head 77ce88f0). KILLED — M36 changed the repeat arm of `settledResult` from `repeated: true` to `repeated: false` (apply.ts:288-290) -> FAILED: `expected [ false, false ] to deeply equal [ false, true ]`. Under two concurrent applies on one proposal the loser really does report itself as a repeat, which is what distinguishes the idempotent second call from the winner."
     },
     {
       "id": "B1-59",
       "test": "worker-produced proposals render and apply successfully",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
-      "outcome": "survived-confirmed-P0",
-      "reason": "M22 changed the extracted buildReceipt's `before: parseVoiceState(proposal.before, 'agent_proposals.before')` to `before: afterActual` (apply.ts:443), so the Receipt records the POST-change state where the glossary and plan decision P6 require the state the card SHOWED -> the case PASSED. See finding RT-B2 for the arbiter record.",
-      "finding_id": "RT-B2"
+      "outcome": "killed",
+      "reason": "M22 changed the extracted buildReceipt's `before: parseVoiceState(proposal.before, 'agent_proposals.before')` to `before: afterActual` (apply.ts:443), so the Receipt records the POST-change state where the glossary and plan decision P6 require the state the card SHOWED -> the case PASSED. See finding RT-B2 for the arbiter record.\n\nROUND 2 (head 77ce88f0). KILLED — M22 re-applied to the fixed tree (`before: parseVoiceState(proposal.before, 'agent_proposals.before')` -> `before: afterActual`, apply.ts:443) -> FAILED at apply.integration.test.ts:616 with `expected { tone: 'warm and brief', ...(4) } to deeply equal { ...(5) }`. The new `expect(result.proposal.receipt!.before).toEqual(parseVoiceState(view!.before, 'agent_proposals.before'))` is what catches it; the absence-of-key proxy at :611 is no longer the only reader. RT-B2 verified fixed."
     },
     {
       "id": "B1-60",
@@ -595,6 +592,34 @@
       "file": "e2e/operator.spec.ts",
       "outcome": "excluded",
       "reason": "Out of scope per the skill's step 2: Playwright/E2E specs get fragile-assertion review only, never a mutation. The file is also unchanged by either CI-fix commit. Fragile-assertion scan found nothing new to report."
+    },
+    {
+      "id": "R2-01",
+      "test": "returns 404 operator_disabled, not proposal_not_found, when the flag is off and the proposal id is malformed",
+      "file": "src/app/api/operator/__tests__/gate.test.ts",
+      "outcome": "killed",
+      "reason": "RT-B1's first new case. M03 re-applied (the uuid-or-404 check hoisted above `await requireOperatorWriter`, gate.ts:84-90) -> FAILED: `expected { error: 'proposal_not_found' } to deeply equal { error: 'operator_disabled' }`. Both refusals are 404, and the case asserts the TOKEN plus `expect(mockRequireRole).not.toHaveBeenCalled()`, so the status alone cannot carry it. The flag-before-id step of `requireOperatorProposalWriter` is now measured."
+    },
+    {
+      "id": "R2-02",
+      "test": "returns 409 impersonation_not_allowed when the session is impersonated and the proposal id is malformed",
+      "file": "src/app/api/operator/__tests__/gate.test.ts",
+      "outcome": "killed",
+      "reason": "RT-B1's second new case. Same mutant M03, second run -> FAILED: `expected 404 to be 409`. The impersonation-before-id step is measured, which is the half `docs/directory/app-api-b.md:86` documents and nothing in the repository could see at round 1."
+    },
+    {
+      "id": "R2-03",
+      "test": "a refused Apply repaints the card from the row the server returned",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "killed",
+      "reason": "RT-B3's new case. M25 re-applied (`withPatchedProposal`'s replacement reduced to a no-op, useOperatorConversation.ts:126) -> FAILED on `expect(element).not.toBeInTheDocument()`: the Apply button is still rendered, because the transcript never took the stale row the 409 carried. The case holds the conversation GET on `pending` throughout, so the patched row is the only thing that can move the card -- the card-repaint half of D11 is now executed by a test."
+    },
+    {
+      "id": "R2-04",
+      "test": "the OperatorClient.tsx hunk: useTurnSubmission returns one memoized object (RT-B6 fix)",
+      "file": "src/app/(authenticated)/dashboard/operator/OperatorClient.tsx",
+      "outcome": "excluded",
+      "reason": "Excluded because no mutation can measure it. The fix wraps `useTurnSubmission`'s return in `useMemo` with all nine referenced values in its dependency array (OperatorClient.tsx:254-274), matching both sibling machines. Reverting the `useMemo` changes only the IDENTITY of an object no `useEffect` dependency array consumes at HEAD -- `OperatorClient` declares none -- so every assertion in every suite answers identically either way. Verified by reading: the deps list `[draft, setDraft, sending, lostResponse, pending, send, retry, refreshPlan, clear]` covers every value the returned object reads, `canRetry` included (`lostResponse && pending !== null`), and `react-hooks/exhaustive-deps` passes in the recorded gate. Recorded as excluded rather than skipped-budget because the row is unmeasurable, not unfunded."
     }
   ],
   "findings": [
@@ -602,74 +627,74 @@
       "id": "RT-B1",
       "severity": "P1",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/api/operator/gate.ts:86",
       "title": "The impersonation -> uuid step of the extracted gate order is unmeasured: hoisting the id check above the whole gate survives",
-      "reason": "M03 moved requireOperatorProposalWriter's `if (!z.uuid().safeParse(id).success) return errorResponse('proposal_not_found', 404)` above `await requireOperatorWriter(sql, request)`, and the apply-route case `POST apply returns 404 operator_disabled before auth when the flag is off` PASSED. The mutant is not behaviour-preserving: with the Operator flag OFF a malformed proposal id now answers `proposal_not_found` instead of `operator_disabled`, and an impersonated session with a malformed id answers 404 instead of the 409 `impersonation_not_allowed` that gate.ts:70-79 and docs/directory/app-api-b.md:86 both document as coming first. Nothing can see it, because the repository never combines the two inputs: both malformed-id cases pass the flag ON with no impersonation cookie (apply-route.test.ts:187, decline-route.test.ts:113), and every refusal case passes a valid uuid (apply-route.test.ts:77 and :111, decline-route.test.ts:62, and all three gate.test.ts cases, which call requireOperatorWriter and never requireOperatorProposalWriter at all -- the proposal-writer wrapper introduced by 99975e2e9 has no direct test). Remedy, two cases in gate.test.ts: call requireOperatorProposalWriter with `OWNER_OPERATOR_ENABLED=false` and `params: Promise.resolve({ id: 'not-a-uuid' })` and assert `operator_disabled`; then with the `rw_impersonation` cookie and the same malformed id and assert 409 `impersonation_not_allowed`."
+      "reason": "M03 moved requireOperatorProposalWriter's `if (!z.uuid().safeParse(id).success) return errorResponse('proposal_not_found', 404)` above `await requireOperatorWriter(sql, request)`, and the apply-route case `POST apply returns 404 operator_disabled before auth when the flag is off` PASSED. The mutant is not behaviour-preserving: with the Operator flag OFF a malformed proposal id now answers `proposal_not_found` instead of `operator_disabled`, and an impersonated session with a malformed id answers 404 instead of the 409 `impersonation_not_allowed` that gate.ts:70-79 and docs/directory/app-api-b.md:86 both document as coming first. Nothing can see it, because the repository never combines the two inputs: both malformed-id cases pass the flag ON with no impersonation cookie (apply-route.test.ts:187, decline-route.test.ts:113), and every refusal case passes a valid uuid (apply-route.test.ts:77 and :111, decline-route.test.ts:62, and all three gate.test.ts cases, which call requireOperatorWriter and never requireOperatorProposalWriter at all -- the proposal-writer wrapper introduced by 99975e2e9 has no direct test). Remedy, two cases in gate.test.ts: call requireOperatorProposalWriter with `OWNER_OPERATOR_ENABLED=false` and `params: Promise.resolve({ id: 'not-a-uuid' })` and assert `operator_disabled`; then with the `rw_impersonation` cookie and the same malformed id and assert 409 `impersonation_not_allowed`.\n\nROUND 2 (head 77ce88f0). FIXED — `gate.test.ts` gains a `requireOperatorProposalWriter` describe block with exactly the two cases the finding asked for (gate.test.ts:91-136), and M03 fails both. Case 1 (flag off + `params: Promise.resolve({ id: 'not-a-uuid' })`) FAILS with `expected { error: 'proposal_not_found' } to deeply equal { error: 'operator_disabled' }` and also pins `mockRequireRole` not called; case 2 (`rw_impersonation` cookie + the same malformed id) FAILS with `expected 404 to be 409`. Both runs passed `assert-one-test`. The wrapper introduced by 99975e2e9 now has direct tests, so the uuid-LAST step of the documented order (gate.ts:70-79, docs/directory/app-api-b.md:86) is measured. Inventory: new rows R2-01/R2-02 killed; the round-1 oracle row B1-04 is resolved and moves to killed."
     },
     {
       "id": "RT-B2",
       "severity": "P0",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/lib/agents/operator/apply.ts:443",
       "title": "The Receipt's `before` can be swapped for the after-state and the whole suite stays green -- the only assertion that reads it is an absence-of-key proxy",
-      "reason": "M22 changed the new buildReceipt helper's `before: parseVoiceState(proposal.before, 'agent_proposals.before')` to `before: afterActual` and the live-DB case `worker-produced proposals render and apply successfully` PASSED. That case is the ONLY place in the repository that reads a server-built Receipt's `before`, and what it asserts is `expect(result.proposal.receipt.before).not.toHaveProperty('updatedAt')` (apply.integration.test.ts:606) -- an absence-of-key proxy that `toVoiceState(committed)` satisfies just as well, because toVoiceState (apply.ts:528-536) projects exactly the five VoiceState fields and drops `updatedAt`. Nothing else covers the field: apply.test.ts reads only `actorName` and `actorUserId` off the written Receipt (apply.test.ts:206, :209) and uses a hand-built FIXTURE receipt for the repeat-Apply case (apply.test.ts:238-257); apply.integration.test.ts:283-299 asserts nine Receipt fields but not `before`; ProposalCard.test.tsx renders a fixture Receipt; there is no ReceiptView test file at all. The field is owner-visible -- ReceiptView renders before/after, and the glossary plus plan decision P6 pin it as `the state the card SHOWED when the owner clicked`. Remedy is one line, e.g. `expect(receipt.before).toEqual(parseVoiceState(view.before, 'agent_proposals.before'))` at apply.integration.test.ts:606, or `expect(receipt.before.tone).toBeNull()` beside the existing `after.tone` assertion at apply.integration.test.ts:283.",
+      "reason": "M22 changed the new buildReceipt helper's `before: parseVoiceState(proposal.before, 'agent_proposals.before')` to `before: afterActual` and the live-DB case `worker-produced proposals render and apply successfully` PASSED. That case is the ONLY place in the repository that reads a server-built Receipt's `before`, and what it asserts is `expect(result.proposal.receipt.before).not.toHaveProperty('updatedAt')` (apply.integration.test.ts:606) -- an absence-of-key proxy that `toVoiceState(committed)` satisfies just as well, because toVoiceState (apply.ts:528-536) projects exactly the five VoiceState fields and drops `updatedAt`. Nothing else covers the field: apply.test.ts reads only `actorName` and `actorUserId` off the written Receipt (apply.test.ts:206, :209) and uses a hand-built FIXTURE receipt for the repeat-Apply case (apply.test.ts:238-257); apply.integration.test.ts:283-299 asserts nine Receipt fields but not `before`; ProposalCard.test.tsx renders a fixture Receipt; there is no ReceiptView test file at all. The field is owner-visible -- ReceiptView renders before/after, and the glossary plus plan decision P6 pin it as `the state the card SHOWED when the owner clicked`. Remedy is one line, e.g. `expect(receipt.before).toEqual(parseVoiceState(view.before, 'agent_proposals.before'))` at apply.integration.test.ts:606, or `expect(receipt.before.tone).toBeNull()` beside the existing `after.tone` assertion at apply.integration.test.ts:283.\n\nROUND 2 (head 77ce88f0). FIXED — the commit adds two assertions and M22 now fails against both. (1) `expect(result.proposal.receipt!.before).toEqual(parseVoiceState(view!.before, 'agent_proposals.before'))` at apply.integration.test.ts:612-613 -> under M22 the case FAILS with `expected { tone: 'warm and brief', ...(4) } to deeply equal { ...(5) }`. (2) `expect(receipt!.before.tone).toBeNull()` at apply.integration.test.ts:286, beside the pre-existing `after.tone` assertion -> under the SAME mutant a SECOND case FAILS with `expected 'warm and brief' to be null`. Both runs passed `assert-one-test`. The absence-of-key proxy at :611 is kept but is no longer the only reader of the field, so the P0 mechanism (an after-state copy satisfying the proxy) is closed from two independent cases. Inventory rows B1-59 and B1-53 both move to killed.",
       "arbiter_reasoning": "EXECUTED: buildReceipt runs on the happy path this case drives, and the case reads `receipt.before` directly, so the mutated expression is neither dead nor on an untaken branch. NOT EQUIVALENT, proven from the case's own fixture: the location is seeded with an unset tone and the case asserts `expect(await readTone(locationId)).toBe('warm and brief')` after the Apply (apply.integration.test.ts:610), so `proposal.before.tone` is null while `afterActual.tone` is 'warm and brief' -- the mutant writes a materially different document into `agent_proposals.receipt`. NOT a no-op-on-this-input mutation and not a spelling change. Therefore a confirmed survivor, recorded as survived-confirmed-P0 rather than `inconclusive` (the branch IS executed) or `equivalent` (behaviour is provably NOT preserved)."
     },
     {
       "id": "RT-B3",
       "severity": "P1",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts:126",
       "title": "`withPatchedProposal` -- the card-repaint half of Apply/Not now re-rendering from the returned row -- is executed by no test",
-      "reason": "M25 reduced `turn.proposals.map((p) => (p.id === row.id ? row : p))` to `turn.proposals.map((p) => p)`, making `patchProposal` a no-op, and the OperatorClient case `terminal failures and requested capabilities survive reload and subsequent turns` PASSED. Reverse import search: useOperatorConversation is imported only by OperatorClient.tsx, useProposalWrites.ts and useTurnPoll.ts; the single suite that renders OperatorClient is OperatorClient.test.tsx, and it never activates a card write -- its only reference to the Apply control asserts that two such buttons exist (OperatorClient.test.tsx:579). The new useProposalWrites.test.tsx passes `patchProposal` in as a `vi.fn()` (useProposalWrites.test.tsx:43), so the real implementation is never reached from there either, and ProposalCard.test.tsx drives the card with props rather than the hook. The two halves of the property the handoff asks about are therefore split: useProposalWrites really does hand the server's row to `patchProposal` (proved by M12), but what the transcript does with it is unverified. Remedy: one OperatorClient case that clicks Apply against a routed 409 carrying a `proposal` row and asserts the card's state line changed, or a direct renderHook test of useOperatorConversation's `patchProposal`."
+      "reason": "M25 reduced `turn.proposals.map((p) => (p.id === row.id ? row : p))` to `turn.proposals.map((p) => p)`, making `patchProposal` a no-op, and the OperatorClient case `terminal failures and requested capabilities survive reload and subsequent turns` PASSED. Reverse import search: useOperatorConversation is imported only by OperatorClient.tsx, useProposalWrites.ts and useTurnPoll.ts; the single suite that renders OperatorClient is OperatorClient.test.tsx, and it never activates a card write -- its only reference to the Apply control asserts that two such buttons exist (OperatorClient.test.tsx:579). The new useProposalWrites.test.tsx passes `patchProposal` in as a `vi.fn()` (useProposalWrites.test.tsx:43), so the real implementation is never reached from there either, and ProposalCard.test.tsx drives the card with props rather than the hook. The two halves of the property the handoff asks about are therefore split: useProposalWrites really does hand the server's row to `patchProposal` (proved by M12), but what the transcript does with it is unverified. Remedy: one OperatorClient case that clicks Apply against a routed 409 carrying a `proposal` row and asserts the card's state line changed, or a direct renderHook test of useOperatorConversation's `patchProposal`.\n\nROUND 2 (head 77ce88f0). FIXED — one new OperatorClient case, `a refused Apply repaints the card from the row the server returned` (OperatorClient.test.tsx:585-645), clicks Apply against a routed 409 whose body carries a `stale` / `version_mismatch` row and asserts the card repainted from it: Apply and Not now gone, the `PROPOSAL_STALE` state line present, the refusal named as an alert, and Refresh plan offered. M25 (`withPatchedProposal`'s replacement reduced to `.map((p) => p)`) now FAILS it on `expect(element).not.toBeInTheDocument()` — the Apply button survives because the transcript never took the returned row. `assert-one-test` confirmed one executed test. The case keeps the conversation GET answering `pending`, so nothing but the patched row can move the card. Inventory: new row R2-03 killed; the round-1 oracle row B1-25 is resolved and moves to killed."
     },
     {
       "id": "RT-B4",
       "severity": "P1",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "docs/superpowers/plans/feat-owner-operator-run-b-handoff.md:27",
       "title": "The handoff's gate citation is wrong in both halves: neither the SHA nor the fingerprint matches the recorded evidence",
-      "reason": "The bullet reads `Review gate GREEN at 79f695d53 (fingerprint 1545d93f...)`. Re-resolved against HEAD: .feature/codex-gate-fingerprint.json records `headSha 3082da75f97b94a4c82e7ed2468b22ac90103480`, `generatedAt 2026-09-12T20:51:20.344Z` and `fingerprint a2f7363f4dd9f4eb56f42d8d9aa6504e229fd31b5095d93b572f4654499bd60b`; .feature/gate-status.json carries `\"mode\":\"full\"` (not `review`) at the same timestamp with `reclassify` WARN and every other check PASS; .feature/state.json records `lastGreenGateSha 3082da75f97b94a4c82e7ed2468b22ac90103480`. `3082da75f` is the docs-only handoff commit, authored 2026-09-12T13:48:13-07:00, i.e. AFTER 79f695d53 (13:29:45-07:00) and before the gate ran. `rg '1545d93f'` over the whole worktree matches only this sentence -- the value appears in no artifact it claims to cite. P1 and not P0 because the claim is directionally true (the gate is green, and 3082da75f's `src` tree is byte-identical to 79f695d53's, so no code was gated unverified); it is the identifiers a resumed session is told to check that are false. Remedy: cite `a2f7363f...` at `3082da75f`, mode `full`."
+      "reason": "The bullet reads `Review gate GREEN at 79f695d53 (fingerprint 1545d93f...)`. Re-resolved against HEAD: .feature/codex-gate-fingerprint.json records `headSha 3082da75f97b94a4c82e7ed2468b22ac90103480`, `generatedAt 2026-09-12T20:51:20.344Z` and `fingerprint a2f7363f4dd9f4eb56f42d8d9aa6504e229fd31b5095d93b572f4654499bd60b`; .feature/gate-status.json carries `\"mode\":\"full\"` (not `review`) at the same timestamp with `reclassify` WARN and every other check PASS; .feature/state.json records `lastGreenGateSha 3082da75f97b94a4c82e7ed2468b22ac90103480`. `3082da75f` is the docs-only handoff commit, authored 2026-09-12T13:48:13-07:00, i.e. AFTER 79f695d53 (13:29:45-07:00) and before the gate ran. `rg '1545d93f'` over the whole worktree matches only this sentence -- the value appears in no artifact it claims to cite. P1 and not P0 because the claim is directionally true (the gate is green, and 3082da75f's `src` tree is byte-identical to 79f695d53's, so no code was gated unverified); it is the identifiers a resumed session is told to check that are false. Remedy: cite `a2f7363f...` at `3082da75f`, mode `full`.\n\nROUND 2 (head 77ce88f0). FIXED — verified by reading, no mutation applies. The handoff sentence now reads \"Review gate GREEN at `3082da75f` (the docs-only handoff commit whose `src` tree is byte-identical to `79f695d53`; mode `full`, fingerprint `a2f7363f…`, `lastGreenGateSha` in `.feature/state.json`)\". Every identifier re-resolves at HEAD: `.feature/codex-gate-fingerprint.json` records `headSha 3082da75f97b94a4c82e7ed2468b22ac90103480` and `fingerprint a2f7363f4dd9f4eb56f42d8d9aa6504e229fd31b5095d93b572f4654499bd60b`; `.feature/gate-status.json` carries `\"mode\":\"full\"`; `.feature/state.json` records the same `lastGreenGateSha`. `git rev-parse 79f695d53^{tree}:src` and `3082da75f^{tree}:src` are both `da32c14e52bb526ee40fe5b0eedcc25df98338d7`, so the byte-identical claim the sentence now makes is itself true. `rg -n '1545d93f' --glob '!docs/reviews/**'` matches nothing — the false value is gone from the worktree. One note, not a finding: the gate that ran at this head is the FAST gate (`.feature/gate-fast.json`, `mode: fast`), so the sentence describes the round-1 evidence at `3082da75f`, which is what it says; the full review gate re-runs after this report as the last serialized step."
     },
     {
       "id": "RT-B5",
       "severity": "P2",
       "duty": 2,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:133",
       "title": "The new card-write suite hardcodes a wording sentence the same commit un-exported, against wording.ts's own stated rule",
-      "reason": "useProposalWrites.test.tsx:132-134 asserts the literal 'Something went wrong. Nothing was changed - try again.', while line 120 of the same file asserts through the imported constant (`ROUTE_ERROR_WORDING.proposal_stale`). The literal exists because commit 79f695d53 dropped `export` from ROUTE_ERROR_FALLBACK (wording.ts:204) as part of the fallow dead-code sweep, so the new suite cannot import the one constant it needs. wording.ts:143-148 states the rule this breaks in its own words: spelling a sentence twice `let the live answer and the stored record drift apart, which is the same reason PROPOSAL_STALE is a constant (F4)`. Kept at P2, not P1: the assertion pins the correct words, so it fails on drift rather than passing through a bug -- it is a maintenance trap, not a fake assertion. Remedy: assert `routeErrorSentence(null)`, which is still exported, instead of the literal."
+      "reason": "useProposalWrites.test.tsx:132-134 asserts the literal 'Something went wrong. Nothing was changed - try again.', while line 120 of the same file asserts through the imported constant (`ROUTE_ERROR_WORDING.proposal_stale`). The literal exists because commit 79f695d53 dropped `export` from ROUTE_ERROR_FALLBACK (wording.ts:204) as part of the fallow dead-code sweep, so the new suite cannot import the one constant it needs. wording.ts:143-148 states the rule this breaks in its own words: spelling a sentence twice `let the live answer and the stored record drift apart, which is the same reason PROPOSAL_STALE is a constant (F4)`. Kept at P2, not P1: the assertion pins the correct words, so it fails on drift rather than passing through a bug -- it is a maintenance trap, not a fake assertion. Remedy: assert `routeErrorSentence(null)`, which is still exported, instead of the literal.\n\nROUND 2 (head 77ce88f0). FIXED — verified by reading; no run spent, because the point of the fix is that the assertion no longer transcribes the sentence. useProposalWrites.test.tsx:132-135 now reads `expect(result.current.errors[PROPOSAL]).toBe(routeErrorSentence(null))`, with `routeErrorSentence` added to the file's import from `../wording`. wording.ts:206-209 makes that the accessor for the un-exported constant (`if (code === null) return ROUTE_ERROR_FALLBACK`), so the suite and the runtime now read one owner and cannot drift — which is the rule wording.ts:143-148 states in its own words. The sibling assertion at line 120 already went through `ROUTE_ERROR_WORDING.proposal_stale`, so the file is now uniform. The case that carries this assertion (B1-37) stays skipped-budget: the fix removes a maintenance trap, it does not change what the case measures."
     },
     {
       "id": "RT-B6",
       "severity": "P2",
       "duty": 4,
-      "disposition": "open",
+      "disposition": "fixed",
       "at": "src/app/(authenticated)/dashboard/operator/OperatorClient.tsx:254",
       "title": "`useTurnSubmission` returns a fresh object every render while both sibling hooks memoize -- the one decomposition product that skipped the file's own stability rule",
-      "reason": "Sibling search over the three machines the commit split apart: useOperatorConversation ends in `useMemo` (useOperatorConversation.ts:397-414) and useTurnPoll ends in `useMemo` (useTurnPoll.ts:167-170), but the new file-local useTurnSubmission returns a bare object literal (OperatorClient.tsx:254-263). `submission` therefore changes identity on every render and `startNewConversation`'s `useCallback(..., [conversation, poll, submission])` (OperatorClient.tsx:330) is re-allocated every render. Harmless at HEAD -- OperatorClient declares no `useEffect`, so no dependency array consumes `startNewConversation`, which is why this is P2 -- but this exact file carries a scar from the same class of bug: OperatorClient.test.tsx:17-22 hoists ONE router object because an unstable one made `a response that triggers a state update ... an infinite read loop (RB2-06)`. Remedy: wrap useTurnSubmission's return in `useMemo`, matching its two siblings."
+      "reason": "Sibling search over the three machines the commit split apart: useOperatorConversation ends in `useMemo` (useOperatorConversation.ts:397-414) and useTurnPoll ends in `useMemo` (useTurnPoll.ts:167-170), but the new file-local useTurnSubmission returns a bare object literal (OperatorClient.tsx:254-263). `submission` therefore changes identity on every render and `startNewConversation`'s `useCallback(..., [conversation, poll, submission])` (OperatorClient.tsx:330) is re-allocated every render. Harmless at HEAD -- OperatorClient declares no `useEffect`, so no dependency array consumes `startNewConversation`, which is why this is P2 -- but this exact file carries a scar from the same class of bug: OperatorClient.test.tsx:17-22 hoists ONE router object because an unstable one made `a response that triggers a state update ... an infinite read loop (RB2-06)`. Remedy: wrap useTurnSubmission's return in `useMemo`, matching its two siblings.\n\nROUND 2 (head 77ce88f0). FIXED — verified by reading, and recorded as unmeasurable rather than measured. `useTurnSubmission` now ends in `return useMemo(() => ({ draft, setDraft, sending, canRetry: lostResponse && pending !== null, send, retry, refreshPlan, clear }), [draft, setDraft, sending, lostResponse, pending, send, retry, refreshPlan, clear])` (OperatorClient.tsx:254-274), matching `useOperatorConversation` (:397-414) and `useTurnPoll` (:167-170). The dependency array is exhaustive — every value the object reads appears in it, `canRetry`'s two inputs included — and `react-hooks/exhaustive-deps` passes in the recorded gate. No mutation can measure it: `OperatorClient` declares no `useEffect`, so no dependency array consumes `startNewConversation`, and reverting the `useMemo` changes only an object identity no assertion can observe. Inventory row R2-04 records that as `excluded` with this reason."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 83,
-    "killed": 20,
-    "survived_confirmed_p0": 1,
+    "inventory_total": 87,
+    "killed": 49,
+    "survived_confirmed_p0": 0,
     "equivalent": 0,
-    "inconclusive": 3,
-    "skipped_budget": 34,
-    "excluded": 25,
+    "inconclusive": 1,
+    "skipped_budget": 11,
+    "excluded": 26,
     "findings_total": 6,
-    "p0_open": 1,
-    "p1_open": 3,
-    "p2_open": 2,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 6,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "INCOMPLETE_ORACLE"
 }
