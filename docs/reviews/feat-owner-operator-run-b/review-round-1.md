@@ -62,6 +62,13 @@ Legend: **ACCEPT** = fixed in the round-1 fix commits · **REJECT** = not fixed,
 | RT-10 | P2 | Sibling-sweep `account_id` predicate behaviourally redundant | **REJECT** — kept on purpose: `ci:tenant-scope` and invariant #9 require the predicate on every statement over a tenant table; redundancy is the point |
 | RT-11 | P2 | Two prevalidator "stale commits" are fragments of a Codex session UUID in the handoff | **ACCEPT** — the handoff spells the session id in backticks with a "thread" label so the resolver skips it |
 
+## Fix commits (round 1)
+
+- `64f9de864` docs — RT-01/S2 (rule 11 back to NOT BUILT in the runbook row, spec §14, §15), RT-11 (handoff thread id).
+- `aa7fd157a` server — F1, F6, F8, F9, S5/F10 (`Receipt.actorName`), S7 (`location_not_found` in both branches), C1 (`readSummaryEntitlement` + `subscriptionAllowsDashboardRead` → `summary: null`), C3 (`summary.locationId`), RT-02…RT-08 tests. One recorded deviation (RT-07: the CHECK constraint stands in for an unseedable status).
+- `cd4710b4b` client — S1, S3, S4, S5/F10, S6, S7, F2 (`useOperatorConversation`, `useTurnPoll`, `TurnBody.tsx`), F3/F13, F4 (`VOICE_FIELD_LABELS`), F5 (`postJson`), F12, C2 (30 s POST deadline → lost-response retry), C3.
+- Fast gate after the fixes: GREEN (`.feature/logs/fast-gate-fix1.out`; only the known reclassify WARN).
+
 ## What happens next
 
 Fix commits (server lease, then client lease, then docs) → gate loop → red-team round 2 scoped to the fix hunks and their direct callers → final review gate → `red-team-status.mjs` → `reviewed`. The P0 (RT-01/S2) is the owner's: the branch does not claim the alert exists until it does, and T8's flag flip gates on it.
