@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "RepWorth Four-Founder 90-Day Plan",
+    "title": "RepWorth Founder Plan · Sep 11",
     "locale": "en",
     "quality_profile": "showcase",
     "viewBox": [
@@ -44,7 +44,7 @@
           "offer",
           "norbert"
         ],
-        "note": "Existing roster first: approved paid offers by Sep 10, then the next approved same-segment batch."
+        "note": "One recurring job: accepted plan, verified work, corrections and paid continuation. Roster counts need dated evidence."
       },
       {
         "id": "cash-first",
@@ -55,7 +55,7 @@
           "norbert",
           "log"
         ],
-        "note": "Sep 8: no-new-money floor and cash-needed date. Sep 21 or earlier: continuation, floor, or reduce/pause."
+        "note": "Actual obligations set the deadline. Cash review Mon Sep 14 per the decision log; later work remains cash-gated."
       },
       {
         "id": "funding-counsel",
@@ -88,7 +88,7 @@
       "id": "prospects",
       "type": "external",
       "label": "Prospects and beta accounts",
-      "sublabel": "~5 interested · 0 paying",
+      "sublabel": "dated roster · shared job",
       "pos": [
         560,
         40
@@ -116,7 +116,7 @@
       "id": "offer",
       "type": "database",
       "label": "Offer card",
-      "sublabel": "monthly + prepaid option",
+      "sublabel": "one job · paid decision",
       "pos": [
         60,
         230
@@ -145,7 +145,7 @@
       "id": "robert",
       "type": "backend",
       "label": "Robert",
-      "sublabel": "COO · sales · onboarding",
+      "sublabel": "COO · delivery · evidence",
       "tag": "COO",
       "pos": [
         760,
@@ -189,7 +189,7 @@
       "id": "norbert",
       "type": "backend",
       "label": "Norbert",
-      "sublabel": "CTO · scope · approvals",
+      "sublabel": "CTO · experiment · scope",
       "tag": "CTO",
       "pos": [
         760,
@@ -396,18 +396,18 @@
       "dot": "amber",
       "title": "Cash decides the calendar",
       "items": [
-        "Sep 8: Daoni floor, cash-needed date, availability lines",
-        "Sep 10: paid offers to the reachable roster",
-        "Sep 21, Oct 7, Nov 6, Dec 6: dated decisions"
+        "Cash deadline: reconcile obligations; see decision log",
+        "Sep 7 input: ~5 interested, 0 paying; refresh roster",
+        "Day 30/60/90 stay conditional; dates in shared plan"
       ]
     },
     {
       "dot": "rose",
-      "title": "Acceleration gate",
+      "title": "Delegation and acceleration",
       "items": [
-        "Five evidence tests: buyer, acquisition, delivery, cash, speed",
-        "Pass: one channel, two weeks, at most 2× the prior batch",
-        "25 or 100 accounts are scenarios, not targets"
+        "Test one job: instruction → plan → work → correction",
+        "Operator v1: 60 h named exception, 30 committed, checkpoint gate",
+        "Expand only after all five shared-plan evidence gates"
       ]
     },
     {

@@ -4,6 +4,9 @@
 **Owner:** CFO. **Planning capacity:** 40 hours/week; up to 60 only when explicitly chosen for a temporary peak.
 **Status:** Every task below is planned. This brief is not evidence that a forecast, investor contact, customer decision or receipt already exists.
 
+**Strategy revision: September 11.** Add operator experiment economics to the
+existing register when selected; retain the cash gates and current packages.
+
 Read the [shared plan](../README.md) first. It owns the common scorecard definitions, acceleration gate, approval scope and founder handoffs. This brief supplies the CFO work needed for those decisions; it does not introduce a separate growth gate.
 
 ## Your job
@@ -12,7 +15,7 @@ Keep the company able to meet its commitments, turn its funding request into a c
 
 There are four founders: the CEO/CTO owns product and engineering; the COO prepares pitches and pitches alongside the CEO; you own financial evidence and supply it to the COO; the CMO owns messaging and channel selection. Your help to the CMO is an explicit part of the job, not spare-time work.
 
-The founder reports one to two months of runway. Actual unrestricted cash, complete obligations, required capital and the cash-needed date are unknown. The first customer group is also unknown and must come from the real beta roster. Zero paying customers is the reported starting point. Approximately five interested prospects must not be relabeled as five active or paying beta accounts.
+The September 7 planning inputs included estimated one-to-two-month runway, zero paying customers and approximately five interested prospects. Refresh those dated inputs from canonical records. The September 10 [decision log](../ceo-cto/decision-log.md) reports finance inputs supplied privately; complete obligations and the final cash deadline remain pending there. This brief does not re-audit those figures. Select the first customer group from the real roster; interested prospects must not be relabeled as active or paying beta accounts.
 
 The [August 30 service snapshot](../../2026-08-30-operating-cost-baseline.md), interpreted on September 7, totals $729.17 in mixed plans, estimates and caps. It is not current burn, a live bill or a global spending limit. Its $399.17 subscription allowance is not the company's complete cash requirement. Do not use either number as the opening balance or a shortcut to runway.
 
@@ -131,6 +134,22 @@ Reserve about 12 hours/week within the 40-hour plan, with urgent cash decisions 
 Prepare a cost map by September 14; first observed account-level comparison by September 21 where activity exists. Keep Copilot/Autopilot as the working subscription choices. Pricing remains a hypothesis to test through specific offers, owner value and cost evidence. Evaluate the optional prepayment proposal above; it changes no live billing until separately approved and implemented. Outcome-contingent billing remains deferred.
 
 Measure model calls/fallbacks/retries, ingestion/posting, messages, shared infrastructure, payment fees, refunds, onboarding, ongoing support and founder delivery time. Distinguish cash cost from the imputed value of unpaid founder time. Record the hourly assumption and actual minutes; unpaid work is not economically free, but an imputed cost is not a bank outflow.
+
+For the owner-operator v1 ([spec](../../2026-09-11-owner-operator/README.md)),
+include the `owner_operator` planning calls within those model/tool costs,
+and record founder minutes per delegated job as imputed labor. Report cost per correctly completed delegated job alongside
+eligible/completed counts and account-level costs. Failed or abandoned
+attempts and founder rescue stay in the numerator; zero completed jobs means
+the ratio is unavailable, not zero cost. Separate setup from repeated
+operation and make shared-cost allocation explicit. Use actual usage and
+bounded scenarios, not unlimited chat inside the current subscription. No
+billing change is implied.
+
+When a real second-market decision exists, show the additional provider,
+language-quality, onboarding and support costs using the same job definition.
+The [market capability evidence](../../2026-08-26-verticals.md#market-capability-evidence)
+defines operational readiness. Keep this analysis in the canonical CFO
+register; the August vendor snapshot remains historical.
 
 Separate account-level contribution, allocated shared service costs, acquisition costs and company overhead. Classify each item once in each reported view and provide a reconciliation: founder labor disclosed for unit economics must not then be charged again as extra cash; payroll already in the cash forecast is not added twice. Distinguish service-period revenue from cash collections, especially annual prepayments.
 

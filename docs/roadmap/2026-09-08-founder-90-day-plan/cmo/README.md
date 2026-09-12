@@ -2,6 +2,9 @@
 
 Drafted September 7 for **September 8–December 6, 2026**, 90 calendar days inclusive. This is a work plan, not a report of completed marketing, customer acquisition or revenue.
 
+Strategy revised **September 11** with the owner's approval. Test the operator
+hypothesis separately from claims about the current available product.
+
 Your job is to find a reachable type of business that will pay RepWorth to reduce its reputation workload, learn how to reach more of those owners, and help them keep receiving value after they buy. Marketing succeeds when suitable customers pay and continue using the service. A larger contact list, polished film or more followers is supporting activity.
 
 The four founders are the CEO/CTO, COO, CFO and CMO. Each has stated availability of 40–60 hours a week; plan around **40**, with 60 an occasional agreed peak. The CFO helps marketing with prospect research, cost and funnel analysis. You own buyer selection proposals, messaging, channels, customer acquisition and marketing follow-through. The COO owns pitch preparation and pitches with the CEO; give them evidence and language rather than building a competing investor deck.
@@ -10,7 +13,7 @@ This role allocation replaces the older two-founder wording for this brief. The 
 
 ## Starting facts and the result to pursue
 
-The last reported position is zero paying customers. The number and types of active beta businesses are unknown; about five interested prospects are not automatically beta users. Existing beta promises must be honored. The company may have only one to two months of runway; the CFO must establish actual amounts and dates. None of the later weeks is an unconditional commitment to keep spending or operating.
+The September 7 planning inputs were zero paying customers, about five interested prospects, unknown active-beta composition and an estimated one-to-two-month runway. Refresh customer status from COO's record and cash/deadlines from CFO; the September 10 decision log records partial finance progress, not a completed cash plan. Interested prospects are not automatically beta users. Existing beta promises must be honored. None of the later weeks is an unconditional commitment to keep spending or operating.
 
 | Period | Marketing objective | Evidence needed to move forward |
 |---|---|---|
@@ -50,11 +53,12 @@ Fill this card by September 10 if evidence permits; otherwise identify the obser
 
 | Field | Working definition to validate |
 |---|---|
-| Customer type | One specific business type, location pattern and geography drawn from real participants. No selection has been made yet. |
+| Customer type | One business type, buyer/operator, location pattern, initial country, owner/customer languages, platforms/channels and compatible software drawn from real participants. The provisional buyer hypothesis is in [verticals §2](../../2026-08-26-verticals.md#2-choose-the-first-customer-type-from-the-beta); no final cohort is selected. |
 | Buyer | The person responsible for Google reviews who can approve the purchase; verify whether that is the owner, manager or another role. |
 | Recurring pain | Time spent drafting, checking, preparing lists and handling exceptions. Record the last actual occurrence and what the business currently does. |
 | Reason to act now | A buyer's stated backlog, workload, staffing change or failed process. Never invent urgency from an unanswered public review. |
 | Value proposition | “Handle Google review replies and requests with less owner effort, clear approval choices and a record you can check.” Quantified savings remain unproven until measured. |
+| Operator hypothesis | “Explain one recurring reputation job and your business rules; review the plan, see the completed work and exceptions, and change how later work is handled.” A discovery concept, not a product promise; do not pitch it until the manual experiment shows evidence. |
 | Offer | A guided walkthrough and agreed evaluation of the currently available Copilot/Autopilot workflow, followed by a concrete paid decision at the verified applicable price and start date. |
 | Fit exclusions | Too little relevant work, no buying authority, no required access, or a must-have platform/workflow RepWorth cannot currently deliver. Preserve existing beta support promises. |
 
@@ -92,6 +96,18 @@ Explain that voice examples activate after five posted, owner-edited replies. Th
 
 CMO-07 maintains a short comparison and objection record. Ask what the buyer uses or considered: NiceJob, TrueReview, GatherUp, Birdeye, Podium, an existing CRM, an agency, manual work or leaving the task undone. Record the actual objection, buyer type, alternative, our evidence-backed reply and whether the reply changed the decision. Public pricing needs a dated source and its conditions; do not quote an enterprise price as universal.
 
+Compare the same complete recurring job where access permits: setup effort,
+owner interventions, incorrect assumptions, exception handling, verified
+completion, ongoing correction and willingness to switch/pay. Separate
+observed use from vendor descriptions and unavailable access. Start from the
+[competitor evidence](../../../plans/2026-09-11-reputation-competitor-landscape.md)
+(NiceJob, TrueReview, GatherUp; desk review checked Sep 11): all three
+document AI replies, background automation and some non-US availability, so
+"only RepWorth has AI replies" or "competitors are US-only" are not usable
+claims. The September 7 sources below are older dated evidence. Use the
+[investor hypotheses](../../2026-08-29-investor-theses-overlay.md#what-could-become-harder-to-replace)
+to record what might improve with business context, and what could disprove it.
+
 Birdeye documents review-response approval steps, so “only RepWorth offers human approval” is not a defensible claim. [Birdeye approval documentation](https://support.birdeye.com/en/articles/12829765-how-to-set-up-and-use-review-response-approvals)
 
 GatherUp documents tickets, assignment and replies for first-party feedback in its Inbox article; this establishes a recovery-adjacent workflow, not every current platform capability. [GatherUp Inbox](https://gatherup.com/blog/inbox/)
@@ -122,6 +138,12 @@ CMO-09 owns messaging and permitted proof for continuation and referrals; COO ow
 Keep customer referral requests as part of the existing journey, not a second broad campaign. A simple approved draft is: “If this has been useful, is there another [selected business type] owner you would feel comfortable introducing us to?” No reward or paid affiliate commitment is implied.
 
 CMO-10 prepares a partner option only after learning the direct channel: a local website/marketing provider, consultant or trade network serving the same buyer, chosen from actual access. Verify who they serve, whether they can introduce decision makers, their incentive and the support they expect. Do not promise white-label, API access, exclusivity or commissions. If founders choose the partner experiment, pause the previous acquisition experiment; test one approved introduction and measure its full cost and outcome before announcing a program. Research can stay parked without becoming a live second campaign.
+
+After evidence supports an affordable market expansion, use the
+[market capability evidence](../../2026-08-26-verticals.md#market-capability-evidence)
+with COO/CEO before offering that workflow in a second country. Keep the
+industry/job stable where possible. Agency acquisition partners do not
+automatically make agencies the product's buyer or justify white labeling.
 
 ## Measurement, funnel math and decisions
 
@@ -178,8 +200,8 @@ Each row is planned work. **Weeks 5–13 are conditional scenarios requiring act
 
 | Week and dates | Tasks | Deliverable and acceptance evidence |
 |---|---|---|
-| **1: Sep 8–14** | CMO-01–06; begin CMO-07–08 | Contribute to the five shared artifacts; seek approved paid offers to the reachable existing roster by Sep 10. Bound reconciliation/first attempts to two working days, then proceed with the next approved same-segment batch while replies remain pending. Reuse the existing brief/demo. |
-| **2: Sep 15–21** | Run CMO-04/06; CMO-07/08/11 | First completed batch review and buyer objections. Compare observation quality and actual owner effort. Submit one dated blocker to CEO only if it prevents payment or an existing beta promise; choosing no feature is valid. Supply the Sep 21 cash review with actual receipts/pipeline timing through CFO. |
+| **1: Sep 8–14** | CMO-01–06; begin CMO-07–08 | Contribute to the five shared artifacts; seek approved paid offers to the reachable existing roster by Sep 10. Bound reconciliation/first attempts to two working days, then proceed with the next approved same-segment batch while replies remain pending. Reuse the existing brief/demo. Supply the Sep 14 cash review (decision log) with actual receipts/pipeline timing through CFO. |
+| **2: Sep 15–21** | Run CMO-04/06; CMO-07/08/11 | First completed batch review and buyer objections. Compare actual owner effort and submit a dated payment/beta blocker or repeated burden that could justify the forward roadmap's bounded experiment. Choosing no feature is valid. |
 | **3: Sep 22–28** | Repeat the same channel with one justified change; CMO-05/09 | Revised message or offer decision tied to evidence; first complete evaluation-to-paid-decision records; one existing-page copy packet and verified demo if accessible. Record beta continuation terms. |
 | **4: Sep 29–Oct 5** | CMO-08/09/11; prepare CMO-12 checkpoint | Account-level value and service-cost summary, cohort funnel, paid yes/no reasons and outstanding support. Draft a customer story only if evidence and permission allow it; otherwise publish no testimonial. |
 | **5: Oct 6–12** | CMO-12 at **Oct 7**; conditionally repeat CMO-06 | Day-30 decision packet: paid yes decisions versus current payers/cleared cash, buyer value, channel evidence and affordable scope. Set later targets from observed rates, lag, churn and capacity. Complete two Claude rounds and record the founders' continuation or smaller-scope decision. |
@@ -196,7 +218,7 @@ Each row is planned work. **Weeks 5–13 are conditional scenarios requiring act
 
 | Founder | What you provide | What you need back |
 |---|---|---|
-| CEO/CTO | Observed buyer blocker, affected anonymous accounts, offered promise, evidence, expected owner-effort change and requested decision date | Verified capability/availability; accept, reject or defer; scope and evidence for the single improvement. The provisional 20-hour total engineering reserve remains intact. |
+| CEO/CTO | Observed recurring burden or buyer blocker, affected anonymous accounts, offered promise, evidence, expected owner-effort change and requested decision date | Verified capability/availability; accept, reject or defer; scope and evidence for the single improvement/experiment. The provisional 20-hour total engineering reserve remains intact. |
 | COO | Approved offer, qualified conversation notes, next customer action, expected support load and factual pitch language | Scheduling/onboarding owner, agreed beta terms, support follow-through and legal/publication readiness. COO prepares the pitch and joins CEO in pitching. |
 | CFO | Buyer criteria, channel version, dated activity and human time | Source-backed lists, deduplication, funnel/cost calculations, receipt/renewal reconciliation and affordable experiment limit. Finance deadlines take priority over optional list expansion. |
 

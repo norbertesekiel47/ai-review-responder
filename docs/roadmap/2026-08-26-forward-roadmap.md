@@ -1,6 +1,6 @@
-# Forward roadmap (created 2026-08-26; revised 2026-09-07)
+# Forward roadmap (created 2026-08-26; revised 2026-09-11)
 
-The owner approved this revision after reviewing the roadmap on September 7.
+The owner approved the September 7 focus and the September 11 operator revision.
 The next month focuses on proving one useful workflow for one customer type.
 The Phase 1–8 labels below stay stable for existing references. They identify
 areas of work, not a mandatory order or a pre-launch feature checklist.
@@ -86,11 +86,17 @@ scope selection. Work on cash and beta learning can run in parallel. Keep
 engineering to one active improvement; UI fixes enter that scope when they
 block setup, trust, or completion of the chosen workflow.
 
-**No engineering improvement is selected yet.** Hold the hours in reserve
-until a paid decision or a named account's stated barrier to paying identifies
-the work, or an observed blocking quality failure prevents delivery of an
-existing beta promise. A generic request for more modern features does not
-qualify. If nothing meets that test, choose no new feature and use available
+**One improvement is selected (2026-09-11) and not started:** the
+[owner-operator v1](2026-09-11-owner-operator/README.md), under its named
+60-hour exception. For any other candidate, hold the 20 default hours in
+reserve until a paid decision or a named account's stated barrier to paying
+identifies the work, an observed blocking quality failure prevents delivery
+of an existing beta promise, or the CEO selects a bounded hypothesis
+experiment against a repeated observed owner burden. The experiment must name affected
+customers, the current workaround, a falsifiable expected improvement, its
+cost/capacity ceiling, and a stop/continue decision. Customers need not request
+chat, but a generic wish for modern features does not qualify. If nothing
+meets this test, choose no new feature and use available
 time for the demonstration, customer learning, and funding work. Baseline
 observation need not delay a
 paid-offer discussion. Owner-recalled effort can guide the choice, clearly
@@ -105,6 +111,11 @@ establish real API access, usable customer/contact data, and an eligible
 trigger before connector implementation is selected. This is a ceiling, not
 a commitment to use the hours or an estimate that a connector fits. A failed
 discovery ends that candidate rather than expanding the month's workload.
+A planning, memory and tool-execution platform does not fit this cap.
+**Named exception (approved 2026-09-11):** the
+[owner-operator v1](2026-09-11-owner-operator/README.md) carries its own
+60-hour ceiling, 30 committed and 30 conditional on its checkpoint. The
+20-hour default stays for every other improvement.
 
 At selection, write down the affected accounts, baseline problem, expected
 change, acceptance criteria, owner, and review date. Review weekly and at
@@ -143,6 +154,58 @@ three strongest objections per round and what changed.
   advance commitments. If funding or affordable continuation is uncertain,
   the founders decide what to reduce or pause; this plan does not authorize
   an automatic shutdown.
+
+### Bounded owner-operator experiment
+
+**Selected 2026-09-11, not started; the build lives in
+[owner-operator/README.md](2026-09-11-owner-operator/README.md).** Test
+whether a suitable owner will delegate one recurring reputation job through
+ordinary language and continue using it with less coordination and
+correction. The customer profile and
+market capabilities belong in [verticals](2026-08-26-verticals.md#2-choose-the-first-customer-type-from-the-beta).
+This is one possible first improvement, not a parallel project.
+
+The complete hypothesis has five steps:
+
+1. The owner describes one recurring job, desired result and constraints.
+2. RepWorth proposes a concrete operating plan using supported operations;
+   missing facts, scope and decisions are visible to the owner.
+3. A labeled historical demonstration shows expected handling and one
+   exception.
+4. With explicit authorization through the applicable controls, the existing
+   workflow completes an eligible real task and verifies its external result.
+5. Subsequent eligible events follow the agreed plan. An owner correction
+   changes later comparable work; unresolved items stay visible and receive
+   an agreed next action or a recorded reason they cannot proceed.
+
+**Selected form (2026-09-11): a software v1.** The spec is
+[owner-operator/README.md](2026-09-11-owner-operator/README.md). One model
+call per turn produces typed proposal cards; the owner applies each card;
+the existing engine does the work. The model calls no tools and writes no
+settings. The v1 catalog covers tone, business facts, auto-reply scope,
+veto window and daily cap through the existing domain operations. Steps 1–3
+are the staging checkpoint at 30 hours; steps 4–5 are the owner pilot with
+a real account from the COO roster.
+
+First-party conversation uses the owner's scoped identity and narrow domain
+operations; it does not depend on a public API/MCP platform. Events and
+schedules continue the work after the conversation ends.
+
+Use the existing COO customer record and shared scorecard. Record baseline
+effort, accepted scope/rules, eligible and correctly completed work, missed or
+unresolved work, owner corrections, founder rescue, delivery cost, and paid
+decisions. Label each result as simulated, manual, automated, or externally
+verified. Start observation with the first case; measure setup separately
+from ongoing effort. Agree comparison periods and success thresholds from the
+actual workload before interpreting results.
+
+Continue only when observations support useful delegation within the quality,
+cost and support limits. Stop or revise if owners will not grant the required
+authority, the job lacks recurring activity, data/access are unavailable,
+repeated correction cancels the benefit, or scope cannot fit the approved
+allowance. Low activity means insufficient evidence, not success or churn.
+Onboarding satisfaction alone does not justify autonomous recovery, more
+countries, or a general agent platform.
 
 Every selected feature gets its own specification under
 `docs/superpowers/specs/` before code. The sketches below preserve useful
@@ -363,9 +426,11 @@ like the withhold-reason enum: closed, versioned); minimum review volume
 before trend lines show (avoid noise for 5-review accounts); multilingual
 reviews.
 
-**Success metrics.** Topic coverage (% of text reviews with ≥1 topic); owner
-engagement with topic digest lines; % of recovery cases auto-categorized;
-LLM cost per classified review.
+**Success metrics.** Lead with whether classification improves the selected
+owner decision or intervention: useful actions taken, correctly handled cases,
+unresolved work and owner effort. Also track topic coverage (% of text reviews
+with ≥1 topic), corrections, digest engagement, auto-categorized cases and LLM
+cost per classified review. Classification or engagement alone is not value.
 
 ---
 
@@ -408,17 +473,30 @@ settings, explanations, and topic-specific defaults can follow later.
 5. Feed points: prompt builder, Judge context, `evaluateAsk` context,
    recovery outreach drafts.
 
-**Explicit non-goals.** Auto-ingesting facts from the website/GBP profile
-(nice later); fact-checking drafts against the web; per-staff policies.
+**Memory needed for the selected job.** Distinguish confirmed business facts
+and rules, owner corrections/preferences, and actions with observed outcomes.
+Record source, confirmation/version and expiry where relevant; an inference
+or imported suggestion is not an owner-confirmed fact. Corrections may improve
+later comparable work but never silently expand permissions. Keep raw content
+out of the run spine; use existing authorized domain records and the customer
+evidence record before proposing a general memory system. Cross-business
+learning is a separate permission and evidence question.
+
+**Explicit non-goals.** Automatically treating website/GBP content as business
+truth; fact-checking drafts against the web; per-staff policies. A separately
+scoped setup experiment may propose sourced facts for owner confirmation;
+extraction is not included in the initial operator candidate by default.
 
 **Open design questions.** Fact staleness (promotions expire — expiry field +
 digest nudge vs hard TTL); how much of the ontology (Phase 3) seeds default
 policies per vertical; whether explanation generation is a second LLM call or
 same-call structured output (cost).
 
-**Success metrics.** Edit distance trend after truth/policy adoption (should
-fall); % of drafts carrying an explanation; policy-violation Judge flags
-(should fall); owner activation of the settings surface.
+**Success metrics.** Factual corrections, repeated owner corrections, stale
+facts, policy violations and ongoing supervision after adoption. Compare
+equivalent eligible work and report the sample. Edit distance, explanation
+coverage and settings use remain diagnostic measures; they cannot establish
+that memory improved the job on their own.
 
 ---
 
@@ -455,6 +533,10 @@ platform: every adapter declares capabilities AND solicitation policy, and
 Basic owner-value measurement starts in the immediate plan above. Select a
 full owner-facing page when it would help a customer decide to keep using
 RepWorth, and verify that the required data exists before promising it.
+For the operator candidate, link the agreed job and rule version to the
+action, owner correction, verified completion or unresolved state, and any
+later observed outcome. Existing records and a worksheet may suffice. A run
+record proves recorded activity, not a causal business effect.
 Later read models can use what the selected workflows accumulated:
 staff-level feedback (staff_names × topics), service-level sentiment,
 location comparisons, request→review→recovery funnels. Plus the owner-facing
@@ -473,10 +555,10 @@ API and MCP tools, agency/white-label. A narrowly scoped read-only MCP pilot
 may be selected earlier when a named user needs it and it fits capacity;
 there is no automatic pilot after Phase 2. Write tools need separate access,
 cost, and approval design. From design §8.5: calibrated-confidence router,
-conversational surface, cross-agent coordination keys, outcome billing.
-The agentic subset of this list (API/MCP, confidence router, conversational
-surface, A2A) is sequenced with rationale in
-`2026-08-26-agentic-architecture.md` §3–§4.
+cross-agent coordination keys, outcome billing. The owner-operator candidate
+above is independently selectable; a general conversational agent platform
+is not committed. `2026-08-26-agentic-architecture.md` §3–§4 separates owner
+interaction from external API/MCP and A2A work.
 
 ---
 
