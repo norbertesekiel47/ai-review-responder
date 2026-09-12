@@ -1,0 +1,2013 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-owner-operator-run-a-b83a4f",
+  "branch": "feat/owner-operator-run-a",
+  "fork_sha": "10c9444a9832cae0e45854f1d19cb124bb2ee5e9",
+  "merge_base_sha": "10c9444a9832cae0e45854f1d19cb124bb2ee5e9",
+  "head_sha": "5b223e33f19499534961bf2d60d8781a41af780f",
+  "intake_sha256": "4e5d3007b7eff17128373e835d2b079ecc315965a13cd6467e7636898af20554",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-12T09:33:06Z",
+  "inventory": [
+    {
+      "id": "INV-001",
+      "test": "validator rejects a text segment that invents a count next to a metric word",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m1: validateTextSegments invented-count rule (render.ts:134-136). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-002",
+      "test": "validator rejects a text segment that claims a change was applied before any click",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m2: validateTextSegments completion-claim rule (render.ts:137-139). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-003",
+      "test": "validator applies the count and completion patterns to question segments, not only text",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m3: validateTextSegments prose-member guard, question arm (render.ts:133). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-004",
+      "test": "validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m4: validateRefSegments status_ref membership rule (render.ts:152-154). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-005",
+      "test": "validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m5: validateRefSegments proposal_ref bound, >= to > (render.ts:155). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-006",
+      "test": "validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m6: validateScopeCheck stored-location comparison inverted (render.ts:172). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-007",
+      "test": "validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m8: validateScopeCheck coexistence rule (render.ts:183-185). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-008",
+      "test": "validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m11: validateProposalScope location-scoped-must-name-location rule (render.ts:207-209). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-009",
+      "test": "validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m12: validateProposals unknown-operation rule (render.ts:227-229). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-010",
+      "test": "scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m15: scrubPastedReview block splitting (render.ts:64). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-011",
+      "test": "scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m16: scrubPastedReview rating-header carries the next block (render.ts:73-75). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-012",
+      "test": "worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m14: handleAgentTurn kill-switch gate (AgentTurnWorker.ts:323). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-013",
+      "test": "worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m1: failTurnAndCompleteOutbox CAS-before-fail ordering (turns.ts:496-499). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-014",
+      "test": "worker fails the turn unauthorized when the location voice row vanished after authorization",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m7: generateAndAssemble vanished-voice terminal reason (AgentTurnWorker.ts:226). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-015",
+      "test": "worker fails the turn unauthorized when the location voice row vanished after authorization",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m5: failTurnFenced outbox completion inside the transaction (turns.ts:441). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-016",
+      "test": "worker scrubs a pasted review out of the prompt and stores the notice as the first segment",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m10: generateAndAssemble passes the SCRUBBED text to the model (AgentTurnWorker.ts:193). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-017",
+      "test": "worker scrubs a pasted review out of the prompt and stores the notice as the first segment",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m9: generateAndAssemble scrub flag reaches materializeReply (AgentTurnWorker.ts:264). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-018",
+      "test": "worker releases its claim on a transient failure so the retry re-claims and completes",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m12: handleTurnError releases the claim before a transient rethrow (AgentTurnWorker.ts:309-313). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-019",
+      "test": "worker fails the turn predecessor_stalled after the stall limit",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m3: waitOrFailOnPredecessor stall threshold comparison (AgentTurnWorker.ts:114). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-020",
+      "test": "worker predecessor wait releases the claim and delays the job without spending retry budget",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m4: waitOrFailOnPredecessor releases the claim before moveToDelayed (AgentTurnWorker.ts:132-136). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-021",
+      "test": "worker step 3 fails the turn account_offboarding for an offboarding account and builds no snapshot",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m6: generateAndAssemble offboarding-vs-unauthorized reason split (AgentTurnWorker.ts:166-168). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-022",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m8: generateAndAssemble binds stored proposal ids by index (AgentTurnWorker.ts:263). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-023",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "Mutation t-m4: claimTurn 180 s lease predicate (turns.ts:250-254). The targeted test still PASSED, and so did the whole agent-turn suite (23/23) on a confirming re-run. See finding P0-1.",
+      "finding_id": "P0-1"
+    },
+    {
+      "id": "INV-024",
+      "test": "worker fenced completion discards an attempt whose lease was lost",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m2: completeTurnFenced attempt_token fence (turns.ts:386). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-025",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m18: settleClaimMiss terminal-turn outbox completion (AgentTurnWorker.ts:87). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-026",
+      "test": "worker supersedes earlier pending proposals with the same operation and scope",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m3: completeTurnFenced supersession replacements (turns.ts:400-404). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-027",
+      "test": "worker step 3 fails the turn unauthorized for a revoked owner and builds no snapshot",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "Mutation t-m6 (failTurnFenced attempt_token fence (turns.ts:434)) was prepared and targeted at this test, but the runner REFUSED it as launch 31 of a 30-run round budget. Not executed; no outcome measured."
+    },
+    {
+      "id": "INV-028",
+      "test": "no covering test exists",
+      "file": "src/lib/agents/operator/render.ts:231-233",
+      "outcome": "inconclusive",
+      "reason": "Direction B: the validateProposals allowedOperations gate (\"proposal names an operation this account may not use\") is reached by no test in the repo. It fires only for an operation that IS in CATALOG but NOT in snapshot.allowedOperations; both validator fixtures close that set (render.test.ts:31-35, model-call.test.ts:57-60) and no test proposes set_products_services or set_highlight_facts through validateModelOutput. The one in-catalog-but-absent id a test uses, set_daily_cap, is unregistered and short-circuits at render.ts:227-229. Established statically because the per-test cap of 2 mutations was already spent on the only covering test.",
+      "inconclusive_class": "oracle",
+      "finding_id": "P1-1"
+    },
+    {
+      "id": "INV-029",
+      "test": "no covering test exists",
+      "file": "worker/jobs/agent-turn/AgentTurnWorker.ts:282-294",
+      "outcome": "inconclusive",
+      "reason": "Direction B: the handleTurnError budget-decision branch (isBudgetDecision -> failTurnFenced with TURN_FAILURE_REASON.BUDGET_EXCEEDED) has no covering test. The token budget_exceeded / BUDGET_EXCEEDED and the helper isBudgetDecision appear in no test file in the repo, and no test constructs a CostLimitExceededError or GlobalCostLimitExceededError on this lane. The intake names budget_exceeded in both observability and edge_cases.",
+      "inconclusive_class": "oracle",
+      "finding_id": "P1-7"
+    },
+    {
+      "id": "INV-030",
+      "test": "every runLlmTask call site is in the reviewed-caller allowlist",
+      "file": "src/__tests__/cost-guard-contract.test.ts:81",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-031",
+      "test": "the allowlist carries no stale entries (files without a call site)",
+      "file": "src/__tests__/cost-guard-contract.test.ts:93",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-032",
+      "test": "GET conversation returns the actor's most recent conversation and the summary reads with timestamps",
+      "file": "src/app/api/operator/__tests__/conversation-route.test.ts:36",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-033",
+      "test": "GET turn returns rendered segments and stored rows scoped by account and 404 across accounts",
+      "file": "src/app/api/operator/__tests__/turn-get-route.test.ts:34",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-034",
+      "test": "POST turns inserts the conversation, the accepted turn, and the outbox row in one transaction and returns the ids",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:65",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-035",
+      "test": "POST turns returns the existing ids for a repeated clientTurnKey with the same payload and 409 for a different payload",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:96",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-036",
+      "test": "POST turns rejects a missing or mismatched Origin before any write",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:118",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-037",
+      "test": "POST turns returns 404 operator_disabled before any write when OWNER_OPERATOR_ENABLED is off",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:140",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-038",
+      "test": "POST turns rejects an impersonating admin with 409 before any write",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:153",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-039",
+      "test": "POST turns rejects a location that is archived or belongs to another account and a conversation owned by another account",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:175",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-040",
+      "test": "voice route accepts and returns highlightFacts through the shared writer",
+      "file": "src/app/api/settings/__tests__/voice-route.test.ts:70",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-041",
+      "test": "returns voice config for a specific location",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:160",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-042",
+      "test": "returns voice config for all locations",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:190",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-043",
+      "test": "returns 404 when location not found",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:226",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-044",
+      "test": "returns 401 when not authenticated",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:233",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-045",
+      "test": "returns defaults for null voice fields",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:240",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-046",
+      "test": "updates tone for a specific location",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:278",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-047",
+      "test": "returns 404 when location not found or not accessible",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:303",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-048",
+      "test": "returns 400 when the writer reports no fields to update",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:316",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-049",
+      "test": "returns 500 when the writer transaction throws",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:324",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-050",
+      "test": "returns 400 when no voice fields provided",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:332",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-051",
+      "test": "returns 403 when user has no account",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:337",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-052",
+      "test": "returns 402 without updating when the account is past-due read-only",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:344",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-053",
+      "test": "validates avoidFacts max length (500 chars)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:362",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-054",
+      "test": "validates sampleResponses max count (10)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:370",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-055",
+      "test": "binds account_id as a parameterized value in the UPDATE WHERE clause (not interpolated)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:378",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-056",
+      "test": "it.each block at line 390",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:390",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-057",
+      "test": "throws for a table with no verification branch so inventory drift is caught, not silently passed",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:52",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-058",
+      "test": "throws for an absent-by-business table that is not on the allowlist",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:69",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-059",
+      "test": "has explicit verification SQL for every disposition table that requires purge verification",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:87",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-060",
+      "test": "reports only tables with remaining verification violations",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:92",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-061",
+      "test": "reports surviving judge verdicts as account-scoped purge residue",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:122",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-062",
+      "test": "fails closed on surviving Solicitation batches or asks",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:151",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-063",
+      "test": "purge verification fails when a solicitation_outreach row survives the purge",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:187",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-064",
+      "test": "purge verification counts refusal_events rows for the target account, including account-wide rows, and ignores another account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:218",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-065",
+      "test": "purge verification fails when a solicitation_consent row survives the purge",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:259",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-066",
+      "test": "uses explicit account, business, offboarding, and compliance retention scopes",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:297",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-067",
+      "test": "checks payload-control tables against the full raw identifier scope",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:333",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-068",
+      "test": "fails purge verification for any retained notification delivery linked to the account or its businesses",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:364",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-069",
+      "test": "compares every tombstone sentinel with IS DISTINCT FROM, never <> or NOT LIKE",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:398",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-070",
+      "test": "pins the businesses OR-chain at 28 predicates, three of them non-residue",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:419",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-071",
+      "test": "binds all nine sentinel values from PURGE_TOMBSTONE_SENTINELS, never a re-typed literal",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:452",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-072",
+      "test": "does not silently add disposition tables without verification coverage",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:483",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-073",
+      "test": "purge verification and the content purge stage remove every owner-operator row for the purged account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:565",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-074",
+      "test": "classifies every tenant table and explicit account-linked table exactly once",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:102",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-075",
+      "test": "classifies every directly account-linked table created by migrations",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:114",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-076",
+      "test": "keeps helper exports in sync with the canonical inventory",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:125",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-077",
+      "test": "uses only known dispositions, link types, and purge verification modes",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:137",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-078",
+      "test": "keeps purge verification modes compatible with disposition semantics",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:148",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-079",
+      "test": "offboarding purge sweeps uploads, contacts, visits, batches, and asks",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:156",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-080",
+      "test": "classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:173",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-081",
+      "test": "requires purge verification for every applicable table",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:205",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-082",
+      "test": "PROVIDER_DATA_RETENTION classifies the Stripe Customer object as retain_compliance_limited_pii",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:223",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-083",
+      "test": "PROVIDER_DATA_RETENTION carries the detached Stripe PaymentMethod as its own entry",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:239",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-084",
+      "test": "PROVIDER_DATA_RETENTION entries never appear in ACCOUNT_OFFBOARDING_TABLES or PURGE_VERIFICATION_TABLES",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:257",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-085",
+      "test": "verificationQuery still throws missing_purge_verification_sql for an unknown table name",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:274",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-086",
+      "test": "table dispositions classify the four owner-operator tables as hard_delete with direct_account_id evidence and must_be_absent verification",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:306",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-087",
+      "test": "reauthorizeTurn maps account_offboarding_blocked to account_offboarding",
+      "file": "src/lib/agents/operator/__tests__/authorize.test.ts:26",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-088",
+      "test": "catalog separates read, proposable, and capture kinds by type and exposes only model-visible operations to the prompt",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts:13",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-089",
+      "test": "invariants: every catalog operation declares a contract version and a describer",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts:62",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-090",
+      "test": "buildSnapshot scopes every read to the stored account and location",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts:59",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-091",
+      "test": "generateOperatorReply records one api_costs row per billed attempt",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts:104",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-092",
+      "test": "fails model_output_invalid when both attempts return an invalid shape",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts:153",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-093",
+      "test": "insertProposals writes one row per proposal with contract_version and prepared_version_token",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts:68",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-094",
+      "test": "getTurnForOwner returns null for a turn id that belongs to another account",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:236",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-095",
+      "test": "createTurn refuses a conversation id that already exists under another account and writes no turn",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:268",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-096",
+      "test": "getConversationForOwner scopes the most-recent read to the actor and honours an explicit id",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:306",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-097",
+      "test": "getConversationForOwner reports the location override and its dials, per location",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:363",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-098",
+      "test": "getConversationForOwner carries each turn its own stored proposals, and none of another account\\",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:406",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-099",
+      "test": "getConversationForOwner returns a null summary for a conversation with no turns",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:507",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-100",
+      "test": "getConversationForOwner bounds the transcript to the most recent turns",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:529",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-101",
+      "test": "validator returns the parsed proposals it already computed, in the model order",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:133",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-102",
+      "test": "materializeReply binds proposal ids by index and freezes every status_ref value",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:267",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-103",
+      "test": "materializeReply prepends the scrub notice and drops a reference nothing backs",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:323",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-104",
+      "test": "renderSegments passes a stored proposal id through and resolves no index",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:347",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-105",
+      "test": "model output schema has no field for counts, approval, confirmation, or receipts",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts:31",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-106",
+      "test": "status narrowings throw on a value no writer produces",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts:78",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-107",
+      "test": "snapshot red team: instruction-shaped review bodies never reach the rendered snapshot or prompt",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:198",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-108",
+      "test": "snapshot summarises each historical turn\\",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:291",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-109",
+      "test": "snapshot operating rules report the location override and its dials",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:352",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-110",
+      "test": "snapshot star bands equal a hand count per location and exclude held drafts",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:403",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-111",
+      "test": "worker retries the model call once on invalid output and fails the turn model_output_invalid on the second failure",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:650",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-112",
+      "test": "worker leaves two same-scope proposals from ONE turn both pending, and a later turn supersedes both",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:785",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-113",
+      "test": "createTurn resolves one turn key across two conversations to created and turn_key_conflict without leaking 23505",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:853",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-114",
+      "test": "createTurn returns the same ids for two concurrent identical POSTs and writes one row",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:882",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-115",
+      "test": "createTurn stores owner_text byte-for-byte and treats a trimmed repeat as a conflict",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:904",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-116",
+      "test": "content purge removes account A\\",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:953",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-117",
+      "test": "createTurn assigns the next sequence under the conversation row lock",
+      "file": "src/lib/agents/operator/__tests__/turns.test.ts:49",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-118",
+      "test": "pins the OpenAI model to a dated snapshot (no bare alias)",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:10",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-119",
+      "test": "keeps the Anthropic model pinned",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:15",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-120",
+      "test": "has pricing for the pinned OpenAI model",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:19",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-121",
+      "test": "pins the reply_generation task to the snapshot models (no bare alias)",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:24",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-122",
+      "test": "pins the insights task (review-summary tenant) to the snapshot models (no bare alias)",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:30",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-123",
+      "test": "review-summary drives the seam and never hard-codes a bare gpt-4o-mini alias",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:37",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-124",
+      "test": "triage task pins both providers to the pinned snapshots",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:43",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-125",
+      "test": "judge task pins both providers and its structured-output limits",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:51",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-126",
+      "test": "pins solicitation_ask to the shared model pair at temperature 0.6",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:62",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-127",
+      "test": "owner_operator task pins both providers to the snapshot models with the output schema",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:73",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-128",
+      "test": "voice writer updates highlight_facts under a businesses row lock and rejects a location outside the account",
+      "file": "src/lib/responses/__tests__/voice-settings.test.ts:32",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-129",
+      "test": "accepts legacy missing origin lane and normalizes suppress_notification strictly",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:63",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-130",
+      "test": "returns the typed origin lane for known lane values",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:83",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-131",
+      "test": "fails closed while returning a sanitized unknown non-empty lane",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:104",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-132",
+      "test": "preserves required field fail-fast validation",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:118",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-133",
+      "test": "enqueues generate_response with required origin lane and jsonb payload",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:132",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-134",
+      "test": "enqueues publish_response identifiers only with the in-flight conflict guard",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:161",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-135",
+      "test": "defaults publish_response available_at to NOW() via COALESCE when availableAt is omitted",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:187",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-136",
+      "test": "binds the supplied availableAt date for a delayed publish_response",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:203",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-137",
+      "test": "pins the publish_response ON CONFLICT predicate byte-for-byte (regression guard for the availableAt change)",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:218",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-138",
+      "test": "enqueues pending_post_notice with the in-flight conflict guard matching migration 074 byte-for-byte",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:236",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-139",
+      "test": "omits correlation_id from pending_post_notice payload when not provided and honors a supplied outboxId",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:270",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-140",
+      "test": "enqueues auto_post_notice with the in-flight conflict guard matching migration 067 byte-for-byte",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:285",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-141",
+      "test": "enqueues escalation_notice with the in-flight conflict guard matching migration 073 byte-for-byte",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:313",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-142",
+      "test": "omits correlation_id from escalation_notice payload when not provided",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:343",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-143",
+      "test": "enqueues judge_verdict with the migration-076 in-flight predicate and exact payload",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:352",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-144",
+      "test": "enqueues autonomy_suspended_notice keyed by the suspension event",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:378",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-145",
+      "test": "enqueues autonomy_admin_alert keyed by the same event with evidence",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:403",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-146",
+      "test": "enqueues validate_place_id with the in-flight WHERE NOT EXISTS dedup guard",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:429",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-147",
+      "test": "returns false when an in-flight validate_place_id row already exists (deduped)",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:463",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-148",
+      "test": "enqueueCsvIngest writes a csv_ingest outbox row with the deterministic idempotency key",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:477",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-149",
+      "test": "omits correlation_id from the csv_ingest payload when not provided and honors a supplied outboxId",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:512",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-150",
+      "test": "enqueueBuildSolicitationBatch writes an identifiers-only batch build job",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:527",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-151",
+      "test": "enqueues generate_solicitation_asks with the migration-091 in-flight predicate and returns the outbox id",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:551",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-152",
+      "test": "returns null when an in-flight generate_solicitation_asks row already exists for the batch",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:579",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-153",
+      "test": "carries ask_id for a single-ask regeneration and honors a supplied outboxId",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:592",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-154",
+      "test": "enqueues a dedicated account-scoped Stripe subscription mirror sync",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:609",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-155",
+      "test": "enqueueSolicitationSend returns null when an in-flight solicitation_send row already exists",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:623",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-156",
+      "test": "enqueueSolicitationAttribution binds a time-unbounded guard and the 114 in-flight predicate",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:681",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-157",
+      "test": "enqueueAgentTurn inserts one pending agent_turn outbox row keyed on the turn id",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:751",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-158",
+      "test": "migration 120 registers all four tables in TENANT_TABLES and TENANT_SCOPE_COLUMNS",
+      "file": "src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts:41",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-159",
+      "test": "migration 120 creates the four owner-operator tables with deny-all RLS, revoked client grants, and the two unique constraints",
+      "file": "src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts:77",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-160",
+      "test": "throws when production is configured with MOCK_EXTERNAL_APIS=true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:77",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-161",
+      "test": "allows MOCK_EXTERNAL_APIS=true outside production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:83",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-162",
+      "test": "allows production when MOCK_EXTERNAL_APIS is not true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:89",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-163",
+      "test": "assertProductionMockModeEnv() rejects MOCK_EXTERNAL_APIS=true on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:95",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-164",
+      "test": "allows all optional flags to be unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:125",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-165",
+      "test": "allows exact true and false strings",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:129",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-166",
+      "test": "rejects non-boolean values instead of interpreting them loosely",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:141",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-167",
+      "test": "rejects loose account offboarding flag values",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:147",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-168",
+      "test": "rejects loose Autopilot sale flag values",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:153",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-169",
+      "test": "it.each block at line 161",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:161",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-170",
+      "test": "it.each block at line 173",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:173",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-171",
+      "test": "is a no-op in non-production MOCK_EXTERNAL_APIS mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:196",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-172",
+      "test": "throws with all missing Stripe worker env vars",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:202",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-173",
+      "test": "throws in production non-mock mode when Stripe worker env vars are missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:212",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-174",
+      "test": "treats whitespace-only Stripe worker env vars as missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:218",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-175",
+      "test": "passes when all required Stripe worker env vars are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:224",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-176",
+      "test": "rejects duplicate Stripe Price IDs at worker startup",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:229",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-177",
+      "test": "assertStripeWorkerEnv() does not honour the mock-mode skip on a deployed lane",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:236",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-178",
+      "test": "throws in production non-mock mode when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:254",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-179",
+      "test": "treats whitespace-only as missing in production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:260",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-180",
+      "test": "passes in production when set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:267",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-181",
+      "test": "is a no-op outside production even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:274",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-182",
+      "test": "is a no-op in production mock mode even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:279",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-183",
+      "test": "assertAdminNotificationEmail() requires ADMIN_NOTIFICATION_EMAIL on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:285",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-184",
+      "test": "throws in production non-mock mode when SENTRY_DSN is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:303",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-185",
+      "test": "treats whitespace-only as missing in production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:309",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-186",
+      "test": "passes in production when SENTRY_DSN is set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:316",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-187",
+      "test": "is a no-op outside production even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:323",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-188",
+      "test": "is a no-op in production mock mode even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:328",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-189",
+      "test": "assertAlertSinkEnv() requires SENTRY_DSN on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:334",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-190",
+      "test": "assertAlertSinkEnv() names the resolved lane and its source in the failure message",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:343",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-191",
+      "test": "warns for each unset var in production non-mock mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:370",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-192",
+      "test": "is silent outside production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:380",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-193",
+      "test": "is silent in production mock mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:386",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-194",
+      "test": "does not warn for vars that are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:393",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-195",
+      "test": "is a no-op in non-production MOCK_EXTERNAL_APIS mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:414",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-196",
+      "test": "throws naming the missing core-infra var in non-mock mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:420",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-197",
+      "test": "passes when every core-infra var is present",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:430",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-198",
+      "test": "assertCoreInfraEnv() does not honour the mock-mode skip on a deployed lane",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:437",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-199",
+      "test": "checks unsafe production mock mode before Stripe env vars",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:476",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-200",
+      "test": "does not require Stripe env vars in non-production MOCK_EXTERNAL_APIS mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:483",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-201",
+      "test": "passes when production mock mode is off and Stripe + core-infra env vars are present",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:489",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-202",
+      "test": "fails fast when a core-infra var is missing in production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:499",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-203",
+      "test": "runs optional server-only feature boolean validation",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:509",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-204",
+      "test": "it.each block at line 517",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:517",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-205",
+      "test": "it.each block at line 528",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:528",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-206",
+      "test": "fails fast when a tier cost ceiling is malformed",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:540",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-207",
+      "test": "imports the side-effect full startup guard before queues can evaluate",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:551",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-208",
+      "test": "side-effect guard runs assertWorkerStartupEnv",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:568",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-209",
+      "test": "is a no-op when flag is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:595",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-210",
+      "test": "is a no-op when MOCK_EXTERNAL_APIS=true even with flag on",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:599",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-211",
+      "test": "throws with all missing vars when flag is on and env is empty",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:605",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-212",
+      "test": "passes when flag is on and all required vars are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:611",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-213",
+      "test": "is a no-op when flag is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:639",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-214",
+      "test": "is a no-op in MOCK_EXTERNAL_APIS=true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:643",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-215",
+      "test": "throws when required env vars are missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:649",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-216",
+      "test": "throws if TWILIO_WHATSAPP_NUMBER is not whatsapp:+<digits>",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:654",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-217",
+      "test": "throws if WHATSAPP_APPROVAL_URL_BASE does not equal NEXT_PUBLIC_APP_URL + \"/approve/\"",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:666",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-218",
+      "test": "passes with all vars set correctly",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:678",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-219",
+      "test": "rejects a WORKER_PUBLIC_URL with a trailing slash",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:690",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-220",
+      "test": "rejects a WORKER_PUBLIC_URL with a query string",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:702",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-221",
+      "test": "accepts a clean https WORKER_PUBLIC_URL",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:714",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-222",
+      "test": "rejects a WORKER_PUBLIC_URL with a trailing slash",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:749",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-223",
+      "test": "assertZernioPublishingEnv() rejects an http WORKER_PUBLIC_URL on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:761",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-224",
+      "test": "is a no-op when SELF_SERVE_SIGNUP_ENABLED is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:795",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-225",
+      "test": "is a no-op when SELF_SERVE_SIGNUP_ENABLED is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:799",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-226",
+      "test": "throws when flag is on but REDIS_CACHE_URL is missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:803",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-227",
+      "test": "throws when flag is on but NEXT_PUBLIC_APP_URL is missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:810",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-228",
+      "test": "throws listing all missing STRIPE_PRICE_* vars when flag is on and none are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:817",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-229",
+      "test": "throws naming only the missing price var when 5 of 6 are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:830",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-230",
+      "test": "treats whitespace-only price var as missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:844",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-231",
+      "test": "does NOT require STRIPE_PAYMENT_LINK_* vars",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:853",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-232",
+      "test": "passes when all required vars are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:862",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-233",
+      "test": "startup-assert checks list and founding base Prices for both WS8 tiers",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:879",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-234",
+      "test": "startup-assert checks one overage Price for each multi-location WS8 tier",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:887",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-235",
+      "test": "startup-assert owns exactly six WS8 Price variables",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:896",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-236",
+      "test": "no STRIPE_PAYMENT_LINK references remain in startup-assert",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:900",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-237",
+      "test": "is a no-op when the flag is off or unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:932",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-238",
+      "test": "is a no-op under MOCK_EXTERNAL_APIS even when the flag is on",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:938",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-239",
+      "test": "throws listing both vars when the flag is on and both are missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:944",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-240",
+      "test": "does not throw when the flag is on and both required vars are present",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:949",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-241",
+      "test": "throws when SESSION_COOKIE_SECRET is shorter than 32 bytes",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:956",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-242",
+      "test": "accepts a SESSION_COOKIE_SECRET of at least 32 bytes",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:963",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-243",
+      "test": "accepts a multibyte secret that is >=32 bytes even though its .length is < 32",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:970",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-244",
+      "test": "assertSolicitationSendEnv is a no-op when SOLICITATION_SEND_ENABLED is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1020",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-245",
+      "test": "assertSolicitationSendEnv is a no-op when MOCK_EXTERNAL_APIS is true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1027",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-246",
+      "test": "assertSolicitationSendEnv throws naming every missing solicitation env var",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1033",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-247",
+      "test": "assertSolicitationSendEnv accepts an explicit zero platform daily cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1050",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-248",
+      "test": "assertSolicitationSendEnv throws on an unparseable platform daily cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1060",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-249",
+      "test": "assertSolicitationSendEnv throws on a negative platform daily cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1072",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-250",
+      "test": "assertSolicitationSendEnv never logs the solicitation Resend API key",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1080",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-251",
+      "test": "passes when the effective concurrency is exactly 1",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1128",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-252",
+      "test": "throws at boot when the effective concurrency is greater than 1",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1134",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-253",
+      "test": "throws at boot when concurrency is missing from the effective options",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1140",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-254",
+      "test": "passes when the non-flag-gated worker-slot sum is exactly 9 (mixed explicit/undefined opts)",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1156",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-255",
+      "test": "throws when the non-flag-gated sum reaches 10, naming the queues, the sum, and the cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1160",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-256",
+      "test": "counts undefined concurrency as 1 (BullMQ default)",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1170",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-257",
+      "test": "passes a flag-gated entry at 1 alongside a non-gated sum of 9",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1181",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-258",
+      "test": "throws when a flag-gated entry exceeds 1",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1189",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-259",
+      "test": "fails boot on drift: the 5-slot queue edited to 6 pushes the sum to 10",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1197",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-260",
+      "test": "passes the ADR 0005 flag-on envelope at exactly 12 (sum 9 + three flag-gated lanes)",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1208",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-261",
+      "test": "fails boot when a fourth flag-gated lane pushes the flag-on envelope to 13",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1218",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (pre-existing case, in scope because this file imports a helper or registry this branch changed). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-262",
+      "test": "writes nothing until the retry ladder is exhausted",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:58",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-263",
+      "test": "on exhaustion runs the outbox CAS FIRST and only then fails the turn, in one transaction",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:84",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-264",
+      "test": "writes nothing when a newer dispatch has superseded this one",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:114",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-265",
+      "test": "swallows a transaction failure rather than letting it escape the hook",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:127",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-266",
+      "test": "does not log owner text or the provider message",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:142",
+      "outcome": "skipped-budget",
+      "reason": "Direction A candidate (added by this branch). Not executed: the 30-run round budget was spent first on every validator rule at its new home in render.ts and on the four AgentTurnWorker step helpers, per this round's prioritisation, and the runner refused launch 31. Reviewed statically for fragile assertions (duty 2) with no finding."
+    },
+    {
+      "id": "INV-267",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "supabase/migrations/120_owner_operator.sql",
+      "outcome": "excluded",
+      "reason": "Excluded per the protocol: the test database is provisioned to migrations head before the run, so mutating a migration file changes nothing under test. Its shape is asserted by the read-only live-DB suite instead."
+    },
+    {
+      "id": "INV-268",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "docs/** and .claude/reference/** (24 changed files)",
+      "outcome": "excluded",
+      "reason": "Documentation and reference pages carry no executable behaviour, so they are not mutation candidates. They are verified instead under duty 3 (docs vs reality), which produced findings P1-5 and P1-6."
+    },
+    {
+      "id": "INV-269",
+      "test": "n/a \u2014 none changed",
+      "file": "e2e/** (Playwright)",
+      "outcome": "excluded",
+      "reason": "Excluded per the protocol (E2E specs are fragile-assertion review only). This branch changes no Playwright spec, so the set is empty."
+    }
+  ],
+  "findings": [
+    {
+      "id": "P0-1",
+      "severity": "P0",
+      "duty": 1,
+      "title": "claimTurn's 180 s lease predicate can be deleted with the entire agent-turn suite still green",
+      "at": "src/lib/agents/operator/turns.ts:250-254",
+      "disposition": "open",
+      "reason": "Mutation t-m4 deleted the lease predicate from claimTurn's WHERE clause \u2014 the \"claimed_at IS NULL OR claimed_at < NOW() - (leaseSeconds * INTERVAL '1 second')\" arm \u2014 leaving only \"status IN ('accepted','running')\". The covering test, \"worker claim race: two dispatches of one turn produce one completed turn and one proposal set\" (src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:319), still PASSED. A confirming run of the whole agent-turn test set under the same mutant \u2014 turn-worker.integration.test.ts + worker/jobs/agent-turn/__tests__ + turns.test.ts \u2014 reported 23 passed, 0 failed. The behavioural replacement: the concurrent section of that test (turn-worker.integration.test.ts:500-517) should assert that exactly one attempt reached the model and was billed (expect(runLlmTask).toHaveBeenCalledTimes(1) and one recordApiCost / api_costs row for the racy turn), and a direct claimTurn case should prove a second claim inside the lease returns null while one after lease expiry succeeds.",
+      "arbiter_reasoning": "Not an equivalent mutation. Deleting the lease predicate lets a second dispatch claim a turn whose 180 s lease is live (AGENT_TURN_LEASE_SECONDS, worker/jobs/agent-turn/constants.ts), so two attempts each run step 3, each build a snapshot and each make their own cost-guarded owner_operator model call. The intake's own risk_reasons names this consequence verbatim: \"a new BullMQ worker (AgentTurnWorker) makes a cost-guarded LLM call ... a defect can double-bill or strand turns\". Not an unexecuted branch either: the test's third section runs two handleAgentTurn calls under Promise.all on one freshly created turn, so both reach claimTurn inside the same lease window, and claimTurn is the first statement either executes after the flag gate. It survives because the assertions describe only the END STATE \u2014 one completed turn, one agent_proposals row, outbox completed \u2014 and completeTurnFenced's attempt_token fence delivers that end state on its own, independently of the lease. The lease predicate and the completion fence are two separate guards: the fence stops a stale attempt from WRITING, only the lease stops a second attempt from SPENDING. The suite asserts the first and never the second. Independently corroborated without spending a further run: \"rg AGENT_TURN_LEASE_SECONDS|leaseSeconds|LEASE\" across src/lib/agents/operator/__tests__ and worker/jobs/agent-turn/__tests__ returns no hit, the only two claimed_at writes in the suite (turn-worker.integration.test.ts:549, :585) drive loadPredecessor's age rather than the claim, and the claim-race test makes no runLlmTask or recordApiCost call-count assertion at all. Mutation t-m2, which removed completeTurnFenced's attempt_token fence, was KILLED \u2014 so the pair is asymmetric: the written-state half of the protocol is asserted and the spend half is not."
+    },
+    {
+      "id": "P1-1",
+      "severity": "P1",
+      "duty": 1,
+      "title": "The validator's allowedOperations gate is reached by no test",
+      "at": "src/lib/agents/operator/render.ts:231-233",
+      "disposition": "open",
+      "reason": "An uncovered behaviour-affecting production hunk (Direction B, Step 2). The rule fires only for a proposal whose operation IS registered in CATALOG but is NOT in snapshot.allowedOperations. Both validator fixtures close that set \u2014 render.test.ts:31-35 lists set_tone, set_avoid_facts, read_pending_work; model-call.test.ts:57-60 lists set_tone, read_pending_work \u2014 and no test anywhere proposes set_products_services or set_highlight_facts through validateModelOutput (rg over src/lib/agents/operator/__tests__ and src/app/api/operator/__tests__ finds those two ids only in catalog.test.ts's catalog sweep and in two read-path suites that SEED agent_proposals rows directly). The single in-catalog-but-absent id a test does use, set_daily_cap, is not registered at all, so it is rejected by the earlier branch at render.ts:227-229 and continues before reaching 231. Suggested fix: add one case proposing a catalog operation the snapshot omits and assert the \"may not use\" reason.",
+      "arbiter_reasoning": "Established statically rather than by mutation, because the per-test cap of 2 mutations was already spent on the only test that could cover this rule. Recorded as P1 (uncovered change) rather than P0: the rule is also unreachable in production today \u2014 modelVisibleOperations (src/lib/agents/operator/catalog.ts:193-203) returns every CATALOG entry and ignores its tier parameter, so snapshot.allowedOperations always equals the catalog \u2014 which makes this a forward guard for Run B's tier-gated operations rather than a live hole in the no-unapproved-operation path. It still blocks the round as an inconclusive oracle row, because \"no test can distinguish this rule from its absence\" is a claim about the oracle."
+    },
+    {
+      "id": "P1-7",
+      "severity": "P1",
+      "duty": 1,
+      "title": "The handleTurnError budget-decision terminal branch has no covering test",
+      "at": "worker/jobs/agent-turn/AgentTurnWorker.ts:282-294",
+      "disposition": "open",
+      "reason": "An uncovered behaviour-affecting production hunk (Direction B, Step 2). This is the branch that makes an exhausted account budget TERMINAL instead of burning the BullMQ retry ladder: isBudgetDecision(error) -> failTurnFenced with TURN_FAILURE_REASON.BUDGET_EXCEEDED. Neither budget_exceeded nor BUDGET_EXCEEDED nor isBudgetDecision appears in any test file in the repository, and no test on this lane constructs a CostLimitExceededError or a GlobalCostLimitExceededError. The sibling transient branch immediately below it IS covered (\"worker releases its claim on a transient failure so the retry re-claims and completes\"), and so is the exhausted reason in failed-hook.test.ts:107 \u2014 budget_exceeded is the one terminal reason with no case. The intake names it in both observability (\"agent_turns.status and failure_reason distinguish failed reasons (... budget_exceeded)\") and edge_cases (\"Terminal failure (... budget exceeded ...)\").",
+      "arbiter_reasoning": "Recorded without spending a mutation run: the absence of the token from every test file is direct evidence that no oracle exists, and the round budget was exhausted. Severity P1 rather than P0 because a miss is bounded \u2014 the cost RESERVATION precedes the model call, so a budget-exceeded error that fell through to the retry ladder would spend nothing extra and would end as failure_reason \"exhausted\" via the failed-hook instead of \"budget_exceeded\". The defect would therefore be an observability regression on a reason the intake promises to distinguish, not lost money or a stranded turn."
+    },
+    {
+      "id": "P1-2",
+      "severity": "P1",
+      "duty": 5,
+      "title": "agent_turn is missing from checkFailedOutboxByTopic's closed allowlist, so no health-alert finding can fire for a failed turn",
+      "at": "worker/background/pollers/health-alert/checks.ts:105-124",
+      "disposition": "open",
+      "reason": "A missing alert-path half: the branch adds an owner-impacting outbox topic and no emitting signal watches it. The allowlist binds exactly PUBLISH_RESPONSE, SEND_NOTIFICATION, GENERATE_RESPONSE, BUILD_SOLICITATION_BATCH, GENERATE_SOLICITATION_ASKS and SOLICITATION_VETO_NOTICE; QUEUE_NAMES.AGENT_TURN (src/lib/shared/queue-names.ts:68) is absent. A failed agent_turn row therefore raises no subsystem:health_alert finding, so rule 1 of docs/runbooks/beta-launch-alerting.md can never fire for this lane. Fix: add QUEUE_NAMES.AGENT_TURN to the allowlist, or state in the runbook why a failed turn is not owner-impacting.",
+      "arbiter_reasoning": "The code comment directly above the allowlist names this exact defect class as a prior incident \u2014 \"This is a CLOSED allowlist, so a new owner-impacting topic stays invisible until it is added here. generate_solicitation_asks shipped without it (#628 round 5), which silently voided that lane's dead-letter rationale: its terminal handler concedes the batch to 'an operator will see the failed row', and nothing was watching the row.\" The owner-impact test is met: a failed agent_turn means the owner's Operator message never receives a reply, and the branch's own design leans on the row being seen (docs/roadmap/2026-09-11-owner-operator/README.md:636 defers the stranded-turn case to Run B on exactly that basis). Verified independently of the subagent that surfaced it: I re-read checks.ts:105-124 and confirmed the six bound topics, and \"rg -in agent_turn|owner.operator|worker_job docs/runbooks/beta-launch-alerting.md\" returns zero matches."
+    },
+    {
+      "id": "P1-3",
+      "severity": "P1",
+      "duty": 5,
+      "title": "The job-failure-sink Sentry signal for queue agent_turn has no rule row in beta-launch-alerting.md",
+      "at": "worker/job-failure-sink.ts:64-80",
+      "disposition": "open",
+      "reason": "The other missing half: an emitted signal with no rule row. worker/index.ts registers agentTurnWorker into workersByQueue, and the existing loop attaches attachJobFailureSink to every entry, so BullMQ terminal exhaustion on this lane fires Sentry.captureException tagged {subsystem: \"worker_job\", queue: \"agent_turn\", topic}. That tag set matches no _If_ filter in the runbook's rule table and is not listed in the runbook's own register of signals that knowingly have no dedicated rule. Facet compared and contradicted: signal identity and filter (no rule selects this tag set) and destination action (no documented destination). Fix: add a rule row for subsystem:worker_job scoped to this queue, with a cadence, or extend the existing register to acknowledge it.",
+      "arbiter_reasoning": "Scoped deliberately to the lane this branch adds rather than opened as a front against the sink, which is unchanged code: the finding is that the branch wires a NEW queue into an existing emitter and ships no rule for it. The runbook keeps an explicit list of signals that have no dedicated rule, which is what makes an unlisted, unrowed signal a reportable omission rather than an accepted posture."
+    },
+    {
+      "id": "P1-4",
+      "severity": "P1",
+      "duty": 5,
+      "title": "The orphaned-lease signal the intake names is a log line only \u2014 no Sentry event, no rule row",
+      "at": "worker/background/pollers/OutboxPoller.ts:93-165",
+      "disposition": "open",
+      "reason": "The intake's observability section states: \"job_outbox rows for topic agent_turn: a stuck 'dispatched' row past the watchdog window is the signal a lease was orphaned.\" Both branches of runOutboxWatchdogRecovery \u2014 re-pending a stale dispatched row, and terminalising it to failed \u2014 only emit a structured log line, aggregated across every topic rather than broken out per topic, and neither captures to Sentry. Combined with P1-2, a worker crash that strands an agent_turn row in dispatched past the watchdog window produces zero Sentry event end to end: nothing from the watchdog, and nothing from checkFailedOutboxByTopic once the row lands failed. Facet contradicted: destination action \u2014 the contract names a signal that has no operator-actionable destination.",
+      "arbiter_reasoning": "Reported against the contract the branch wrote rather than against OutboxPoller, which is unchanged: the claim that this row IS the orphaned-lease signal is new on this branch, and it is the claim that fails. Fixing P1-2 alone resolves the terminalised half of this; the re-pend half stays a log line, which is defensible if the runbook says so. Closing either the code or the contract sentence would settle it."
+    },
+    {
+      "id": "P1-5",
+      "severity": "P1",
+      "duty": 3,
+      "title": "A changed doc claim is false: the agent_turn lane does not emit logger.warn uniformly across the six terminal paths",
+      "at": "docs/roadmap/2026-09-11-owner-operator/README.md:638",
+      "disposition": "open",
+      "reason": "The bullet, added by this branch inside the @@ -627,14 +627,37 @@ hunk, asserts that every terminal path in AgentTurnWorker \u2014 naming operator_disabled first \u2014 \"resolves the turn and emits a logger.warn line\", and concludes \"That is uniform across the six paths, not a gap in one of them\". At HEAD the operator_disabled path emits logger.log (worker/jobs/agent-turn/AgentTurnWorker.ts:324, \"agent_turn flag-off skip\"); the other five use logger.warn (AgentTurnWorker.ts:122, :171, :204, :229, :292). Fix: say five of the six paths warn and the flag-off skip logs at info, or change line 324 to warn.",
+      "arbiter_reasoning": "Re-derived at HEAD, not taken from the subagent report: I read the bullet and the six call sites myself and confirmed the hunk membership with git diff. Recorded as P1 rather than P0 after weighing the \"misleading FALSE claim\" bar. The bullet's operative assertions are all true and independently verified here \u2014 there is no Sentry call anywhere in AgentTurnWorker.ts, and beta-launch-alerting.md carries no row for the lane \u2014 and the same sentence itself describes operator_disabled as \"an orderly flag-off skip ... not an incident\", which is consistent with logger.log being deliberate. A reader is therefore misled about one path's log LEVEL, not about whether the lane is alerted or about the single go-live decision the bullet defers. The concrete harm is bounded to whoever later implements that deferred decision with a level:warn filter and silently drops every operator_disabled turn. Recorded at P1 with this reasoning so the owner can escalate it to P0 if they weigh the uniformity assertion as load-bearing."
+    },
+    {
+      "id": "P1-6",
+      "severity": "P1",
+      "duty": 3,
+      "title": "The authoritative JSONB parse-site allowlist names the wrong file for the agent_turns.reply parse sites",
+      "at": ".claude/reference/lab-notes/postgres.md:17",
+      "disposition": "open",
+      "reason": "The Owner Operator bullet added by this branch says parseReplySegments is \"called in context.ts and twice in turns.ts\". At HEAD it is called once in src/lib/agents/operator/context.ts:297 and twice in src/lib/agents/operator/reads.ts:97 and :213; src/lib/agents/operator/turns.ts contains no call at all (rg parseReplySegments src worker). The owner reads were split out of turns.ts into reads.ts in commit eb21f55c2 and this line was not re-resolved. Fix: name reads.ts. Everything else in the bullet checks out \u2014 the site count of four is right and the entry's arithmetic closes (2+1+2+4+2+3+4+5 = 23, matching its own \"Exactly 23 production JSONB field-to-parser sites today\").",
+      "arbiter_reasoning": "This entry is marked AUTHORITATIVE and its one job is to let a reader find every production JSONB parse site, so pointing at a file that has none while leaving the file that has two unnamed defeats that job. Recorded as P1 rather than P0 because the substantive safety claim \u2014 each site guards typeof-string, narrows and throws \u2014 is true at the real sites, and the enumeration's count and totals are correct; what is wrong is where to look, which is a stale reference of the same family as a stale line number."
+    },
+    {
+      "id": "P2-1",
+      "severity": "P2",
+      "duty": 4,
+      "title": "The branch adds a fifth private boundedErrorClass copy and picks the unhardened shape, while a hardened shared export already exists",
+      "at": "worker/jobs/agent-turn/failed-hook.ts:26-28",
+      "disposition": "open",
+      "reason": "Missed sibling case. Pattern searched: \"function boundedErrorClass\" across worker and src. Scope: the whole worker and src trees, no exclusions. Result: five definitions \u2014 the shared export at worker/jobs/solicitation-batch/failed-hook-shared.ts:36 (already imported by worker/jobs/solicitation-send/failed-hook.ts, worker/jobs/solicitation-batch/generate-failed-hook.ts and worker/jobs/solicitation-batch/failed-hook.ts) plus four private copies, the newest being this branch's. The shared one validates the class name against /^[A-Za-z][A-Za-z0-9_$]{0,99}$/ and falls back to UnknownError, with a docblock giving the reason (\"so a hostile or exotic error type cannot inject structure into the log line\"); this branch's copy takes err.name unvalidated and slices it to 100 characters, then interpolates it into markOutboxFailed's reason string at failed-hook.ts:56-61, i.e. into a stored job_outbox error value and a log field. The same refactor commit that produced this HEAD (15bc4a4aa) deduplicated parseJsonbObject for exactly this shape; fallow's duplication gate does not reach a two-line helper. Fix: import boundedErrorClass from the shared module, or move it somewhere both hooks can share.",
+      "arbiter_reasoning": "P2, recorded and non-blocking, because there is no exploitable path today: the errors that reach this hook come from the LLM seam, Postgres and the cost guard, none of which sets .name from provider or owner text, and the value is a bound parameter rather than interpolated SQL. The finding is the divergence itself \u2014 the branch replicated the weaker of two existing siblings (worker/jobs/judge/failed-hook.ts:39) when a hardened shared export with a stated rationale was available."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 269,
+    "killed": 25,
+    "survived_confirmed_p0": 1,
+    "equivalent": 0,
+    "inconclusive": 2,
+    "skipped_budget": 238,
+    "excluded": 3,
+    "findings_total": 9,
+    "p0_open": 1,
+    "p1_open": 7,
+    "p2_open": 1,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
