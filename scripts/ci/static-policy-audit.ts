@@ -213,8 +213,8 @@ const SUBSCRIPTION_STATUS_LITERAL = /['"](?:active|trialing|past_due|cancelled|p
 export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Set([
   // ── SQL predicates inside postgres.js sql`` templates (enum can't be imported;
   //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
-  'src/app/api/admin/billing/grant-extension/route.ts:70',
-  'src/app/api/admin/billing/grant-extension/route.ts:108',
+  'src/app/api/admin/billing/grant-extension/route.ts:69',
+  'src/app/api/admin/billing/grant-extension/route.ts:107',
   // The two onboarding display_name sync predicates (admin-invite-funnel T4).
   // `accounts.display_name` must re-sync with the Business name while the
   // account is pre-activation, not only when it still holds the creation
