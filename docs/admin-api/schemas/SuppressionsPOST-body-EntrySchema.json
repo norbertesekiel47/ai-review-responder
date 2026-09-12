@@ -18,7 +18,7 @@
     "note"
   ],
   "additionalProperties": false,
-  "x-repworth-source": "src/app/api/admin/suppressions/route.ts:20:21",
+  "x-repworth-source": "src/app/api/admin/suppressions/route.ts:19:21",
   "x-repworth-approximation": true,
   "x-repworth-limitations": [
     {

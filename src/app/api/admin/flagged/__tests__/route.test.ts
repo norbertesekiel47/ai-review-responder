@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -5,7 +6,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockWriteAccountAuditLog,
   mockSql,
   txResults,
@@ -57,7 +58,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 vi.mock('@/lib/audit/log', () => ({
   writeAccountAuditLog: mockWriteAccountAuditLog,
@@ -70,7 +71,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 import { GET, POST } from '../route';
 
 function getReq(): NextRequest {
-  return new NextRequest('https://app.example.com/api/admin/flagged?limit=20&offset=0');
+  return adminBearerRequest('https://app.example.com/api/admin/flagged?limit=20&offset=0');
 }
 
 describe('GET /api/admin/flagged', () => {
@@ -144,7 +145,7 @@ describe('GET /api/admin/flagged', () => {
 });
 
 function postReq(body: unknown): NextRequest {
-  return new NextRequest('https://app.example.com/api/admin/flagged', {
+  return adminBearerRequest('https://app.example.com/api/admin/flagged', {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'https://app.example.com' },
     body: JSON.stringify(body),
@@ -162,14 +163,17 @@ describe('POST /api/admin/flagged (disposition)', () => {
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
   });
 
-  it('rejects a non-same-origin request with 403', async () => {
-    const bad = new NextRequest('https://app.example.com/api/admin/flagged', {
+  it('rejects a cookie-only request before the flag mutation', async () => {
+    const bad = adminBearerRequest('https://app.example.com/api/admin/flagged', {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: 'https://evil.example.com' },
       body: JSON.stringify({ flaggedId: FLAG_ID, action: 'approved_for_owner_review' }),
     });
+    bad.headers.delete('authorization');
+    bad.headers.set('cookie', 'admin-session=fixture');
     const res = await POST(bad);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('requires AAL2', async () => {

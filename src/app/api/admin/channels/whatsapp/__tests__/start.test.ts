@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 // src/app/api/admin/channels/whatsapp/__tests__/start.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -8,7 +9,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
 } = await vi.hoisted(async () => {
   const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
   const q: unknown[] = [];
@@ -54,7 +55,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('qrcode', () => ({
@@ -71,7 +72,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function mkReq(body: unknown) {
-  return new Request('http://localhost/api/admin/channels/whatsapp/start', {
+  return adminBearerRequest('http://localhost/api/admin/channels/whatsapp/start', {
     method: 'POST',
     body: JSON.stringify(body),
     headers: { 'Content-Type': 'application/json', Origin: APP_URL },

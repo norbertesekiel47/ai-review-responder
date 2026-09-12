@@ -12,7 +12,7 @@
     "note"
   ],
   "additionalProperties": false,
-  "x-repworth-source": "src/app/api/admin/solicitation/breaker/reset/route.ts:25:21",
+  "x-repworth-source": "src/app/api/admin/solicitation/breaker/reset/route.ts:24:21",
   "x-repworth-approximation": true,
   "x-repworth-limitations": [
     {

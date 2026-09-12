@@ -12,17 +12,15 @@
 
 import { NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
 import { assertWhatsAppEnvReady } from '@/lib/notifications/channels/whatsapp-env';
 import { runChannelStart } from '@/app/api/_shared/channels/start';
 import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';
 
-export const POST = withSameOriginUnlessBearer()((req: NextRequest) =>
+export const POST = (req: NextRequest) =>
   runChannelStart(sql, req, {
     channel: 'whatsapp',
     isEnabled: channelsWhatsappEnabled,
     assertEnvReady: assertWhatsAppEnvReady,
     resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: true }),
-  }),
-);
+  });

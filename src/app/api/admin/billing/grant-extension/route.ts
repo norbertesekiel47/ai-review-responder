@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { jsonb, sql } from '@/lib/db/server';
 
 export const dynamic = 'force-dynamic';
@@ -37,7 +36,7 @@ class GrantExtensionError extends Error {
   }
 }
 
-async function grantExtension(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
   const admin = gate.admin;
@@ -142,4 +141,3 @@ async function grantExtension(request: NextRequest): Promise<NextResponse> {
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOriginUnlessBearer()(grantExtension);

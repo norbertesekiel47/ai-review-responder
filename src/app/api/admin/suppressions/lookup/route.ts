@@ -19,7 +19,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import {
   lookupSuppressions,
@@ -47,7 +46,7 @@ const LOOKUP_ERROR_STATUS: Record<LookupFailure['error'], number> = {
   invalid_handle: 400,
 };
 
-async function lookup(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   // Same sensitivity as /admin/flagged's read: the rows name recipients and the
   // accounts that mailed them across every tenant.
   const gate = await requireAdminWithAal2(request);
@@ -83,4 +82,3 @@ async function lookup(request: NextRequest): Promise<NextResponse> {
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOriginUnlessBearer()(lookup);

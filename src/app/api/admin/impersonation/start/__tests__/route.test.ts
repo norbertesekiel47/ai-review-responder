@@ -5,7 +5,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockStartImpersonationSession,
   mockSignImpersonationSession,
   mockAssertImpersonationCookieConfigured,
@@ -68,7 +68,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/db/server', () => ({

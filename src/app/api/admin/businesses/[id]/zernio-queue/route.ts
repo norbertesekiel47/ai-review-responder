@@ -5,7 +5,6 @@ import { sql, jsonb } from '@/lib/db/server';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +27,7 @@ class QueueActionError extends Error {
   }
 }
 
-async function handleZernioQueueAction(
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -170,4 +169,3 @@ async function dismiss(businessId: string, responseId: string, adminId: string):
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOriginUnlessBearer()(handleZernioQueueAction);

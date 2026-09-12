@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -7,7 +8,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockSqlReturn,
 } = await vi.hoisted(async () => {
   const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
@@ -45,7 +46,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/db/server', () => ({
@@ -70,7 +71,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function makeRequest(body: unknown): NextRequest {
-  return new NextRequest('http://localhost:3000/api/admin/businesses/biz-1/ranking', {
+  return adminBearerRequest('http://localhost:3000/api/admin/businesses/biz-1/ranking', {
     method: 'POST',
     body: JSON.stringify(body),
     headers: { 'Content-Type': 'application/json', Origin: APP_URL },

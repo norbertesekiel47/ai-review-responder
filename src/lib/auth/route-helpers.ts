@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type postgres from 'postgres';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { isBearerRequest, readBearerToken } from '@/lib/auth/admin-transport';
 import { requireRole, AuthError, type AppUser } from '@/lib/db/auth';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -36,26 +35,6 @@ export function withSameOrigin(): <TArgs extends unknown[]>(
       throw err;
     }
     return handler(req, ...args);
-  };
-}
-
-/**
- * Admin mutation CSRF wrapper (ADR 0025 D8). The canonical route gate still
- * verifies the bearer; malformed Authorization never falls back to cookies.
- * Owner and impersonation mutations keep withSameOrigin().
- */
-export function withSameOriginUnlessBearer(): <TArgs extends unknown[]>(
-  handler: NextHandler<TArgs>
-) => WrappedNextHandler<TArgs> {
-  return (handler) => {
-    const cookieHandler = withSameOrigin()(handler);
-    return async (req, ...args) => {
-      if (!isBearerRequest(req)) return cookieHandler(req, ...args);
-      if (readBearerToken(req) === null) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
-      }
-      return handler(req, ...args);
-    };
   };
 }
 

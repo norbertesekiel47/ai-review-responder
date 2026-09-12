@@ -9,7 +9,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { recordAdminManualSuppression } from '@/lib/admin/suppressions-service';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -24,7 +23,7 @@ const EntrySchema = z.strictObject({
   note: z.string().trim().min(1).max(1_000),
 });
 
-async function recordEntry(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
 
@@ -56,4 +55,3 @@ async function recordEntry(request: NextRequest): Promise<NextResponse> {
 }
 
 // CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOriginUnlessBearer()(recordEntry);

@@ -6,7 +6,7 @@
 //
 // WHY THIS EXISTS. #1183 moved the admin gate's identity read below it, into the
 // **Admin transport** seam (`@/lib/auth/verified-identity`). Twenty-two admin route
-// suites absorbed that by pasting the SAME shim — a `resolveDualModeIdentity` stand-
+// suites absorbed that by pasting the SAME shim — a `resolveAdminApiIdentity` stand-
 // in plus a `loadAppUser` stand-in, byte-identical in all twenty-two, verified by
 // hash. #1183's resolution comment names both the debt and its miss mode: a shim
 // that drifts, or is pasted slightly wrong, produces a suite whose 401/403
@@ -15,7 +15,7 @@
 //
 // WHAT THIS HELPER DOES AND DOES NOT PROVE. It gives a suite a faithful stand-in
 // for the gate's dependencies; it does not verify a credential, because nothing
-// here parses a token. The identity a suite configures is the identity the gate
+// here verifies a token. The identity a suite configures is the identity the gate
 // sees. The real seam and the real refusal contract are proven WITHOUT this helper
 // by `src/lib/auth/__tests__/{admin-mfa-gate,verified-identity,admin-transport-seam}.test.ts`,
 // which is what keeps its consumers from becoming the only — and therefore
@@ -30,13 +30,13 @@
 // `worker/__tests__/helpers/mock-sql.ts`:
 //
 //   const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockLoadAppUser,
-//           mockResolveDualModeIdentity } = await vi.hoisted(async () => {
+//           mockResolveAdminApiIdentity } = await vi.hoisted(async () => {
 //     const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
 //     return { ...makeAdminGateMocks() };
 //   });
 //
 //   vi.mock('@/lib/auth/verified-identity', () => ({
-//     resolveDualModeIdentity: mockResolveDualModeIdentity,
+//     resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 //   }));
 //   vi.mock('@/lib/auth/mfa', () => ({
 //     requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
@@ -55,8 +55,9 @@
 // It DOES import `@/lib/auth/admin-transport` for real, and that is the point of
 // the next paragraph.
 import { vi, type Mock } from 'vitest';
-import { isBearerRequest } from '@/lib/auth/admin-transport';
-import type { AdminTransport } from '@/lib/auth/admin-transport';
+import { NextRequest } from 'next/server';
+import { isBearerRequest, readBearerToken } from '@/lib/auth/admin-transport';
+import { isAdminImpersonationApiRoute, normalizePath } from '@/lib/shared/protected-routes';
 import type { VerifiedIdentity } from '@/lib/auth/verified-identity';
 
 /**
@@ -87,11 +88,11 @@ export interface AdminGateMocks {
   /** Stand-in for `@/lib/db/auth` `loadAppUser`. */
   mockLoadAppUser: Mock;
   /**
-   * Stand-in for `@/lib/auth/verified-identity` `resolveDualModeIdentity`. A `Mock`
+   * Stand-in for `@/lib/auth/verified-identity` `resolveAdminApiIdentity`. A `Mock`
    * rather than a bare function so a suite can assert WHICH request reached the
    * seam — which is what makes a bearer test a transport test.
    */
-  mockResolveDualModeIdentity: Mock;
+  mockResolveAdminApiIdentity: Mock;
 }
 
 /** The shape `requireCurrentAal2FromSupabase` answers with. */
@@ -130,14 +131,11 @@ function aalFrom(answer: AalAnswer | null | undefined): string | null {
  *     it into the clean 500 `internal_error`.
  *   - resolves → an identity carrying the AAL the step-up mock reported.
  *
- * TRANSPORT IS DERIVED FROM THE REQUEST, never from a knob the test sets. The gate
- * reads only `authUserId` and `aal` (`src/lib/auth/admin-mfa-gate.ts`), so a
- * `transport: 'bearer'` a test simply asserts into existence would reproduce the
- * cookie test's 200 without an `Authorization` header ever being sent — the bearer
- * case would then assert nothing the cookie case does not. Calling the PRODUCTION
- * `isBearerRequest` instead means a suite proves bearer mode the only way that
- * counts: by building a request that carries the header, and by the same predicate
- * `src/proxy.ts` takes in #1185 (ADR 0025 D6 — one owner for that test).
+ * Credential presence is derived from the real request and production path/header
+ * predicates. Ordinary calls need a syntactically valid bearer; only the permanent
+ * impersonation prefix may use cookies. This mock never verifies token authenticity:
+ * SDK-boundary suites own that proof. The early refusal keeps a route suite from
+ * silently asserting successful cookie access after #1203.
  *
  * `loadAppUser` deliberately reuses the outcome `mockRequireRole` ALREADY produced
  * rather than calling it a second time. A `...Once` control would be consumed by the
@@ -159,10 +157,12 @@ export function makeAdminGateMocks(): AdminGateMocks {
   });
 
   // The return type is the REAL `VerifiedIdentity`, not an inline literal: this
-  // function stands in for `resolveDualModeIdentity`, and an untyped literal lets
+  // function stands in for `resolveAdminApiIdentity`, and an untyped literal lets
   // the seam's shape drift away from its stand-in silently across 30 suites.
-  const mockResolveDualModeIdentity: Mock = vi.fn(
-    async (request: unknown): Promise<VerifiedIdentity | null> => {
+  const mockResolveAdminApiIdentity: Mock = vi.fn(
+    async (request: NextRequest): Promise<VerifiedIdentity | null> => {
+      const cookieException = isAdminImpersonationApiRoute(normalizePath(request.nextUrl.pathname)) && !isBearerRequest(request);
+      if (!cookieException && readBearerToken(request) === null) return null;
       try {
         await mockRequireRole(request, 'admin');
       } catch (err) {
@@ -173,9 +173,7 @@ export function makeAdminGateMocks(): AdminGateMocks {
       }
 
       const aal = aalFrom((await mockRequireCurrentAal2FromSupabase()) as AalAnswer | null);
-      const transport: AdminTransport = isBearerRequest(request as { headers: Headers })
-        ? 'bearer'
-        : 'cookie';
+      const transport: VerifiedIdentity['transport'] = cookieException ? 'cookie' : 'bearer';
 
       return { authUserId: 'auth-1', aal, transport };
     },
@@ -185,7 +183,7 @@ export function makeAdminGateMocks(): AdminGateMocks {
     mockRequireRole,
     mockRequireCurrentAal2FromSupabase,
     mockLoadAppUser,
-    mockResolveDualModeIdentity,
+    mockResolveAdminApiIdentity,
   };
 }
 
@@ -214,4 +212,14 @@ export function adminAuthModuleMock(
     cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
     AuthError,
   };
+}
+
+/** Synthetic bearer request for route tests; explicit Authorization overrides win. */
+export function adminBearerRequest(
+  input: ConstructorParameters<typeof NextRequest>[0],
+  init?: ConstructorParameters<typeof NextRequest>[1],
+): NextRequest {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('authorization')) headers.set('authorization', 'Bearer test-admin-access-token');
+  return new NextRequest(input, { ...init, headers });
 }

@@ -218,48 +218,27 @@ describe('admin suppression routes', () => {
     expect(mockSql.begin).not.toHaveBeenCalled();
   });
 
-  it('enforces same-origin on both admin suppression mutations', async () => {
-    gateAllows();
-
+  it('returns the canonical authentication refusal before every suppression operation', async () => {
+    const refusal = NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    mockRequireAdminWithAal2.mockResolvedValue({ ok: false, response: refusal });
     const { POST: entryPost } = await import('../route');
+    const { POST: lookupPost } = await import('../lookup/route');
     const { POST: correctPost } = await import('../correct/route');
-
-    // The wrapper lives at the export, so only calling the exported POST
-    // exercises it — a mocked-AAL2 assertion alone never would.
-    const entryResponse = await entryPost(entryRequest(
-      { email: 'person@example.com', note: 'mailbox ref 1' },
-      'https://evil.example.com',
-    ));
-    const correctResponse = await correctPost(correctRequest(
-      { suppressionId: SUPPRESSION_ID, reason: 'admin typo' },
-      'https://evil.example.com',
-    ));
-
-    expect(entryResponse.status).toBe(403);
-    expect(correctResponse.status).toBe(403);
-    // Same-origin is decided before the gate, so a cross-origin caller never
-    // even reaches the authorization step.
-    expect(mockRequireAdminWithAal2).not.toHaveBeenCalled();
+    const requests = [lookupRequest(), entryRequest(), correctRequest()];
+    const handlers = [lookupPost, entryPost, correctPost];
+    // This suite checks route composition. Real bearer/cookie rejection is
+    // exercised through the SDKs in admin-transport-seam.test.ts.
+    for (const [index, handler] of handlers.entries()) {
+      const request = requests[index]!;
+      request.headers.set('cookie', 'admin-session=fixture');
+      expect(await handler(request)).toBe(refusal);
+      expect(mockRequireAdminWithAal2).toHaveBeenNthCalledWith(index + 1, request);
+      expect(request.bodyUsed).toBe(false);
+    }
+    expect(mockLookupSuppressions).not.toHaveBeenCalled();
     expect(mockRecordAdminManualSuppression).not.toHaveBeenCalled();
     expect(mockCorrectSuppression).not.toHaveBeenCalled();
-  });
-
-  it('enforces same-origin on the admin suppression lookup', async () => {
-    gateAllows();
-
-    const { POST: lookupPost } = await import('../lookup/route');
-
-    // The lookup is a read, but it is a POST, so it gets the same wrapper as
-    // the mutations — a cross-origin caller must not be able to drive a
-    // cross-tenant read of every opted-out recipient from a victim's session.
-    const response = await lookupPost(lookupRequest(
-      { email: 'person@example.com' },
-      'https://evil.example.com',
-    ));
-
-    expect(response.status).toBe(403);
-    expect(mockRequireAdminWithAal2).not.toHaveBeenCalled();
-    expect(mockLookupSuppressions).not.toHaveBeenCalled();
+    expect(mockSql.begin).not.toHaveBeenCalled();
   });
 
   it('carries the looked-up address in the request body and never in the URL', async () => {

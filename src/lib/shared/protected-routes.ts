@@ -84,6 +84,11 @@ export function isAdminApiRoute(normalized: string): boolean {
   return normalized === '/api/admin' || normalized.startsWith('/api/admin/');
 }
 
+/** The permanent cookie-backed Admin API carve-out (ADR 0031 D6). */
+export function isAdminImpersonationApiRoute(normalized: string): boolean {
+  return normalized === '/api/admin/impersonation' || normalized.startsWith('/api/admin/impersonation/');
+}
+
 export function isProtectedRoute(pathname: string): boolean {
   const normalized = normalizePath(pathname);
 

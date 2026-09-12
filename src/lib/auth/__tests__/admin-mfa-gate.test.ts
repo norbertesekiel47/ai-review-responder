@@ -1,13 +1,12 @@
 // src/lib/auth/__tests__/admin-mfa-gate.test.ts
 //
 // Contract for requireAdminWithAal2 — the shared admin control-plane preamble.
-// Since #1183 it COMPOSES the **Admin transport** seam (resolveDualModeIdentity)
-// with loadAppUser, then decides: role, then a STRICT aal2 test. CSRF is applied
-// separately at each route export via withSameOrigin(), so same-origin is
-// intentionally NOT part of this gate's contract.
+// Since #1183 it COMPOSES the **Admin transport** seam (resolveAdminApiIdentity)
+// with loadAppUser, then decides: role, then a STRICT aal2 test. The permanent
+// impersonation routes retain withSameOrigin separately at their exports.
 //
 // This file pins the gate's COMPOSITION and requireAdminJson, with the seam mocked
-// away. The dual-mode behaviour itself — both transports, the full refusal table,
+// away. The bearer-only policy and cookie exception — the full refusal table,
 // the no-fallback rule — lives in ./admin-transport-seam.test.ts, which drives the
 // REAL seam through mocked Supabase SDKs. Neither file is sufficient alone: this
 // one would pass a seam that resolves nothing correctly, and that one would pass a
@@ -26,7 +25,7 @@ vi.mock('@/lib/db/auth', () => ({
 }));
 
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveIdentity,
+  resolveAdminApiIdentity: mockResolveIdentity,
 }));
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
@@ -36,7 +35,7 @@ import { z } from 'zod';
 import { requireAdminJson, requireAdminWithAal2 } from '../admin-mfa-gate';
 
 const ADMIN = { id: 'admin-1', name: 'Root', email: 'a@x.com', role: 'admin', accountId: null, locationId: null };
-const IDENTITY = { authUserId: 'auth-1', aal: 'aal2', transport: 'cookie' as const };
+const IDENTITY = { authUserId: 'auth-1', aal: 'aal2', transport: 'bearer' as const };
 
 function req(): NextRequest {
   return new NextRequest('https://app.example.com/api/admin/x', { method: 'POST' });

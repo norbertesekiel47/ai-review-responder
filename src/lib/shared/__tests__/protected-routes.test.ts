@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isAdminApiRoute,
+  isAdminImpersonationApiRoute,
   isProtectedMixedRoleApiRoute,
   isProtectedOwnerApiRoute,
   isProtectedRoute,
@@ -48,8 +49,8 @@ const PUBLIC: string[] = [
 
 const PROTECTED: string[] = [
   '/admin',
-  '/admin/overview',
-  '/admin/businesses',
+  '/admin/impersonate',
+  '/admin/impersonate/session/view',
   '/api/admin/businesses',
   '/api/billing',
   '/api/billing/checkout',
@@ -105,8 +106,8 @@ describe('isProtectedRoute', () => {
       expect(isProtectedRoute('/admin/reset-password/')).toBe(false);
     });
 
-    it('still protects /admin/overview/ (trailing slash on a protected page)', () => {
-      expect(isProtectedRoute('/admin/overview/')).toBe(true);
+    it('still protects /admin/impersonate/ (trailing slash on a protected page)', () => {
+      expect(isProtectedRoute('/admin/impersonate/')).toBe(true);
     });
 
     it('still protects /onboarding/ (trailing slash on a protected page)', () => {
@@ -187,12 +188,12 @@ describe('isAdminApiRoute', () => {
   });
 
   it('does not match a lookalike prefix or a non-admin API path', () => {
-    for (const path of ['/api/adminfoo', '/api/adm', '/api', '/admin', '/admin/overview', '/']) {
+    for (const path of ['/api/adminfoo', '/api/adm', '/api', '/admin', '/admin/impersonate', '/']) {
       expect(isAdminApiRoute(path), path).toBe(false);
     }
   });
 
-  it('takes an ALREADY-normalized path — it is the one predicate here that does not normalize', () => {
+  it('takes an ALREADY-normalized path — normalization belongs to callers', () => {
     // Its callers (isProtectedRoute above, and src/proxy.ts) both normalize
     // first. Stated as a test so the contract is not just a comment: passing a
     // raw path is a caller bug, not something this function silently absorbs.
@@ -208,4 +209,15 @@ describe('isAdminApiRoute', () => {
     }
     expect(isAdminApiRoute(normalizePath('/api/adminfoo'))).toBe(false);
   });
+});
+
+describe('isAdminImpersonationApiRoute', () => {
+  it.each(['/api/admin/impersonation', '/api/admin/impersonation/start', '/API/Admin/Impersonation/END/'])(
+    'retains the exact normalized exception %s',
+    (path) => expect(isAdminImpersonationApiRoute(normalizePath(path))).toBe(true),
+  );
+  it.each(['/api/admin', '/api/admin/overview', '/api/admin/impersonation-extra', '/api/admin/impersonations/start', '/admin/impersonate'])(
+    'does not grant the cookie exception to %s',
+    (path) => expect(isAdminImpersonationApiRoute(normalizePath(path))).toBe(false),
+  );
 });

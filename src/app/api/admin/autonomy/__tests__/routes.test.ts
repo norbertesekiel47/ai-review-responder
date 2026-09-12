@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -5,7 +6,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockListSuspendedPolicies,
   mockSql,
   sqlReturnQueue,
@@ -45,7 +46,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
@@ -63,11 +64,11 @@ const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const ADMIN_ID = '22222222-2222-4222-8222-222222222222';
 
 function getRequest(): NextRequest {
-  return new NextRequest('https://app.example.com/api/admin/autonomy/suspensions');
+  return adminBearerRequest('https://app.example.com/api/admin/autonomy/suspensions');
 }
 
 function postRequest(body: unknown, origin = 'https://app.example.com'): NextRequest {
-  return new NextRequest('https://app.example.com/api/admin/autonomy/unsuspend', {
+  return adminBearerRequest('https://app.example.com/api/admin/autonomy/unsuspend', {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin },
     body: JSON.stringify(body),
@@ -135,12 +136,15 @@ describe('admin autonomy routes', () => {
     expect(mockListSuspendedPolicies).toHaveBeenCalledWith(mockSql);
   });
 
-  it('POST requires same-origin admin AAL2 and a trimmed nonempty note', async () => {
+  it('POST requires bearer admin AAL2 and a trimmed nonempty note', async () => {
     const { AuthError } = await import('@/lib/db/auth');
     const { POST } = await import('../unsuspend/route');
 
-    const csrfResponse = await POST(postRequest({ accountId: ACCOUNT_ID, note: 'Reviewed.' }, 'https://evil.example.com'));
-    expect(csrfResponse.status).toBe(403);
+    const cookieRequest = postRequest({ accountId: ACCOUNT_ID, note: 'Reviewed.' });
+    cookieRequest.headers.delete('authorization');
+    cookieRequest.headers.set('cookie', 'admin-session=fixture');
+    const cookieResponse = await POST(cookieRequest);
+    expect(cookieResponse.status).toBe(401);
     expect(mockRequireRole).not.toHaveBeenCalled();
 
     mockRequireRole.mockRejectedValueOnce(new AuthError('Forbidden', 403));

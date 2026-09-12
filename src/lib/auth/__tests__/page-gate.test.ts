@@ -45,8 +45,8 @@ describe('requireAdminPage', () => {
   it('redirects to /admin/login when there is no session', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
 
-    await expect(requireAdminPage(sql, { from: '/admin/jobs' })).rejects.toThrow(
-      'REDIRECT:/admin/login?from=%2Fadmin%2Fjobs',
+    await expect(requireAdminPage(sql, { from: '/admin/impersonate' })).rejects.toThrow(
+      'REDIRECT:/admin/login?from=%2Fadmin%2Fimpersonate',
     );
   });
 
@@ -54,8 +54,8 @@ describe('requireAdminPage', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
     sqlReturnQueue.push([{ id: 'user-1', role: 'owner' }]);
 
-    await expect(requireAdminPage(sql, { from: '/admin/jobs' })).rejects.toThrow(
-      'REDIRECT:/admin/login?from=%2Fadmin%2Fjobs',
+    await expect(requireAdminPage(sql, { from: '/admin/impersonate' })).rejects.toThrow(
+      'REDIRECT:/admin/login?from=%2Fadmin%2Fimpersonate',
     );
   });
 
@@ -63,8 +63,8 @@ describe('requireAdminPage', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
     sqlReturnQueue.push([]);
 
-    await expect(requireAdminPage(sql, { from: '/admin/jobs' })).rejects.toThrow(
-      'REDIRECT:/admin/login?from=%2Fadmin%2Fjobs',
+    await expect(requireAdminPage(sql, { from: '/admin/impersonate' })).rejects.toThrow(
+      'REDIRECT:/admin/login?from=%2Fadmin%2Fimpersonate',
     );
   });
 
@@ -72,7 +72,7 @@ describe('requireAdminPage', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1' } }, error: null });
     sqlReturnQueue.push([{ id: 'user-1', role: 'admin' }]);
 
-    const user = await requireAdminPage(sql, { from: '/admin/jobs' });
+    const user = await requireAdminPage(sql, { from: '/admin/impersonate' });
 
     expect(user).toEqual({ id: 'user-1', role: 'admin' });
     expect(mockAal2).not.toHaveBeenCalled();
@@ -83,8 +83,8 @@ describe('requireAdminPage', () => {
     sqlReturnQueue.push([{ id: 'user-1', role: 'admin' }]);
     mockAal2.mockResolvedValue({ ok: false, reason: 'mfa_required' });
 
-    await expect(requireAdminPage(sql, { from: '/admin/flagged', aal2: true })).rejects.toThrow(
-      'REDIRECT:/mfa/challenge?next=%2Fadmin%2Fflagged',
+    await expect(requireAdminPage(sql, { from: '/admin/impersonate/session/view', aal2: true })).rejects.toThrow(
+      'REDIRECT:/mfa/challenge?next=%2Fadmin%2Fimpersonate%2Fsession%2Fview',
     );
   });
 
@@ -93,8 +93,8 @@ describe('requireAdminPage', () => {
     sqlReturnQueue.push([{ id: 'user-1', role: 'admin' }]);
     mockAal2.mockRejectedValue(new Error('network blip'));
 
-    await expect(requireAdminPage(sql, { from: '/admin/flagged', aal2: true })).rejects.toThrow(
-      'REDIRECT:/mfa/challenge?next=%2Fadmin%2Fflagged',
+    await expect(requireAdminPage(sql, { from: '/admin/impersonate/session/view', aal2: true })).rejects.toThrow(
+      'REDIRECT:/mfa/challenge?next=%2Fadmin%2Fimpersonate%2Fsession%2Fview',
     );
   });
 
@@ -103,7 +103,7 @@ describe('requireAdminPage', () => {
     sqlReturnQueue.push([{ id: 'user-1', role: 'admin' }]);
     mockAal2.mockResolvedValue({ ok: true });
 
-    const user = await requireAdminPage(sql, { from: '/admin/flagged', aal2: true });
+    const user = await requireAdminPage(sql, { from: '/admin/impersonate/session/view', aal2: true });
 
     expect(user.role).toBe('admin');
   });

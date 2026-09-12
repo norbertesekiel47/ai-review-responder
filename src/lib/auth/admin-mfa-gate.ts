@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { ZodType } from 'zod';
 import { loadAppUser, type AppUser } from '@/lib/db/auth';
-import { resolveDualModeIdentity } from '@/lib/auth/verified-identity';
+import { resolveAdminApiIdentity } from '@/lib/auth/verified-identity';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export type AdminMfaGateResult =
@@ -25,67 +25,24 @@ export function internalError(label: string, error: unknown): NextResponse {
 }
 
 /**
- * The admin control-plane preamble shared by every admin route that needs
- * elevated access. Since #1183 it is DUAL-MODE (ADR 0025): the **Admin transport**
- * seam resolves a verified identity from EITHER the session cookie (the Legacy
- * admin portal, same-origin) or a Supabase access token in `Authorization: Bearer`
- * (the Admin app, cross-origin), and this gate then decides — role, then a STRICT
- * aal2 test. A **Verified admin** means authentic, live and aal2 on both
- * transports; bearer mode is not cheaper than cookie mode and must not be made so.
+ * Canonical Admin API gate: verified bearer identity, application admin role,
+ * then strict AAL2. Only /api/admin/impersonation/** retains its existing cookie
+ * identity below this gate (ADR 0031 D6); owner gates remain cookie-only.
  *
- * The transport branch deliberately lives BELOW this function, in
- * `@/lib/auth/verified-identity`, and NOT inside `requireRole` — about 40 owner and
- * mixed-role routes reach that through `requireRoleOr401`, and none of them asked
- * to accept a bearer (ADR 0025 D1). `requireRole` stays cookie-only.
+ * The seam owns credential verification and the segment-bounded exception.
+ * This gate, requireAdminJson and resolveAdminActor keep their names and result
+ * shapes, so ci:admin-aal2 retains the same three credited gate shapes.
  *
- * The exported name and result shape are UNCHANGED, so `ci:admin-aal2`'s allowlist
- * is untouched and `requireAdminJson` / `resolveAdminActor` inherit dual mode by
- * composition.
+ * Refusals are unchanged: 401 Unauthorized for no live credential; 403 Forbidden
+ * for no application admin; 403 mfa_required for a readable non-aal2 level;
+ * 403 mfa_check_failed for unreadable AAL; 500 internal_error for unexpected
+ * failures. All are no-store JSON with no redirects. The gate never consults
+ * MFA_ENFORCEMENT_ENABLED; bearer trust still includes signature, expiry and
+ * liveness, and AAL2 is unconditional.
  *
- * `MFA_ENFORCEMENT_ENABLED` is never read here. It gates the proxy's AAL step only;
- * this gate is unconditional and stays unconditional (ADR 0025 D10).
- *
- * The refusal contract, byte-for-byte on both transports:
- *
- *   - no/bad/expired/revoked credential → 401 { error: 'Unauthorized' }
- *   - verified, but no `users` row or role is not admin
- *                                      → 403 { error: 'Forbidden' }
- *   - verified, aal is not 'aal2'       → 403 { error: 'mfa_required' }
- *   - aal missing or unreadable         → 403 { error: 'mfa_check_failed' }
- *   - Supabase transport fault, or any
- *     other unexpected failure          → 500 { error: 'internal_error' }
- *
- * All carry NO_STORE_HEADERS, and none is a redirect — a cross-origin API must not
- * redirect (ADR 0025 D9).
- *
- * Two refusals moved with the ticket's table, which is declared for BOTH
- * transports: a verified cookie session with no `users` row was a 401 and is now a
- * 403 (the old path could not tell "no session" from "no row"), and a cookie AAL
- * read yielding no level is now `mfa_check_failed` rather than `mfa_required`.
- *
- * A THIRD, narrower difference comes from ORDER and is declared rather than fixed
- * (deviations D6): the seam resolves identity and AAL together, so the AAL read now
- * happens BEFORE the role check, where `requireRole` used to refuse a non-admin
- * first. A non-admin whose AAL read THROWS therefore gets 500 rather than 403 —
- * fail-closed, and it needs a Supabase fault and a non-admin at the same moment —
- * and a refused cookie request pays one extra AAL round-trip.
- *
- * CSRF is deliberately NOT handled here. Mutating routes get same-origin
- * protection by construction at the export — `export const POST =
- * withSameOrigin()(handler)` (src/lib/auth/route-helpers.ts) — the same
- * mechanism the rest of the app uses, visible at the route boundary. A
- * previous `{ sameOrigin: true }` opt-in flag made the check forgettable: a new
- * admin POST that omitted it shipped CSRF-vulnerable with no type error. Read
- * routes (e.g. the flagged GET queue) need no wrapper. The 500 path replaces
- * both the per-route errorToResponse helpers and the old non-AuthError
- * 401-mask on the flagged GET.
- *
- * Deliberate asymmetry with requireRoleOr401 (the owner/channel gate,
- * src/lib/auth/route-helpers.ts) on the unexpected-error mode: that gate
- * RE-THROWS a non-auth failure (bare Next 500), while this gate CATCHES it and
- * returns the clean internal_error 500 above. Each preserves its own routes'
- * pre-refactor behavior; don't unify one onto the other without accepting the
- * observable change.
+ * Ordinary Admin API routes carry no cookie CSRF wrapper after #1203; the proxy
+ * still owns the origin allowlist. Impersonation keeps withSameOrigin at its
+ * mutation exports, and its cookie failure semantics are unchanged.
  */
 export async function requireAdminWithAal2(
   request: NextRequest,
@@ -98,10 +55,9 @@ export async function requireAdminWithAal2(
   let admin: AppUser | null;
   let aal: string | null;
   try {
-    const identity = await resolveDualModeIdentity(request);
-    // No live credential on the transport the caller chose. The seam never falls
-    // back to the other one: an Authorization header suppresses the cookie even
-    // when it is malformed, so this cannot be retried into a cookie session.
+    const identity = await resolveAdminApiIdentity(request);
+    // No live bearer, or no live cookie inside the permanent exception.
+    // A malformed Authorization header never falls back to a cookie.
     if (!identity) return refuse(401, 'Unauthorized');
 
     admin = await loadAppUser(identity.authUserId);
@@ -156,8 +112,7 @@ export async function requireAdminWithAal2(
  * through untouched.
  *
  * CSRF is still NOT handled here, for the reason `requireAdminWithAal2` gives:
- * same-origin protection is applied at the export (`withSameOrigin()(handler)`)
- * so it stays visible at the route boundary.
+ * ordinary routes require bearer identity before any body is read.
  */
 export async function requireAdminJson<T>(
   request: NextRequest,

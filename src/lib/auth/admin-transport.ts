@@ -1,28 +1,16 @@
-// src/lib/auth/admin-transport.ts
-//
-// The **Admin transport** predicate (docs/context/core-accounts-channels-admin.md;
-// ADR 0025 D6/D7). ONE owner for "is this request presenting a bearer". Today its
-// only consumer is `verified-identity.ts`; `src/proxy.ts` becomes the second in
-// #1185, and the ADR requires them to share this module rather than each spelling
-// the header test — two copies can disagree, and a disagreement is either a bypass
-// or a dead route.
-//
-// EDGE-SAFE, and that is a hard constraint rather than a nicety: `src/proxy.ts`
-// runs on the Edge runtime, so nothing here may import `node:*`, touch the
-// database, construct a Supabase client, or read `process.env`. Header parsing
-// only, and this module currently has ZERO imports — which is what
-// `admin-transport.test.ts` asserts mechanically, because a comment cannot stop
-// #1185 from discovering the constraint as a broken Edge bundle.
+// Edge-safe header parsing: no SDK, database or environment access.
+// Cookie mode survives only for permanent impersonation. There, header presence
+// still suppresses the cookie so malformed Authorization never falls back.
 
-/** Which credential a request to the Admin API is presenting. */
-export type AdminTransport = 'cookie' | 'bearer';
+/** The Admin app's sole credential transport after #1203 (ADR 0031 D6). */
+export type AdminTransport = 'bearer';
 
 /**
  * TRUE when the caller presented an `Authorization` header AT ALL — well-formed or
  * not, empty or not.
  *
- * Presence alone is the transport choice, and that is deliberate. The glossary's
- * **Admin transport** rule is "a bearer wins: when the header is present the cookie
+ * Within the permanent impersonation exception, presence alone suppresses cookies.
+ * The **Admin transport** precedence rule is "when the header is present the cookie
  * is ignored entirely", so a request carrying `Authorization: Basic …` beside a
  * perfectly good admin session cookie is refused rather than silently authenticated
  * by the cookie. A "non-empty" or "well-formed" reading here would reopen exactly

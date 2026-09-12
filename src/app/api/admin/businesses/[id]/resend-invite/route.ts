@@ -3,7 +3,6 @@ import { sql, supabaseServer } from '@/lib/db/server';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
@@ -78,7 +77,7 @@ async function enforceResendRateLimit(
   return null;
 }
 
-async function resendInvite(
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -117,5 +116,3 @@ async function resendInvite(
     );
   }
 }
-
-export const POST = withSameOriginUnlessBearer()(resendInvite);

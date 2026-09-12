@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 // Route suite for POST /api/admin/businesses/[id]/resend-invite (plan step 9 / T7).
 //
 // The route is an orchestrator (invariant #12): guards → one module call →
@@ -13,7 +14,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockRows,
   mockGetUserById,
   mockInviteUserByEmail,
@@ -55,7 +56,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/db/server', () => ({
@@ -89,7 +90,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://supabase.example.com';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
 function makeRequest(): NextRequest {
-  return new NextRequest(
+  return adminBearerRequest(
     `http://localhost/api/admin/businesses/${BUSINESS_ID}/resend-invite`,
     { method: 'POST', headers: { Origin: APP_URL } },
   );
@@ -159,16 +160,14 @@ describe('POST /api/admin/businesses/[id]/resend-invite', () => {
     expect(mockInviteUserByEmail).not.toHaveBeenCalled();
   });
 
-  it('rejects a cross-origin POST', async () => {
-    const res = await POST(
-      new NextRequest(
-        `http://localhost/api/admin/businesses/${BUSINESS_ID}/resend-invite`,
-        { method: 'POST', headers: { Origin: 'https://evil.example.com' } },
-      ),
-      paramsFor(BUSINESS_ID),
+  it('rejects a cookie-only POST', async () => {
+    const request = adminBearerRequest(
+      `http://localhost/api/admin/businesses/${BUSINESS_ID}/resend-invite`,
+      { method: 'POST', headers: { Origin: 'http://localhost', cookie: 'admin-session=fixture' } },
     );
-
-    expect(res.status).toBe(403);
+    request.headers.delete('authorization');
+    const res = await POST(request, paramsFor(BUSINESS_ID));
+    expect(res.status).toBe(401);
     expect(mockRequireRole).not.toHaveBeenCalled();
   });
 

@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 // src/app/api/admin/locations/csv-import/__tests__/route.test.ts
 //
 // TDD assertions for POST /api/admin/locations/csv-import.
@@ -13,7 +14,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
 } = await vi.hoisted(async () => {
   const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
   const sqlFn: any = vi.fn();
@@ -54,7 +55,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 // Mock quota check
@@ -140,7 +141,7 @@ function mkCsvRequest(
   formData.append('file', blob, 'locations.csv');
   formData.append('accountId', accountId);
 
-  return new NextRequest('http://localhost:3000/api/admin/locations/csv-import', {
+  return adminBearerRequest('http://localhost:3000/api/admin/locations/csv-import', {
     method: 'POST',
     headers: { Origin: APP_URL },
     body: formData,
@@ -424,7 +425,7 @@ Westside Grill,ChIJ9012`;
     const formData = new FormData();
     formData.append('accountId', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
 
-    const req = new NextRequest('http://localhost:3000/api/admin/locations/csv-import', {
+    const req = adminBearerRequest('http://localhost:3000/api/admin/locations/csv-import', {
       method: 'POST',
       headers: { Origin: APP_URL },
       body: formData,
@@ -441,7 +442,7 @@ Westside Grill,ChIJ9012`;
     const blob = new Blob(['name,placeId\nTest,ChIJ1234'], { type: 'text/csv' });
     formData.append('file', blob, 'locations.csv');
 
-    const req = new NextRequest('http://localhost:3000/api/admin/locations/csv-import', {
+    const req = adminBearerRequest('http://localhost:3000/api/admin/locations/csv-import', {
       method: 'POST',
       headers: { Origin: APP_URL },
       body: formData,

@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -23,7 +24,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   adminAuthModuleMock,
 } = await vi.hoisted(async () => {
   const { makeAdminGateMocks, adminAuthModuleMock } =
@@ -64,7 +65,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 }));
 
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 import { GET } from '@/app/api/admin/jobs/route';
@@ -75,7 +76,7 @@ const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null 
 function seedPassingAdmin(): void {
   mockRequireRole.mockReset();
   mockRequireCurrentAal2FromSupabase.mockReset();
-  mockResolveDualModeIdentity.mockClear();
+  mockResolveAdminApiIdentity.mockClear();
   mockRequireRole.mockResolvedValue(ADMIN);
   mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 }
@@ -95,7 +96,7 @@ function seedOutboxRows(): void {
 }
 
 function req(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/admin/jobs');
+  return adminBearerRequest('http://localhost:3000/api/admin/jobs');
 }
 
 describe('GET /api/admin/jobs queueHealth sourcing', () => {
@@ -272,11 +273,10 @@ describe('GET /api/admin/jobs — the admin MFA gate (#1184)', () => {
     const res = await GET(req());
 
     expect(res.status).toBe(200);
-    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
-    // The negative half of the bearer case: no Authorization header, so the shim
-    // must resolve cookie transport rather than a value it invented.
-    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
-    expect(resolved?.transport).toBe('cookie');
+    expect(mockResolveAdminApiIdentity).toHaveBeenCalledOnce();
+    // The route fixture supplies a bearer; ordinary Admin APIs no longer accept cookies.
+    const resolved = await mockResolveAdminApiIdentity.mock.results[0]!.value;
+    expect(resolved?.transport).toBe('bearer');
   });
 
   it('GET /api/admin/jobs — an aal1 admin is refused 403 mfa_required', async () => {
@@ -316,7 +316,7 @@ describe('GET /api/admin/jobs — the admin MFA gate (#1184)', () => {
 
   it('GET /api/admin/jobs — a bearer-transport aal2 admin is served', async () => {
     seedOutboxRows();
-    const bearerReq = new NextRequest('http://localhost:3000/api/admin/jobs', {
+    const bearerReq = adminBearerRequest('http://localhost:3000/api/admin/jobs', {
       headers: { authorization: 'Bearer test-admin-access-token' },
     });
 
@@ -325,12 +325,12 @@ describe('GET /api/admin/jobs — the admin MFA gate (#1184)', () => {
     expect(res.status).toBe(200);
     // The seam saw the real header, so this is a transport test rather than a
     // second spelling of the cookie case.
-    const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
+    const seen = mockResolveAdminApiIdentity.mock.calls[0]![0] as NextRequest;
     expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
     // …and the transport the shim RESOLVED from it. Asserting only the header
     // above leaves a hardcoded `transport` in the shim passing every one of the
     // nine bearer cases, which is exactly the mutation this line kills.
-    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
+    const resolved = await mockResolveAdminApiIdentity.mock.results[0]!.value;
     expect(resolved?.transport).toBe('bearer');
   });
 });

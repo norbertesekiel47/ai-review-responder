@@ -461,10 +461,8 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
   });
 
   it('(H3-e) `withSameOrigin()(inner)` delegation where `inner` gates → PASS', () => {
-    // The shipped shape of src/app/api/admin/businesses/route.ts:105 —
-    // `export const POST = withSameOrigin()(createBusiness)` with the gate call
-    // inside createBusiness. The reachability walk must follow the local
-    // identifier one hop to find it.
+    // Synthetic wrapper delegation, still used by permanent impersonation.
+    // The reachability walk must follow the local identifier to its gate.
     const text = [
       "import { withSameOrigin } from '@/lib/auth/route-helpers';",
       "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';",
@@ -581,7 +579,7 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
 // ---------------------------------------------------------------------------
 // Admin PAGES. The rule is read-gate PARITY with the sibling route, derived
 // from what the tree does — NOT "a page rendering a mutation surface needs
-// AAL2", which is false here (see the businesses/[id] case below).
+// AAL2"; the synthetic detail fixture below keeps that distinction explicit.
 // ---------------------------------------------------------------------------
 describe('readAdminPageGate', () => {
   const gate = (body: string[]) =>
@@ -590,15 +588,15 @@ describe('readAdminPageGate', () => {
     );
 
   it('reads a plain requireAdminPage call', () => {
-    expect(gate(['export default async function P() {', "  await requireAdminPage(sql, { from: '/admin/jobs' });", '}'])).toBe('plain');
+    expect(gate(['export default async function P() {', "  await requireAdminPage(sql, { from: '/admin/fixture-list' });", '}'])).toBe('plain');
   });
 
   it('reads { aal2: true }', () => {
-    expect(gate(['export default async function P() {', "  await requireAdminPage(sql, { from: '/admin/flagged', aal2: true });", '}'])).toBe('aal2');
+    expect(gate(['export default async function P() {', "  await requireAdminPage(sql, { from: '/admin/fixture-sensitive', aal2: true });", '}'])).toBe('aal2');
   });
 
   it('treats { aal2: false } as plain', () => {
-    expect(gate(['export default async function P() {', "  await requireAdminPage(sql, { from: '/admin/jobs', aal2: false });", '}'])).toBe('plain');
+    expect(gate(['export default async function P() {', "  await requireAdminPage(sql, { from: '/admin/fixture-list', aal2: false });", '}'])).toBe('plain');
   });
 
   it('treats a NON-literal aal2 as plain (fail closed — not provably a step-up)', () => {
@@ -664,8 +662,7 @@ describe('routeGetRequiresAal2 — the parity anchor', () => {
   });
 
   it('false when the GET uses only requireRoleOr401, even if a sibling POST gates', () => {
-    // The shipped src/app/api/admin/businesses/route.ts shape — and the reason
-    // /admin/businesses is correctly a plain-gated page.
+    // Synthetic negative case: gating a sibling POST must not credit a plain GET.
     const text = [
       "import { requireRoleOr401 } from '@/lib/db/auth';",
       "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';",
@@ -710,7 +707,7 @@ describe('scanAdminPageFile — admin page contract', () => {
   const ungatedPage = 'export default function P() { return null; }';
 
   it('(P1) an admin page with NO gate at all → FINDING', () => {
-    const findings = scanAdminPageFile('src/app/admin/jobs/page.tsx', ungatedPage, ctx(false));
+    const findings = scanAdminPageFile('src/app/admin/fixture-list/page.tsx', ungatedPage, ctx(false));
     expect(findings).toHaveLength(1);
     expect(findings[0]).toContain('must call requireAdminPage');
   });
@@ -722,48 +719,36 @@ describe('scanAdminPageFile — admin page contract', () => {
   });
 
   it('(P2) sibling GET requires AAL2 but the page gates plain → FINDING', () => {
-    // The bypass this rule exists for: /admin/flagged reads flagged draft text
-    // straight out of Postgres in the server component, so an AAL1 admin refused
-    // by GET /api/admin/flagged would be served the same rows by the page.
-    const findings = scanAdminPageFile('src/app/admin/flagged/page.tsx', plainPage, ctx(true));
+    // Synthetic bypass: a plain page must not expose rows protected by its AAL2 API.
+    const findings = scanAdminPageFile('src/app/admin/fixture-sensitive/page.tsx', plainPage, ctx(true));
     expect(findings).toHaveLength(1);
     expect(findings[0]).toContain('{ aal2: true }');
-    expect(findings[0]).toContain('src/app/api/admin/flagged/route.ts');
+    expect(findings[0]).toContain('src/app/api/admin/fixture-sensitive/route.ts');
   });
 
   it('(P2) sibling GET requires AAL2 and the page gates AAL2 → clean', () => {
-    expect(scanAdminPageFile('src/app/admin/flagged/page.tsx', aal2Page, ctx(true))).toHaveLength(0);
+    expect(scanAdminPageFile('src/app/admin/fixture-sensitive/page.tsx', aal2Page, ctx(true))).toHaveLength(0);
   });
 
   it('(P2) sibling GET is plain and the page is plain → clean (parity, not "pages need AAL2")', () => {
-    // /admin/businesses, /admin/costs, /admin/jobs, /admin/notifications,
-    // /admin/overview all sit here. "admin API ⇒ AAL2" is false, and so is
-    // "admin page ⇒ AAL2".
-    expect(scanAdminPageFile('src/app/admin/businesses/page.tsx', plainPage, ctx(false))).toHaveLength(0);
+    // Synthetic scanner contract only. Shipped Admin API handlers all require AAL2.
+    expect(scanAdminPageFile('src/app/admin/fixture-records/page.tsx', plainPage, ctx(false))).toHaveLength(0);
   });
 
   it('(P2) a page that gates AAL2 above its sibling GET is a SUPERSET, never a finding', () => {
-    // /admin/demos, /admin/locations/csv-import, /admin/businesses/new and
-    // /admin/impersonate each step up before a form renders as a UX affordance,
-    // documented in each page's comment. Requiring MORE is always allowed.
-    expect(scanAdminPageFile('src/app/admin/demos/page.tsx', aal2Page, ctx(false))).toHaveLength(0);
+    // Synthetic scanner contract: a page may demand more than its sibling GET.
+    expect(scanAdminPageFile('src/app/admin/fixture-form/page.tsx', aal2Page, ctx(false))).toHaveLength(0);
   });
 
   it('(P2) a page hosting mutation surfaces over a PLAIN GET is clean — the contract is READ parity', () => {
-    // The rule this audit deliberately does NOT enforce. /admin/businesses/[id]
-    // hosts five mutation surfaces (PATCH business, POST resend-invite /
-    // ranking / zernio-queue / grant-extension, PUT keywords) whose routes are
-    // ALL AAL2-gated, and the page is deliberately `aal2: false`: "Gate parity
-    // with GET /api/admin/businesses/[id] — plain admin role, no AAL2."
-    // Mutations are enforced at their own routes, which is the ROUTE half of
-    // this audit. A "renders a mutation surface ⇒ AAL2" rule would flag this
-    // correct page.
-    expect(scanAdminPageFile('src/app/admin/businesses/[id]/page.tsx', plainPage, ctx(false))).toHaveLength(0);
+    // A synthetic detail page hosting mutations tests READ parity only.
+    // Mutation routes are independently checked by the route audit.
+    expect(scanAdminPageFile('src/app/admin/fixture-records/[id]/page.tsx', plainPage, ctx(false))).toHaveLength(0);
   });
 
   it('(P2) no sibling route → P2 has no anchor and is skipped; P1 still applies', () => {
-    expect(scanAdminPageFile('src/app/admin/security/page.tsx', plainPage, ctx(null))).toHaveLength(0);
-    expect(scanAdminPageFile('src/app/admin/security/page.tsx', ungatedPage, ctx(null))).toHaveLength(1);
+    expect(scanAdminPageFile('src/app/admin/fixture-standalone/page.tsx', plainPage, ctx(null))).toHaveLength(0);
+    expect(scanAdminPageFile('src/app/admin/fixture-standalone/page.tsx', ungatedPage, ctx(null))).toHaveLength(1);
   });
 
   it('(P1) the impersonation view page shape (its own auth, requireCurrentAal2FromSupabase) is clean', () => {
@@ -787,15 +772,15 @@ describe('scanAdminPageFile — admin page contract', () => {
 
 describe('page ↔ route path mapping', () => {
   it('derives the route path from the page file', () => {
-    expect(pageRoutePath('src/app/admin/flagged/page.tsx')).toBe('/admin/flagged');
-    expect(pageRoutePath('src/app/admin/businesses/[id]/page.tsx')).toBe('/admin/businesses/[id]');
-    expect(pageRoutePath('src/app/admin/locations/csv-import/page.tsx')).toBe('/admin/locations/csv-import');
+    expect(pageRoutePath('src/app/admin/fixture-sensitive/page.tsx')).toBe('/admin/fixture-sensitive');
+    expect(pageRoutePath('src/app/admin/fixture-records/[id]/page.tsx')).toBe('/admin/fixture-records/[id]');
+    expect(pageRoutePath('src/app/admin/fixture-tools/import/page.tsx')).toBe('/admin/fixture-tools/import');
   });
 
   it('derives the sibling route file', () => {
-    expect(siblingRouteFile('src/app/admin/flagged/page.tsx')).toBe('src/app/api/admin/flagged/route.ts');
-    expect(siblingRouteFile('src/app/admin/businesses/[id]/page.tsx')).toBe(
-      'src/app/api/admin/businesses/[id]/route.ts',
+    expect(siblingRouteFile('src/app/admin/fixture-sensitive/page.tsx')).toBe('src/app/api/admin/fixture-sensitive/route.ts');
+    expect(siblingRouteFile('src/app/admin/fixture-records/[id]/page.tsx')).toBe(
+      'src/app/api/admin/fixture-records/[id]/route.ts',
     );
   });
 });
@@ -812,31 +797,31 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
     root = realpathSync(mkdtempSync(join(tmpdir(), 'aal2-scope-')));
 
     const admin = join(root, 'src', 'app', 'api', 'admin');
-    mkdirSync(join(admin, 'businesses'), { recursive: true });
+    mkdirSync(join(admin, 'fixture-records'), { recursive: true });
     mkdirSync(join(admin, 'channels', 'telegram', 'start'), { recursive: true });
     mkdirSync(join(admin, 'channels', 'telegram', '__tests__'), { recursive: true });
     mkdirSync(join(admin, 'legacy'), { recursive: true });
 
-    writeFileSync(join(admin, 'businesses', 'route.ts'), 'export const POST = 1;');
+    writeFileSync(join(admin, 'fixture-records', 'route.ts'), 'export const POST = 1;');
     writeFileSync(join(admin, 'channels', 'telegram', 'start', 'route.ts'), 'export const POST = 1;');
     // Next.js routes route.{ts,tsx,js,jsx} and this repo sets no pageExtensions
     // override, so a .js route is a REAL admin route — matching the exact
     // filename `route.ts` enforced a convention the framework does not.
     writeFileSync(join(admin, 'legacy', 'route.js'), 'export const POST = 1;');
     // Must be ignored: not a route file at all.
-    writeFileSync(join(admin, 'businesses', 'helpers.ts'), 'export const x = 1;');
+    writeFileSync(join(admin, 'fixture-records', 'helpers.ts'), 'export const x = 1;');
     // Must be ignored: test directories are deliberately out of scope, and their
     // fixtures contain route-shaped strings that would produce phantom findings.
     writeFileSync(join(admin, 'channels', 'telegram', '__tests__', 'route.ts'), 'export const POST = 1;');
 
     const pages = join(root, 'src', 'app', 'admin');
-    mkdirSync(join(pages, 'jobs'), { recursive: true });
+    mkdirSync(join(pages, 'fixture-list'), { recursive: true });
     mkdirSync(join(pages, 'legacy'), { recursive: true });
-    mkdirSync(join(pages, 'flagged', '__tests__'), { recursive: true });
-    writeFileSync(join(pages, 'jobs', 'page.tsx'), 'export default function P() {}');
+    mkdirSync(join(pages, 'fixture-sensitive', '__tests__'), { recursive: true });
+    writeFileSync(join(pages, 'fixture-list', 'page.tsx'), 'export default function P() {}');
     writeFileSync(join(pages, 'legacy', 'page.js'), 'export default function P() {}');
     writeFileSync(join(pages, 'layout.tsx'), 'export default function L() {}');
-    writeFileSync(join(pages, 'flagged', '__tests__', 'page.tsx'), 'export default function P() {}');
+    writeFileSync(join(pages, 'fixture-sensitive', '__tests__', 'page.tsx'), 'export default function P() {}');
   });
 
   afterAll(() => {
@@ -848,8 +833,8 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
     await collectRouteFiles(join(root, 'src', 'app', 'api', 'admin'), root, out);
 
     expect(out.sort()).toEqual([
-      join('src', 'app', 'api', 'admin', 'businesses', 'route.ts'),
       join('src', 'app', 'api', 'admin', 'channels', 'telegram', 'start', 'route.ts'),
+      join('src', 'app', 'api', 'admin', 'fixture-records', 'route.ts'),
       join('src', 'app', 'api', 'admin', 'legacy', 'route.js'),
     ]);
   });
@@ -875,7 +860,7 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
     await collectAdminPageFiles(join(root, 'src', 'app', 'admin'), root, out);
 
     expect(out.sort()).toEqual([
-      join('src', 'app', 'admin', 'jobs', 'page.tsx'),
+      join('src', 'app', 'admin', 'fixture-list', 'page.tsx'),
       join('src', 'app', 'admin', 'legacy', 'page.js'),
     ]);
     expect(out.some((p) => p.endsWith('layout.tsx'))).toBe(false);
@@ -899,7 +884,7 @@ describe('routable extensions — a .js route is scanned and a .js sibling ancho
 
     const api = join(root, 'src', 'app', 'api', 'admin');
     mkdirSync(join(api, 'legacy'), { recursive: true });
-    mkdirSync(join(api, 'flagged'), { recursive: true });
+    mkdirSync(join(api, 'fixture-sensitive'), { recursive: true });
     // An ungated GET in a .js route file — the shape that used to be invisible.
     writeFileSync(
       join(api, 'legacy', 'route.js'),
@@ -914,7 +899,7 @@ describe('routable extensions — a .js route is scanned and a .js sibling ancho
     // An AAL2-gated GET in a .js route file — the P2 parity anchor for the page
     // below, which only resolves if the sibling lookup tries every extension.
     writeFileSync(
-      join(api, 'flagged', 'route.js'),
+      join(api, 'fixture-sensitive', 'route.js'),
       [
         "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';",
         'export async function GET(request) {',
@@ -925,13 +910,13 @@ describe('routable extensions — a .js route is scanned and a .js sibling ancho
     );
 
     const pages = join(root, 'src', 'app', 'admin');
-    mkdirSync(join(pages, 'flagged'), { recursive: true });
+    mkdirSync(join(pages, 'fixture-sensitive'), { recursive: true });
     writeFileSync(
-      join(pages, 'flagged', 'page.tsx'),
+      join(pages, 'fixture-sensitive', 'page.tsx'),
       [
         "import { requireAdminPage } from '@/lib/auth/page-gate';",
         'export default async function P() {',
-        "  await requireAdminPage(sql, { from: '/admin/flagged' });",
+        "  await requireAdminPage(sql, { from: '/admin/fixture-sensitive' });",
         '  return null;',
         '}',
       ].join('\n'),
@@ -960,15 +945,15 @@ describe('routable extensions — a .js route is scanned and a .js sibling ancho
     expect(pass.findings[0]).toContain('{ aal2: true }');
     // The message keeps naming the CANONICAL spelling — route.ts is the
     // extension every route in this repo uses and the one a reader should add.
-    expect(pass.findings[0]).toContain('src/app/api/admin/flagged/route.ts');
+    expect(pass.findings[0]).toContain('src/app/api/admin/fixture-sensitive/route.ts');
   });
 
   it('siblingRouteCandidates lists every routable spelling, canonical first', () => {
-    expect(siblingRouteCandidates('src/app/admin/flagged/page.tsx')).toEqual([
-      'src/app/api/admin/flagged/route.ts',
-      'src/app/api/admin/flagged/route.tsx',
-      'src/app/api/admin/flagged/route.js',
-      'src/app/api/admin/flagged/route.jsx',
+    expect(siblingRouteCandidates('src/app/admin/fixture-sensitive/page.tsx')).toEqual([
+      'src/app/api/admin/fixture-sensitive/route.ts',
+      'src/app/api/admin/fixture-sensitive/route.tsx',
+      'src/app/api/admin/fixture-sensitive/route.js',
+      'src/app/api/admin/fixture-sensitive/route.jsx',
     ]);
   });
 
@@ -1002,11 +987,11 @@ describe('auditRoutes / auditPages — the composed passes', () => {
     root = realpathSync(mkdtempSync(join(tmpdir(), 'aal2-pass-')));
 
     const api = join(root, 'src', 'app', 'api', 'admin');
-    mkdirSync(join(api, 'flagged'), { recursive: true });
-    mkdirSync(join(api, 'jobs'), { recursive: true });
-    // AAL2-gated GET + AAL2-gated POST — the /admin/flagged shape.
+    mkdirSync(join(api, 'fixture-sensitive'), { recursive: true });
+    mkdirSync(join(api, 'fixture-list'), { recursive: true });
+    // AAL2-gated GET + AAL2-gated POST — the /admin/fixture-sensitive shape.
     writeFileSync(
-      join(api, 'flagged', 'route.ts'),
+      join(api, 'fixture-sensitive', 'route.ts'),
       [
         "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';",
         'export async function GET(request) {',
@@ -1019,9 +1004,9 @@ describe('auditRoutes / auditPages — the composed passes', () => {
         '}',
       ].join('\n'),
     );
-    // Plain-admin GET only — the /admin/jobs shape.
+    // Deliberately plain GET: a negative fixture for the route audit.
     writeFileSync(
-      join(api, 'jobs', 'route.ts'),
+      join(api, 'fixture-list', 'route.ts'),
       [
         "import { requireRoleOr401 } from '@/lib/db/auth';",
         'export async function GET(request) {',
@@ -1032,27 +1017,27 @@ describe('auditRoutes / auditPages — the composed passes', () => {
     );
 
     const pages = join(root, 'src', 'app', 'admin');
-    mkdirSync(join(pages, 'flagged'), { recursive: true });
-    mkdirSync(join(pages, 'jobs'), { recursive: true });
+    mkdirSync(join(pages, 'fixture-sensitive'), { recursive: true });
+    mkdirSync(join(pages, 'fixture-list'), { recursive: true });
     mkdirSync(join(pages, 'login'), { recursive: true });
     // Deliberately UNDER-gated against an AAL2 sibling GET → the P2 finding.
     writeFileSync(
-      join(pages, 'flagged', 'page.tsx'),
+      join(pages, 'fixture-sensitive', 'page.tsx'),
       [
         "import { requireAdminPage } from '@/lib/auth/page-gate';",
         'export default async function P() {',
-        "  await requireAdminPage(sql, { from: '/admin/flagged' });",
+        "  await requireAdminPage(sql, { from: '/admin/fixture-sensitive' });",
         '  return null;',
         '}',
       ].join('\n'),
     );
     // Plain page over a plain sibling GET → clean.
     writeFileSync(
-      join(pages, 'jobs', 'page.tsx'),
+      join(pages, 'fixture-list', 'page.tsx'),
       [
         "import { requireAdminPage } from '@/lib/auth/page-gate';",
         'export default async function P() {',
-        "  await requireAdminPage(sql, { from: '/admin/jobs' });",
+        "  await requireAdminPage(sql, { from: '/admin/fixture-list' });",
         '  return null;',
         '}',
       ].join('\n'),
@@ -1068,14 +1053,14 @@ describe('auditRoutes / auditPages — the composed passes', () => {
   it('auditRoutes walks and scans every admin route, GET included (#1184)', async () => {
     const pass = await auditRoutes(root);
     expect(pass.files).toHaveLength(2);
-    // The flagged fixture gates both its verbs; the jobs fixture's GET is on
+    // The fixture-sensitive fixture gates both its verbs; the fixture-list fixture's GET is on
     // requireRoleOr401, which was OUT of the ROUTES contract until #1184 widened
     // it to every exported handler. This assertion is the composed-level proof
     // that the widening reaches a real walk, not only the pure scanner — and the
-    // jobs fixture stays ungated on purpose, because auditPages below needs it as
+    // fixture-list fixture stays ungated on purpose, because auditPages below needs it as
     // the PLAIN parity anchor.
     expect(pass.findings).toHaveLength(1);
-    expect(pass.findings[0]).toContain('src/app/api/admin/jobs/route.ts');
+    expect(pass.findings[0]).toContain('src/app/api/admin/fixture-list/route.ts');
     expect(pass.findings[0]).toContain('handler GET must use requireAdminWithAal2');
     expect(pass.traversalErrors).toEqual([]);
   });
@@ -1098,9 +1083,9 @@ describe('auditRoutes / auditPages — the composed passes', () => {
   it('auditPages applies P2 against the sibling route and exempts pre-auth pages', async () => {
     const pass = await auditPages(root, new Set(['/admin/login']));
     expect(pass.files).toHaveLength(3);
-    // Only /admin/flagged is under-gated: its sibling GET requires AAL2.
+    // Only /admin/fixture-sensitive is under-gated: its sibling GET requires AAL2.
     expect(pass.findings).toHaveLength(1);
-    expect(pass.findings[0]).toContain('src/app/admin/flagged/page.tsx');
+    expect(pass.findings[0]).toContain('src/app/admin/fixture-sensitive/page.tsx');
     expect(pass.findings[0]).toContain('{ aal2: true }');
   });
 

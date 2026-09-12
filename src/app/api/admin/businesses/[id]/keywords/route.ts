@@ -4,7 +4,6 @@ import { sql, jsonb } from '@/lib/db/server';
 import { asLocationId } from '@/lib/shared/ids';
 import type { LocationId } from '@/lib/shared/ids';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
@@ -15,7 +14,7 @@ const KeywordsSchema = z.object({
   keywords: z.array(z.string().trim().min(1, 'Keyword cannot be empty').max(255)).max(5, 'Maximum 5 keywords'),
 });
 
-async function updateKeywords(
+export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -62,5 +61,3 @@ async function updateKeywords(
     );
   }
 }
-
-export const PUT = withSameOriginUnlessBearer()(updateKeywords);

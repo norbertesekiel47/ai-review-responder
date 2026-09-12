@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { zernioPublishingEnabled } from '@/lib/publishing/flags';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -11,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // Match the legacy endpoint's version-agnostic UUID validation.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function disconnectBusiness(
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -46,5 +45,3 @@ async function disconnectBusiness(
     return internalError('admin/businesses/[id]/disconnect', error);
   }
 }
-
-export const POST = withSameOriginUnlessBearer()(disconnectBusiness);

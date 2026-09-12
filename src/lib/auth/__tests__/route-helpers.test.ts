@@ -46,7 +46,6 @@ vi.mock('@/lib/account-offboarding/gate', () => ({
 
 import {
   withSameOrigin,
-  withSameOriginUnlessBearer,
   requireRoleOr401,
   requireOwnerWithAccount,
   requireSettingsOwner,
@@ -76,6 +75,17 @@ const okHandler = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
 // ── withSameOrigin ────────────────────────────────────────────────────────────
 
 describe('withSameOrigin', () => {
+  it('keeps rejecting foreign or absent Origin even beside a bearer and owner cookie', async () => {
+    const handler = vi.fn(() => new Response(null, { status: 200 }));
+    for (const origin of ['https://evil.example.com', undefined]) {
+      const request = makeReq(undefined, { origin });
+      request.cookies.set('sb-session', 'valid-owner');
+      request.headers.set('authorization', 'Bearer test-token');
+      expect((await withSameOrigin()(handler)(request)).status).toBe(403);
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
@@ -146,70 +156,6 @@ describe('withSameOrigin', () => {
     const res = await wrapped(makeReq(undefined, { origin: `${APP_URL}/` }));
 
     expect(res.status).toBe(200);
-  });
-});
-
-describe('withSameOriginUnlessBearer', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APP_URL = APP_URL;
-  });
-
-  it('allows bearer with forged Origin at the wrapper seam', async () => {
-    const handler = vi.fn(() => new Response(null, { status: 202 }));
-    for (const origin of ['https://evil.example.com', undefined]) {
-      const req = makeReq(undefined, { origin, secFetchSite: 'cross-site' });
-      req.headers.set('authorization', 'Bearer test-token');
-      const response = await withSameOriginUnlessBearer()(handler)(req);
-      expect(response.status).toBe(202);
-      expect(handler).toHaveBeenLastCalledWith(req);
-    }
-    // This exercises only the wrapper; proxy CORS rejects a forged origin.
-    expect(handler).toHaveBeenCalledTimes(2);
-  });
-
-  it('preserves cookie CSRF and owner wrapper behavior', async () => {
-    const handler = vi.fn(() => new Response(null, { status: 200 }));
-    for (const origin of ['https://evil.example.com', undefined]) {
-      const req = makeReq(undefined, { origin });
-      req.cookies.set('sb-session', 'valid-owner');
-      expect((await withSameOriginUnlessBearer()(handler)(req)).status).toBe(403);
-      req.headers.set('authorization', 'Bearer test-token');
-      expect((await withSameOrigin()(handler)(req)).status).toBe(403);
-    }
-    expect(handler).not.toHaveBeenCalled();
-    expect((await withSameOriginUnlessBearer()(handler)(makeReq(undefined, { origin: APP_URL }))).status).toBe(200);
-    expect(handler).toHaveBeenCalledOnce();
-  });
-
-  it('refuses malformed bearer before the handler despite a valid cookie', async () => {
-    const handler = vi.fn(() => new Response(null, { status: 200 }));
-    for (const authorization of ['', 'Basic abc', 'Bearer', 'Bearer a b']) {
-      const req = makeReq(undefined, { origin: APP_URL });
-      req.cookies.set('sb-session', 'valid-admin');
-      req.headers.set('authorization', authorization);
-      const response = await withSameOriginUnlessBearer()(handler)(req);
-      expect(response.status).toBe(401);
-      expect(await response.json()).toEqual({ error: 'Unauthorized' });
-      expect(response.headers.get('cache-control')).toBe('no-store, private');
-    }
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it('forwards route arguments and propagates handler errors', async () => {
-    const req = makeReq(undefined, { origin: APP_URL });
-    const context = { params: Promise.resolve({ id: 'business-1' }) };
-    const result = new Response(null, { status: 202 });
-    const handler = vi.fn((_req: NextRequest, _context: typeof context) => result);
-    const wrapped = withSameOriginUnlessBearer()(handler);
-    expect(await wrapped(req, context)).toBe(result);
-    expect(handler).toHaveBeenLastCalledWith(req, context);
-    req.headers.set('authorization', 'Bearer test-token');
-    expect(await wrapped(req, context)).toBe(result);
-    expect(handler).toHaveBeenLastCalledWith(req, context);
-    const failure = new Error('handler failure');
-    const throwing = withSameOriginUnlessBearer()(() => { throw failure; });
-    await expect(throwing(req)).rejects.toBe(failure);
   });
 });
 

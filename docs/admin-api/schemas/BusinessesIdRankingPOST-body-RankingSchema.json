@@ -28,7 +28,7 @@
     "keyword",
     "rankPosition"
   ],
-  "x-repworth-source": "src/app/api/admin/businesses/[id]/ranking/route.ts:14:23",
+  "x-repworth-source": "src/app/api/admin/businesses/[id]/ranking/route.ts:13:23",
   "x-repworth-approximation": true,
   "x-repworth-limitations": [
     {

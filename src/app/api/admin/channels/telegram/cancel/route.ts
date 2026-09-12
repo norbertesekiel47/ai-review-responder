@@ -5,13 +5,12 @@
 
 import { NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { channelsTelegramEnabled } from '@/lib/notifications/channels/flags';
 import { assertTelegramEnvReady } from '@/lib/notifications/channels/telegram-env';
 import { runChannelCancel } from '@/app/api/_shared/channels/action';
 import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';
 
-export const POST = withSameOriginUnlessBearer()((req: NextRequest) =>
+export const POST = (req: NextRequest) =>
   runChannelCancel(sql, req, {
     channel: 'telegram',
     isEnabled: channelsTelegramEnabled,
@@ -19,5 +18,4 @@ export const POST = withSameOriginUnlessBearer()((req: NextRequest) =>
     // No subscription gate: an admin must be able to tear down an enrollment on
     // a lapsed account (§4.2).
     resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),
-  }),
-);
+  });

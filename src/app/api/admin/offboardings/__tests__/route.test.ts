@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -5,7 +6,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockRecordProviderDisposition,
   mockSql,
   sqlCalls,
@@ -84,7 +85,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/db/server', () => ({
@@ -118,11 +119,11 @@ function adminUser() {
 }
 
 function getReq(path = '/api/admin/offboardings'): NextRequest {
-  return new NextRequest(`https://app.example.com${path}`);
+  return adminBearerRequest(`https://app.example.com${path}`);
 }
 
 function postReq(body: unknown, headers: Record<string, string> = {}): NextRequest {
-  return new NextRequest(
+  return adminBearerRequest(
     `https://app.example.com/api/admin/offboardings/${OFFBOARDING_ID}/provider-disposition`,
     {
       method: 'POST',
@@ -228,7 +229,7 @@ describe('POST /api/admin/offboardings/[offboardingId]/provider-disposition', ()
     });
   });
 
-  it('requires same-origin admin AAL2 before recording a concrete provider disposition', async () => {
+  it('requires bearer admin AAL2 before recording a concrete provider disposition', async () => {
     const { AuthError } = await import('@/lib/db/auth');
     const { POST } = await import('../[offboardingId]/provider-disposition/route');
 
@@ -251,13 +252,16 @@ describe('POST /api/admin/offboardings/[offboardingId]/provider-disposition', ()
     expect(aalRes.status).toBe(403);
 
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
-    const crossOriginRes = await POST(postReq({
+    const cookieRequest = postReq({
       provider: 'zernio',
       resourceType: 'account',
       resourceReference: 'zernio-secret-id',
       reason: 'Provider support confirmed teardown.',
-    }, { origin: 'https://evil.example.com' }), ctx);
-    expect(crossOriginRes.status).toBe(403);
+    });
+    cookieRequest.headers.delete('authorization');
+    cookieRequest.headers.set('cookie', 'admin-session=fixture');
+    const cookieResponse = await POST(cookieRequest, ctx);
+    expect(cookieResponse.status).toBe(401);
 
     expect(mockRecordProviderDisposition).not.toHaveBeenCalled();
   });

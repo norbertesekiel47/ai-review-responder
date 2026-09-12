@@ -53,18 +53,18 @@ describe('Admin business Disconnect transport', () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
-  it('rejects malformed authorization without cookie fallback or invoking the gate', async () => {
-    const res = await POST(request({ authorization: 'Bearer ' }), context());
-    expect(res.status).toBe(401);
-    expect(gate).not.toHaveBeenCalled();
+  it.each<Record<string, string>>([
+    { authorization: 'Bearer ', cookie: 'admin-session=fixture' },
+    { origin: 'https://staging.repworth.net', cookie: 'admin-session=fixture' },
+  ])('passes rejected credentials to the canonical gate before any operation', async (headers) => {
+    // Composition proof; the real SDK seam owns credential validation.
+    const refusal = NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    gate.mockResolvedValueOnce({ ok: false, response: refusal });
+    const req = request(headers);
+    expect(await POST(req, context())).toBe(refusal);
+    expect(gate).toHaveBeenCalledExactlyOnceWith(req);
+    expect(publishingEnabled).not.toHaveBeenCalled();
     expect(disconnect).not.toHaveBeenCalled();
-  });
-
-  it('requires same-origin for cookie transport', async () => {
-    expect((await POST(request({ origin: 'https://foreign.example' }), context())).status).toBe(403);
-    expect(gate).not.toHaveBeenCalled();
-    expect(disconnect).not.toHaveBeenCalled();
-    expect((await POST(request({ origin: 'https://staging.repworth.net' }), context())).status).toBe(200);
   });
 
   it('retains the publishing flag refusal without a database or provider operation', async () => {

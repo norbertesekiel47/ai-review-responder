@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
-import { makeAdminGateMocks } from './helpers/admin-gate-mocks';
+import { adminBearerRequest, makeAdminGateMocks } from './helpers/admin-gate-mocks';
 
 class TestAuthError extends Error {
   constructor(
@@ -43,7 +43,7 @@ class TestAuthError extends Error {
 const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null };
 
 function cookieRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/admin/overview');
+  return new NextRequest('http://localhost:3000/api/admin/impersonation/start');
 }
 
 function bearerRequest(token = 'test-admin-access-token'): NextRequest {
@@ -53,23 +53,40 @@ function bearerRequest(token = 'test-admin-access-token'): NextRequest {
 }
 
 describe('makeAdminGateMocks — the identity mapping the gate consumes', () => {
+  it('refuses ordinary cookie-only requests before invoking role/AAL mocks', async () => {
+    const mocks = makeAdminGateMocks();
+    const request = new NextRequest('http://localhost:3000/api/admin/nav-counts');
+    request.cookies.set('sb-session', 'valid-admin-cookie');
+    await expect(mocks.mockResolveAdminApiIdentity(request)).resolves.toBeNull();
+    expect(mocks.mockRequireRole).not.toHaveBeenCalled();
+    expect(mocks.mockRequireCurrentAal2FromSupabase).not.toHaveBeenCalled();
+  });
+
+  it('the bearer request fixture keeps explicit malformed headers and request options', () => {
+    const request = adminBearerRequest('http://localhost:3000/api/admin/businesses', { method: 'POST', headers: { authorization: '', 'content-type': 'application/json' }, body: '{}' });
+    expect(request.headers.get('authorization')).toBe('');
+    expect(request.headers.get('content-type')).toBe('application/json');
+    expect(request.method).toBe('POST');
+    expect(adminBearerRequest('http://localhost:3000/api/admin/nav-counts').headers.get('authorization')).toBe('Bearer test-admin-access-token');
+  });
+
   it('a 401 rejection resolves to no identity, which is the gate 401 arm', async () => {
-    const { mockRequireRole, mockResolveDualModeIdentity } = makeAdminGateMocks();
+    const { mockRequireRole, mockResolveAdminApiIdentity } = makeAdminGateMocks();
     mockRequireRole.mockRejectedValue(new TestAuthError('Unauthenticated', 401));
 
-    await expect(mockResolveDualModeIdentity(cookieRequest())).resolves.toBeNull();
+    await expect(mockResolveAdminApiIdentity(cookieRequest())).resolves.toBeNull();
   });
 
   it('a 403 rejection still yields an identity, and loadAppUser reports the missing admin', async () => {
     // The seam DECIDES NOTHING (ADR 0025 D1): "authenticated but not an admin" is the
     // gate's call, made from loadAppUser's answer. Collapsing this onto the 401 arm
     // would make every "non-admin is Forbidden" assertion in the repo test the shim.
-    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockLoadAppUser, mockResolveDualModeIdentity } =
+    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockLoadAppUser, mockResolveAdminApiIdentity } =
       makeAdminGateMocks();
     mockRequireRole.mockRejectedValue(new TestAuthError('Forbidden', 403));
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 
-    await expect(mockResolveDualModeIdentity(cookieRequest())).resolves.toMatchObject({
+    await expect(mockResolveAdminApiIdentity(cookieRequest())).resolves.toMatchObject({
       authUserId: 'auth-1',
       aal: 'aal2',
     });
@@ -77,42 +94,42 @@ describe('makeAdminGateMocks — the identity mapping the gate consumes', () => 
   });
 
   it('any other throw propagates, so the gate answers internal_error rather than a refusal', async () => {
-    const { mockRequireRole, mockResolveDualModeIdentity } = makeAdminGateMocks();
+    const { mockRequireRole, mockResolveAdminApiIdentity } = makeAdminGateMocks();
     mockRequireRole.mockRejectedValue(new Error('supabase unreachable'));
 
-    await expect(mockResolveDualModeIdentity(cookieRequest())).rejects.toThrow('supabase unreachable');
+    await expect(mockResolveAdminApiIdentity(cookieRequest())).rejects.toThrow('supabase unreachable');
   });
 
   it('loadAppUser reuses the outcome requireRole already produced, never a second call', async () => {
     // A `...Once` control would be consumed by the resolver, and the second call
     // would fall through to the suite's beforeEach default — silently turning a
     // refusal case into a success. This is the trap the 22 pasted copies documented.
-    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockLoadAppUser, mockResolveDualModeIdentity } =
+    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockLoadAppUser, mockResolveAdminApiIdentity } =
       makeAdminGateMocks();
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     mockRequireRole.mockResolvedValueOnce(ADMIN).mockResolvedValue(null);
 
-    await mockResolveDualModeIdentity(cookieRequest());
+    await mockResolveAdminApiIdentity(cookieRequest());
 
     await expect(mockLoadAppUser()).resolves.toEqual(ADMIN);
     expect(mockRequireRole).toHaveBeenCalledTimes(1);
   });
 
   it('maps the three AAL answers apart — aal2, unreadable, and everything else', async () => {
-    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockResolveDualModeIdentity } =
+    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockResolveAdminApiIdentity } =
       makeAdminGateMocks();
     mockRequireRole.mockResolvedValue(ADMIN);
 
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
-    expect((await mockResolveDualModeIdentity(cookieRequest()))?.aal).toBe('aal2');
+    expect((await mockResolveAdminApiIdentity(cookieRequest()))?.aal).toBe('aal2');
 
     // null is "I could not read it" → the gate's mfa_check_failed, which the Admin
     // app treats differently from mfa_required. Two answers, not one.
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: false, reason: 'mfa_check_failed' });
-    expect((await mockResolveDualModeIdentity(cookieRequest()))?.aal).toBeNull();
+    expect((await mockResolveAdminApiIdentity(cookieRequest()))?.aal).toBeNull();
 
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: false, reason: 'mfa_required' });
-    expect((await mockResolveDualModeIdentity(cookieRequest()))?.aal).toBe('aal1');
+    expect((await mockResolveAdminApiIdentity(cookieRequest()))?.aal).toBe('aal1');
   });
 
   it('derives transport from the request through the production predicate, not a knob', async () => {
@@ -120,19 +137,19 @@ describe('makeAdminGateMocks — the identity mapping the gate consumes', () => 
     // into existence would make every "bearer ok" case a second spelling of the
     // cookie case. Deriving it means a suite can only get 'bearer' by sending the
     // header — and by the same predicate src/proxy.ts takes in #1185.
-    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockResolveDualModeIdentity } =
+    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockResolveAdminApiIdentity } =
       makeAdminGateMocks();
     mockRequireRole.mockResolvedValue(ADMIN);
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 
-    expect((await mockResolveDualModeIdentity(cookieRequest()))?.transport).toBe('cookie');
-    expect((await mockResolveDualModeIdentity(bearerRequest()))?.transport).toBe('bearer');
+    expect((await mockResolveAdminApiIdentity(cookieRequest()))?.transport).toBe('cookie');
+    expect((await mockResolveAdminApiIdentity(bearerRequest()))?.transport).toBe('bearer');
   });
 
-  it('a malformed Authorization header is still bearer transport — presence wins', async () => {
+  it('a malformed Authorization header is refused without cookie fallback', async () => {
     // isBearerRequest is header PRESENCE, which is what stops a malformed header
     // from falling back to the cookie's authority (see admin-transport.ts).
-    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockResolveDualModeIdentity } =
+    const { mockRequireRole, mockRequireCurrentAal2FromSupabase, mockResolveAdminApiIdentity } =
       makeAdminGateMocks();
     mockRequireRole.mockResolvedValue(ADMIN);
     mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
@@ -140,7 +157,8 @@ describe('makeAdminGateMocks — the identity mapping the gate consumes', () => 
     const malformed = new NextRequest('http://localhost:3000/api/admin/overview', {
       headers: { authorization: 'Basic abc' },
     });
-    expect((await mockResolveDualModeIdentity(malformed))?.transport).toBe('bearer');
+    await expect(mockResolveAdminApiIdentity(malformed)).resolves.toBeNull();
+    expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
   it('each call builds independent mocks, so one suite cannot leak into another', async () => {
@@ -223,7 +241,7 @@ describe('the nine folded admin read suites exercise the REAL gate', () => {
     // The #1183 shape, duplicated verbatim in 22 files. One owner is the point of
     // the helper; a 23rd copy would re-open the drift it closed.
     for (const relative of FOLDED_SUITES) {
-      expect(readSuite(relative), relative).not.toContain('resolveDualModeIdentity: async');
+      expect(readSuite(relative), relative).not.toContain('resolveAdminApiIdentity: async');
     }
   });
 });

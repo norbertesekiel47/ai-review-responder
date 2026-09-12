@@ -1,16 +1,16 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NextRequest } from 'next/server';
 
 const {
   mockRequireRole, mockRequireCurrentAal2FromSupabase, mockLoadAppUser,
-  mockResolveDualModeIdentity, adminAuthModuleMock,
+  mockResolveAdminApiIdentity, adminAuthModuleMock,
 } = await vi.hoisted(async () => {
   const { makeAdminGateMocks, adminAuthModuleMock } =
     await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
   return { ...makeAdminGateMocks(), adminAuthModuleMock };
 });
 vi.mock('@/lib/db/auth', () => adminAuthModuleMock(mockRequireRole, mockLoadAppUser));
-vi.mock('@/lib/auth/verified-identity', () => ({ resolveDualModeIdentity: mockResolveDualModeIdentity }));
+vi.mock('@/lib/auth/verified-identity', () => ({ resolveAdminApiIdentity: mockResolveAdminApiIdentity }));
 vi.mock('@/lib/auth/mfa', () => ({ requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase }));
 vi.mock('@/lib/payments/flags', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/payments/flags')>();
@@ -23,7 +23,7 @@ import { AuthError } from '@/lib/db/auth';
 import { GET } from '../route';
 
 function request(bearer = false) {
-  return new NextRequest('http://localhost/api/admin/businesses/options', {
+  return adminBearerRequest('http://localhost/api/admin/businesses/options', {
     headers: bearer ? { authorization: 'Bearer test-admin-access-token' } : {},
   });
 }
@@ -59,8 +59,8 @@ describe('GET admin business options', () => {
     const response = await GET(request(true));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ betaCompActive: true });
-    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
-    expect((await mockResolveDualModeIdentity.mock.results[0]!.value)?.transport).toBe('bearer');
+    expect(mockResolveAdminApiIdentity).toHaveBeenCalledOnce();
+    expect((await mockResolveAdminApiIdentity.mock.results[0]!.value)?.transport).toBe('bearer');
   });
 
   it('refuses options to an AAL1 admin before reading the coupon', async () => {
