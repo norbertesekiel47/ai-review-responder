@@ -114,6 +114,18 @@ Also, R4 is declared non-`async`: the plan marks it `async` and it contains no `
 - **Counted:** `feature-state.sh incr-amendment --reason …` (#2 — the reason is recorded in `.feature/state.json`).
 - **Verdict:** ACCEPT
 
+## Review gate, round 1 at `0198f5447` — 2026-09-12 (root)
+
+RED on three rows, every other row green (lint, typecheck, test, build, all 24 audits, both live-DB suites, e2e, diff-coverage). All three are workflow-artifact corrections, not code:
+
+1. **`feature-surface`** — `src/app/(authenticated)/dashboard/operator/__tests__/*.ts` matched nothing (every test there is `.tsx`). Removed from both copies: a NARROWING, counted as **surface amendment #3** with its reason in `.feature/state.json`. The two earlier amendments were the page path (owner decision) and the ledger file (a CI requirement); this one deletes a dead glob.
+2. **`promised-tests`** — the two `e2e:` titles live in `e2e/operator.spec.ts`, and the checker greps only `*.test.ts(x)` under `src`, `worker`, `scripts` (`scripts/verify-gate.sh:468`), so they can never be found by design. Both titles are real, listed by `playwright --list`, run locally under the harness, and self-skip in CI; they are removed from `tests_to_add` (a `tests_to_add` correction, not a surface change) and stay as the gate's `pnpm test:e2e` row (green) plus the evidence index.
+3. **`pnpm build` as a `verification_commands` entry** — it raced the gate's own `build` row (`Another next build process is already running`). Removed; the gate runs `build` for surface `mixed` on its own.
+
+**Reclassify WARN:** the TEST bucket measured 3,358 changed lines against an estimate of 1,650 (2.0×): the plan authored full bodies for 51 titles, 11 of them added by the three Codex rounds, and the live-DB apply suite alone is 600 lines. Step 0 re-run with the real numbers: size stays `standard` (nine tracers, one surface), risk stays `high`, lane already the heaviest — no change of lane. Production bucket: within estimate. Same disposition Run A recorded for its own TEST-bucket trigger.
+
+- **Verdict:** ACCEPT
+
 ## T7 — 2026-09-12
 
 1. **The two signed-in flows cannot run on the auth harness's BASE tier, and the plan's
