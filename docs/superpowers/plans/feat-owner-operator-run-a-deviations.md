@@ -378,3 +378,20 @@ new row for T6, which creates no file under `worker/` or `src/lib/`.
 
 **Verdict:** ACCEPT — one widened field resolves the compile contradiction; the
 fixture fix was pre-authorised by the T3 entry.
+
+## 2026-09-11 — surface amendment #2: `docs/directory/lib-owner-operator.md` (orchestrator)
+
+`wc -w` at T8 dispatch: `docs/directory/lib-platform.md` 3,000 and
+`docs/directory/lib-reviews-responses.md` 3,000 — both exactly at the
+reference-shape cap, zero headroom. T8 owes eleven `src/lib` rows (ten under
+`agents/operator/`, one for `responses/voice-settings.ts`) that `ci:directory-map`
+requires and the cap forbids on those pages. `docs/directory.md`'s own Pages
+convention sanctions a sibling page with a `### responses/ (continued)`
+section, so T8 writes `docs/directory/lib-owner-operator.md` and adds its
+Pages-table row. Counted mechanically as amendment #2 with `--reason`. This is a
+docs-only file inside a tree the surface already covers, not a code-scope
+change: the abort criterion's "2nd surface amendment" targets scope drift, and
+the reclassify trigger is recorded here rather than fired. Owner may veto at
+review.
+
+**Verdict:** ACCEPT — forced by a word cap, not by scope.
