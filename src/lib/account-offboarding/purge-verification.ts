@@ -633,6 +633,35 @@ export function verificationQuery(
         FROM refusal_events
         WHERE account_id = ${accountId}::uuid
       `;
+    // The four Owner Operator tables (migration 120). Each is account-scoped
+    // and deliberately NOT joined through businesses: agent_conversations and
+    // agent_unsupported_requests carry no location at all, and
+    // agent_proposals.location_id is nullable for an account-scope proposal, so
+    // a business join would report zero violations while those rows survived.
+    case 'agent_unsupported_requests':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM agent_unsupported_requests
+        WHERE account_id = ${accountId}::uuid
+      `;
+    case 'agent_proposals':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM agent_proposals
+        WHERE account_id = ${accountId}::uuid
+      `;
+    case 'agent_turns':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM agent_turns
+        WHERE account_id = ${accountId}::uuid
+      `;
+    case 'agent_conversations':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM agent_conversations
+        WHERE account_id = ${accountId}::uuid
+      `;
     case 'solicitation_asks':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count

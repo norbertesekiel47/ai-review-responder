@@ -37,6 +37,10 @@ import {
   verificationQuery,
   verifyAccountOffboardingPurge,
 } from '../purge-verification';
+// The purge stage is the write-side twin of the verification arms: the four
+// owner-operator DELETEs and the four must_be_absent reads are one claim, so
+// the case that proves them asserts both halves in one place.
+import { runContentPurgeStage } from '../../../../worker/jobs/account-offboarding/purge-stages';
 
 describe('purge verification fail-closed guards', () => {
   // Same reason as mockSql.json above: verificationQuery reaches for
@@ -484,5 +488,115 @@ describe('purge verification', () => {
 });
 
 describe('owner operator purge', () => {
-  it.todo('purge verification and the content purge stage remove every owner-operator row for the purged account');
+  const OWNER_OPERATOR_TABLES = [
+    'agent_unsupported_requests',
+    'agent_proposals',
+    'agent_turns',
+    'agent_conversations',
+  ] as const;
+
+  // verificationQuery takes the whole VerifyAccountOffboardingPurgeInput, not a
+  // bare account id (src/lib/account-offboarding/purge-verification.ts:75-88).
+  // Only accountId matters for these four arms; the rest belong to other arms.
+  const verifyInput = (accountId: string) => ({
+    accountId,
+    offboardingId: '00000000-0000-7000-8000-0000000000f1',
+    currentOutboxId: '00000000-0000-7000-8000-0000000000f2',
+    authUserId: null,
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+  });
+
+  // Same recording shape as this file's hoisted `mockSql` executor, built per
+  // case so one call list belongs to one arm. `.json` identity for the same
+  // reason the hoisted mock carries it: verificationQuery reaches for
+  // exec.json(...) while building other branches.
+  const makeRecordingExec = (recorded: QueryCall[]) => {
+    const exec = ((strings: unknown, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return Promise.resolve([]);
+      recorded.push({ text: strings.join('?'), values });
+      return Promise.resolve([{ violation_count: 0 }]);
+    }) as unknown as { json: (value: unknown) => unknown };
+    exec.json = (value: unknown) => value;
+    return exec as unknown as Parameters<typeof verificationQuery>[2];
+  };
+
+  // runContentPurgeStage opens `sql.begin(cb)` and issues every statement
+  // through the transaction tag. The tag is also called with a bare string by
+  // deleteByBusiness's `tx(tableName)` identifier escape, which must not be
+  // recorded as a statement.
+  const makeRecordingSql = (recorded: QueryCall[]) => {
+    const tx = ((strings: unknown, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return { identifier: strings };
+      recorded.push({ text: strings.join('?'), values });
+      return Promise.resolve([]);
+    }) as unknown as {
+      json: (value: unknown) => unknown;
+      begin: (fn: (tx: unknown) => Promise<void>) => Promise<void>;
+    };
+    tx.json = (value: unknown) => value;
+    tx.begin = async (fn: (inner: unknown) => Promise<void>) => { await fn(tx); };
+    return tx as unknown as Parameters<typeof runContentPurgeStage>[0];
+  };
+
+  const purgeRow = (accountId: string) => ({
+    id: '00000000-0000-7000-8000-0000000000f3',
+    account_id: accountId,
+    mode: 'delete_data',
+    status: 'purge_scheduled',
+    terminal_at: null,
+    teardown_completed_at: null,
+    purge_started_at: null,
+    purge_cancelled_at: null,
+    auth_user_id: null,
+    recipient_email: null,
+    provider_dispositions: null,
+    stripe_customer_id: null,
+    stripe_subscription_id: null,
+    zernio_account_ids: null,
+    zernio_profile_ids: null,
+    location_ids: null,
+    stripe_step: null,
+    zernio_accounts_step: null,
+    zernio_profiles_step: null,
+    location_archival_step: null,
+  }) as unknown as Parameters<typeof runContentPurgeStage>[1];
+
+  it('purge verification and the content purge stage remove every owner-operator row for the purged account', async () => {
+    const accountId = '00000000-0000-7000-8000-0000000000aa';
+
+    for (const table of OWNER_OPERATOR_TABLES) {
+      const recorded: QueryCall[] = [];
+      const exec = makeRecordingExec(recorded);
+      // (table, input, exec) — src/lib/account-offboarding/purge-verification.ts:75.
+      await verificationQuery(
+        table,
+        verifyInput(accountId) as unknown as Parameters<typeof verificationQuery>[1],
+        exec,
+      );
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]!.text).toContain(`FROM ${table}`);
+      expect(recorded[0]!.text).toContain('WHERE account_id =');
+      expect(recorded[0]!.values).toContain(accountId);
+      // Never joined through businesses — two of the four carry no location.
+      expect(recorded[0]!.text).not.toContain('businesses');
+    }
+
+    const stageCalls: QueryCall[] = [];
+    // (sql, row) — two parameters, no outbox id
+    // (worker/jobs/account-offboarding/purge-stages.ts:245).
+    await runContentPurgeStage(makeRecordingSql(stageCalls), purgeRow(accountId));
+    const deletes = stageCalls
+      .map((c) => c.text)
+      .filter((t) => OWNER_OPERATOR_TABLES.some((table) => t.includes(`DELETE FROM ${table}`)));
+    expect(deletes).toHaveLength(4);
+    // Children first: unsupported -> proposals -> turns -> conversations.
+    expect(deletes[0]).toContain('agent_unsupported_requests');
+    expect(deletes[1]).toContain('agent_proposals');
+    expect(deletes[2]).toContain('agent_turns');
+    expect(deletes[3]).toContain('agent_conversations');
+    for (const call of stageCalls.filter((c) => c.text.includes('DELETE FROM agent_'))) {
+      expect(call.values).toContain(accountId);
+    }
+  });
 });

@@ -296,5 +296,21 @@ describe('provider data retention inventory', () => {
 });
 
 describe('owner operator tables', () => {
-  it.todo('table dispositions classify the four owner-operator tables as hard_delete with direct_account_id evidence and must_be_absent verification');
+  const OWNER_OPERATOR_TABLES = [
+    'agent_conversations',
+    'agent_turns',
+    'agent_proposals',
+    'agent_unsupported_requests',
+  ] as const;
+
+  it('table dispositions classify the four owner-operator tables as hard_delete with direct_account_id evidence and must_be_absent verification', () => {
+    for (const table of OWNER_OPERATOR_TABLES) {
+      const entry = TABLE_DISPOSITIONS.find((d) => d.table === table);
+      expect(entry, `${table} must be classified`).toBeDefined();
+      expect(entry!.disposition).toBe('hard_delete');
+      expect(entry!.scopeEvidence).toBe('direct_account_id');
+      expect(entry!.purgeVerification).toBe('must_be_absent');
+      expect(entry!.reason.length).toBeGreaterThan(0);
+    }
+  });
 });

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **119** — next migration is **120**
+Current head: **120** — next migration is **121**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2842,6 +2842,40 @@ Revisit triggers:
   creates no object for `SchemaRequirement` to name, which is migration 097's
   situation exactly, and `schema-ready.ts` records that 097 gets no requirement
   and inspects the migration SQL text instead.
+
+- **120** — Owner Operator Run A tables (`agent_conversations`, `agent_turns`,
+  `agent_proposals`, `agent_unsupported_requests`). **LOCAL-ONLY** — applied
+  only to the rebuildable local test container; the marker comes off in the
+  promotion change, never before.
+  **New tables only**; touches no existing table and adds NO `job_outbox`
+  index. Deny-all RLS (zero policies) plus `REVOKE ALL … FROM anon,
+  authenticated` on all four, one `COMMENT ON TABLE` each, three indexes, two
+  named UNIQUE constraints on `agent_turns`.
+  **Why no `job_outbox` index.** Every in-flight unique index on `job_outbox`
+  is pinned to one literal topic (004/018 `sync_reviews`, 030, 091, 114), so
+  there is no generic `(topic, aggregate_id)` predicate for an `ON CONFLICT` to
+  infer. `enqueueAgentTurn` is therefore a plain INSERT (the `enqueueCsvIngest`
+  shape) and turn idempotency belongs to
+  `agent_turns_account_client_key_uniq`, taken in the same transaction.
+  **`agent_conversations.id` is client-generated**, a documented departure from
+  the repo's uuidv7 convention (spec §3.2): the browser mints it so a lost
+  first response resumes the same conversation. The consequence the route must
+  honour is that a client id already present under ANOTHER account is a 404,
+  never an upsert into the caller's account.
+  **Retention: no TTL in v1.** No ArchivalPoller arm. The four tables are
+  hard-deleted with the account by `runContentPurgeStage` (children first:
+  unsupported → proposals → turns → conversations) and asserted absent by
+  `purge-verification`. Revisit under spec §14 "receipt retention", which asks
+  whether settings-change receipts should outlive the account under a separate
+  clock; default stays hard-delete.
+  **`SchemaRequirement`:** `MIGRATION_120_OWNER_OPERATOR` names all four
+  relations and both named constraints — all brand new, so naming them is an
+  honest proof rather than a false one.
+  **Verify by introspection, never the ledger:** `pg_tables` for the four,
+  `pg_class.relrowsecurity = true`, `pg_policies` count 0,
+  `has_table_privilege('anon'|'authenticated', …)` false, and `pg_constraint`
+  for both unique names.
+
 - **118** — `poller_heartbeats` (#949). **New table**, two columns, deny-all
   RLS (zero policies) PLUS `REVOKE ALL … FROM anon, authenticated`, no index
   beyond the primary key. Durable background-loop liveness: one row per poller,

@@ -104,6 +104,15 @@ export const TENANT_TABLES = [
   // it account-scoped; the retention sweep arrives with #1009 and will need
   // its own cross-tenant allowlist exemption then, not now.
   'refusal_events',
+  // Deny-all RLS (migration 120, Owner Operator Run A). All four carry
+  // account_id and are written only from tenant-scoped routes and the
+  // AgentTurnWorker's fenced transaction. location_id on agent_turns /
+  // agent_proposals is a TARGET, not tenant identity: every read narrows by
+  // account_id first, so account_id alone is the scope column.
+  'agent_conversations',
+  'agent_turns',
+  'agent_proposals',
+  'agent_unsupported_requests',
 ] as const;
 
 export type TenantTable = (typeof TENANT_TABLES)[number];
@@ -176,6 +185,10 @@ export const TENANT_SCOPE_COLUMNS: Record<TenantTable, readonly TenantScopeColum
   // per-location read is `account_id = $1 AND (business_id = $2 OR business_id
   // IS NULL)` — both columns are in scope, neither alone is (migration 116).
   refusal_events: ['account_id', 'business_id'],
+  agent_conversations: ['account_id'],
+  agent_turns: ['account_id'],
+  agent_proposals: ['account_id'],
+  agent_unsupported_requests: ['account_id'],
 };
 
 /**
