@@ -1,0 +1,57 @@
+{
+  "method": "Playwright Chromium synthetic component harness; Next routing and Supabase mocked; no Computer Use or live session proof",
+  "results": [
+    {
+      "width": 390,
+      "state": "identity",
+      "passed": true
+    },
+    {
+      "width": 390,
+      "state": "?active",
+      "passed": true
+    },
+    {
+      "width": 390,
+      "state": "?aal1",
+      "passed": true
+    },
+    {
+      "width": 390,
+      "state": "?signout-error",
+      "passed": true
+    },
+    {
+      "width": 1440,
+      "state": "identity",
+      "passed": true
+    },
+    {
+      "width": 1440,
+      "state": "?active",
+      "passed": true
+    },
+    {
+      "width": 1440,
+      "state": "?aal1",
+      "passed": true
+    },
+    {
+      "width": 1440,
+      "state": "?signout-error",
+      "passed": true
+    }
+  ],
+  "pageErrors": [],
+  "assertions": [
+    "no horizontal overflow",
+    "one link",
+    "no sidebar",
+    "local MFA href",
+    "signout error visible and retryable",
+    "banner sticks at top after scrolling",
+    "mock end-session refusal and successful document navigation",
+    "Open Admin app local destination",
+    "three auth routes bare"
+  ]
+}
