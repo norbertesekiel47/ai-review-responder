@@ -142,6 +142,7 @@
     "docs/eservices-variables.md",
     ".claude/reference/env-vars.md",
     ".claude/reference/lab-notes/postgres.md",
+    ".claude/reference/arch-review-log.md",
     "docs/directory/app-authenticated.md",
     "docs/directory/app-api-b.md",
     "docs/directory/lib-owner-operator.md",

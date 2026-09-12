@@ -104,3 +104,10 @@ root handed down after the plan was written.
    case instead of two.
 
 Also, R4 is declared non-`async`: the plan marks it `async` and it contains no `await`.
+
+## Surface amendment #2 — 2026-09-12, after T6 (root)
+
+- **What:** `.claude/reference/arch-review-log.md` joins the surface; the root adds ONE ledger bullet for this branch under "Merges since the 2026-08-26 pass".
+- **Why:** `pnpm ci:merge-ledger` (the lint job and the lefthook pre-push gate) fails any PR that changes production files without a line in that file — this branch changes 26. Run A carried the same file for the same reason. The counter number is not touched (the audit says so itself; the 2026-09-12 pass on PR #1272 owns it). If #1272 merges first, the bullet is re-homed under "Merges since the 2026-09-12 pass" at rebase time.
+- **Counted:** `feature-state.sh incr-amendment --reason …` (#2 — the reason is recorded in `.feature/state.json`).
+- **Verdict:** ACCEPT
