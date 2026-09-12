@@ -1,11 +1,22 @@
 'use client';
 
 import type { Receipt } from '@/lib/agents/operator/schema';
-import { AFFECTS_FUTURE_DRAFTS } from './wording';
+import { AFFECTS_FUTURE_DRAFTS, VOICE_FIELD_LABELS } from './wording';
 import './operator.css';
+
+/** Who the Receipt names when the actor's row carried no name (S5 / F10). */
+const UNNAMED_ACTOR = 'Account owner';
 
 export interface ReceiptViewProps {
   receipt: Receipt;
+  /**
+   * The operation IN PLAIN WORDS — the catalog describer the card's own
+   * heading uses. The Receipt stores `operation`, which is the catalog id
+   * (`set_tone`), and the one document §6.5 says "establishes that something
+   * changed" must not describe the change with an identifier the owner has
+   * never seen anywhere else in the product (S4).
+   */
+  describe: string;
   locationLabel: (locationId: string) => string;
 }
 
@@ -17,7 +28,7 @@ export interface ReceiptViewProps {
  * transaction. Nothing on this component recomputes a value, reads a live
  * count, or formats a number the server did not produce.
  */
-export function ReceiptView({ receipt, locationLabel }: ReceiptViewProps) {
+export function ReceiptView({ receipt, describe, locationLabel }: ReceiptViewProps) {
   return (
     <div className="op-receipt">
       <p className="op-state-line">
@@ -55,15 +66,21 @@ export function ReceiptView({ receipt, locationLabel }: ReceiptViewProps) {
           and which one is a row label. */}
       <dl className="op-kv op-facts">
         <dt className="op-kv-label">Change</dt>
-        <dd className="op-diff-value">{receipt.operation}</dd>
+        <dd className="op-diff-value">{describe}</dd>
         <dt className="op-kv-label">Location</dt>
         <dd className="op-diff-value">{locationLabel(receipt.scope.locationId)}</dd>
         <dt className="op-kv-label">Applied at</dt>
         <dd className="op-diff-value">
           <time dateTime={receipt.appliedAt}>{new Date(receipt.appliedAt).toLocaleString()}</time>
         </dd>
+        {/* THE PERSON, not the database key. `actorName` is server-written
+            under the same lock as `actorUserId` and frozen at the Apply, so a
+            later rename cannot rewrite history; the uuid never reaches the
+            screen (S5 / F10). `Reference` below stays the turn id — §6.5 calls
+            it a correlation id, and a support reference is legitimately
+            opaque. */}
         <dt className="op-kv-label">Applied by</dt>
-        <dd className="op-diff-value">{receipt.actorUserId}</dd>
+        <dd className="op-diff-value">{receipt.actorName ?? UNNAMED_ACTOR}</dd>
         <dt className="op-kv-label">You asked</dt>
         {/* VERBATIM owner text, as the server stored it (spec §6.5). */}
         <dd className="op-diff-value">{receipt.ownerText}</dd>
@@ -74,21 +91,26 @@ export function ReceiptView({ receipt, locationLabel }: ReceiptViewProps) {
   );
 }
 
-/** The five voice fields, each labelled. `null` and `[]` read as "not set". */
+/**
+ * The five voice fields, each labelled from the SHARED vocabulary and in the
+ * shared order (F4). Every field reads the same way it does on the card that
+ * proposed the change — including the sample replies, which this component
+ * used to reduce to "3 saved" while the card listed them, so the Receipt and
+ * the preview described different things. `null` and `[]` read as "not set".
+ */
 function VoiceStateLines({ state }: { state: Receipt['before'] }) {
-  const rows: Array<[string, string]> = [
-    ['Tone', state.tone ?? 'Not set'],
-    ['Products and services', state.productsServices ?? 'Not set'],
-    ['Keep out of replies', state.avoidFacts.length === 0 ? 'Nothing' : state.avoidFacts.join('; ')],
-    ['Highlight when it fits', state.highlightFacts.length === 0 ? 'Nothing' : state.highlightFacts.join('; ')],
-    ['Sample replies', state.sampleResponses.length === 0 ? 'None' : `${state.sampleResponses.length} saved`],
-  ];
+  const line = (field: (typeof VOICE_FIELD_LABELS)[number]['field']): string => {
+    const value = state[field];
+    if (value === null) return 'Not set';
+    if (typeof value === 'string') return value;
+    return value.length === 0 ? 'Nothing' : value.join('; ');
+  };
   return (
     <>
-      {rows.map(([label, value]) => (
-        <span key={label} className="op-diff-value">
+      {VOICE_FIELD_LABELS.map(({ field, label }) => (
+        <span key={field} className="op-diff-value">
           <span className="op-kv-label">{label}: </span>
-          {value}
+          {line(field)}
         </span>
       ))}
     </>

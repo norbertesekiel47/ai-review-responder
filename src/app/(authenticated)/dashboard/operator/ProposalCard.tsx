@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import { parseVoiceState } from '@/lib/agents/operator/schema';
 import { ReceiptView } from './ReceiptView';
@@ -8,10 +9,12 @@ import {
   APPLY,
   NOT_NOW,
   OFFERS_REFRESH_PLAN,
-  PROPOSAL_APPLIED,
   PROPOSAL_DECLINED,
+  PROPOSAL_LABEL_APPLIED,
+  PROPOSAL_LABEL_PENDING,
   PROPOSAL_SUPERSEDED,
   REFRESH_PLAN,
+  VOICE_FIELD_LABELS,
   preparedForNote,
   proposalFailureSentence,
 } from './wording';
@@ -60,11 +63,21 @@ export function ProposalCard({
   const after = parseVoiceState(proposal.after, 'agent_proposals.after');
 
   const pending = proposal.status === 'pending';
+  const applied = proposal.status === 'applied';
   const refreshable =
     proposal.failureReason !== null && OFFERS_REFRESH_PLAN.has(proposal.failureReason);
 
   return (
     <section className="card op-card" aria-labelledby={headingId}>
+      {/* THE §1 LABEL, above the headline where the owner reads it first: what
+          KIND of thing this card is before they decide. Spec §1 lists it as
+          the card's first element and exists to separate a rule the engine
+          ENFORCES from a fact a workflow READS — a distinction the operation's
+          describer cannot carry. The applied half is the state line below
+          (S1). */}
+      {!applied && (
+        <span className="badge op-label-chip">{PROPOSAL_LABEL_PENDING[proposal.labelKind]}</span>
+      )}
       <h2 className="card-h2" id={headingId}>{proposal.describe}</h2>
 
       <div className="op-kv">
@@ -100,11 +113,18 @@ export function ProposalCard({
           not decided yet. Every status below has a rendering for the same
           reason: a card with a headline and no state line is a card the owner
           cannot act on and cannot interpret. */}
-      {proposal.status === 'applied' && (
+      {applied && (
         <>
-          <p className="op-state-line">{PROPOSAL_APPLIED}</p>
+          {/* The APPLIED half of the §1 contract, in place of the bare word
+              "Applied": after success the card names what it now IS — an
+              Active rule, or a Remembered fact. */}
+          <p className="op-state-line">{PROPOSAL_LABEL_APPLIED[proposal.labelKind]}</p>
           {proposal.receipt !== null && (
-            <ReceiptView receipt={proposal.receipt} locationLabel={locationLabel} />
+            <ReceiptView
+              receipt={proposal.receipt}
+              describe={proposal.describe}
+              locationLabel={locationLabel}
+            />
           )}
         </>
       )}
@@ -216,18 +236,19 @@ function VoiceStateDetail({
     );
   };
 
+  // ONE ordered list of labels, shared with the Receipt (F4). Iterating it
+  // rather than transcribing five pairs is what keeps the two renderers from
+  // disagreeing about a field's name or its position.
   return (
     <>
-      <span className="op-kv-label">Tone</span>
-      {scalar(state.tone, other.tone)}
-      <span className="op-kv-label">Products and services</span>
-      {scalar(state.productsServices, other.productsServices)}
-      <span className="op-kv-label">Keep out of replies</span>
-      {list(state.avoidFacts, other.avoidFacts)}
-      <span className="op-kv-label">Highlight when it fits</span>
-      {list(state.highlightFacts, other.highlightFacts)}
-      <span className="op-kv-label">Sample replies</span>
-      {list(state.sampleResponses, other.sampleResponses)}
+      {VOICE_FIELD_LABELS.map(({ field, label }) => (
+        <Fragment key={field}>
+          <span className="op-kv-label">{label}</span>
+          {field === 'tone' || field === 'productsServices'
+            ? scalar(state[field], other[field])
+            : list(state[field], other[field])}
+        </Fragment>
+      ))}
     </>
   );
 }

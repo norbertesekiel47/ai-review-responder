@@ -77,10 +77,21 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* `--rw-app-h3` is a `font` shorthand and already carries
+   `var(--rw-font-display)`, so a second `font-family` after it restated the
+   same family and invited the next reader to change one and not the other. */
 .op-kv-value {
   font: var(--rw-app-h3);
-  font-family: var(--rw-font-display);
   color: var(--rw-app-text);
+}
+
+/* The §1 label chip. `.badge` in console.css owns the pill geometry; this adds
+   only the accent wash from the Style Reference's badge pair and pins the pill
+   to the card's start, since `.op-card` is a stretch-aligned flex column. */
+.op-label-chip {
+  align-self: flex-start;
+  background: var(--rw-accent-100);
+  color: var(--rw-accent-800);
 }
 .op-asof { font: var(--rw-app-micro); color: var(--rw-app-text-soft); }
 

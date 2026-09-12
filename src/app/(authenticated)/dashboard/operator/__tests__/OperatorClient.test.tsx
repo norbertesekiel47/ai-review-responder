@@ -48,8 +48,10 @@ vi.mock('@/contexts/LocationContext', () => ({
 
 import { OperatorClient } from '../OperatorClient';
 import {
+  LOCATION_UNAVAILABLE,
   PREPARING,
   RETRY_SEND,
+  ROUTE_ERROR_WORDING,
   START_NEW_CONVERSATION,
   TURN_FAILURE_WORDING,
 } from '../wording';
@@ -135,9 +137,20 @@ afterEach(() => {
 describe('OperatorClient', () => {
   it('operator screen posts a turn with the stored location, shows Preparing your plan and resumes the same turn from URL state after a reload', async () => {
     let turnStatus = 'accepted';
+    // The transcript BEFORE the send is a first-time owner's; afterwards it
+    // carries the accepted turn, exactly as the route would answer it.
+    let accepted = false;
     const fetchMock = routeFetch([
-      [/^GET .*\/api\/operator\/conversation/, () => ({ status: 200, body: EMPTY_CONVERSATION })],
-      [/^POST .*\/api\/operator\/turns$/, () => ({ status: 200, body: { conversationId: CONVERSATION, turnId: TURN } })],
+      [/^GET .*\/api\/operator\/conversation/, () => ({
+        status: 200,
+        body: accepted
+          ? conversationWith([storedTurn({ status: turnStatus })])
+          : EMPTY_CONVERSATION,
+      })],
+      [/^POST .*\/api\/operator\/turns$/, () => {
+        accepted = true;
+        return { status: 200, body: { conversationId: CONVERSATION, turnId: TURN } };
+      }],
       [/^GET .*\/api\/operator\/turns\//, () => ({ status: 200, body: turnBody({ status: turnStatus }) })],
     ]);
     vi.stubGlobal('fetch', fetchMock);
@@ -156,6 +169,12 @@ describe('OperatorClient', () => {
     expect(typeof body.clientTurnKey).toBe('string');
 
     expect(await screen.findByText(PREPARING)).toBeInTheDocument();
+
+    // THE OWNER'S OWN WORDS, on screen while it prepares. The composer empties
+    // on send and there is no optimistic bubble, so the accepted turn has to
+    // come back from the transcript — which for every message after the first
+    // only happens because the POST asks for the refetch (S3).
+    expect(await screen.findByText('Make my replies warmer.')).toBeInTheDocument();
 
     await waitFor(() => {
       const url = String(replaceMock.mock.calls.at(-1)![0]);
@@ -365,6 +384,114 @@ describe('OperatorClient', () => {
 
     // A NEW message allocates a new key.
     await user.clear(screen.getByRole('textbox', { name: /message/i }));
+  });
+
+  it('a POST that never settles releases the composer and offers the same retry', async () => {
+    // THE CASE BEFORE ACCEPTANCE IS KNOWN. The poll loop's four-minute ceiling
+    // only arms once a turn id exists; a submission that never settles left
+    // `sending` true forever — no turn, no poll, no timeout notice and no
+    // retry, which is an indefinite wait with no way out (C2).
+    let posts = 0;
+    let aborted = false;
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes('/api/operator/conversation')) {
+        return { ok: true, status: 200, json: async () => EMPTY_CONVERSATION } as Response;
+      }
+      if (init?.method === 'POST') {
+        posts += 1;
+        if (posts === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              aborted = true;
+              reject(new DOMException('aborted', 'AbortError'));
+            });
+          });
+        }
+        return {
+          ok: true, status: 200,
+          json: async () => ({ conversationId: CONVERSATION, turnId: TURN }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => turnBody() } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<OperatorClient />);
+
+    await user.type(screen.getByRole('textbox', { name: /message/i }), 'Make my replies warmer.');
+    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    await waitFor(() => expect(postBodies(fetchMock as never)).toHaveLength(1));
+
+    // Still in flight: the composer is busy and there is nothing to recover
+    // with yet.
+    expect(screen.getByRole('textbox', { name: /message/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: RETRY_SEND })).not.toBeInTheDocument();
+
+    // The thirty-second deadline fires. The request is freed, the composer is
+    // released, and the submission is treated as LOST — not as a failure the
+    // owner has to retype.
+    await act(async () => { await vi.advanceTimersByTimeAsync(31_000); });
+    expect(aborted).toBe(true);
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /message/i })).toBeEnabled();
+    });
+    const retryButton = await screen.findByRole('button', { name: RETRY_SEND });
+
+    // And the retry sends the IDENTICAL payload, so a first attempt that
+    // committed before the response was lost returns its original ids.
+    await user.click(retryButton);
+    await waitFor(() => expect(postBodies(fetchMock as never)).toHaveLength(2));
+    const [first, second] = postBodies(fetchMock as never);
+    expect(second).toEqual(first);
+    expect(second.clientTurnKey).toBe(first.clientTurnKey);
+    expect(await screen.findByText(PREPARING)).toBeInTheDocument();
+  });
+
+  it('a refusal the server answered offers no retry and an unusable location says so', async () => {
+    // TWO NON-RETRYABLE ANSWERS. `unauthorized` is a refusal the server
+    // actually made: re-POSTing reaches the same refusal, so the retry
+    // affordance would invite the owner to fail twice (S6). And an unusable
+    // `?locationId=` is its own sentence, not the silent empty screen
+    // `conversation_not_found` earns (S7).
+    const refused = routeFetch([
+      [/^GET .*\/api\/operator\/conversation/, () => ({ status: 200, body: EMPTY_CONVERSATION })],
+      [/^POST .*\/api\/operator\/turns$/, () => ({ status: 403, body: { error: 'unauthorized' } })],
+    ]);
+    vi.stubGlobal('fetch', refused);
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const refusedRender = render(<OperatorClient />);
+
+    await user.type(screen.getByRole('textbox', { name: /message/i }), 'Make my replies warmer.');
+    await user.click(screen.getByRole('button', { name: /^send$/i }));
+
+    expect(await screen.findByText(ROUTE_ERROR_WORDING.unauthorized!)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: RETRY_SEND })).not.toBeInTheDocument();
+    refusedRender.unmount();
+
+    // The archived or foreign location: a notice, and the wait ends — the
+    // screen must not sit on "Preparing your plan" against a location that is
+    // gone, nor keep asking about its turn.
+    const gone = routeFetch([
+      [/^GET .*\/api\/operator\/conversation/, () => ({
+        status: 404, body: { error: 'location_not_found' },
+      })],
+      [/^GET .*\/api\/operator\/turns\//, () => ({ status: 200, body: turnBody() })],
+    ]);
+    vi.stubGlobal('fetch', gone);
+    searchParamsMock.value = new URLSearchParams({ conversationId: CONVERSATION, turnId: TURN });
+    render(<OperatorClient />);
+
+    expect(await screen.findByText(LOCATION_UNAVAILABLE)).toBeInTheDocument();
+    expect(screen.queryByText(PREPARING)).not.toBeInTheDocument();
+    // At most the one read already in flight when the 404 landed, and then
+    // nothing: the loop is torn down rather than backing off.
+    const stopped = pollCount(gone);
+    expect(stopped).toBeLessThanOrEqual(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(pollCount(gone)).toBe(stopped);
   });
 
   it('operator renders every stored segment kind in order', async () => {

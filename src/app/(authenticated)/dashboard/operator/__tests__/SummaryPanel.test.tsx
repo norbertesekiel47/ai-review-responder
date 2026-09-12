@@ -8,7 +8,15 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { SummaryPanel } from '../SummaryPanel';
 
+const SALON = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+/** The screen's own resolver, as `OperatorClient` builds it from the roster. */
+const locationLabel = (id: string) => (id === SALON ? 'Salon' : 'this location');
+
 const SUMMARY = {
+  // The location EVERY number below is scoped to — the latest turn's, which is
+  // not necessarily the one the selector points at (C3).
+  locationId: SALON,
   pending: { pendingCount: 3, draftsWaiting: 5 },
   recent: { posted7d: 9, reportingPeriodDays: 7 },
   rules: {
@@ -36,11 +44,16 @@ const asSummary = (value: Record<string, unknown>) => value as any;
 
 describe('SummaryPanel', () => {
   it('summary panel renders the three blocks with as-of timestamps and the connect call to action when the connection is missing', () => {
-    const connected = render(<SummaryPanel summary={asSummary(SUMMARY)} hint={null} />);
+    const connected = render(
+      <SummaryPanel summary={asSummary(SUMMARY)} locationLabel={locationLabel} hint={null} />,
+    );
 
-    // Waiting for you.
+    // Waiting for you — NAMED, not "this location": the summary follows the
+    // latest turn, and the selector may have moved since (C3).
     expect(screen.getByText(/waiting for you/i)).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText(/drafts waiting at Salon/)).toBeInTheDocument();
+    expect(screen.queryByText(/at this location/)).not.toBeInTheDocument();
     // Recently completed, with its reporting period stated rather than implied.
     expect(screen.getByText(/recently completed/i)).toBeInTheDocument();
     expect(screen.getByText('9')).toBeInTheDocument();
@@ -62,18 +75,27 @@ describe('SummaryPanel', () => {
     expect(screen.queryByRole('link', { name: /connect google/i })).not.toBeInTheDocument();
     connected.unmount();
 
-    // NOT connected, in all three non-active shapes.
+    // NOT connected, in all three non-active shapes. The warning names the
+    // summary's OWN location and the link CARRIES it, so the connect page does
+    // not reconnect whatever the selector happens to point at (C3).
     for (const status of ['pending', 'disconnected', null]) {
       const { unmount } = render(
-        <SummaryPanel summary={asSummary({ ...SUMMARY, connectionStatus: status })} hint={null} />,
+        <SummaryPanel
+          summary={asSummary({ ...SUMMARY, connectionStatus: status })}
+          locationLabel={locationLabel}
+          hint={null}
+        />,
       );
       const cta = screen.getByRole('link', { name: /connect google/i });
-      expect(cta).toHaveAttribute('href', '/dashboard/connect');
+      expect(cta).toHaveAttribute('href', `/dashboard/connect?locationId=${SALON}`);
+      expect(screen.getByText(/^Salon is not connected to Google/)).toBeInTheDocument();
       unmount();
     }
 
     // No summary and a hint: the chooser's sentence stands in for the blocks.
-    render(<SummaryPanel summary={null} hint="Pick one location to talk about." />);
+    render(
+      <SummaryPanel summary={null} locationLabel={locationLabel} hint="Pick one location to talk about." />,
+    );
     expect(screen.getByText('Pick one location to talk about.')).toBeInTheDocument();
     expect(screen.queryByText(/waiting for you/i)).not.toBeInTheDocument();
   });

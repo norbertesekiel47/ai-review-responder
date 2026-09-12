@@ -6,6 +6,11 @@ import './operator.css';
 
 export interface SummaryPanelProps {
   summary: OwnerConversationSummary | null;
+  /**
+   * How to name a location on screen, injected the way the cards get it: the
+   * roster lives in `LocationContext` and this stays a pure renderer.
+   */
+  locationLabel: (locationId: string) => string;
   /** Shown instead of the blocks when the scope is `all` and nothing is chosen. */
   hint: string | null;
 }
@@ -25,7 +30,7 @@ export interface SummaryPanelProps {
  * reads as "just measured, and the answer is zero" — which for an account with
  * a dozen drafts waiting is a lie the timestamp vouches for.
  */
-export function SummaryPanel({ summary, hint }: SummaryPanelProps) {
+export function SummaryPanel({ summary, locationLabel, hint }: SummaryPanelProps) {
   if (summary === null) {
     return (
       <aside className="op-panel" aria-label="Summary">
@@ -34,7 +39,17 @@ export function SummaryPanel({ summary, hint }: SummaryPanelProps) {
     );
   }
 
-  const { pending, recent, rules, facts, connectionStatus, asOf } = summary;
+  const { locationId, pending, recent, rules, facts, connectionStatus, asOf } = summary;
+  /**
+   * THE LOCATION EVERY NUMBER BELOW IS SCOPED TO, named rather than implied.
+   * The summary follows the latest TURN, which is not necessarily the
+   * selector: after a Salon turn the owner can pick the Cafe and this panel
+   * still reports the Salon. Saying "this location" then attached Salon's
+   * counts and Salon's connection warning to whatever the selector happened to
+   * show, and the Connect link dropped the scope entirely — it reads
+   * `currentScope` unless `?locationId=` says otherwise (C3).
+   */
+  const here = locationLabel(locationId);
 
   return (
     <aside className="op-panel" aria-label="Summary">
@@ -42,9 +57,9 @@ export function SummaryPanel({ summary, hint }: SummaryPanelProps) {
         <div className="op-kv">
           <span className="op-kv-label">Google</span>
           <p className="op-body">
-            This location is not connected to Google, so nothing can be posted yet.
+            {here} is not connected to Google, so nothing can be posted yet.
           </p>
-          <Link className="empty-link op-action" href="/dashboard/connect">
+          <Link className="empty-link op-action" href={`/dashboard/connect?locationId=${locationId}`}>
             Connect Google Business
           </Link>
         </div>
@@ -54,7 +69,7 @@ export function SummaryPanel({ summary, hint }: SummaryPanelProps) {
         <span className="op-kv-label">Waiting for you</span>
         <span className="op-kv-value">{pending.pendingCount}</span>
         <span className="op-body">
-          drafts waiting at this location, of {pending.draftsWaiting} across every location
+          drafts waiting at {here}, of {pending.draftsWaiting} across every location
         </span>
         <AsOf asOf={asOf} />
       </section>
@@ -80,7 +95,7 @@ export function SummaryPanel({ summary, hint }: SummaryPanelProps) {
         </span>
         <span className="op-body">
           {rules.locationOverrideExists
-            ? 'These are this location’s own rules.'
+            ? `These are ${here}’s own rules.`
             : 'These come from the account default.'}
         </span>
         {/*

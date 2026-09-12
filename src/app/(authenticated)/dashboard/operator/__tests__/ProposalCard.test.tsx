@@ -12,7 +12,8 @@ import {
   APPLY,
   CANNOT_DO_YET,
   NOT_NOW,
-  PROPOSAL_APPLIED,
+  PROPOSAL_LABEL_APPLIED,
+  PROPOSAL_LABEL_PENDING,
   PROPOSAL_STALE,
   REFRESH_PLAN,
 } from '../wording';
@@ -23,6 +24,7 @@ const ACCOUNT = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const TURN = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ACTOR = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const PROPOSAL = '99999999-9999-4999-8999-999999999999';
+const DESCRIBE = 'Set the reply tone to "warm and brief"';
 
 const VOICE_BEFORE = {
   tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [],
@@ -45,7 +47,7 @@ function proposal(overrides: Record<string, unknown> = {}) {
     input: { tone: 'warm and brief' },
     before: VOICE_BEFORE,
     after: VOICE_AFTER,
-    describe: 'Set the reply tone to "warm and brief"',
+    describe: DESCRIBE,
     preparedVersionToken: { businessId: SALON, updatedAt: '2026-09-12 09:00:00.111111+00' },
     receipt: null,
     appliedAt: null,
@@ -66,6 +68,7 @@ const RECEIPT = {
   remainingBlocked: [],
   appliedAt: '2026-09-12T10:00:00.000Z',
   actorUserId: ACTOR,
+  actorName: 'Ada Owner',
   ownerText: 'Make my replies warmer.',
   turnId: TURN,
   versionToken: {
@@ -127,6 +130,9 @@ describe('ProposalCard', () => {
   it('proposal card shows the receipt after Apply and the stale wording with Refresh plan after a version mismatch', async () => {
     const user = userEvent.setup();
     const pending = renderCard();
+    // THE §1 LABEL BEFORE APPLY. The fixture is a `fact`, so the card says
+    // what kind of thing it is — not just what it does.
+    expect(screen.getByText(PROPOSAL_LABEL_PENDING.fact)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: APPLY }));
     expect(pending.onApply).toHaveBeenCalledTimes(1);
     expect(pending.onApply.mock.calls[0]![0].id).toBe(PROPOSAL);
@@ -140,7 +146,11 @@ describe('ProposalCard', () => {
       receipt: RECEIPT,
       appliedAt: '2026-09-12T10:00:00.000Z',
     });
-    expect(screen.getByText(PROPOSAL_APPLIED)).toBeInTheDocument();
+    // THE APPLIED HALF of the §1 contract, in place of the bare word
+    // "Applied": the owner reads what the card now IS.
+    expect(screen.getByText(PROPOSAL_LABEL_APPLIED.fact)).toBeInTheDocument();
+    expect(screen.queryByText('Applied')).not.toBeInTheDocument();
+    expect(screen.queryByText(PROPOSAL_LABEL_PENDING.fact)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: APPLY })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: NOT_NOW })).not.toBeInTheDocument();
     // The Receipt's own fields: the actual after, the verbatim owner text and
@@ -150,12 +160,35 @@ describe('ProposalCard', () => {
     expect(screen.getByText(/effective now/i)).toBeInTheDocument();
     // …and the rest of the server-written record: WHAT ran, WHO ran it, and
     // WHEN, printed from the Receipt's own instant rather than from a clock
-    // read while rendering.
-    expect(screen.getByText('set_tone')).toBeInTheDocument();
-    expect(screen.getByText(ACTOR)).toBeInTheDocument();
+    // read while rendering. The change is named in PLAIN WORDS — the same
+    // describer the heading carries, never the catalog id — and the actor is a
+    // PERSON, never the uuid the row stores.
+    expect(screen.getAllByText(DESCRIBE)).toHaveLength(2);
+    expect(screen.queryByText('set_tone')).not.toBeInTheDocument();
+    expect(screen.getByText('Ada Owner')).toBeInTheDocument();
+    expect(screen.queryByText(ACTOR)).not.toBeInTheDocument();
     expect(screen.getByText('Applied at').nextElementSibling!.querySelector('time'))
       .toHaveAttribute('datetime', RECEIPT.appliedAt);
     applied.unmount();
+
+    // A Receipt written with no actor name — the row's name was null, or the
+    // Receipt predates the field — still names a person, not a key.
+    const unnamed = renderCard({
+      status: 'applied',
+      receipt: { ...RECEIPT, actorName: null },
+      appliedAt: '2026-09-12T10:00:00.000Z',
+    });
+    expect(screen.getByText('Account owner')).toBeInTheDocument();
+    expect(screen.queryByText(ACTOR)).not.toBeInTheDocument();
+    unnamed.unmount();
+
+    // A `rule` card carries the OTHER pair, before and after.
+    const proposedRule = renderCard({ labelKind: 'rule' });
+    expect(screen.getByText(PROPOSAL_LABEL_PENDING.rule)).toBeInTheDocument();
+    proposedRule.unmount();
+    const activeRule = renderCard({ labelKind: 'rule', status: 'applied', receipt: null });
+    expect(screen.getByText(PROPOSAL_LABEL_APPLIED.rule)).toBeInTheDocument();
+    activeRule.unmount();
 
     // STALE: the sentence, and a Refresh plan action that posts a new turn
     // from the original instruction (spec §3.3).
