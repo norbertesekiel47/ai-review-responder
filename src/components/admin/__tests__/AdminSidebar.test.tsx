@@ -73,10 +73,10 @@ describe('AdminSidebar', () => {
   });
 
   it('marks the current page active, including sub-routes', () => {
-    mockUsePathname.mockReturnValue('/admin/locations/csv-import/preview');
+    mockUsePathname.mockReturnValue('/admin/demos/preview');
     renderSidebar();
-    expect(screen.getByRole('link', { name: /Locations import/ })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /Demos/ })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: /Demos/ })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /Support/ })).not.toHaveAttribute('aria-current');
   });
 
   it('Escape closes the mobile drawer, restoring body scroll and trigger focus', async () => {
