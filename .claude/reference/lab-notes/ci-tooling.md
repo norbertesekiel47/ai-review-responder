@@ -15,6 +15,9 @@
 *(2026-08-16 update: `fallow.yml` no longer exists — the CI cost pass folded it into `ci.yml`, where the `test` job's own `pnpm test:coverage` run (live-DB lane included) is uploaded as an artifact and consumed by the `fallow` job. DB-completeness is unchanged; the second Postgres and second suite run are gone. History below describes the pre-fold layout.)*
 `fallow.yml` stood up its own `postgres:16` service container — per-job, on its own runner, NOT shared with `ci.yml` (which stands up its own, as does `e2e.yml`). Before that, ~37 integration suites self-skipped in the fallow run, so a module covered *only* by an integration suite read 0% and its CRAP (complexity × uncovered²) was inflated by up to its full complexity. Corollary the original report got wrong: a module with BOTH a unit and an integration suite was never affected — `ingest.ts` measured 91.9% statements / 89.1% branches in the DB-less input, and its four `fallow-ignore-next-line complexity` suppressions were phantom (removed; the gate passes without them under either input).
 
+### [2026-09-12] Two `/feature` closeout traps (#1270)
+`transition-state.mjs reviewed` audits EVERY `## ` section of the deviations file for a `**Verdict:**` line (summary sections included); write the line when the section is written. `pnpm ci:fallow` without coverage estimates CRAP and moves with the base — CI runs `ci:fallow:coverage`; mirror that after a gate run. Story: history/2026-09.md § 2026-09-12.
+
 ## History
 
 - history/2026-05.md § "Never validate CI from a git worktree nested inside the parent repo"

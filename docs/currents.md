@@ -9,7 +9,17 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-11 (Admin home cutover candidate; staging and red-team release pending).
+Last updated: 2026-09-12 (Owner Operator Run A merged, #1270; migration 120 on both databases).
+
+## Quick summary — Owner Operator Run A MERGED, flag still off everywhere (2026-09-12, #1270)
+
+Run A landed on `main` as squash `d8e3f334f`. Migration 120 is on BOTH Supabase projects (staging 2026-09-12 morning, production at promotion the same day, introspection-verified byte-identical). `staging` was realigned to `main`. `OWNER_OPERATOR_ENABLED` is off in every environment: the routes 404 `operator_disabled`, the `agent_turn` lane fails a dispatched turn with that reason, nothing posts, no executor exists.
+
+**What changed after the review wave.** A fresh red-team run (three rounds) found and closed one real oracle gap — the **Turn claim** lease that stops a second paid model call had no test; the race test now asserts exactly one model call and one billed cost, and a direct `claimTurn` case proves a second claim inside the lease gets nothing — plus two untested branches (`allowedOperations` gate, `budget_exceeded` terminal) and the `agent_turn` alert path: the topic joined `checkFailedOutboxByTopic`'s closed allowlist (the #628 class), the job-failure-sink signal `subsystem:worker_job` + `queue:agent_turn` has runbook rule 11 (**Sentry rule not yet built — required before the flag flips**), and spec §14 states what is and is not alerted. Red-team status CLEAR as a *scope* claim: 237 inventory rows were never mutation-tested and the sidecar says so.
+
+**The new shape (unchanged from the pre-merge summary below):** `supabase/migrations/120_owner_operator.sql` · `src/lib/agents/operator/` · `worker/jobs/agent-turn/` · `src/app/api/operator/{turns,turns/[id],conversation}/route.ts` · `src/lib/responses/voice-settings.ts` · glossary `docs/context/owner-operator.md` · review record `docs/reviews/feat-owner-operator-run-a/` + `docs/reviews/red-team/feat-owner-operator-run-a-b83a4f/`.
+
+**Owed to Run B's first docs commit:** red-team P2-4 (the runbook triage step reaches the turn through `outbox_id`, not `turn_id`) and the rule-11 Sentry build.
 
 ## Quick summary — Owner Operator Run A: the turn pipeline, flag off everywhere (2026-09-11)
 
