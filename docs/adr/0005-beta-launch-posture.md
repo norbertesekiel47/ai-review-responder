@@ -120,3 +120,15 @@ send_monthly_impact 1 + onboarding_demo_response 1), now enforced at boot by
 `assertSummedLlmWorkerSlots` (`worker/config/startup-assert.ts`) with cap 9;
 `judge_verdict` stays flag-gated and separately capped at 1. The ~10
 global-semaphore deferral trigger and all other posture above are unchanged.
+
+**Amendment (2026-09-11) — flag-on envelope 11 → 12 for the Owner Operator.**
+`agent_turn` is a third flag-gated LLM lane (`OWNER_OPERATOR_ENABLED`, server-
+only, default off), gated at the route AND inside the handler — flag off means
+the turn fails `operator_disabled` with zero LLM calls, the `judge_verdict`
+posture. The non-flag-gated sum is unchanged at **9**; each gated lane
+(`judge_verdict`, `generate_solicitation_asks`, `agent_turn`) stays separately
+capped at 1; the all-flags-on worst case is now **9+1+1+1 = 12**, enforced at
+boot by `assertSummedLlmWorkerSlots` via `FLAG_ON_LLM_ENVELOPE_CAP`. The ~10
+global-semaphore deferral trigger is unchanged and this amendment does not
+spend it: a FOURTH gated lane must still force that conversation, which is why
+the cap moves by exactly one rather than to a round number.

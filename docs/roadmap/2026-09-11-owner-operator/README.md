@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **SELECTED, NOT STARTED** · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
+_Status: **RUN A BUILT, FLAG OFF EVERYWHERE** (the turn pipeline and the voice-scope proposal; the screen, Apply, Decline and receipts are Run B) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 
@@ -540,7 +540,7 @@ Changed:
 - #1 LLM call runs in the worker. Routes only orchestrate.
 - #2 Turn insert and outbox row in one transaction, via the typed helper; outbox completion fenced with the turn's terminal transition.
 - #3 Nothing posts. Auto-approval scope changes go through the existing gates.
-- #13/#14 No new `NEXT_PUBLIC_*`; policy reads and writes stay server-owned.
+- #13/#14 No new `NEXT_PUBLIC_*`; policy reads and writes stay server-owned. `OWNER_OPERATOR_ENABLED` is server-only, default off, read through `readFlag` by `ownerOperatorEnabled()` alone — the browser learns the state from the 404, and BOTH lanes read it (set it in Vercel AND Railway).
 - #15 Every new module takes `sql`/`tx` explicitly. Only routes, the worker, and `worker/index.ts` import the singleton.
 - Cost guard wraps the model call. Reservation precedes the call. Every attempt is accounted.
 - Structured logging; no owner text in logs.
@@ -627,9 +627,9 @@ scope.
 
 ## 14. Open questions
 
-- Which pinned model for `owner_operator`: the reply-generation primary, or a stronger model for planning quality. Decide at the checkpoint from staging transcripts.
+- Which pinned model for `owner_operator`: the reply-generation primary, or a stronger model for planning quality. Decide at the checkpoint from staging transcripts. **2026-09-11 (Run A):** registered at the reply-generation pair (`OPENAI_MODEL` primary, `ANTHROPIC_MODEL` fallback) with `maxTokens: 1200` and `temperature: 0.2` — 1200 because a reply is an ordered segment list plus up to five proposals with rationales, and 0.2 because a proposal is a contract, not prose. **This run pins the numbers only; the MODEL question stays open at the checkpoint.**
 - Whether the summary panel reads should be one aggregated route or reuse the dashboard payload. Default: reuse.
-- Lease length and the predecessor-stall limit are provisional (120 s, 10 min); tune from staging.
+- Lease length, predecessor-stall limit and wait delay are provisional (plan decision L2, landed in `worker/jobs/agent-turn/constants.ts`); tune from staging p50/p95 at the checkpoint, not from a hunch. **Lease 180 s** — each provider call is bounded at 30 s and `runLlmTask` may attempt primary then fallback, so two providers × two validation attempts fit with headroom; above the model timeout by construction, which is what makes a stale claim mean "crashed", not "slow". **Predecessor stall 1200 s (20 min)** — above one outbox watchdog window (900 000 ms default), so a predecessor that merely needs re-dispatching gets rescued before this turn gives up on it. **Wait delay 10 s** between predecessor re-checks.
 - **Operator speaks first.** An empty conversation could open with a server-rendered line from the summary reads ("You have 3 reviews waiting, 2 under 3 stars. Last week 9 replies posted. Keep handling 4 and 5 stars the same way?"), so the owner's first act is a yes or a correction. Zero model cost. Decide at the checkpoint from the pilot owner's first session.
 - **Receipt retention after purge.** §9 hard-deletes receipts with the account. A regulator view argues settings-change receipts should survive under a separate retention clock. Decide with counsel before the pilot; default stays hard-delete.
 - **7-day truth check.** A scheduled job could compare a receipt's predicted eligibility to the actual auto-post rate and record the gap. Cheap and honest; not in v1 unless the consequence line proves misleading on staging.
@@ -638,3 +638,23 @@ scope.
 
 - 2026-09-11, ADHD ideation pass (five frames, 30 ideas, three deepened; owner approved the recommendation): gap fixes folded in (no review or response text in the snapshot with a red-team fixture; `scope_check` when the sentence names another location; card target from the stored location; actual veto-window draft count in the receipt; pasted-review rule). Added to v1: consequence line (§3.5), asymmetric friction (§3.3). Added after the checkpoint, in order: undo from receipts (§6.6) with `clear_location_override`, policy-refused card (§3.6). Rejected for v1: rule bundles, end-dated rules, earned-autonomy unlocks, a fabricated tutorial review. Budget table added to §13; three open questions added to §14.
 - 2026-09-11, design review (ten findings, all accepted): transaction-aware auto-approval writer; lock-before-check freshness with row-identity version tokens; actor and location persisted on the turn; client-generated conversation id and account-scoped turn key; claim and fenced completion with outbox ownership; same-origin on mutation routes; hard-delete offboarding disposition; contract version separate from freshness; structured reply segments with a validator; roadmap selection statements corrected. Smaller corrections: public `getAutoApprovalSettings`; `highlight_facts` route extension; seven proposable operations; audit via `writeAccountAuditLog`; requested-capability card contract and Decline endpoint; `pnpm build` in the gate.
+- 2026-09-11, **Run A built** (`feat/owner-operator-run-a`): migration 120's four
+  tables with deny-all RLS and the hard-delete offboarding disposition; the
+  `agent_turn` outbox topic, queue and typed helper (plain INSERT — `job_outbox`
+  has no generic in-flight index, 004/018 are per-topic); the shared voice
+  writer with `highlight_facts` and the route extension; the catalog's three
+  reads, four voice proposables and one capture; the model-output schema,
+  validator and **Pasted-review scrub**; the `owner_operator` LLM task; the
+  claim / predecessor / fenced-completion protocol and `AgentTurnWorker`; the
+  POST turn route and the two owner reads; `OWNER_OPERATOR_ENABLED` with the
+  ADR 0005 flag-on envelope at 12. NOT built, deliberately: the screen, Apply,
+  Decline, receipts, the consequence line, asymmetric friction, the three
+  auto-approval operations, and any executor — `requires_confirmation` is
+  therefore always false in Run A because no registered operation widens
+  autonomy. The plan was hardened over **three Codex rounds** (round 3 APPROVED
+  with one untriaged note, carried into T5) and took **two surface amendments**:
+  #1 put the pre-existing `src/app/api/settings/voice/__tests__/route.test.ts`
+  into T2's lease, because extracting the writer moved the behaviour 8 of its
+  cases pinned; #2 created `docs/directory/lib-owner-operator.md`, because both
+  default `src/lib` directory pages were at the 3,000-word cap. Every deviation
+  is in `docs/superpowers/plans/feat-owner-operator-run-a-deviations.md`.

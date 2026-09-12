@@ -395,3 +395,35 @@ the reclassify trigger is recorded here rather than fired. Owner may veto at
 review.
 
 **Verdict:** ACCEPT — forced by a word cap, not by scope.
+
+## 2026-09-11 — T8: three small departures from the task text
+
+**(a) No pointer sentence on the two donor directory pages.** The orchestrator's
+amendment-#2 instruction allowed a one-line pointer in `lib-platform.md`'s
+`### agents/` intro and `lib-reviews-responses.md`'s `### responses/` intro
+"only if it fits under the cap". Both pages measure **exactly 3,000** words, the
+cap itself, so any added word fails `reference-shape.test.ts`. Both pages are
+therefore untouched and `docs/directory.md`'s Pages table is the sole record of
+where the Operator rows went — which is the fallback the instruction named, and
+also the convention `docs/directory.md` already states ("a small folder may sit
+on a sibling page to keep that page under the cap; the row here is the record of
+where it went"). No `git add` entry for either file.
+
+**(b) The spec's status line was updated, though T8 does not say to.** It read
+`**SELECTED, NOT STARTED**`, which is false the moment §15 gains a "Run A built"
+entry — two facts on one page contradicting each other. Changed to
+`**RUN A BUILT, FLAG OFF EVERYWHERE**` with the Run A / Run B split named. A
+factual correction to a line T8's own §15 step falsifies, not new scope.
+
+**(c) `docs/context/owner-operator.md` and `CONTEXT-MAP.md` were re-checked and
+need no change — and are outside T8's edit lease anyway.** Step 6 names three
+likely drifts; all three are already correct as landed: the glossary never
+asserts `requires_confirmation` (the term is not defined there), the
+**Proposal** entry states the supersession by behaviour rather than by the
+`IS NOT DISTINCT FROM` spelling, and **Turn claim** already says "bounded by a
+180-second lease" — the L2 value, not the superseded 120 s. Verified against
+`worker/jobs/agent-turn/constants.ts`, `src/lib/agents/operator/proposals.ts`
+and `catalog.ts`. Nothing edited.
+
+**Verdict:** ACCEPT — (a) is the instruction's own fallback, (b) removes a
+self-contradiction, (c) is a no-op.

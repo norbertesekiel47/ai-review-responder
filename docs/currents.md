@@ -11,6 +11,18 @@ This file explains what is actually built in the repository today, how it maps t
 
 Last updated: 2026-09-11 (Admin home cutover candidate; staging and red-team release pending).
 
+## Quick summary — Owner Operator Run A: the turn pipeline, flag off everywhere (2026-09-11)
+
+The **Owner Operator** — the conversational surface an owner will use to configure RepWorth by talking — exists end to end as a *pipeline*, behind `OWNER_OPERATOR_ENABLED` (server-only, default off, unset in every environment). Spec of record: [`docs/roadmap/2026-09-11-owner-operator/README.md`](roadmap/2026-09-11-owner-operator/README.md); glossary: [`docs/context/owner-operator.md`](context/owner-operator.md).
+
+**What Run A built.** Migration 120's four tables (`agent_conversations`, `agent_turns`, `agent_proposals`, `agent_unsupported_requests`) with deny-all RLS and a hard-delete offboarding disposition. The `agent_turn` outbox topic, queue and typed enqueue helper. A POST route that creates an **Operator turn** and its outbox row in one transaction, plus two account-scoped owner reads. `AgentTurnWorker`, which claims the turn on a 180-second lease, waits for its predecessor with `moveToDelayed` (a wait, not a retry), re-authorizes actor, subscription posture and location from the database, builds a **Context snapshot**, makes one cost-guarded `owner_operator` LLM call, and writes reply segments, **Proposals** and **Requested capabilities** in one **Fenced completion**. The operation catalog registers three reads, four voice proposables and one capture. `src/lib/responses/voice-settings.ts` is now the single transactional writer for a location's voice fields, shared by the settings route and the Operator, with `highlight_facts` in the column map.
+
+**What it deliberately does not do.** Nothing applies. There is no screen, no Apply, no Decline, no receipt, no consequence line, no executor, and none of the three auto-approval operations — so `requires_confirmation` is always false in Run A, because no registered operation widens autonomy. A **Proposal** is a stored row; nothing reaches Google and no `auto_approval_policies` row moves. Those are Run B.
+
+**Two properties worth knowing before touching it.** The snapshot has no *field* that could hold review text, response text or a reviewer name — `sampleResponses` is excluded by type, not by filter — and a pasted review in an owner message is scrubbed on the read path while the stored `owner_text` stays intact. And a zero-row fenced UPDATE means the lease was lost: discard the model output and exit, never retry and never touch the outbox row.
+
+**Flipping it.** Migration 120 must be applied in that environment FIRST — `runContentPurgeStage` names the four tables unconditionally and raises `42P01` at plan time without them — and both lanes read the flag, so it is set in Vercel AND Railway. `agent_turn` is the third flag-gated LLM lane at concurrency 1; ADR 0005's flag-on envelope moved 11 → 12 for it, and a fourth gated lane still forces the global-semaphore conversation.
+
 ## Quick summary — Admin home cutover and Overview retirement (#1192 + #1201, candidate)
 
 The configured server-only `ADMIN_APP_URL` supplies the Admin default across login, callback, owner/onboarding redirects, both retained sidebar brand links, and the end-impersonation return. External password-login defaults use full document navigation. MFA keeps its existing local-only `next` rules: the exact `/admin` proxy route relays to the configured home only after the existing session, Admin-role and AAL2 checks, preserving refreshed cookies on the source host. No broad redirect of surviving Admin pages is introduced.
