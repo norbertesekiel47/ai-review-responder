@@ -68,10 +68,18 @@ describe('voice writer', () => {
     })).toEqual({ ok: false, reason: 'no_fields' });
 
     // The read is account-scoped too, and carries updatedAt for the Version token.
+    //
+    // `updated_at::text`, RETURNED VERBATIM — the microseconds are the point.
+    // postgres.js decodes `timestamptz` into a JS `Date`, which holds only
+    // milliseconds, so a token built from a round-tripped Date compares EQUAL
+    // to a row written up to a microsecond later: a stale proposal that reads
+    // as fresh. The fixture carries `.123456` for exactly that reason — a
+    // reintroduced `new Date(...).toISOString()` truncates it to `.123Z` and
+    // fails HERE rather than silently in Run B's Apply.
     const read = makeTx([[{
       tone: 'warm', products_services: null, avoid_facts: null,
       highlight_facts: ['espresso'], sample_responses: ['Thanks for visiting!'],
-      updated_at: new Date('2026-09-11T10:00:00.000Z'),
+      updated_at: '2026-09-11 10:00:00.123456+00',
     }]]);
     expect(await readVoiceConfig(read.tx as never, { accountId: ACCOUNT, locationId: LOCATION })).toEqual({
       tone: 'warm',
@@ -79,8 +87,9 @@ describe('voice writer', () => {
       avoidFacts: [],
       highlightFacts: ['espresso'],
       sampleResponses: ['Thanks for visiting!'],
-      updatedAt: '2026-09-11T10:00:00.000Z',
+      updatedAt: '2026-09-11 10:00:00.123456+00',
     });
+    expect(read.calls[0]!.text).toContain('updated_at::text');
     expect(read.calls[0]!.values).toEqual([LOCATION, ACCOUNT]);
   });
 });

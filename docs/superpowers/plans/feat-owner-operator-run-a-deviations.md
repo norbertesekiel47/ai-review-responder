@@ -538,3 +538,89 @@ No RE-PLAN remains. No entry invalidates a locked intake decision.
 
 **Verdict:** ACCEPT — one allowlist entry, one gate-invocation correction, one
 ledger line; no contract change.
+
+## 2026-09-11 — review round 1: five findings triaged REJECT, two accepted as documented-only
+
+Round-1 fixes applied 33 accepted findings
+(`docs/reviews/feat-owner-operator-run-a/review-round-1.md`). The seven rows
+below are the ones that produced NO code change, recorded here so a later
+reader does not re-open them as oversights.
+
+**Rejected (5) — with the triage reason:**
+
+1. **CA5** — envelope 11→12 bypasses ADR 0005's ~10 semaphore trigger.
+   REJECTED on an owner decision taken in the grill (map-level question,
+   2026-09-11): the third lane is flag-gated at concurrency 1, the ADR 0005
+   amendment is written, and the NON-GATED sum stays at 9. The lane is
+   owner-interactive and rare. Revisit when the semaphore trigger actually
+   fires, not inside this run. Listed under "Red-team/review findings rejected"
+   in the PR.
+2. **SM8** — `job-outbox-helpers.ts` (976→1027) and `worker/index.ts`
+   (982→1006) cross 1,000 lines. REJECTED: both are REGISTRIES that grow by
+   exactly one entry per topic/worker by repository design (32 topics, one
+   helper each; one Worker per queue). Splitting a registry is its own refactor
+   with its own audit — `ci:outbox-seam` derives helper ownership from that
+   file — and doing it inside a feature branch would put the audit and the
+   feature in one diff.
+3. **SM13a** — `modelVisibleOperations(_tier)` ignores its parameter. REJECTED:
+   `_tier` is threaded deliberately for Run B by plan decision L5. The
+   tier-gated operations are the three auto-approval ones, which Run A does not
+   register; removing the parameter now means re-threading `subscriptionTier`
+   through `Snapshot`, `BuildSnapshotInput` and `authorize.ts` when Run B adds
+   them. (SM13b, `proposalSummaries` always `[]`, WAS accepted — it is SC5 and
+   is now populated from `listProposalsForTurns`.)
+4. **SM14** — `parseJsonbObject` / `nullableIso` duplicate `src/lib/agents/read.ts`.
+   REJECTED for this run: `read.ts` is outside the intake's
+   `allowed_edit_surface`, and it EXPORTS neither helper, so "reuse" would mean
+   editing a file this run may not touch. The PgBouncer JSONB allowlist is
+   owned per parse site by design (lab-notes/postgres.md), which is what makes
+   two small copies the cheap option. Follow-up: fold both into a shared
+   `src/lib/agents/` helper when a change lands that may edit `read.ts`.
+5. **RT12** — `not.toContain('status_ref')` is an absence proxy. REJECTED
+   (recorded): the surrounding comment argues the limitation honestly, the
+   `StoredSegment` type carries the stronger half (the stored union has no
+   `status_ref` member, so the type-level assertion is a compile error rather
+   than a test), and RT8's equality assertion now sits directly beside it —
+   each materialized value is compared against its OWN seeded metric.
+
+**Accepted as documented-only (2) — no code change in this run:**
+
+6. **CA1 (dispatch-exhaustion half)** — five poller dispatch failures
+   terminalize the `job_outbox` row while the turn is still `accepted`;
+   successors fail `predecessor_stalled` after 20 min but the turn itself never
+   resolves. The "permanently disagree" half was REJECTED — a stale-attempt
+   completion is closed by the terminal-turn branch on the next dispatch
+   (`readTerminalTurn` → `markOutboxCompletedIfOwned`), proven live by the
+   claim-race case's third dispatch. The remaining half needs `OutboxPoller`,
+   which is outside this run's surface, so it is a Run B item: spec §14.
+7. **CA4 (predecessor wait vs watchdog reclaim)** — the 20-minute predecessor
+   wait outlives the 15-minute watchdog window, so a waiting turn can be
+   re-dispatched. ACCEPTED AS A TRADEOFF, no code change: a redundant dispatch
+   is safe by construction (the **Turn claim** serialises; the loser exits) and
+   at the default watchdog it happens at most once per wait. The alternative —
+   a durable waiting state, or sequence-aware outbox dispatch — changes
+   `OutboxPoller`. Recorded in spec §14 with both clocks named.
+
+**Adaptations made while applying the accepted findings** (nearest correct
+thing, not a departure from intent):
+
+- **CA2/SC2** removed `proposal_ref` from the STORED union rather than leaving
+  it beside the new `proposal` member — exactly as `status_ref` is absent from
+  it. The consequence is that `RenderContext` no longer carries `proposalIds`
+  at all, so the read path cannot re-derive an index even by mistake. Because a
+  stored `proposal` segment then carries only an id, `OwnerConversationTurn`
+  gained a `proposals` field fed by SC7's batched `listProposalsForTurns` —
+  `summary.pendingProposals` could not stand in, being pending-only, and a
+  superseded card still belongs to the sentence that proposed it.
+- **SM7** bumped `OWNER_OPERATOR_PROMPT_VERSION` to `2026-09-11.2`: the fix
+  edits `OWNER_OPERATOR_SYSTEM_PROMPT`, and the version + hash are recorded on
+  every `api_costs` row precisely so a prompt edit is visible in the ledger.
+- **SM9** left the single-location voice GET issuing TWO reads —
+  `readVoiceConfig` (which owns the account-scoped 404) and a narrow
+  name/`display_label` read. The review itself names the display label as the
+  one genuine difference and a different concern (`getDisplayLabel`).
+
+**Verdict:** ACCEPT — five rejections stand on owner decisions, surface bounds
+or registry design; the two documented-only items are recorded in spec §14 as
+Run B work; the three adaptations carry the accepted findings' intent without
+widening them.

@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
-import { getTurnForOwner } from '@/lib/agents/operator/turns';
+import { getTurnForOwner, type OwnerTurnView } from '@/lib/agents/operator/reads';
 import { errorResponse, jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -31,7 +31,10 @@ export async function GET(
   if (!z.uuid().safeParse(id).success) return errorResponse('turn_not_found', 404);
 
   try {
-    const turn = await getTurnForOwner(sql, { turnId: id, accountId: owner.accountId });
+    const turn: OwnerTurnView | null = await getTurnForOwner(sql, {
+      turnId: id,
+      accountId: owner.accountId,
+    });
     if (!turn) return errorResponse('turn_not_found', 404);
     return jsonResponse({
       id: turn.id,

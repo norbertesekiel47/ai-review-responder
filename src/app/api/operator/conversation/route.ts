@@ -5,7 +5,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
-import { getConversationForOwner } from '@/lib/agents/operator/turns';
+import {
+  getConversationForOwner,
+  type OwnerConversationView,
+} from '@/lib/agents/operator/reads';
 import { errorResponse, jsonResponse, requireOwnerWithAccount } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -30,7 +33,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const view = await getConversationForOwner(sql, {
+    // `summary` is null on a conversation with no turns yet — see
+    // `OwnerConversationView`; the panel has no location to scope its reads to
+    // and says so rather than reporting zeros.
+    const view: OwnerConversationView | null = await getConversationForOwner(sql, {
       accountId: owner.accountId,
       actorUserId: owner.user.id,
       conversationId: rawId ?? undefined,

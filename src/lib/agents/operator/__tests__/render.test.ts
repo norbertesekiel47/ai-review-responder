@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
+  materializeReply,
   REVIEW_TEXT_REMOVED_MARKER,
+  renderSegments,
   scrubPastedReview,
   validateModelOutput,
 } from '../render';
 import type { Snapshot } from '../context';
+import { parseReplySegments, type Segment } from '../schema';
 
 const ACCOUNT = '00000000-0000-7000-8000-00000000ac01';
 const LOCATION = '00000000-0000-7000-8000-00000000b101';
@@ -27,6 +30,7 @@ const snapshot: Snapshot = {
   facts: { tone: null, productsServices: null, avoidFacts: [], highlightFacts: [] },
   allowedOperations: [
     { id: 'set_tone', kind: 'proposable', labelKind: 'fact', describe: 'Set the reply tone' },
+    { id: 'set_avoid_facts', kind: 'proposable', labelKind: 'fact', describe: 'Set what to keep out' },
     { id: 'read_pending_work', kind: 'read', labelKind: null, describe: 'Count what is waiting' },
   ],
   locations: [
@@ -91,6 +95,72 @@ describe('operator output validator', () => {
       output({ segments: [{ type: 'text', text: 'Apply the card below and I will use it next time.' }] }),
       snapshot,
     ).ok).toBe(true);
+  });
+
+  it('validator applies the count and completion patterns to question segments, not only text', () => {
+    // A `question` is model prose in the same sentence position as a `text`:
+    // it reaches the owner identically and can invent a number or claim a
+    // change just as easily. Both patterns run over both members.
+    const invented = validateModelOutput(
+      output({ segments: [{ type: 'question', text: 'You have 3 reviews waiting — shall I start?' }] }),
+      snapshot,
+    );
+    expect(invented.ok).toBe(false);
+    expect(invented.ok === false && invented.reasons.join(' ')).toContain('question');
+    expect(invented.ok === false && invented.reasons.join(' ')).toContain('count');
+
+    const claimed = validateModelOutput(
+      output({ segments: [{ type: 'question', text: 'I have updated your tone — anything else?' }] }),
+      snapshot,
+    );
+    expect(claimed.ok).toBe(false);
+    expect(claimed.ok === false && claimed.reasons.join(' ')).toContain('completion');
+
+    // The identical sentences as `text` are still rejected, so this widened the
+    // gate rather than moving it.
+    expect(validateModelOutput(
+      output({ segments: [{ type: 'text', text: 'You have 3 reviews waiting.' }] }),
+      snapshot,
+    ).ok).toBe(false);
+
+    // An ordinary question is untouched.
+    expect(validateModelOutput(
+      output({ segments: [{ type: 'question', text: 'Shall I keep the replies short?' }] }),
+      snapshot,
+    ).ok).toBe(true);
+  });
+
+  it('validator returns the parsed proposals it already computed, in the model order', () => {
+    const result = validateModelOutput(
+      output({
+        proposals: [
+          toneProposal,
+          {
+            operation: 'set_avoid_facts',
+            scope: { accountId: ACCOUNT, locationId: LOCATION },
+            input: { avoidFacts: ['never mention the old owner'] },
+            rationale: 'You asked me to leave that out.',
+          },
+        ],
+      }),
+      snapshot,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The catalog entry and the NARROWED input, so the row builder repeats
+    // neither lookup nor parse — and in the model's own order, which is what
+    // `proposal_ref.index` means.
+    expect(result.proposals.map((p) => p.operation.id)).toEqual(['set_tone', 'set_avoid_facts']);
+    expect(result.proposals[0]!.input).toEqual({ tone: 'warm and brief' });
+    expect(result.proposals[0]!.operation.contractVersion).toBe(1);
+    expect(result.proposals[1]!.rationale).toBe('You asked me to leave that out.');
+
+    // A rejected output carries no proposals at all.
+    const rejected = validateModelOutput(
+      output({ proposals: [{ ...toneProposal, operation: 'set_daily_cap' }] }),
+      snapshot,
+    );
+    expect(rejected.ok).toBe(false);
   });
 
   it('validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot', () => {
@@ -187,6 +257,107 @@ describe('operator output validator', () => {
       .toContain('must name the stored location');
 
     expect(validateModelOutput(output({ proposals: [toneProposal] }), snapshot).ok).toBe(true);
+  });
+});
+
+describe('reply materialization', () => {
+  const PROPOSAL_A = '00000000-0000-7000-8000-0000000000a1';
+  const PROPOSAL_B = '00000000-0000-7000-8000-0000000000b2';
+
+  it('materializeReply binds proposal ids by index and freezes every status_ref value', () => {
+    const segments: Segment[] = [
+      { type: 'text', text: 'Two things I can set up.' },
+      { type: 'proposal_ref', index: 1 },
+      { type: 'status_ref', metric: 'posted_7d' },
+      { type: 'proposal_ref', index: 0 },
+      { type: 'question', text: 'Shall I?' },
+    ];
+
+    const stored = materializeReply({
+      segments,
+      metrics: snapshot.metrics,
+      proposalIds: [PROPOSAL_A, PROPOSAL_B],
+      scrubbed: false,
+    });
+
+    // BY INDEX, at the one moment the order is known. The rows share a single
+    // `NOW()`, so a read-time `ORDER BY created_at` re-derivation is a tie-only
+    // sort — the second sentence could point at the first card.
+    expect(stored).toEqual([
+      { type: 'text', text: 'Two things I can set up.' },
+      { type: 'proposal', proposalId: PROPOSAL_B },
+      {
+        type: 'status', metric: 'posted_7d', value: snapshot.metrics.posted7d,
+        reportingPeriodDays: 7, asOf: '2026-09-11T10:00:00.000Z',
+      },
+      { type: 'proposal', proposalId: PROPOSAL_A },
+      { type: 'question', text: 'Shall I?' },
+    ]);
+    // The VALUE, not the metric name: the stored bytes carry no unresolved ref
+    // of either kind, so nothing downstream can re-read today's number or
+    // re-sort today's rows.
+    const json = JSON.stringify(stored);
+    expect(json).not.toContain('status_ref');
+    expect(json).not.toContain('proposal_ref');
+    // And it round-trips through the stored union, which admits neither.
+    expect(parseReplySegments(json)).toEqual(stored);
+    expect(() => parseReplySegments(JSON.stringify([{ type: 'proposal_ref', index: 0 }])))
+      .toThrow(/no writer produces/);
+
+    // Each metric materializes its OWN number, not whichever one is first.
+    const each = materializeReply({
+      segments: [
+        { type: 'status_ref', metric: 'pending_count' },
+        { type: 'status_ref', metric: 'drafts_waiting' },
+      ],
+      metrics: snapshot.metrics,
+      proposalIds: [],
+      scrubbed: false,
+    });
+    expect(each).toMatchObject([
+      { metric: 'pending_count', value: snapshot.metrics.pendingCount },
+      { metric: 'drafts_waiting', value: snapshot.metrics.draftsWaiting },
+    ]);
+  });
+
+  it('materializeReply prepends the scrub notice and drops a reference nothing backs', () => {
+    const scrubbed = materializeReply({
+      segments: [{ type: 'text', text: 'I asked about a review.' }],
+      metrics: snapshot.metrics,
+      proposalIds: [],
+      scrubbed: true,
+    });
+    // FIRST, and stored: the read path never sees the owner's raw message, so
+    // it could not re-derive this notice on a refresh.
+    expect(scrubbed[0]).toEqual({ type: 'server_notice', notice: 'pasted_review_removed' });
+    expect(scrubbed).toHaveLength(2);
+
+    // A `proposal_ref` with no id behind it is dropped rather than thrown: the
+    // turn's budget is already spent, and one missing sentence beats a retry
+    // that cannot converge. (The validator rejects this shape upstream; this is
+    // the unreachable-miss behaviour, not a second policy.)
+    expect(materializeReply({
+      segments: [{ type: 'proposal_ref', index: 3 }, { type: 'text', text: 'Here.' }],
+      metrics: snapshot.metrics,
+      proposalIds: [PROPOSAL_A],
+      scrubbed: false,
+    })).toEqual([{ type: 'text', text: 'Here.' }]);
+  });
+
+  it('renderSegments passes a stored proposal id through and resolves no index', () => {
+    const rendered = renderSegments(
+      [
+        { type: 'proposal', proposalId: PROPOSAL_B },
+        { type: 'status', metric: 'pending_count', value: 3, reportingPeriodDays: 7, asOf: '2026-09-11T10:00:00.000Z' },
+        { type: 'server_notice', notice: 'pasted_review_removed' },
+        { type: 'scope_check', locationId: OTHER_LOCATION },
+      ],
+      { locations: snapshot.locations },
+    );
+    expect(rendered[0]).toEqual({ type: 'proposal', proposalId: PROPOSAL_B });
+    expect(rendered[1]).toMatchObject({ type: 'status', value: 3 });
+    expect(rendered[2]!.type).toBe('notice');
+    expect(rendered[3]).toEqual({ type: 'scope_check', locationId: OTHER_LOCATION, locationName: 'Cafe' });
   });
 });
 

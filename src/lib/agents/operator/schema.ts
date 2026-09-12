@@ -22,6 +22,29 @@ export const PROPOSAL_STATUS = {
 export type ProposalStatus = (typeof PROPOSAL_STATUS)[keyof typeof PROPOSAL_STATUS];
 
 /**
+ * The two narrowings every read site needs. `status` crosses the driver as a
+ * bare `string`, and both columns carry a CHECK constraint (migration 120,
+ * `agent_turns_status_check` / `agent_proposals_status_check`), so a value
+ * outside the vocabulary means the row was written by something that is not
+ * this codebase — a throw, not a silent widening back to `string`.
+ */
+export function asTurnStatus(value: string): TurnStatus {
+  const members: readonly string[] = Object.values(TURN_STATUS);
+  if (!members.includes(value)) {
+    throw new Error('agents/operator: agent_turns.status holds a value no writer produces');
+  }
+  return value as TurnStatus;
+}
+
+export function asProposalStatus(value: string): ProposalStatus {
+  const members: readonly string[] = Object.values(PROPOSAL_STATUS);
+  if (!members.includes(value)) {
+    throw new Error('agents/operator: agent_proposals.status holds a value no writer produces');
+  }
+  return value as ProposalStatus;
+}
+
+/**
  * Every reason a turn can carry in `failure_reason`. User-safe by
  * construction: each is a token the screen maps to its own wording, never a
  * provider message and never owner text.
@@ -123,16 +146,37 @@ const StatusSegmentSchema = z.object({
 }).strict();
 
 /**
+ * A MATERIALIZED proposal reference: the stored **Proposal** id, frozen at
+ * fenced completion.
+ *
+ * Same reasoning as `status`, for a sharper reason. The model emits
+ * `proposal_ref` with an INDEX into the proposals it returned in the same
+ * output; the rows are then inserted in that order, all with the same `NOW()`.
+ * Re-deriving the index at read time means `ORDER BY created_at` over rows
+ * whose timestamps TIE, and a tie-only sort has no defined order — so a
+ * sentence could point at a different card on the next read. Binding the id
+ * once, where the order is still known, removes the question.
+ *
+ * The model can never emit this: it supplies an index and the worker turns it
+ * into this.
+ */
+const ProposalSegmentSchema = z.object({
+  type: z.literal('proposal'),
+  proposalId: z.uuid(),
+}).strict();
+
+/**
  * What `agent_turns.reply` may hold. NOT simply "the model union plus extras":
- * `status_ref` is REPLACED by the materialized `status` on the way in, so a
- * stored reply carries a value and never a promise to look one up.
+ * `status_ref` is REPLACED by the materialized `status` on the way in, and
+ * `proposal_ref` by the materialized `proposal`, so a stored reply carries a
+ * value and an id and never a promise to look either one up.
  * `OperatorModelOutputSchema` below keeps the five model members and accepts
- * neither `server_notice` nor `status`, so a model cannot forge a server
- * statement or a count.
+ * none of `server_notice`, `status` or `proposal`, so a model cannot forge a
+ * server statement, a count, or a reference to a proposal it did not return.
  */
 export const StoredSegmentSchema = z.discriminatedUnion('type', [
   TextSegmentSchema,
-  ProposalRefSegmentSchema,
+  ProposalSegmentSchema,
   QuestionSegmentSchema,
   ScopeCheckSegmentSchema,
   ServerNoticeSegmentSchema,

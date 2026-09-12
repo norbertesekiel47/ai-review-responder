@@ -19,7 +19,13 @@ const { getAutoApprovalSettings, getLocationsForAccount, readVoiceConfig } = vi.
 }));
 vi.mock('@/lib/auto-approval/settings', () => ({ getAutoApprovalSettings }));
 vi.mock('@/lib/locations/repo', () => ({ getLocationsForAccount }));
-vi.mock('@/lib/responses/voice-settings', () => ({ readVoiceConfig }));
+// `importOriginal`, not a bare replacement: the catalog builds its input
+// schemas from this module's `VOICE_FIELD_LIMITS` at import time, and dropping
+// the constant makes every zod `.max()` read `undefined`.
+vi.mock('@/lib/responses/voice-settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/responses/voice-settings')>()),
+  readVoiceConfig,
+}));
 
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { buildSnapshot } from '../context';

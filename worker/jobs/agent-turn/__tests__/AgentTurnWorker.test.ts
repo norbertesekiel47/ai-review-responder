@@ -5,13 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { AgentTurnPayload } from '@/lib/shared/worker-types';
 
-const { mockOwnerOperatorEnabled, mockBuildSnapshot, mockGenerate, mockReauthorize, mockClaimTurn } =
+const { mockOwnerOperatorEnabled, mockBuildSnapshot, mockGenerate, mockReauthorize } =
   vi.hoisted(() => ({
     mockOwnerOperatorEnabled: vi.fn(),
     mockBuildSnapshot: vi.fn(),
     mockGenerate: vi.fn(),
     mockReauthorize: vi.fn(),
-    mockClaimTurn: vi.fn(),
   }));
 
 vi.mock('@/lib/agents/operator/flags', () => ({ ownerOperatorEnabled: mockOwnerOperatorEnabled }));
@@ -86,8 +85,11 @@ describe('AgentTurnWorker flag gate', () => {
     expect(statements[1]!.values).toContain(payload.turn_id);
     expect(statements[1]!.values).toContain(payload.account_id);
 
-    // No tenant context of any kind was loaded, and no claim was taken.
-    expect(mockClaimTurn).not.toHaveBeenCalled();
+    // No tenant context of any kind was loaded. `claimTurn` is deliberately
+    // NOT asserted here: `@/lib/agents/operator/turns` is not mocked in this
+    // file, so a `not.toHaveBeenCalled()` on a double the handler never reaches
+    // could only ever pass. The two-statement count above is what actually
+    // proves no claim was taken — a claim is its own `UPDATE agent_turns`.
     expect(mockReauthorize).not.toHaveBeenCalled();
     expect(mockBuildSnapshot).not.toHaveBeenCalled();
     expect(mockGenerate).not.toHaveBeenCalled();

@@ -1,30 +1,30 @@
-// Owner Operator turn persistence. Invariant #15: every function takes `sql` or
-// `tx` explicitly and this module never imports @/lib/db/server. Invariant #9:
-// EVERY statement over the four new tables carries an `account_id` predicate.
+// Owner Operator turn WRITES: `createTurn`'s transaction, the claim / release /
+// predecessor protocol and the terminal transitions. The account-scoped owner
+// READS live in `reads.ts`.
+//
+// Invariant #15: every function takes `sql` or `tx` explicitly and this module
+// never imports @/lib/db/server. Invariant #9: EVERY statement over the four
+// new tables carries an `account_id` predicate.
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
-import { getAutoApprovalSettings } from '@/lib/auto-approval/settings';
-import type { AutoApprovalThreshold, VetoWindowMinutes } from '@/lib/auto-approval/types';
-import { getPendingApprovalCountsForAccount } from '@/lib/dashboard/pending-count';
-import { getLocationsForAccount } from '@/lib/locations/repo';
-import { readVoiceConfig, type VoiceConfig } from '@/lib/responses/voice-settings';
 import { enqueueAgentTurn } from '@/lib/shared/job-outbox-helpers';
 import { markOutboxCompletedIfOwned } from '@/lib/shared/outbox';
-import { RECENT_COMPLETED_DAYS, readPosted7d } from './context';
 import {
   insertProposals,
   insertUnsupported,
-  listPendingProposals,
-  listProposalsForTurn,
-  listUnsupportedForTurn,
   supersedePendingProposals,
   type ProposalRow,
   type UnsupportedRow,
 } from './proposals';
-import { renderSegments, type RenderedSegment } from './render';
 // `markOutboxFailed` is deliberately NOT imported here: it belongs to the
 // failed-hook, which owns the failure transition and its ordering.
-import { parseReplySegments, TURN_STATUS, type StoredSegment, type TurnFailureReason } from './schema';
+import {
+  TURN_STATUS,
+  asTurnStatus,
+  type StoredSegment,
+  type TurnFailureReason,
+  type TurnStatus,
+} from './schema';
 
 type Sql = postgres.Sql;
 
@@ -297,7 +297,7 @@ export async function releaseTurnClaim(
 }
 
 export interface PredecessorState {
-  status: string;
+  status: TurnStatus;
   /** Seconds since the predecessor was claimed, or since it was created. */
   ageSeconds: number;
 }
@@ -315,10 +315,11 @@ export async function loadPredecessor(
       AND account_id = ${input.accountId}::uuid
       AND sequence = ${input.sequence - 1}
   `;
-  return row ? { status: row.status, ageSeconds: row.age_seconds } : null;
+  return row ? { status: asTurnStatus(row.status), ageSeconds: row.age_seconds } : null;
 }
 
-export function isTerminalTurnStatus(status: string): boolean {
+/** `TurnStatus`, not `string`: `isTerminalTurnStatus('completd')` must not compile. */
+export function isTerminalTurnStatus(status: TurnStatus): boolean {
   return status === TURN_STATUS.COMPLETED || status === TURN_STATUS.FAILED;
 }
 
@@ -331,7 +332,7 @@ export function isTerminalTurnStatus(status: string): boolean {
 export async function readTerminalTurn(
   sql: Sql,
   input: { turnId: string; accountId: string },
-): Promise<{ status: string } | null> {
+): Promise<{ status: TurnStatus } | null> {
   const [row] = await sql<{ status: string }[]>`
     SELECT status
     FROM agent_turns
@@ -339,7 +340,7 @@ export async function readTerminalTurn(
       AND account_id = ${input.accountId}::uuid
       AND status IN (${TURN_STATUS.COMPLETED}, ${TURN_STATUS.FAILED})
   `;
-  return row ?? null;
+  return row ? { status: asTurnStatus(row.status) } : null;
 }
 
 export interface CompleteTurnInput {
@@ -394,6 +395,9 @@ export async function completeTurnFenced(
     await supersedePendingProposals(tx, {
       conversationId: input.conversationId,
       accountId: input.accountId,
+      // Every proposal of THIS turn is exempt: two same-scope proposals in one
+      // reply are siblings, not a correction of one another.
+      turnId: input.turnId,
       replacements: input.proposals.map((p) => ({
         proposalId: p.id,
         operation: p.operation,
@@ -504,239 +508,3 @@ export async function failTurnAndCompleteOutbox(
   });
 }
 
-// ── The owner reads ───────────────────────────────────────────────────────
-
-export interface OwnerTurnView {
-  id: string;
-  status: string;
-  failureReason: string | null;
-  locationId: string;
-  segments: RenderedSegment[];
-  proposals: Awaited<ReturnType<typeof listProposalsForTurn>>;
-  unsupported: Awaited<ReturnType<typeof listUnsupportedForTurn>>;
-}
-
-/**
- * The polled read. Account-scoped: a turn under another account returns null,
- * which the route renders as a 404 — indistinguishable from one that does not
- * exist, so the read cannot be used to probe for other tenants' ids.
- *
- * NO metrics read happens here, and that is the design. A stored `status`
- * segment carries the value, its reporting period and the instant it was read
- * at, frozen at fenced completion; re-resolving a metric name now would paint
- * TODAY's count — for whatever location the caller passed — onto a sentence the
- * model wrote days ago. The pasted-review notice is stored the same way, so a
- * refresh renders it again rather than re-deriving it.
- */
-export async function getTurnForOwner(
-  sql: Sql,
-  input: { turnId: string; accountId: string },
-): Promise<OwnerTurnView | null> {
-  const [row] = await sql<{
-    id: string; status: string; failure_reason: string | null; location_id: string;
-    reply: unknown;
-  }[]>`
-    SELECT id, status, failure_reason, location_id, reply
-    FROM agent_turns
-    WHERE id = ${input.turnId}::uuid
-      AND account_id = ${input.accountId}::uuid
-  `;
-  if (!row) return null;
-
-  // Sequential by design: these share one pooled connection, and
-  // CLAUDE.md's ci:pool-fanout rule forbids a Promise combinator over
-  // DB-issuing elements.
-  const proposals = await listProposalsForTurn(sql, input);
-  const unsupported = await listUnsupportedForTurn(sql, input);
-  const locations = await getLocationsForAccount(sql, input.accountId);
-
-  return {
-    id: row.id,
-    status: row.status,
-    failureReason: row.failure_reason,
-    locationId: row.location_id,
-    segments: renderSegments(parseReplySegments(row.reply), {
-      proposalIds: proposals.map((p) => p.id),
-      locations: locations.map((l) => ({ id: l.id, name: l.name })),
-    }),
-    proposals,
-    unsupported,
-  };
-}
-
-export interface OwnerConversationTurn {
-  id: string;
-  sequence: number;
-  status: string;
-  failureReason: string | null;
-  /** The owner's message, stored VERBATIM — the scrub is a read-path transform. */
-  ownerText: string;
-  segments: RenderedSegment[];
-}
-
-export interface OwnerConversationView {
-  conversation: { id: string; lastTurnAt: string | null };
-  turns: OwnerConversationTurn[];
-  summary: {
-    pending: { pendingCount: number; draftsWaiting: number };
-    recent: { posted7d: number; reportingPeriodDays: number };
-    rules: {
-      threshold: AutoApprovalThreshold | null;
-      // `| null` beyond the plan's `VetoWindowMinutes`: the union is `15 | 30`
-      // with no null member, and the no-turns branch below has no location to
-      // scope a rule read to. Null there means "no rules to report", the same
-      // reading `threshold: null` already carries.
-      vetoWindowMinutes: VetoWindowMinutes | null;
-      dailyCap: number;
-      locationOverrideExists: boolean;
-    };
-    facts: VoiceConfig | null;
-    pendingProposals: Awaited<ReturnType<typeof listPendingProposals>>;
-    asOf: string;
-  };
-}
-
-/**
- * The transcript plus the summary-panel reads.
- *
- * Without `conversationId`, returns the actor's most recent conversation for
- * this account — `idx_agent_conversations_account_recent` is
- * `(account_id, created_by_user_id, last_turn_at DESC)` for exactly this order.
- *
- * `asOf` is the METRICS' own timestamp, never a second `new Date()`: a number
- * and the instant it was read must not be able to disagree.
- */
-export async function getConversationForOwner(
-  sql: Sql,
-  input: { accountId: string; actorUserId: string; conversationId?: string },
-): Promise<OwnerConversationView | null> {
-  const [conversation] = input.conversationId
-    ? await sql<{ id: string; last_turn_at: Date | string | null }[]>`
-        SELECT id, last_turn_at
-        FROM agent_conversations
-        WHERE id = ${input.conversationId}::uuid
-          AND account_id = ${input.accountId}::uuid
-      `
-    : await sql<{ id: string; last_turn_at: Date | string | null }[]>`
-        SELECT id, last_turn_at
-        FROM agent_conversations
-        WHERE account_id = ${input.accountId}::uuid
-          AND created_by_user_id = ${input.actorUserId}::uuid
-        ORDER BY last_turn_at DESC NULLS LAST
-        LIMIT 1
-      `;
-  if (!conversation) return null;
-
-  const turnRows = await sql<{
-    id: string; sequence: number; status: string; failure_reason: string | null;
-    location_id: string; owner_text: string; reply: unknown;
-  }[]>`
-    SELECT id, sequence, status, failure_reason, location_id, owner_text, reply
-    FROM agent_turns
-    WHERE conversation_id = ${conversation.id}::uuid
-      AND account_id = ${input.accountId}::uuid
-    ORDER BY sequence ASC
-  `;
-
-  // The panel is scoped to the MOST RECENT turn's location: the selector may
-  // have moved since, and the transcript's own target is what the owner is
-  // looking at. With no turns yet there is nothing to scope to and the summary
-  // is omitted rather than guessed.
-  const latest = turnRows[turnRows.length - 1];
-  if (!latest) {
-    return {
-      conversation: { id: conversation.id, lastTurnAt: nullableIso(conversation.last_turn_at) },
-      turns: [],
-      summary: {
-        pending: { pendingCount: 0, draftsWaiting: 0 },
-        recent: { posted7d: 0, reportingPeriodDays: RECENT_COMPLETED_DAYS },
-        rules: { threshold: null, vetoWindowMinutes: null, dailyCap: 0, locationOverrideExists: false },
-        facts: null,
-        pendingProposals: [],
-        asOf: new Date().toISOString(),
-      },
-    };
-  }
-
-  const proposalIdsByTurn = new Map<string, string[]>();
-  for (const turn of turnRows) {
-    const proposals = await listProposalsForTurn(sql, {
-      turnId: turn.id,
-      accountId: input.accountId,
-    });
-    proposalIdsByTurn.set(turn.id, proposals.map((p) => p.id));
-  }
-
-  // The SUMMARY panel is a live read and says so with `asOf` — spec §3.1 names
-  // `getPendingApprovalCountsForAccount` as its source, and reusing the
-  // dashboard's own helper (src/lib/dashboard/pending-count.ts:35) is what
-  // keeps the panel's numbers equal to the dashboard's. This is a different
-  // question from the TRANSCRIPT, whose `status` segments are frozen values
-  // the renderer passes through untouched; the two must not share a source.
-  //
-  // Sequential by design, like the loop above: one pooled connection, and
-  // ci:pool-fanout forbids a Promise combinator over DB-issuing elements.
-  const pendingByLocation = await getPendingApprovalCountsForAccount(sql, input.accountId);
-  const posted7d = await readPosted7d(sql, {
-    accountId: input.accountId,
-    locationId: latest.location_id,
-  });
-  const locations = await getLocationsForAccount(sql, input.accountId);
-  const settings = await getAutoApprovalSettings(sql, {
-    accountId: input.accountId,
-    impersonated: false,
-  });
-  const locationSettings = settings.locations.find((l) => l.locationId === latest.location_id);
-  const facts = await readVoiceConfig(sql, {
-    accountId: input.accountId,
-    locationId: latest.location_id,
-  });
-  const pendingProposals = await listPendingProposals(sql, {
-    conversationId: conversation.id,
-    accountId: input.accountId,
-  });
-
-  let draftsWaiting = 0;
-  for (const count of pendingByLocation.values()) draftsWaiting += count;
-  const asOf = new Date().toISOString();
-
-  return {
-    conversation: { id: conversation.id, lastTurnAt: nullableIso(conversation.last_turn_at) },
-    turns: turnRows.map((turn) => ({
-      id: turn.id,
-      sequence: turn.sequence,
-      status: turn.status,
-      failureReason: turn.failure_reason,
-      ownerText: turn.owner_text,
-      // A pure mapping: no metrics, because every stored `status` segment
-      // already carries the value it was written with.
-      segments: renderSegments(parseReplySegments(turn.reply), {
-        proposalIds: proposalIdsByTurn.get(turn.id) ?? [],
-        locations: locations.map((l) => ({ id: l.id, name: l.name })),
-      }),
-    })),
-    summary: {
-      pending: {
-        pendingCount: pendingByLocation.get(latest.location_id) ?? 0,
-        draftsWaiting,
-      },
-      recent: { posted7d, reportingPeriodDays: RECENT_COMPLETED_DAYS },
-      // `effective`, never `override`: an inheriting location still has rules.
-      rules: {
-        threshold: locationSettings?.effective.threshold ?? settings.accountDefault.threshold,
-        vetoWindowMinutes:
-          locationSettings?.effective.vetoWindowMinutes ?? settings.accountDefault.vetoWindowMinutes,
-        dailyCap:
-          locationSettings?.effective.effectiveDailyCap ?? settings.accountDefault.effectiveDailyCap,
-        locationOverrideExists: locationSettings?.override.exists ?? false,
-      },
-      facts,
-      pendingProposals,
-      asOf,
-    },
-  };
-}
-
-function nullableIso(value: Date | string | null): string | null {
-  return value == null ? null : new Date(value).toISOString();
-}

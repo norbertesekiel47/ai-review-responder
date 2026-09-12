@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { createTurn } from '@/lib/agents/operator/turns';
+import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
 import { errorResponse, jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -35,6 +36,15 @@ async function postTurn(request: NextRequest): Promise<NextResponse> {
 
   const owner = await requireWritableOwner(sql, request);
   if (!owner.ok) return owner.response;
+
+  // An admin impersonating an owner may LOOK, never act — the same rule
+  // `PATCH /api/settings/auto-approval` enforces, and the same 409 token. It
+  // runs before the parse and before any write: a turn is an owner's own
+  // words, recorded under the owner's actor id and answered by a model that
+  // may propose changes to their account.
+  if (hasImpersonationCookie(request)) {
+    return errorResponse('impersonation_not_allowed', 409);
+  }
 
   let body: unknown;
   try {
@@ -82,6 +92,10 @@ async function postTurn(request: NextRequest): Promise<NextResponse> {
     });
     return errorResponse('turn_create_failed', 500);
   }
+}
+
+function hasImpersonationCookie(request: NextRequest): boolean {
+  return Boolean(request.cookies.get(IMPERSONATION_COOKIE_NAME)?.value);
 }
 
 export const POST = withSameOrigin()(postTurn);

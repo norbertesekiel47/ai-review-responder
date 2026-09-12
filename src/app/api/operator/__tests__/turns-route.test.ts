@@ -150,6 +150,28 @@ describe('POST /api/operator/turns', () => {
     expect(mockRequireRole).not.toHaveBeenCalled();
   });
 
+  it('POST turns rejects an impersonating admin with 409 before any write', async () => {
+    const { IMPERSONATION_COOKIE_NAME } = await import('@/lib/admin/impersonation/cookie');
+    const impersonated = request(BODY);
+    impersonated.cookies.set(IMPERSONATION_COOKIE_NAME, 'session-token');
+
+    const response = await POST(impersonated);
+
+    // The same rule and the same token `PATCH /api/settings/auto-approval`
+    // enforces: an admin impersonating an owner may look, never act. A turn is
+    // recorded under the owner's actor id and answered by a model that may
+    // propose changes to their account.
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'impersonation_not_allowed' });
+    // BEFORE any write.
+    expect(mockCreateTurn).not.toHaveBeenCalled();
+
+    // Without the cookie the identical request is a 200, so what the rejection
+    // turns on is the cookie and nothing else about the fixture.
+    expect((await POST(request(BODY))).status).toBe(200);
+    expect(mockCreateTurn).toHaveBeenCalledTimes(1);
+  });
+
   it('POST turns rejects a location that is archived or belongs to another account and a conversation owned by another account', async () => {
     mockCreateTurn.mockResolvedValue({ kind: 'location_not_found' });
     const badLocation = await POST(request(BODY));

@@ -9,13 +9,17 @@
 import type postgres from 'postgres';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { getAutoApprovalSettings } from '@/lib/auto-approval/settings';
-import type { AutoApprovalThreshold, VetoWindowMinutes } from '@/lib/auto-approval/types';
+import type {
+  AutoApprovalSettingsResponse,
+  AutoApprovalThreshold,
+  VetoWindowMinutes,
+} from '@/lib/auto-approval/types';
 import { getLocationsForAccount } from '@/lib/locations/repo';
 import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { readVoiceConfig } from '@/lib/responses/voice-settings';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import { modelVisibleOperations, type ModelVisibleOperation } from './catalog';
-import { listPendingProposals } from './proposals';
+import { listPendingProposals, listProposalsForTurns } from './proposals';
 import { scrubPastedReview } from './render';
 import { parseReplySegments, TURN_STATUS } from './schema';
 
@@ -51,6 +55,52 @@ export interface RuleSummary {
   vetoWindowMinutes: VetoWindowMinutes;
   /** The ENFORCED cap (`effectiveDailyCap`), never the nullable stored value. */
   dailyCap: number;
+}
+
+/** Both scopes' **Operating rules**, plus whether the location has its own row. */
+export interface OperatingRulesProjection {
+  account: RuleSummary;
+  location: RuleSummary;
+  locationOverrideExists: boolean;
+}
+
+/**
+ * `AutoApprovalSettingsResponse` → the two `RuleSummary`s. THE single owner of
+ * this projection: the snapshot and the owner-facing summary panel both need
+ * it, and two copies of an inheritance rule means the next dial has two places
+ * to change and one place to forget.
+ *
+ * The LOCATION reads `effective`, never `override`: a location with no
+ * override row still has operating rules, inherited from the account, and
+ * reading `override` would report nulls as if the location had no dials.
+ * `effectiveDailyCap` is the enforced number (`dailyAutoPostCap` is the stored
+ * value, null meaning "platform default"), which is what an owner asking "what
+ * is my cap" means.
+ *
+ * `locationOverrideExists` is row EXISTENCE, a distinct fact from inheritance:
+ * spec §4 says a dial-only change on a location with no row CREATES one, and
+ * the card must say so.
+ */
+export function projectOperatingRules(
+  settings: AutoApprovalSettingsResponse,
+  locationId: string,
+): OperatingRulesProjection {
+  const locationSettings = settings.locations.find((l) => l.locationId === locationId);
+  return {
+    account: {
+      threshold: settings.accountDefault.threshold,
+      vetoWindowMinutes: settings.accountDefault.vetoWindowMinutes,
+      dailyCap: settings.accountDefault.effectiveDailyCap,
+    },
+    location: {
+      threshold: locationSettings?.effective.threshold ?? settings.accountDefault.threshold,
+      vetoWindowMinutes:
+        locationSettings?.effective.vetoWindowMinutes ?? settings.accountDefault.vetoWindowMinutes,
+      dailyCap:
+        locationSettings?.effective.effectiveDailyCap ?? settings.accountDefault.effectiveDailyCap,
+    },
+    locationOverrideExists: locationSettings?.override.exists ?? false,
+  };
 }
 
 /** The voice facts the model may see. NO `sampleResponses` — that is response text. */
@@ -97,7 +147,7 @@ export interface Snapshot {
   subscriptionTier: SubscriptionTierValue;
   turns: SnapshotTurn[];
   pendingProposals: SnapshotProposal[];
-  operatingRules: { account: RuleSummary; location: RuleSummary; locationOverrideExists: boolean };
+  operatingRules: OperatingRulesProjection;
   /**
    * The four voice FACTS, and deliberately not `VoiceConfig`:
    * `sampleResponses` is stored RESPONSE TEXT, which the snapshot may never
@@ -126,8 +176,8 @@ type StarBandRow = { location_id: string; star_rating: number | null; count: num
  * owner to go look at something admin-only. `openFlagExistsSql` is the single
  * read-side spelling of that predicate.
  *
- * Soft-deleted reviews are excluded too (`r.status <> 'deleted'`,
- * src/lib/reviews/status.ts:30): the row survives, the Reviews list does not
+ * Soft-deleted reviews are excluded too (`REVIEW_STATUS.DELETED`,
+ * src/lib/reviews/status.ts): the row survives, the Reviews list does not
  * show it, and counting its draft would send the owner looking for work that
  * is not there.
  *
@@ -181,6 +231,13 @@ async function readStarBands(
   };
 }
 
+/**
+ * The **Recent completed** read. The window is BOUND from
+ * `RECENT_COMPLETED_DAYS` rather than spelled as a literal `INTERVAL '7 days'`:
+ * the same constant is what the stored `status` segment reports as
+ * `reportingPeriodDays`, and a literal beside it is a number that can drift
+ * away from the sentence describing it.
+ */
 export async function readPosted7d(db: Sql, input: { accountId: string; locationId: string }): Promise<number> {
   const [row] = await db<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
@@ -189,7 +246,7 @@ export async function readPosted7d(db: Sql, input: { accountId: string; location
     WHERE b.account_id = ${input.accountId}::uuid
       AND resp.business_id = ${input.locationId}::uuid
       AND resp.status = ${REVIEW_STATUS.POSTED}
-      AND resp.posted_at >= NOW() - INTERVAL '7 days'
+      AND resp.posted_at >= NOW() - (${RECENT_COMPLETED_DAYS} * INTERVAL '1 day')
   `;
   return row?.count ?? 0;
 }
@@ -213,8 +270,8 @@ async function readRecentTurns(
   db: Sql,
   input: { accountId: string; conversationId: string; beforeSequence: number },
 ): Promise<SnapshotTurn[]> {
-  const rows = await db<{ sequence: number; owner_text: string; reply: unknown }[]>`
-    SELECT sequence, owner_text, reply
+  const rows = await db<{ id: string; sequence: number; owner_text: string; reply: unknown }[]>`
+    SELECT id, sequence, owner_text, reply
     FROM agent_turns
     WHERE conversation_id = ${input.conversationId}::uuid
       AND account_id = ${input.accountId}::uuid
@@ -223,6 +280,14 @@ async function readRecentTurns(
     ORDER BY sequence DESC
     LIMIT ${SNAPSHOT_TURN_LIMIT}
   `;
+  // ONE batched read for every turn above, not one per turn. What the model
+  // sees is the CARD's own words (`describe`, recomputed from the catalog) —
+  // never the stored input JSONB, so a summary cannot carry anything the
+  // catalog would not print.
+  const proposalsByTurn = await listProposalsForTurns(db, {
+    turnIds: rows.map((row) => row.id),
+    accountId: input.accountId,
+  });
   return rows
     .slice()
     .reverse()
@@ -232,7 +297,7 @@ async function readRecentTurns(
       replyText: parseReplySegments(row.reply)
         .filter((segment): segment is { type: 'text'; text: string } => segment.type === 'text')
         .map((segment) => segment.text),
-      proposalSummaries: [],
+      proposalSummaries: (proposalsByTurn.get(row.id) ?? []).map((proposal) => proposal.describe),
     }));
 }
 
@@ -270,8 +335,6 @@ export async function buildSnapshot(db: Sql, input: BuildSnapshotInput): Promise
   });
   const locations = await getLocationsForAccount(db, input.accountId);
 
-  const locationSettings = settings.locations.find((l) => l.locationId === input.locationId);
-
   return {
     accountId: input.accountId,
     locationId: input.locationId,
@@ -285,36 +348,12 @@ export async function buildSnapshot(db: Sql, input: BuildSnapshotInput): Promise
       status: p.status,
       describe: p.describe,
     })),
-    // Projection from AutoApprovalSettingsResponse
-    // (src/lib/auto-approval/settings.ts:191): `accountDefault` is an
-    // AutoApprovalPolicyApiState (src/lib/auto-approval/types.ts:129) and each
-    // entry of `locations` is an AutoApprovalLocationSettings
-    // (src/lib/auto-approval/types.ts:142) carrying `override` (the row, if
-    // any) and `effective` (what actually governs after inheritance).
-    //
-    // The LOCATION reads `effective`, never `override`: a location with no
-    // override row still has operating rules, inherited from the account, and
-    // reading `override` would report nulls as if the location had no dials.
-    // `effectiveDailyCap` is the enforced number (`dailyAutoPostCap` is the
-    // stored value, null meaning "platform default"), which is what an owner
-    // asking "what is my cap" means.
-    operatingRules: {
-      account: {
-        threshold: settings.accountDefault.threshold,
-        vetoWindowMinutes: settings.accountDefault.vetoWindowMinutes,
-        dailyCap: settings.accountDefault.effectiveDailyCap,
-      },
-      location: {
-        threshold: locationSettings?.effective.threshold ?? settings.accountDefault.threshold,
-        vetoWindowMinutes:
-          locationSettings?.effective.vetoWindowMinutes ?? settings.accountDefault.vetoWindowMinutes,
-        dailyCap: locationSettings?.effective.effectiveDailyCap ?? settings.accountDefault.effectiveDailyCap,
-      },
-      // Row EXISTENCE, which is a distinct fact from inheritance: spec §4 says a
-      // dial-only change on a location with no row CREATES one, and the card
-      // must say so.
-      locationOverrideExists: locationSettings?.override.exists ?? false,
-    },
+    // The SINGLE owner of this projection is `projectOperatingRules` above; see
+    // its docblock for why the location reads `effective` and why row existence
+    // is a separate fact. `AutoApprovalSettingsResponse.accountDefault` is an
+    // `AutoApprovalPolicyApiState` and each entry of `locations` is an
+    // `AutoApprovalLocationSettings` (both in `src/lib/auto-approval/types.ts`).
+    operatingRules: projectOperatingRules(settings, input.locationId),
     // Field-by-field, never a spread: a spread would carry `sampleResponses`
     // (response text) into the snapshot the moment someone adds a field.
     facts: {

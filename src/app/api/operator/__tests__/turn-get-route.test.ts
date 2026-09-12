@@ -16,7 +16,7 @@ vi.mock('@/lib/db/auth', () => {
   return { requireRole: (...a: unknown[]) => mockRequireRole(...a), AuthError };
 });
 vi.mock('@/lib/db/server', () => ({ sql: Object.assign(() => Promise.resolve([]), { begin: vi.fn() }), jsonb: (v: unknown) => v }));
-vi.mock('@/lib/agents/operator/turns', () => ({ getTurnForOwner: (...a: unknown[]) => mockGetTurnForOwner(...a) }));
+vi.mock('@/lib/agents/operator/reads', () => ({ getTurnForOwner: (...a: unknown[]) => mockGetTurnForOwner(...a) }));
 
 import { GET } from '../turns/[id]/route';
 

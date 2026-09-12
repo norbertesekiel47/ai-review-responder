@@ -28,8 +28,8 @@ export async function reauthorizeTurn(sql: Sql, input: ReauthorizeInput): Promis
   `;
   if (!actor) return { ok: false, reason: 'unauthorized' };
 
-  // The same gate requireWritableOwner uses at the route
-  // (src/lib/auth/route-helpers.ts:154), so the two boundaries cannot disagree.
+  // The same gate `requireWritableOwner` uses at the route
+  // (src/lib/auth/route-helpers.ts), so the two boundaries cannot disagree.
   const writable = await assertWritableSubscriptionForAccount(input.accountId, sql);
   if (!writable.ok) {
     return writable.error === 'account_offboarding_blocked'

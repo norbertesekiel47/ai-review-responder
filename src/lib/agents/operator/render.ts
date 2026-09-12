@@ -1,12 +1,13 @@
 // Deterministic rendering and validation for Owner Operator replies. Pure: no
 // database, no clock of its own, no network. `validateModelOutput` is the
 // gate the model cannot talk its way past (spec §5.5).
-import { proposableOperation } from './catalog';
-import type { Snapshot } from './context';
+import { proposableOperation, type ProposableOperation } from './catalog';
+import type { Snapshot, SnapshotMetrics } from './context';
 import {
   SERVER_NOTICE,
   STATUS_METRICS,
   type ModelOutput,
+  type Segment,
   type ServerNotice,
   type StatusMetric,
   type StoredSegment,
@@ -94,26 +95,49 @@ const INVENTED_COUNT_PATTERN = new RegExp(
 const COMPLETION_CLAIM_PATTERN =
   /\b(?:applied|changed|updated|saved|done|now active|i(?:'ve| have) (?:set|changed|updated|saved))\b/i;
 
+/**
+ * One proposal the validator ACCEPTED, carrying the work it already did: the
+ * resolved catalog entry and the narrowed input from that entry's own schema.
+ *
+ * This exists so the row builder does not repeat the lookup and the parse. The
+ * second run was not merely wasteful — it had to re-handle "unknown operation"
+ * and "input outside the domain" as unreachable branches, which is a branch
+ * nothing can test and nothing can trust.
+ */
+export interface ParsedProposal {
+  operation: ProposableOperation;
+  /** Narrowed by `operation.parseInput`, never the raw model value. */
+  input: Record<string, unknown>;
+  scope: { accountId: string; locationId?: string };
+  rationale: string;
+}
+
 export type ValidationResult =
-  | { ok: true; output: ModelOutput }
+  | { ok: true; output: ModelOutput; proposals: ParsedProposal[] }
   | { ok: false; reasons: string[] };
 
 /**
  * Semantic validation over an ALREADY shape-valid output (the zod schema ran
  * at the seam). Every rejection reason is a short token the retry prompt can
  * quote back; none of them carries owner text or provider output.
+ *
+ * On success it returns the PARSED proposals alongside the output, so the
+ * catalog lookup and `parseInput` happen exactly once on the path.
  */
 export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): ValidationResult {
   const reasons: string[] = [];
   const metrics = new Set<string>(STATUS_METRICS);
 
   for (const segment of output.segments) {
-    if (segment.type === 'text') {
+    // BOTH prose members. A `question` is model prose exactly as a `text` is —
+    // "You have 3 reviews waiting, shall I…?" invents a count just as surely,
+    // and reaches the owner in the same sentence position.
+    if (segment.type === 'text' || segment.type === 'question') {
       if (INVENTED_COUNT_PATTERN.test(segment.text)) {
-        reasons.push('a text segment states a count next to a metric word; use a status_ref instead');
+        reasons.push(`a ${segment.type} segment states a count next to a metric word; use a status_ref instead`);
       }
       if (COMPLETION_CLAIM_PATTERN.test(segment.text)) {
-        reasons.push('a text segment claims a completion; nothing is applied until the owner clicks');
+        reasons.push(`a ${segment.type} segment claims a completion; nothing is applied until the owner clicks`);
       }
     }
     if (segment.type === 'status_ref' && !metrics.has(segment.metric)) {
@@ -139,6 +163,7 @@ export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): Va
     reasons.push('a scope_check and a proposal for the stored location cannot coexist');
   }
 
+  const parsedProposals: ParsedProposal[] = [];
   for (const proposal of output.proposals) {
     const operation = proposableOperation(proposal.operation);
     if (!operation) {
@@ -162,19 +187,115 @@ export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): Va
     if (operation.scopeRule === 'location' && proposal.scope.locationId === undefined) {
       reasons.push(`proposal scope must name the stored location for ${proposal.operation}`);
     }
-    if (!operation.parseInput(proposal.input).ok) {
+    const parsed = operation.parseInput(proposal.input);
+    if (!parsed.ok) {
       reasons.push(`proposal input is outside the domain for ${proposal.operation}`);
+      continue;
     }
+    // Collected in the MODEL'S OWN ORDER, which is what `proposal_ref.index`
+    // means and what `materializeReply` binds ids by.
+    parsedProposals.push({
+      operation,
+      input: parsed.input,
+      scope: proposal.scope,
+      rationale: proposal.rationale,
+    });
   }
 
-  return reasons.length === 0 ? { ok: true, output } : { ok: false, reasons };
+  return reasons.length === 0
+    ? { ok: true, output, proposals: parsedProposals }
+    : { ok: false, reasons };
 }
 
-// ── Rendering ─────────────────────────────────────────────────────────────
+// ── Materialization (write path) ──────────────────────────────────────────
+
+function isStatusMetric(value: string): value is StatusMetric {
+  return (STATUS_METRICS as readonly string[]).includes(value);
+}
+
+/**
+ * One `status_ref` → the stored `status` it becomes. The validator has already
+ * rejected any metric outside `STATUS_METRICS`, so the switch is total.
+ */
+function materializeStatus(metric: StatusMetric, metrics: SnapshotMetrics): StoredSegment {
+  const value = metric === 'pending_count'
+    ? metrics.pendingCount
+    : metric === 'posted_7d'
+      ? metrics.posted7d
+      : metrics.draftsWaiting;
+  return {
+    type: 'status',
+    metric,
+    value,
+    reportingPeriodDays: metrics.reportingPeriodDays,
+    asOf: metrics.asOf,
+  };
+}
+
+export interface MaterializeReplyInput {
+  /** The validated MODEL segments, in order. */
+  segments: readonly Segment[];
+  /** The snapshot's metrics, read once before the model call. */
+  metrics: SnapshotMetrics;
+  /** Stored **Proposal** ids, in the order the model returned the proposals. */
+  proposalIds: readonly string[];
+  /** Whether the **Pasted-review scrub** changed the owner's message. */
+  scrubbed: boolean;
+}
+
+/**
+ * The model's segments → what `agent_turns.reply` stores. Three transforms,
+ * all of which exist so the stored row is the whole truth and the read path
+ * never re-derives anything:
+ *
+ *  1. every `status_ref` becomes a `status` carrying the value the server
+ *     read, its reporting period and the instant it read it. Resolving the
+ *     metric name later would paint today's count onto a sentence written
+ *     about a different one.
+ *  2. every `proposal_ref` becomes a `proposal` carrying the stored id. The
+ *     index is only meaningful HERE, where the insertion order is still known;
+ *     the rows all share one `NOW()`, so a read-time `ORDER BY created_at`
+ *     re-derivation is a tie-only sort with no defined order.
+ *  3. a scrubbed message prepends the fixed notice, which the read path could
+ *     not re-derive: it never sees the owner's raw message.
+ *
+ * A `status_ref` whose metric is unreachable-unknown, or a `proposal_ref`
+ * whose index has no id, is DROPPED rather than thrown: the turn's budget is
+ * already spent, and one missing sentence beats a retry that cannot converge.
+ */
+export function materializeReply(input: MaterializeReplyInput): StoredSegment[] {
+  const stored: StoredSegment[] = [];
+  if (input.scrubbed) {
+    stored.push({ type: 'server_notice', notice: SERVER_NOTICE.PASTED_REVIEW_REMOVED });
+  }
+  for (const segment of input.segments) {
+    switch (segment.type) {
+      case 'status_ref':
+        // The model union types `metric` as a bounded STRING (the schema
+        // cannot enum it without the model losing the ability to name a metric
+        // the validator can reject with a reason). `validateModelOutput` has
+        // already refused anything outside STATUS_METRICS, so this guard is
+        // the TYPE narrowing for that decision, not a second policy.
+        if (isStatusMetric(segment.metric)) {
+          stored.push(materializeStatus(segment.metric, input.metrics));
+        }
+        break;
+      case 'proposal_ref': {
+        const proposalId = input.proposalIds[segment.index];
+        if (proposalId) stored.push({ type: 'proposal', proposalId });
+        break;
+      }
+      default:
+        stored.push(segment);
+        break;
+    }
+  }
+  return stored;
+}
+
+// ── Rendering (read path) ─────────────────────────────────────────────────
 
 export interface RenderContext {
-  /** Stored **Proposal** ids, in the order the model returned them. */
-  proposalIds: readonly string[];
   /** The account's active locations, for a `scope_check`'s display name. */
   locations: readonly { id: string; name: string }[];
 }
@@ -194,12 +315,14 @@ export type RenderedSegment =
 
 /**
  * Stored **Reply segment**s → what the screen shows. A PURE MAPPING: it reads
- * no metrics and issues no query, because a stored `status` segment already
- * carries the value, its reporting period and the instant it was read at.
+ * no metrics, resolves no index and issues no query, because a stored `status`
+ * segment already carries the value and a stored `proposal` segment already
+ * carries the id.
  *
  * That is the point. Resolving a metric name at GET would re-read today's
  * counts — for whatever location the caller passed — and paint them onto a
- * sentence written days ago about a different number.
+ * sentence written days ago about a different number; resolving an index would
+ * sort rows that share one `created_at`.
  */
 export function renderSegments(
   segments: readonly StoredSegment[],
@@ -227,11 +350,10 @@ export function renderSegments(
           asOf: segment.asOf,
         });
         break;
-      case 'proposal_ref': {
-        const proposalId = context.proposalIds[segment.index];
-        if (proposalId) rendered.push({ type: 'proposal', proposalId });
+      // Passthrough: the id was bound at completion.
+      case 'proposal':
+        rendered.push({ type: 'proposal', proposalId: segment.proposalId });
         break;
-      }
       case 'scope_check': {
         const location = context.locations.find((l) => l.id === segment.locationId);
         if (location) {

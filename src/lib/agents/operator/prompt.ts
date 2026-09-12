@@ -3,12 +3,11 @@
 // records, so a prompt edit is visible in the spend ledger.
 import { createHash } from 'node:crypto';
 import type { ChatPrompt } from '@/lib/llm/types';
-import { CATALOG_OPERATION_IDS } from './catalog';
 import type { Snapshot } from './context';
 import { STATUS_METRICS } from './schema';
 
 /** Bump whenever OWNER_OPERATOR_SYSTEM_PROMPT changes. Recorded on api_costs. */
-export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-11.1';
+export const OWNER_OPERATOR_PROMPT_VERSION = '2026-09-11.2';
 
 export const OWNER_OPERATOR_SYSTEM_PROMPT = [
   'You help a small-business owner configure RepWorth by talking. You do not perform work; you propose it.',
@@ -20,7 +19,13 @@ export const OWNER_OPERATOR_SYSTEM_PROMPT = [
   '- NEVER state a number in a text segment. Emit a status_ref and let the server render the value.',
   `- Allowed status_ref metrics: ${STATUS_METRICS.join(', ')}.`,
   '- NEVER claim anything was applied, changed, updated, saved or is now active. Nothing changes until the owner clicks.',
-  `- Propose only these operations: ${CATALOG_OPERATION_IDS.join(', ')}.`,
+  // The snapshot's own `allowedOperations` is the single list, and only its
+  // `proposable` members may be proposed. Naming CATALOG_OPERATION_IDS here
+  // instead put a SECOND, wider list in the envelope — it included the three
+  // reads and the capture, which `proposableOperation()` returns null for, so a
+  // model that obeyed the English burned its single retry on a proposal the
+  // validator always rejects.
+  '- Propose only operations the snapshot lists under allowedOperations with kind "proposable". Any other id is rejected.',
   '- A proposal targets the turn\'s location, or the account default. Never another location.',
   '- If the owner names a different location, emit a scope_check segment for it and NO proposal for the turn\'s location.',
   '- If the owner asks for something outside the operation list, record it under unsupported and say plainly that RepWorth cannot do it yet.',

@@ -33,6 +33,7 @@ vi.mock('@/lib/costs/cost-guard', () => ({
 vi.mock('@/lib/costs/audit', () => ({ calculateCostUsd: () => 0.0009, recordApiCost }));
 
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   acquireLiveDbLock,
   assertLocalTestDatabaseUrl,
@@ -53,7 +54,15 @@ import {
 import type { AgentTurnPayload } from '@/lib/shared/worker-types';
 import type { AccountOffboardingPurgeRow } from '../../../../../worker/jobs/account-offboarding/purge-stages';
 import { handleAgentTurn } from '../../../../../worker/jobs/agent-turn/AgentTurnWorker';
-import { PROPOSAL_STATUS, parseReplySegments, TURN_FAILURE_REASON, TURN_STATUS } from '../schema';
+import { REVIEW_TEXT_REMOVED_MARKER } from '../render';
+import {
+  PROPOSAL_STATUS,
+  SERVER_NOTICE,
+  parseJsonbObject,
+  parseReplySegments,
+  TURN_FAILURE_REASON,
+  TURN_STATUS,
+} from '../schema';
 import { createTurn, type CreateTurnResult } from '../turns';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
@@ -61,8 +70,40 @@ let db: postgres.Sql;
 let lock: LiveDbLock | undefined;
 let tenant: TenantSeed;
 let locationId: string;
+/** A SECOND location, so the account aggregate can differ from the turn's own. */
+let secondLocationId: string;
 /** The lease-theft mock needs the turn id before `createTurn` returns it. */
 let stolenTurnId = '';
+
+/**
+ * One review + its draft, in the shape the live schema actually requires:
+ * `reviews` carries three NOT NULL provider identifiers,
+ * `responses.original_draft_text` is NOT NULL, and `unique_provider_review` is
+ * (provider, provider_review_name) so the name is minted per row.
+ */
+async function seedReview(
+  businessId: string,
+  starRating: number | null,
+  responseStatus: typeof REVIEW_STATUS.PENDING_APPROVAL | typeof REVIEW_STATUS.POSTED,
+): Promise<void> {
+  const reviewId = randomUUID();
+  await db`
+    INSERT INTO reviews (id, business_id, provider, provider_review_id, provider_review_name,
+                         provider_location_name, reviewer_name, star_rating, review_text,
+                         review_date, status)
+    VALUES (${reviewId}::uuid, ${businessId}::uuid, 'google', ${`seed-${reviewId}`},
+            ${`seed-${reviewId}`}, ${`locations/${businessId}`}, 'Seed Reviewer',
+            ${starRating}, 'Seeded review body.', NOW(), ${responseStatus})
+  `;
+  await db`
+    INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text,
+                           status, version, posted_at)
+    VALUES (${randomUUID()}::uuid, ${reviewId}::uuid, ${businessId}::uuid,
+            'Thank you for the feedback.', 'Thank you for the feedback.',
+            ${responseStatus}, 1,
+            ${responseStatus === REVIEW_STATUS.POSTED ? new Date() : null})
+  `;
+}
 
 function modelReply(structured: Record<string, unknown> = {}) {
   return {
@@ -230,12 +271,27 @@ describeWithDb(
         accountDisplayName: 'Operator Run A Account',
       });
       locationId = (await seedLocation(db, tenant.accountId, { name: 'Salon' })).businessId;
+      secondLocationId = (await seedLocation(db, tenant.accountId, {
+        name: 'Cafe', isPrimary: false,
+      })).businessId;
       process.env.OWNER_OPERATOR_ENABLED = 'true';
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterEach(async () => {
       vi.clearAllMocks();
       // Children first, every statement account-scoped.
+      await db`
+        DELETE FROM responses
+        WHERE business_id = ANY(${[locationId, secondLocationId]}::uuid[])
+      `;
+      await db`
+        DELETE FROM reviews
+        WHERE business_id = ANY(${[locationId, secondLocationId]}::uuid[])
+      `;
+      await db`
+        UPDATE businesses SET tone = NULL
+        WHERE account_id = ${tenant.accountId}::uuid
+      `;
       await db`DELETE FROM agent_unsupported_requests WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_proposals WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_turns WHERE account_id = ${tenant.accountId}::uuid`;
@@ -261,9 +317,27 @@ describeWithDb(
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     it('worker claim race: two dispatches of one turn produce one completed turn and one proposal set', async () => {
+      // DISTINCT counts, so each materialized value can only match the metric
+      // it names: 2 pending here, 1 pending at the other location (account
+      // total 3), 4 posted here inside the 7-day window.
+      await seedReview(locationId, 5, REVIEW_STATUS.PENDING_APPROVAL);
+      await seedReview(locationId, 2, REVIEW_STATUS.PENDING_APPROVAL);
+      await seedReview(secondLocationId, 4, REVIEW_STATUS.PENDING_APPROVAL);
+      for (let i = 0; i < 4; i += 1) await seedReview(locationId, 5, REVIEW_STATUS.POSTED);
+      // A seeded tone, so `before` is a real prior state rather than nulls.
+      await db`
+        UPDATE businesses SET tone = 'formal and factual'
+        WHERE id = ${locationId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+
       runLlmTask.mockResolvedValue(modelReply({
         proposals: [toneProposal()],
-        segments: [{ type: 'proposal_ref', index: 0 }, { type: 'status_ref', metric: 'pending_count' }],
+        segments: [
+          { type: 'proposal_ref', index: 0 },
+          { type: 'status_ref', metric: 'pending_count' },
+          { type: 'status_ref', metric: 'drafts_waiting' },
+          { type: 'status_ref', metric: 'posted_7d' },
+        ],
       }));
       const created = createdOrThrow(await createTurn(db, baseTurnInput()));
       const payload = await payloadFor(created, 2);
@@ -283,8 +357,10 @@ describeWithDb(
       const proposals = await db<{
         id: string; operation: string; status: string; location_id: string | null;
         contract_version: number; requires_confirmation: boolean;
+        before: unknown; after: unknown; prepared_version_token: unknown;
       }[]>`
-        SELECT id, operation, status, location_id, contract_version, requires_confirmation
+        SELECT id, operation, status, location_id, contract_version, requires_confirmation,
+               before, after, prepared_version_token
         FROM agent_proposals
         WHERE turn_id = ${created.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
       `;
@@ -295,23 +371,64 @@ describeWithDb(
       expect(proposals[0]!.contract_version).toBe(1);
       expect(proposals[0]!.requires_confirmation).toBe(false);
 
+      // `before`/`after` END-TO-END: the FULL effective voice state of the
+      // location, computed server-side from the catalog's preview, never from
+      // anything the model said. `before` is the tone seeded above — a real
+      // prior state — and `after` is the proposed one, with every other field
+      // carried across unchanged. Without this the pair could be written empty
+      // and Run B's card would render a diff of nothing.
+      const voiceBeforeJson = parseJsonbObject(proposals[0]!.before, 'agent_proposals.before');
+      const voiceAfterJson = parseJsonbObject(proposals[0]!.after, 'agent_proposals.after');
+      expect(voiceBeforeJson.tone).toBe('formal and factual');
+      expect(voiceAfterJson.tone).toBe('warm and brief');
+      expect(voiceAfterJson.avoidFacts).toEqual(voiceBeforeJson.avoidFacts);
+      expect(voiceAfterJson.highlightFacts).toEqual(voiceBeforeJson.highlightFacts);
+      expect(voiceAfterJson.productsServices).toEqual(voiceBeforeJson.productsServices);
+      // The **Version token** is the location's own `updated_at` AS TEXT — the
+      // microseconds Postgres stores, not a JS `Date`'s milliseconds.
+      const token = parseJsonbObject(
+        proposals[0]!.prepared_version_token,
+        'agent_proposals.prepared_version_token',
+      );
+      const [stamp] = await db<{ updated_at: string }[]>`
+        SELECT updated_at::text AS updated_at
+        FROM businesses
+        WHERE id = ${locationId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      expect(token.businessId).toBe(locationId);
+      expect(token.updatedAt).toBe(stamp!.updated_at);
+
       // The turn is DONE and the outbox row is NOT: attempt 1's CAS could not
       // match a row at attempts = 2. This is the exact state that stranded the
       // row before the terminal-turn branch existed.
       expect((await readOutbox(payload.outbox_id)).status).toBe('dispatched');
 
-      // The status_ref was MATERIALIZED: the stored reply carries a value, not
-      // a metric name to resolve later.
+      // The status_refs were MATERIALIZED, and each one carries ITS OWN
+      // number. The counts were seeded distinct on purpose: 2 pending at this
+      // location, 3 across the account, 4 posted in the window. `typeof value
+      // === 'number'` would pass if every metric resolved to the same figure —
+      // equality against the named metric is what catches a swapped branch.
       const stored = parseReplySegments(turn.reply);
-      const status = stored.find((segment) => segment.type === 'status');
-      expect(status).toMatchObject({ type: 'status', metric: 'pending_count', reportingPeriodDays: 7 });
-      expect(typeof (status as { value: number }).value).toBe('number');
+      const statuses = stored.filter((segment) => segment.type === 'status');
+      expect(statuses).toEqual([
+        { type: 'status', metric: 'pending_count', value: 2, reportingPeriodDays: 7, asOf: expect.any(String) },
+        { type: 'status', metric: 'drafts_waiting', value: 3, reportingPeriodDays: 7, asOf: expect.any(String) },
+        { type: 'status', metric: 'posted_7d', value: 4, reportingPeriodDays: 7, asOf: expect.any(String) },
+      ]);
+      // The proposal_ref was materialized too: the stored segment carries the
+      // stored row's ID, bound at completion where the insertion order is known
+      // — not an index a read would have to re-derive by sorting rows that
+      // share one `created_at`.
+      expect(stored.filter((segment) => segment.type === 'proposal'))
+        .toEqual([{ type: 'proposal', proposalId: proposals[0]!.id }]);
       // Asserted against the RAW column, not the parsed union: `StoredSegment`
-      // has no `status_ref` member, so the plan's
+      // has neither a `status_ref` nor a `proposal_ref` member, so
       // `stored.some((s) => s.type === 'status_ref')` is a compile error rather
       // than a test. The type half is the stronger guarantee and is free; this
-      // is the runtime half — the bytes in the row carry no unresolved ref.
+      // is the runtime half — the bytes in the row carry no unresolved ref of
+      // either kind.
       expect(JSON.stringify(turn.reply)).not.toContain('status_ref');
+      expect(JSON.stringify(turn.reply)).not.toContain('proposal_ref');
 
       // NOTHING WAS APPLIED (invariant #3, and the whole point of Run A).
       expect(await readVoiceColumns(locationId)).toEqual(voiceBefore);
@@ -619,6 +736,118 @@ describeWithDb(
       expect(avoid.superseded_by).toBeNull();
     });
 
+    it('worker scrubs a pasted review out of the prompt and stores the notice as the first segment', async () => {
+      // THE ORACLE for the **Pasted-review scrub** on the CURRENT message. The
+      // unit tests prove the function; this proves the pipeline actually calls
+      // it between the stored row and the provider — the only place where a
+      // regression silently ships review text to a third party.
+      const reviewBody = 'Great food, terrible parking, and the staff ignored us for twenty minutes.';
+      const ownerText = `What do I do about this?\n\n5/5\n${reviewBody} — Priya M.`;
+      runLlmTask.mockResolvedValue(modelReply());
+
+      const created = createdOrThrow(await createTurn(db, baseTurnInput({ text: ownerText })));
+      const payload = await payloadFor(created, 1);
+      await markDispatched(db, payload.outbox_id, 1);
+
+      await handleAgentTurn(db, jobFor(payload));
+
+      // 1. The PROMPT — the whole envelope, system and user — carries none of
+      // the review body and none of the reviewer's name.
+      expect(runLlmTask).toHaveBeenCalledTimes(1);
+      const prompt = runLlmTask.mock.calls[0]![1] as { system: string; user: string };
+      const envelope = `${prompt.system}\n${prompt.user}`;
+      expect(envelope).not.toContain(reviewBody);
+      expect(envelope).not.toContain('terrible parking');
+      expect(envelope).not.toContain('Priya M.');
+      expect(envelope).toContain(REVIEW_TEXT_REMOVED_MARKER);
+      // The owner's actual QUESTION survives — the scrub is block-level, not
+      // message-level, or this feature would drop the request itself.
+      expect(envelope).toContain('What do I do about this?');
+
+      // 2. The STORED row keeps `owner_text` verbatim: the scrub is a
+      // read-path transform, and the owner's own words are theirs.
+      const [stored] = await db<{ owner_text: string }[]>`
+        SELECT owner_text FROM agent_turns
+        WHERE id = ${created.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      expect(stored!.owner_text).toBe(ownerText);
+
+      // 3. The REPLY opens with the server-written notice, stored so a refresh
+      // renders it again — the GET route never sees the raw message and could
+      // not re-derive it.
+      const turn = await readTurn(created.turnId);
+      expect(turn.status).toBe(TURN_STATUS.COMPLETED);
+      const segments = parseReplySegments(turn.reply);
+      expect(segments[0]).toEqual({ type: 'server_notice', notice: SERVER_NOTICE.PASTED_REVIEW_REMOVED });
+      expect(JSON.stringify(turn.reply)).not.toContain('terrible parking');
+    });
+
+    it('worker leaves two same-scope proposals from ONE turn both pending, and a later turn supersedes both', async () => {
+      const conversationId = randomUUID();
+
+      // One reply, two proposals with the same (operation, scope). They are
+      // SIBLINGS, not a correction of one another: superseding by operation and
+      // scope alone would kill one of them from its own sentence, and which one
+      // died would depend on the loop order.
+      runLlmTask.mockResolvedValue(modelReply({
+        proposals: [
+          { ...toneProposal(), input: { tone: 'warm and brief' } },
+          { ...toneProposal(), input: { tone: 'warm, brief and specific' } },
+        ],
+        segments: [{ type: 'proposal_ref', index: 0 }, { type: 'proposal_ref', index: 1 }],
+      }));
+      const first = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId })));
+      const firstPayload = await payloadFor(first, 1);
+      await markDispatched(db, firstPayload.outbox_id, 1);
+      await handleAgentTurn(db, jobFor(firstPayload));
+
+      const sameTurn = await db<{ id: string; status: string; superseded_by: string | null }[]>`
+        SELECT id, status, superseded_by
+        FROM agent_proposals
+        WHERE turn_id = ${first.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
+        ORDER BY created_at ASC
+      `;
+      expect(sameTurn).toHaveLength(2);
+      for (const row of sameTurn) {
+        expect(row.status).toBe(PROPOSAL_STATUS.PENDING);
+        expect(row.superseded_by).toBeNull();
+      }
+      // Both ids are also the ones the reply points at, in the model's order.
+      const firstTurnRow = await readTurn(first.turnId);
+      expect(parseReplySegments(firstTurnRow.reply).filter((s) => s.type === 'proposal')).toEqual([
+        { type: 'proposal', proposalId: sameTurn[0]!.id },
+        { type: 'proposal', proposalId: sameTurn[1]!.id },
+      ]);
+
+      // A LATER turn is a correction, and supersedes EVERY earlier pending
+      // proposal on that scope — both of them, not just the last one.
+      runLlmTask.mockResolvedValue(modelReply({
+        proposals: [{ ...toneProposal(), input: { tone: 'plain and short' } }],
+        segments: [{ type: 'proposal_ref', index: 0 }],
+      }));
+      const second = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'Actually, simpler than that.',
+      })));
+      const secondPayload = await payloadFor(second, 1);
+      await markDispatched(db, secondPayload.outbox_id, 1);
+      await handleAgentTurn(db, jobFor(secondPayload));
+
+      const [replacement] = await db<{ id: string }[]>`
+        SELECT id FROM agent_proposals
+        WHERE turn_id = ${second.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      const after = await db<{ id: string; status: string; superseded_by: string | null }[]>`
+        SELECT id, status, superseded_by
+        FROM agent_proposals
+        WHERE turn_id = ${first.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
+        ORDER BY created_at ASC
+      `;
+      for (const row of after) {
+        expect(row.status).toBe(PROPOSAL_STATUS.SUPERSEDED);
+        expect(row.superseded_by).toBe(replacement!.id);
+      }
+    });
+
     // ── createTurn concurrency + verbatim text (extras, not promised titles) ──
 
     it('createTurn resolves one turn key across two conversations to created and turn_key_conflict without leaking 23505', async () => {
@@ -674,8 +903,11 @@ describeWithDb(
 
     it('createTurn stores owner_text byte-for-byte and treats a trimmed repeat as a conflict', async () => {
       const clientTurnKey = randomUUID();
+      const conversationId = randomUUID();
       const padded = '  keep it warm  ';
-      const created = createdOrThrow(await createTurn(db, baseTurnInput({ clientTurnKey, text: padded })));
+      const created = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, clientTurnKey, text: padded,
+      })));
 
       const [row] = await db<{ owner_text: string }[]>`
         SELECT owner_text FROM agent_turns
@@ -684,10 +916,29 @@ describeWithDb(
       // VERBATIM: no trim anywhere on the path, so the padding survives.
       expect(row!.owner_text).toBe(padded);
 
-      // The trimmed form is a DIFFERENT payload under the same key. A `.trim()`
-      // re-introduced anywhere would make this return `existing` instead.
-      const repeat = await createTurn(db, baseTurnInput({ clientTurnKey, text: 'keep it warm' }));
+      // The trimmed form is a DIFFERENT payload under the same key.
+      //
+      // The SAME conversationId is load-bearing, and the earlier version of
+      // this case did not pass it: `sameTurnPayload` compares conversation,
+      // location and text in that order, so a fresh conversation id per call
+      // made the comparison fail on its FIRST field and the `owner_text` arm
+      // never ran. The conflict was real and the reason was not the one the
+      // comment claimed. With the conversation and location held equal, text
+      // is the only thing left that can decide — so a `.trim()` reintroduced
+      // anywhere on the path makes this return `existing` and fails here.
+      const repeat = await createTurn(db, baseTurnInput({
+        conversationId, clientTurnKey, text: 'keep it warm',
+      }));
       expect(repeat.kind).toBe('turn_key_conflict');
+
+      // And the true replay — same conversation, same location, same bytes —
+      // still answers with the original ids, so the case above is narrow.
+      const replay = await createTurn(db, baseTurnInput({
+        conversationId, clientTurnKey, text: padded,
+      }));
+      expect(replay).toEqual({
+        kind: 'existing', conversationId, turnId: created.turnId,
+      });
 
       const turns = await db<{ id: string }[]>`
         SELECT id FROM agent_turns

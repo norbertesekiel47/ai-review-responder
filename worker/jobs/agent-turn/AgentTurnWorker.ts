@@ -2,20 +2,12 @@ import { DelayedError, type Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { reauthorizeTurn } from '@/lib/agents/operator/authorize';
-import { proposableOperation } from '@/lib/agents/operator/catalog';
-import { buildSnapshot, type SnapshotMetrics } from '@/lib/agents/operator/context';
+import { buildSnapshot } from '@/lib/agents/operator/context';
 import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { generateOperatorReply } from '@/lib/agents/operator/model-call';
-import type { ProposalRow, UnsupportedRow } from '@/lib/agents/operator/proposals';
-import { scrubPastedReview } from '@/lib/agents/operator/render';
-import {
-  PROPOSAL_STATUS,
-  SERVER_NOTICE,
-  STATUS_METRICS,
-  TURN_FAILURE_REASON,
-  type StatusMetric,
-  type StoredSegment,
-} from '@/lib/agents/operator/schema';
+import { buildProposalRows, type UnsupportedRow } from '@/lib/agents/operator/proposals';
+import { materializeReply, scrubPastedReview } from '@/lib/agents/operator/render';
+import { TURN_FAILURE_REASON } from '@/lib/agents/operator/schema';
 import {
   claimTurn,
   completeTurnFenced,
@@ -25,7 +17,6 @@ import {
   loadPredecessor,
   readTerminalTurn,
   releaseTurnClaim,
-  type ClaimedTurn,
 } from '@/lib/agents/operator/turns';
 import { readVoiceConfig } from '@/lib/responses/voice-settings';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -204,7 +195,40 @@ export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Pro
       accountId: claimed.accountId,
       locationId: claimed.locationId,
     });
-    const proposals = buildProposalRows(claimed, generated.output.proposals, voice);
+    if (!voice) {
+      // The location vanished between step 3 and here — archived, or moved to
+      // another account. That is an AUTHORIZATION change, not a mapping
+      // detail: every proposal is prepared against this row's voice state and
+      // its `updated_at` **Version token**, so there is nothing honest to
+      // store. Failing here is what keeps the turn from completing with a
+      // reply whose cards were all silently dropped.
+      await failTurnFenced(sql, {
+        turnId: claimed.turnId,
+        accountId: claimed.accountId,
+        attemptToken: claimed.attemptToken,
+        reason: TURN_FAILURE_REASON.UNAUTHORIZED,
+        outboxId,
+        outboxAttempt,
+      });
+      logger.warn('agent_turn location voice row vanished after authorization', {
+        turn_id: claimed.turnId,
+      });
+      return;
+    }
+
+    const proposals = buildProposalRows(
+      {
+        conversationId: claimed.conversationId,
+        turnId: claimed.turnId,
+        accountId: claimed.accountId,
+        actorUserId: claimed.actorUserId,
+        locationId: claimed.locationId,
+      },
+      // The VALIDATOR's parsed proposals: the catalog lookup and the input
+      // parse already happened there, once.
+      generated.proposals,
+      voice,
+    );
     const unsupported: UnsupportedRow[] = generated.output.unsupported.map((u) => ({
       id: uuidv7(),
       accountId: claimed.accountId,
@@ -212,36 +236,17 @@ export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Pro
       request: u.request,
       context: u.context,
     }));
-
-    // MATERIALIZE the reply. Two transforms, both of which exist so the stored
-    // row is the whole truth and the GET route never re-derives anything:
-    //
-    //  1. every `status_ref` becomes a `status` carrying the value the server
-    //     read, its reporting period and the instant it read it. Resolving the
-    //     metric name later would paint today's count onto a sentence written
-    //     about a different one.
-    //  2. a scrubbed message prepends the fixed notice, which the GET route
-    //     could not re-derive: it never sees the owner's raw message.
-    const storedSegments: StoredSegment[] = [];
-    for (const segment of generated.output.segments) {
-      if (segment.type !== 'status_ref') {
-        storedSegments.push(segment);
-        continue;
-      }
-      // The model union types `status_ref.metric` as a bounded STRING (the
-      // schema cannot enum it without the model losing the ability to name a
-      // metric the validator can reject with a reason). `validateModelOutput`
-      // has already refused anything outside STATUS_METRICS, so this guard is
-      // the TYPE narrowing for that decision, not a second policy. An
-      // unreachable miss is dropped rather than thrown: the turn's budget is
-      // already spent, and one missing sentence beats a retry that cannot
-      // converge.
-      if (!isStatusMetric(segment.metric)) continue;
-      storedSegments.push(materializeStatus(segment.metric, snapshot.metrics));
-    }
-    if (scrubbed.scrubbed) {
-      storedSegments.unshift({ type: 'server_notice', notice: SERVER_NOTICE.PASTED_REVIEW_REMOVED });
-    }
+    // The stored reply, materialized in one place (`materializeReply`, render.ts):
+    // `status_ref` → a frozen `status`, `proposal_ref` → a stored `proposal` id,
+    // and the scrub notice prepended. Index-aligned with `generated.proposals`
+    // by construction — the validator returned them in the model's own order
+    // and `buildProposalRows` maps one-to-one over that array.
+    const storedSegments = materializeReply({
+      segments: generated.output.segments,
+      metrics: snapshot.metrics,
+      proposalIds: proposals.map((row) => row.id),
+      scrubbed: scrubbed.scrubbed,
+    });
 
     const { fenced } = await completeTurnFenced(sql, {
       turnId: claimed.turnId,
@@ -306,74 +311,3 @@ export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Pro
   }
 }
 
-function isStatusMetric(value: string): value is StatusMetric {
-  return (STATUS_METRICS as readonly string[]).includes(value);
-}
-
-/**
- * One `status_ref` → the stored `status` it becomes. The validator has already
- * rejected any metric outside `STATUS_METRICS`, so the switch is total.
- */
-function materializeStatus(metric: StatusMetric, metrics: SnapshotMetrics): StoredSegment {
-  const value = metric === 'pending_count'
-    ? metrics.pendingCount
-    : metric === 'posted_7d'
-      ? metrics.posted7d
-      : metrics.draftsWaiting;
-  return {
-    type: 'status',
-    metric,
-    value,
-    reportingPeriodDays: metrics.reportingPeriodDays,
-    asOf: metrics.asOf,
-  };
-}
-
-/**
- * Model proposals → storable rows. `before`/`after` are the FULL effective
- * voice state of the location, computed server-side from the catalog's own
- * preview, never from anything the model said. `requires_confirmation` is
- * always false in Run A: no registered operation widens autonomy (L5).
- */
-function buildProposalRows(
-  claimed: ClaimedTurn,
-  proposals: readonly {
-    operation: string;
-    scope: { accountId: string; locationId?: string };
-    input: Record<string, unknown>;
-    rationale: string;
-  }[],
-  voice: (Awaited<ReturnType<typeof readVoiceConfig>>),
-): ProposalRow[] {
-  const rows: ProposalRow[] = [];
-  for (const proposal of proposals) {
-    const operation = proposableOperation(proposal.operation);
-    // The validator already rejected an unknown operation or an out-of-domain
-    // input, so a miss here is unreachable; skipping rather than throwing keeps
-    // a future catalog edit from failing a turn that already spent its budget.
-    if (!operation || !voice) continue;
-    const parsed = operation.parseInput(proposal.input);
-    if (!parsed.ok) continue;
-    const { before, after } = operation.preview(voice, parsed.input);
-    rows.push({
-      id: uuidv7(),
-      conversationId: claimed.conversationId,
-      turnId: claimed.turnId,
-      accountId: claimed.accountId,
-      actorUserId: claimed.actorUserId,
-      locationId: proposal.scope.locationId ?? null,
-      operation: operation.id,
-      contractVersion: operation.contractVersion,
-      input: parsed.input,
-      before: { ...before },
-      after: { ...after },
-      rationale: proposal.rationale,
-      labelKind: operation.labelKind,
-      preparedVersionToken: { businessId: claimed.locationId, updatedAt: voice.updatedAt },
-      // Always false in Run A: no registered operation widens autonomy (L5).
-      requiresConfirmation: false,
-      status: PROPOSAL_STATUS.PENDING,
-    });
-  }
-  return rows;
-}

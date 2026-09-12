@@ -158,14 +158,21 @@ describe('GET /api/settings/voice', () => {
   });
 
   it('returns voice config for a specific location', async () => {
+    // TWO reads now, in this order: `readVoiceConfig` — the shared reader the
+    // Owner Operator uses, which owns the account-scoped 404 — and then the
+    // display-label read, which is a different concern.
+    mockSqlQuery.mockResolvedValueOnce([{
+      tone: 'professional',
+      products_services: 'Coffee and pastries',
+      avoid_facts: ['No discounts'],
+      highlight_facts: null,
+      sample_responses: ['Thanks for the review!'],
+      updated_at: '2026-09-11 10:00:00.123456+00',
+    }]);
     mockSqlQuery.mockResolvedValueOnce([{
       id: LOCATION_ID_1,
       name: 'Downtown Cafe',
       display_label: 'Downtown Cafe',
-      tone: 'professional',
-      products_services: 'Coffee and pastries',
-      avoid_facts: ['No discounts'],
-      sample_responses: ['Thanks for the review!'],
     }]);
 
     const res = await GET(makeGetRequest({ locationId: LOCATION_ID_1 }));
@@ -232,13 +239,17 @@ describe('GET /api/settings/voice', () => {
 
   it('returns defaults for null voice fields', async () => {
     mockSqlQuery.mockResolvedValueOnce([{
-      id: LOCATION_ID_1,
-      name: 'Test',
-      display_label: null,
       tone: null,
       products_services: null,
       avoid_facts: null,
+      highlight_facts: null,
       sample_responses: null,
+      updated_at: '2026-09-11 10:00:00.123456+00',
+    }]);
+    mockSqlQuery.mockResolvedValueOnce([{
+      id: LOCATION_ID_1,
+      name: 'Test',
+      display_label: null,
     }]);
 
     const res = await GET(makeGetRequest({ locationId: LOCATION_ID_1 }));

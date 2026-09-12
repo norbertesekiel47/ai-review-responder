@@ -16,7 +16,7 @@ vi.mock('@/lib/db/auth', () => {
   return { requireRole: (...a: unknown[]) => mockRequireRole(...a), AuthError };
 });
 vi.mock('@/lib/db/server', () => ({ sql: Object.assign(() => Promise.resolve([]), { begin: vi.fn() }), jsonb: (v: unknown) => v }));
-vi.mock('@/lib/agents/operator/turns', () => ({
+vi.mock('@/lib/agents/operator/reads', () => ({
   getConversationForOwner: (...a: unknown[]) => mockGetConversationForOwner(...a),
 }));
 

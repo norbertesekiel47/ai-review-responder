@@ -11,7 +11,7 @@ import type { LLMCallResult } from '@/lib/llm/types';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import type { Snapshot } from './context';
 import { buildOperatorPrompt, operatorSystemPromptHash, OWNER_OPERATOR_PROMPT_VERSION } from './prompt';
-import { validateModelOutput } from './render';
+import { validateModelOutput, type ParsedProposal } from './render';
 import { OperatorModelOutputSchema, type ModelOutput } from './schema';
 
 type Sql = postgres.Sql;
@@ -31,7 +31,12 @@ export interface GenerateOperatorReplyInput {
 }
 
 export type GenerateOperatorReplyResult =
-  | { ok: true; output: ModelOutput; attempts: number }
+  /**
+   * `proposals` is the VALIDATOR's own parsed output — the resolved catalog
+   * entry and the narrowed input, in the model's order — so the row builder
+   * does not repeat the lookup and the parse the gate already did.
+   */
+  | { ok: true; output: ModelOutput; proposals: ParsedProposal[]; attempts: number }
   | { ok: false; reason: 'model_output_invalid'; attempts: number };
 
 /** The audit needs provider, model and usage — not the whole call result. */
@@ -161,7 +166,14 @@ export async function generateOperatorReply(
     }
 
     const validated = validateModelOutput(guarded.output, input.snapshot);
-    if (validated.ok) return { ok: true, output: validated.output, attempts: attempt };
+    if (validated.ok) {
+      return {
+        ok: true,
+        output: validated.output,
+        proposals: validated.proposals,
+        attempts: attempt,
+      };
+    }
 
     retryReason = validated.reasons.join('; ');
     logger.warn('owner_operator output rejected by validator', {

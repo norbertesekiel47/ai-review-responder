@@ -6,7 +6,7 @@
 // hand the model a name whose executor does not exist.
 import { z } from 'zod';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
-import type { VoiceConfig } from '@/lib/responses/voice-settings';
+import { VOICE_FIELD_LIMITS, type VoiceConfig } from '@/lib/responses/voice-settings';
 
 export const CATALOG_OPERATION_IDS = [
   'read_operating_rules',
@@ -95,18 +95,25 @@ function defineProposable<T extends Record<string, unknown>>(spec: {
   };
 }
 
-// Limits mirror the settings route's VoiceConfigSchema
-// (src/app/api/settings/voice/route.ts:102) so a Proposal can never carry a
-// value the shared writer's own route would reject.
-const ToneInput = z.object({ tone: z.string().trim().min(1).max(100) }).strict();
+// Limits come from VOICE_FIELD_LIMITS, the single owner of each voice field's
+// domain, which the settings route's `VoiceConfigSchema` reads too — so a
+// Proposal can never carry a value the shared writer's own route would reject,
+// and raising a limit in one place cannot leave the other silently stricter.
+// `.min(1)` is this side's own rule: a proposal to set a field to the empty
+// string is not a change an owner asked for.
+const ToneInput = z.object({
+  tone: z.string().trim().min(1).max(VOICE_FIELD_LIMITS.tone.maxLength),
+}).strict();
 const ProductsServicesInput = z.object({
-  productsServices: z.string().max(2000).nullable(),
+  productsServices: z.string().max(VOICE_FIELD_LIMITS.productsServices.maxLength).nullable(),
 }).strict();
 const AvoidFactsInput = z.object({
-  avoidFacts: z.array(z.string().trim().min(1).max(500)).max(20),
+  avoidFacts: z.array(z.string().trim().min(1).max(VOICE_FIELD_LIMITS.avoidFacts.maxLength))
+    .max(VOICE_FIELD_LIMITS.avoidFacts.maxItems),
 }).strict();
 const HighlightFactsInput = z.object({
-  highlightFacts: z.array(z.string().trim().min(1).max(500)).max(20),
+  highlightFacts: z.array(z.string().trim().min(1).max(VOICE_FIELD_LIMITS.highlightFacts.maxLength))
+    .max(VOICE_FIELD_LIMITS.highlightFacts.maxItems),
 }).strict();
 
 export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {

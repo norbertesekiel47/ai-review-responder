@@ -36,13 +36,30 @@ export const VOICE_FIELD_TO_COLUMN = {
 
 export type VoiceField = keyof typeof VOICE_FIELD_TO_COLUMN;
 
+/**
+ * The ONE definition of each voice field's domain, owned beside the writer.
+ *
+ * Two independent copies — the settings route's `VoiceConfigSchema` and the
+ * operator catalog's input schemas — meant a `max(2000)` raised on the route
+ * left the catalog silently stricter, and the proposal path quietly refusing
+ * values the UI accepts. Both now build their zod schemas from this.
+ */
+export const VOICE_FIELD_LIMITS = {
+  tone: { maxLength: 100 },
+  productsServices: { maxLength: 2000 },
+  avoidFacts: { maxItems: 20, maxLength: 500 },
+  highlightFacts: { maxItems: 20, maxLength: 500 },
+  sampleResponses: { maxItems: 10, maxLength: 2000 },
+} as const;
+
 type VoiceRow = {
   tone: string | null;
   products_services: string | null;
   avoid_facts: string[] | null;
   highlight_facts: string[] | null;
   sample_responses: string[] | null;
-  updated_at: Date | string;
+  /** `updated_at::text` — see `readVoiceConfig`. Never a JS `Date`. */
+  updated_at: string;
 };
 
 function iso(value: Date | string): string {
@@ -53,13 +70,23 @@ function iso(value: Date | string): string {
  * Reads one active location's voice config plus the `updated_at` that becomes
  * the voice-scope **Version token**. Returns null when the location is not an
  * active member of the account — the same shape the route's 404 uses.
+ *
+ * `updated_at::text`, RETURNED VERBATIM, and that is the whole point of this
+ * read. postgres.js decodes `timestamptz` into a JS `Date`, which holds
+ * milliseconds and silently truncates the microseconds Postgres stores
+ * (CLAUDE.md's `timestamptz` gotcha). A **Version token** built from a
+ * round-tripped `Date` therefore compares EQUAL to a row that was written up to
+ * a microsecond later — a stale proposal that reads as fresh, which is exactly
+ * the check the token exists to make. Text end-to-end: the token stores this
+ * string and Run B's Apply compares text to text.
  */
 export async function readVoiceConfig(
   db: DbClient,
   input: { accountId: string; locationId: string },
 ): Promise<(VoiceConfig & { updatedAt: string }) | null> {
   const [row] = await db<VoiceRow[]>`
-    SELECT tone, products_services, avoid_facts, highlight_facts, sample_responses, updated_at
+    SELECT tone, products_services, avoid_facts, highlight_facts, sample_responses,
+           updated_at::text AS updated_at
     FROM businesses
     WHERE id = ${input.locationId}::uuid
       AND account_id = ${input.accountId}::uuid
@@ -72,7 +99,7 @@ export async function readVoiceConfig(
     avoidFacts: row.avoid_facts ?? [],
     highlightFacts: row.highlight_facts ?? [],
     sampleResponses: row.sample_responses ?? [],
-    updatedAt: iso(row.updated_at),
+    updatedAt: row.updated_at,
   };
 }
 
