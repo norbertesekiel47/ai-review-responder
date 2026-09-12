@@ -153,12 +153,15 @@ wait for the runbook's page order. The new tester row must be checked at creatio
 | error appears in Sentry within 30s"*.
 
 Executed against production at 23:31Z: `GET https://repworth.net/api/admin/overview` → **401**.
-The app is live and the auth gate works. But the route
-(`src/app/api/admin/overview/route.ts:14-15`) returns the 401 **before** its `try` block:
+The app is live and the auth gate works. But the 401 is returned **before** the route's
+`try` block — since #1203 by `src/proxy.ts` (no bearer on `/api/admin/**` → 401 before any
+route runs), and otherwise by the route's own gate
+(`src/app/api/admin/overview/route.ts:14-15`, re-resolved 2026-09-11 for #1223; it was
+`requireRoleOr401` when this was written):
 
 ```
-const auth = await requireRoleOr401(request, 'admin');
-if (!auth.ok) return auth.response;      // <-- returns here
+const gate = await requireAdminWithAal2(request);
+if (!gate.ok) return gate.response;      // <-- returns here
 try { … } catch (error) { reportCaughtError('api/admin/overview', error); … }
 ```
 

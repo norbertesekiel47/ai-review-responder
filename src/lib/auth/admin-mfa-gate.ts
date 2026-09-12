@@ -3,6 +3,7 @@ import type { ZodType } from 'zod';
 import { loadAppUser, type AppUser } from '@/lib/db/auth';
 import { resolveAdminApiIdentity } from '@/lib/auth/verified-identity';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export type AdminMfaGateResult =
   | { ok: true; admin: AppUser }
@@ -14,13 +15,17 @@ export type AdminJsonGateResult<T> =
   | { ok: false; response: NextResponse };
 
 /**
- * The admin control-plane's uniform internal-error response: a structured log
- * line under `label` + a 500 { error: 'internal_error' } with no-store headers.
+ * The admin control-plane's uniform internal-error response: a Sentry event +
+ * structured log line via `reportCaughtError` (tag `endpoint:admin-mfa-gate`,
+ * `label` in context) + a 500 { error: 'internal_error' } with no-store headers.
  * Shared by this gate and every admin mutation route so the on-the-wire shape of
  * an admin server fault — and its no-store cache behavior — has a single owner.
+ * The capture is the alert path (#1212): this 500 is caught by design, so Next's
+ * `onRequestError` never sees it, and a Supabase Auth outage that fails every
+ * admin request would otherwise be log lines nobody reads.
  */
 export function internalError(label: string, error: unknown): NextResponse {
-  console.error(label, error);
+  reportCaughtError('admin-mfa-gate', error, { label });
   return NextResponse.json({ error: 'internal_error' }, { status: 500, headers: NO_STORE_HEADERS });
 }
 

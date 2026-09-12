@@ -15,9 +15,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { mockResolveIdentity, mockLoadAppUser } = vi.hoisted(() => ({
+const { mockResolveIdentity, mockLoadAppUser, mockReportCaughtError } = vi.hoisted(() => ({
   mockResolveIdentity: vi.fn(),
   mockLoadAppUser: vi.fn(),
+  mockReportCaughtError: vi.fn(),
+}));
+
+// #1212: internalError is the admin control-plane's only 500 and it is caught by
+// design, so the Sentry capture inside it IS the alert path. Pin that it fires.
+vi.mock('@/lib/shared/report-caught-error', () => ({
+  reportCaughtError: mockReportCaughtError,
 }));
 
 vi.mock('@/lib/db/auth', () => ({
@@ -111,7 +118,8 @@ describe('requireAdminWithAal2', () => {
   });
 
   it('returns a clean 500 internal_error on an unexpected (non-auth) failure', async () => {
-    mockResolveIdentity.mockRejectedValue(new Error('db down'));
+    const boom = new Error('db down');
+    mockResolveIdentity.mockRejectedValue(boom);
 
     const result = await requireAdminWithAal2(req());
 
@@ -119,6 +127,13 @@ describe('requireAdminWithAal2', () => {
     if (result.ok) throw new Error('expected failure');
     expect(result.response.status).toBe(500);
     expect(await result.response.json()).toEqual({ error: 'internal_error' });
+    // #1212: the caught 500 reaches Sentry, tagged so the class is filterable.
+    expect(mockReportCaughtError).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'admin-mfa-gate',
+      boom,
+      expect.objectContaining({ label: expect.stringContaining('admin-mfa-gate') }),
+    );
   });
 
   it('returns a clean 500 internal_error when the users lookup itself throws', async () => {
@@ -133,6 +148,7 @@ describe('requireAdminWithAal2', () => {
     if (result.ok) throw new Error('expected failure');
     expect(result.response.status).toBe(500);
     expect(await result.response.json()).toEqual({ error: 'internal_error' });
+    expect(mockReportCaughtError).toHaveBeenCalledTimes(1);
   });
 });
 

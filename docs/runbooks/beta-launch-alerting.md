@@ -42,6 +42,10 @@ email shares the Resend provider with the product.
   right-click the channel → Copy Channel ID — the Discord action targets a channel
   by ID). _Native Discord integration needs a paid Sentry plan (Team+); on the
   free tier, route via a Discord channel webhook instead._
+- [ ] **Sentry alert rule → Discord** for issues tagged `endpoint:admin-mfa-gate` (#1212) —
+  the Admin API's caught 500 (`internalError`, `src/lib/auth/admin-mfa-gate.ts`) is
+  captured there since #1212; a burst means Supabase Auth or the DB is failing every
+  admin request. Threshold: more than 5 events in 10 minutes.
 - [ ] **Sentry alert rule → Discord** for issues tagged `subsystem:health_alert`
   at level `error` (P0/P1) and `warning` (P1/P2): _Then_ action → **Send a
   notification to the Discord integration** → your server + channel. The
