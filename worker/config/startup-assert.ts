@@ -42,6 +42,7 @@ const SERVER_ONLY_FEATURE_OPTIONAL_BOOLEAN_ENV = [
   'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
   'GOVERNOR_ENABLED',
   'JUDGE_ENABLED',
+  'OWNER_OPERATOR_ENABLED',
   'STRIPE_TAX_ENABLED',
 ] as const;
 
@@ -140,7 +141,13 @@ export function assertSingleConcurrencyWorker(
 
 const SUMMED_LLM_WORKER_SLOT_CAP = 9;
 const FLAG_GATED_LLM_WORKER_SLOT_CAP = 1;
-const FLAG_ON_LLM_ENVELOPE_CAP = 11;
+// 12 since Owner Operator Run A: agent_turn is the THIRD flag-gated LLM lane
+// (9 + 1 judge + 1 solicitation asks + 1 agent_turn). Gated by
+// OWNER_OPERATOR_ENABLED at the route AND inside the handler (flag off ⇒ the
+// turn fails operator_disabled with zero LLM calls) — the judge posture. A
+// FOURTH gated lane must still force the global-semaphore conversation, which
+// is why this moves by exactly one.
+const FLAG_ON_LLM_ENVELOPE_CAP = 12;
 
 /**
  * Boot-time guard for the per-process LLM worker-slot cap (ADR 0005 addendum,
@@ -150,11 +157,11 @@ const FLAG_ON_LLM_ENVELOPE_CAP = 11;
  * slots per entry = opts.concurrency ?? 1 (BullMQ's default — most of the
  * LLM workers register with bare workerOpts). Non-flag-gated entries must sum
  * to <= SUMMED_LLM_WORKER_SLOT_CAP; each flag-gated entry (judge_verdict,
- * generate_solicitation_asks) is capped separately at
+ * generate_solicitation_asks, agent_turn) is capped separately at
  * FLAG_GATED_LLM_WORKER_SLOT_CAP so booting with the flag ON never trips the
  * sum. The all-flags-on worst case (non-gated sum + every flag-gated slot) is
  * additionally bounded by FLAG_ON_LLM_ENVELOPE_CAP — the ADR 0005 flag-on
- * envelope, 9+1+1 = 11 today — so a third flag-gated lane cannot silently
+ * envelope, 9+1+1+1 = 12 today — so a FOURTH flag-gated lane cannot silently
  * widen the worst case; adding one forces the global-semaphore conversation.
  * Raising the sum past ~10 requires building the
  * global Redis semaphore first (ADR 0005 deferral trigger).

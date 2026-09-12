@@ -280,3 +280,56 @@ nor `scripts/ci/` modified). T4's own statements add no finding.
 
 **Verdict:** ACCEPT — no contract change; every plan-named title, assertion and
 surface is honoured, and the three RED audits belong to other tasks.
+
+## 2026-09-11 — T5: Step 12's flag-off assertions contradict the accepted helper ordering, and three smaller drifts
+
+**(a) The contradiction, resolved toward the binding decision.** The
+"flag-off helper ordering" entry above is ACCEPTED and says
+`failTurnAndCompleteOutbox` must run `markOutboxCompletedIfOwned(tx, …)` FIRST
+and transition the turn only when the CAS returns true — and that title 22
+"asserts the CAS runs first". T5's own Step 12 snippet asserts the opposite
+(`calls[0]` = `UPDATE agent_turns`, `calls[1]` = `UPDATE job_outbox`). The
+binding decision wins: the helper CASes first, writes nothing when the CAS
+returns false, and the test asserts that order. The title is verbatim; the case
+additionally drives a losing CAS (a second mocked `sql` whose `count` is 0) and
+asserts NO `agent_turns` statement is issued, which is the half the ordering
+exists for.
+
+**(b) "Exactly two statements" needs a fragment filter.**
+`markOutboxCompletedIfOwned` composes its WHERE from the shared `dispatchedRow`
+FRAGMENT (`src/lib/shared/outbox.ts:19`), which is itself a tagged template and
+is indistinguishable from a statement at the plan's recording double — the
+flag-off path records THREE calls, not two, under either ordering. The suite
+adds a `statementsOf` filter (leading `UPDATE|SELECT|INSERT|DELETE`) and asserts
+two STATEMENTS in the stated order; the outbox id, which is bound inside the
+fragment rather than the outer UPDATE, is asserted against the unfiltered list.
+
+**(c) `status_ref.metric` is a bounded `string`, not `StatusMetric`.** T3's
+`StatusRefSegmentSchema` types `metric` as `z.string().trim().min(1).max(40)` so
+that `validateModelOutput` can reject an out-of-domain metric WITH A REASON
+rather than failing shape validation anonymously. Step 14's
+`materializeStatus(segment.metric, …)` therefore does not compile. The worker
+narrows with a local `isStatusMetric` guard and DROPS an unreachable miss rather
+than throwing: the validator has already refused it, the turn's budget is spent,
+and a throw would be classified transient and retried without converging. The
+`map` became a `for` loop so the non-`status_ref` arm keeps its `StoredSegment`
+narrowing.
+
+**(d) Two smaller drifts, both acted on the obvious way.** Step 10's import line
+says to bring `TURN_FAILURE_REASON` into `turns.ts` "for the worker's use"; the
+value is never referenced there (the worker imports it from `schema.ts` itself,
+per Step 14) and an unused value import fails `no-unused-vars`, so only the
+`TurnFailureReason` type is imported and a comment records why `markOutboxFailed`
+is likewise absent. And `worker/jobs/agent-turn/constants.ts` is in T5's Files
+block and its Step 22 `git add` list (`worker/jobs/agent-turn`) but not in the
+coordinator's per-file edit lease; it was written as the plan specifies.
+
+Two audits are RED for reasons outside T5's edit lease, exactly as the brief
+anticipates: `ci:env-registry` on `OWNER_OPERATOR_ENABLED` having no row in
+`docs/eservices-variables.md` / `.claude/reference/env-vars.md`, and
+`ci:directory-map` on the operator files — T5's four new ones
+(`prompt.ts`, `model-call.ts`, `proposals.ts`, `authorize.ts`, plus the three
+under `worker/jobs/agent-turn/`) join T2/T3/T4's in the same T8 sweep.
+
+**Verdict:** ACCEPT — the binding decision resolves the one contradiction; the
+other three are compile/lint adaptations with no contract change.

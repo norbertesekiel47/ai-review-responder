@@ -4,7 +4,17 @@
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { enqueueAgentTurn } from '@/lib/shared/job-outbox-helpers';
-import { TURN_STATUS } from './schema';
+import { markOutboxCompletedIfOwned } from '@/lib/shared/outbox';
+import {
+  insertProposals,
+  insertUnsupported,
+  supersedePendingProposals,
+  type ProposalRow,
+  type UnsupportedRow,
+} from './proposals';
+// `markOutboxFailed` is deliberately NOT imported here: it belongs to the
+// failed-hook, which owns the failure transition and its ordering.
+import { TURN_STATUS, type StoredSegment, type TurnFailureReason } from './schema';
 
 type Sql = postgres.Sql;
 
@@ -190,5 +200,296 @@ async function createTurnInTransaction(sql: Sql, input: CreateTurnInput): Promis
     });
 
     return { kind: 'created', conversationId: input.conversationId, turnId };
+  });
+}
+
+// ── Claim / release / fence ───────────────────────────────────────────────
+
+export interface ClaimedTurn {
+  turnId: string;
+  conversationId: string;
+  accountId: string;
+  actorUserId: string;
+  locationId: string;
+  sequence: number;
+  ownerText: string;
+  attempt: number;
+  attemptToken: string;
+}
+
+/**
+ * The claim (spec §5.2 step 1). Exactly one dispatch wins.
+ *
+ * `status IN ('accepted','running')` plus the lease predicate is what makes the
+ * outbox watchdog's re-dispatch safe: a crashed attempt's row is `running` with
+ * a stale `claimed_at`, and the next dispatch takes it over. Returning null is
+ * a NORMAL outcome — a live lease is held elsewhere — and the caller must exit
+ * without touching the outbox row, which belongs to the holder.
+ */
+export async function claimTurn(
+  sql: Sql,
+  input: { turnId: string; accountId: string; leaseSeconds: number },
+): Promise<ClaimedTurn | null> {
+  const attemptToken = uuidv7();
+  const [row] = await sql<{
+    id: string; conversation_id: string; account_id: string; actor_user_id: string;
+    location_id: string; sequence: number; owner_text: string; attempt: number;
+  }[]>`
+    UPDATE agent_turns
+    SET status = ${TURN_STATUS.RUNNING},
+        attempt = attempt + 1,
+        attempt_token = ${attemptToken}::uuid,
+        claimed_at = NOW()
+    WHERE id = ${input.turnId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND status IN (${TURN_STATUS.ACCEPTED}, ${TURN_STATUS.RUNNING})
+      AND (
+        claimed_at IS NULL
+        OR claimed_at < NOW() - (${input.leaseSeconds} * INTERVAL '1 second')
+      )
+    RETURNING id, conversation_id, account_id, actor_user_id, location_id,
+              sequence, owner_text, attempt
+  `;
+  if (!row) return null;
+  return {
+    turnId: row.id,
+    conversationId: row.conversation_id,
+    accountId: row.account_id,
+    actorUserId: row.actor_user_id,
+    locationId: row.location_id,
+    sequence: row.sequence,
+    ownerText: row.owner_text,
+    attempt: row.attempt,
+    attemptToken,
+  };
+}
+
+/**
+ * Hands the claim back when the predecessor is not terminal yet: status returns
+ * to `accepted`, the attempt counter is decremented and the token cleared, so
+ * the wait costs nothing and the next dispatch sees a fresh turn. Fenced on the
+ * token so a lost lease cannot release someone else's claim.
+ */
+export async function releaseTurnClaim(
+  sql: Sql,
+  input: { turnId: string; accountId: string; attemptToken: string },
+): Promise<void> {
+  await sql`
+    UPDATE agent_turns
+    SET status = ${TURN_STATUS.ACCEPTED},
+        attempt = GREATEST(attempt - 1, 0),
+        attempt_token = NULL,
+        claimed_at = NULL
+    WHERE id = ${input.turnId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND attempt_token = ${input.attemptToken}::uuid
+  `;
+}
+
+export interface PredecessorState {
+  status: string;
+  /** Seconds since the predecessor was claimed, or since it was created. */
+  ageSeconds: number;
+}
+
+export async function loadPredecessor(
+  sql: Sql,
+  input: { conversationId: string; accountId: string; sequence: number },
+): Promise<PredecessorState | null> {
+  const [row] = await sql<{ status: string; age_seconds: number }[]>`
+    SELECT
+      status,
+      EXTRACT(EPOCH FROM (NOW() - COALESCE(claimed_at, created_at)))::int AS age_seconds
+    FROM agent_turns
+    WHERE conversation_id = ${input.conversationId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND sequence = ${input.sequence - 1}
+  `;
+  return row ? { status: row.status, ageSeconds: row.age_seconds } : null;
+}
+
+export function isTerminalTurnStatus(status: string): boolean {
+  return status === TURN_STATUS.COMPLETED || status === TURN_STATUS.FAILED;
+}
+
+/**
+ * The turn's status when a claim missed, account-scoped. `null` means it is
+ * still claimable-in-principle (someone holds a live lease); a row means the
+ * turn is finished and this dispatch's outbox row has no owner left to
+ * complete it.
+ */
+export async function readTerminalTurn(
+  sql: Sql,
+  input: { turnId: string; accountId: string },
+): Promise<{ status: string } | null> {
+  const [row] = await sql<{ status: string }[]>`
+    SELECT status
+    FROM agent_turns
+    WHERE id = ${input.turnId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND status IN (${TURN_STATUS.COMPLETED}, ${TURN_STATUS.FAILED})
+  `;
+  return row ?? null;
+}
+
+export interface CompleteTurnInput {
+  turnId: string;
+  accountId: string;
+  conversationId: string;
+  attemptToken: string;
+  /** The STORED union: the model's segments plus any server notice. */
+  segments: readonly StoredSegment[];
+  proposals: readonly ProposalRow[];
+  unsupported: readonly UnsupportedRow[];
+  outboxId: string;
+  outboxAttempt: number | undefined;
+}
+
+/**
+ * The fenced completion (spec §5.2 step 7). ONE transaction: the fenced
+ * terminal UPDATE, the proposal inserts, the supersession, the unsupported
+ * inserts, the conversation touch, and `markOutboxCompletedIfOwned`.
+ *
+ * `fenced: false` means the lease was lost between the model call and here. The
+ * caller discards its output and exits — it must NOT retry, must NOT fail the
+ * turn, and must NOT touch the outbox row: the attempt that owns the lease
+ * completes it.
+ *
+ * The reverse asymmetry is deliberate: when the TURN fence matches but
+ * `markOutboxCompletedIfOwned` returns false (this dispatch's attempt number
+ * was superseded), the domain rows still commit. The turn is genuinely
+ * finished, so rolling the reply back to keep an outbox row tidy would throw
+ * away real work. The row is then completed by the NEXT dispatch, which finds
+ * a terminal turn and takes the `readTerminalTurn` branch in the handler.
+ */
+export async function completeTurnFenced(
+  sql: Sql,
+  input: CompleteTurnInput,
+): Promise<{ fenced: boolean }> {
+  return sql.begin(async (tx) => {
+    const fenced = await tx`
+      UPDATE agent_turns
+      SET status = ${TURN_STATUS.COMPLETED},
+          reply = ${tx.json(input.segments as never)},
+          failure_reason = NULL,
+          completed_at = NOW()
+      WHERE id = ${input.turnId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND attempt_token = ${input.attemptToken}::uuid
+        AND status = ${TURN_STATUS.RUNNING}
+    `;
+    if (fenced.count === 0) return { fenced: false };
+
+    await insertProposals(tx, input.proposals);
+    await supersedePendingProposals(tx, {
+      conversationId: input.conversationId,
+      accountId: input.accountId,
+      replacements: input.proposals.map((p) => ({
+        proposalId: p.id,
+        operation: p.operation,
+        locationId: p.locationId,
+      })),
+    });
+    await insertUnsupported(tx, input.unsupported);
+
+    await tx`
+      UPDATE agent_conversations
+      SET last_turn_at = NOW()
+      WHERE id = ${input.conversationId}::uuid
+        AND account_id = ${input.accountId}::uuid
+    `;
+
+    // Claim this exact dispatched attempt in the SAME transaction, so a later
+    // failure rolls completion back with the domain writes.
+    await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
+    return { fenced: true };
+  });
+}
+
+/** The terminal FAILED transition, fenced the same way. */
+export async function failTurnFenced(
+  sql: Sql,
+  input: {
+    turnId: string; accountId: string; attemptToken: string;
+    reason: TurnFailureReason; outboxId: string; outboxAttempt: number | undefined;
+  },
+): Promise<{ fenced: boolean }> {
+  return sql.begin(async (tx) => {
+    const fenced = await tx`
+      UPDATE agent_turns
+      SET status = ${TURN_STATUS.FAILED},
+          failure_reason = ${input.reason},
+          completed_at = NOW()
+      WHERE id = ${input.turnId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND attempt_token = ${input.attemptToken}::uuid
+        AND status = ${TURN_STATUS.RUNNING}
+    `;
+    if (fenced.count === 0) return { fenced: false };
+    await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
+    return { fenced: true };
+  });
+}
+
+/**
+ * The status-guarded FAILED transition, on an open transaction.
+ *
+ * The two paths that hold NO claim share this: flag-off (the handler returns
+ * before claiming) and BullMQ exhaustion (the hook runs after the processor is
+ * gone). Neither has an `attempt_token` to present, so `status IN
+ * ('accepted','running')` is the guard — it is what keeps either from
+ * overwriting a turn that actually completed.
+ *
+ * It takes `tx`, not `sql`, because each caller has its OWN outbox statement to
+ * couple to this one and the two must commit or roll back together. Making the
+ * transaction the caller's is what lets both fence on the outbox FIRST and this
+ * UPDATE second, inside one `begin`.
+ */
+export async function failTurnIfNonTerminal(
+  tx: postgres.TransactionSql,
+  input: { turnId: string; accountId: string; reason: TurnFailureReason },
+): Promise<void> {
+  await tx`
+    UPDATE agent_turns
+    SET status = ${TURN_STATUS.FAILED},
+        failure_reason = ${input.reason},
+        attempt_token = NULL,
+        completed_at = NOW()
+    WHERE id = ${input.turnId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND status IN (${TURN_STATUS.ACCEPTED}, ${TURN_STATUS.RUNNING})
+  `;
+}
+
+/**
+ * The flag-off path's whole terminal step: complete the outbox row it owns and
+ * fail the turn, in ONE transaction.
+ *
+ * THE ORDER IS THE POINT, and it is the reverse of the obvious one. The CAS
+ * comes FIRST because it answers the only question that matters: does this
+ * dispatch still own the row? A watchdog re-dispatch can have superseded this
+ * attempt while it sat in the queue, and a newer attempt may be running with
+ * the flag back ON. Failing the turn before asking would kill that live
+ * attempt's work from a job that lost ownership. When the CAS returns false
+ * NOTHING is written — not the turn, not the row.
+ *
+ * The hook does NOT use this — it needs `markOutboxFailed`, a different
+ * terminal transition, so it opens its own `begin` around
+ * `failTurnIfNonTerminal` with the same ordering.
+ */
+export async function failTurnAndCompleteOutbox(
+  sql: Sql,
+  input: {
+    turnId: string;
+    accountId: string;
+    reason: TurnFailureReason;
+    outboxId: string;
+    outboxAttempt: number | undefined;
+  },
+): Promise<void> {
+  await sql.begin(async (tx) => {
+    const owns = await markOutboxCompletedIfOwned(tx, input.outboxId, input.outboxAttempt);
+    if (!owns) return;
+    await failTurnIfNonTerminal(tx, input);
   });
 }

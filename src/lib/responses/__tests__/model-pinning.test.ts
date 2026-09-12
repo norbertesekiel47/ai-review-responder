@@ -4,6 +4,7 @@ import { OPENAI_MODEL, ANTHROPIC_MODEL, getLlmTask } from '@/lib/llm/tasks';
 import { calculateCostUsd } from '@/lib/costs/audit';
 import { JudgeOutputSchema } from '../judge-schema';
 import { SolicitationAskOutputSchema } from '@/lib/solicitation/ask-schema';
+import { OperatorModelOutputSchema } from '@/lib/agents/operator/schema';
 
 describe('LLM model pinning', () => {
   it('pins the OpenAI model to a dated snapshot (no bare alias)', () => {
@@ -69,5 +70,14 @@ describe('LLM model pinning', () => {
     expect(task.outputSchema).toBe(SolicitationAskOutputSchema);
   });
 
-  it.todo('owner_operator task pins both providers to the snapshot models with the output schema');
+  it('owner_operator task pins both providers to the snapshot models with the output schema', () => {
+    const task = getLlmTask('owner_operator');
+    expect(task.taskId).toBe('owner_operator');
+    expect(task.primary).toEqual({ provider: 'openai', model: OPENAI_MODEL });
+    expect(task.primary.model).not.toBe('gpt-4o-mini');
+    expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
+    expect(task.maxTokens).toBe(1200);
+    expect(task.temperature).toBe(0.2);
+    expect(task.outputSchema).toBe(OperatorModelOutputSchema);
+  });
 });
