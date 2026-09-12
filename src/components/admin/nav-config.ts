@@ -15,7 +15,6 @@ export const ADMIN_NAV_GROUPS = [
   {
     label: 'Growth',
     items: [
-      { href: '/admin/demos', label: 'Demos' },
       { href: '/admin/impersonate', label: 'Support' },
     ],
   },
