@@ -1,7 +1,7 @@
 # RepWorth product roadmap
 
-Last revised: **2026-09-07**, following the owner's approval to update this
-folder after the roadmap review. Filenames keep their original dates so
+Last revised: **2026-09-11**, following the owner's approval of the
+conversational operator recommendations. Filenames keep their original dates so
 existing references remain usable.
 
 RepWorth should handle reputation work for business owners and show what it
@@ -10,6 +10,22 @@ customer type during the beta, with measured owner effort and evidence of
 willingness to pay. Funding work runs alongside the beta because the owner
 reported only one to two months of runway; the actual cash requirement and
 deadline still need to be recorded.
+
+**Product direction (a hypothesis, not a shipped capability):** an owner
+explains a recurring reputation job and the rules of their business.
+RepWorth proposes an operating plan, performs approved work, follows up on
+unresolved items, and shows what happened. The owner adjusts the plan in
+ordinary language. The problem to observe is the effort owners still spend
+configuring, coordinating, correcting, and checking work whose individual
+steps are already automated.
+
+The immediate commitment is a bounded software v1, specified in
+[owner-operator/](2026-09-11-owner-operator/README.md): one model call per
+turn, typed proposal cards, explicit Apply, existing domain operations, a
+60-hour named exception with a 30-hour checkpoint. The
+[forward roadmap](2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment)
+owns the evidence rules and stop criteria. It commits no general agent
+platform and no simultaneous international launch.
 
 The [forward roadmap](2026-08-26-forward-roadmap.md) owns the current order of
 work. Its Phase 1–8 labels identify areas of future work; they are no longer
@@ -31,24 +47,32 @@ assignments; its numeric targets are proposed, not achieved results.
 | [Verticals](2026-08-26-verticals.md) | Candidate industries, how to choose the first customer type, and later integration/topic options |
 | [Positioning](../brand-asset-library/brand-guidelines/positioning.md) | Customer promise, supporting controls, and limits on public claims |
 | [Brand story](../brand-asset-library/brand-guidelines/brand-story.md) | Plain-language story and evidence requirements for marketing |
-| [Agentic architecture](2026-08-26-agentic-architecture.md) | Existing foundation, future dependencies, and conditions for external agent access |
+| [Agentic architecture](2026-08-26-agentic-architecture.md) | Conversational delegation over governed execution, existing foundation, and separate conditions for external agent access |
 | [Investor theses](2026-08-29-investor-theses-overlay.md) | Ideas to test with buyers and investors; pricing and funding decisions |
 | [Launch explainer](2026-08-29-launch-explainer-script.md) | A short demonstration first, with a longer film concept for later |
 | [Operating costs](2026-08-30-operating-cost-baseline.md) | Dated service-cost inventory and the missing inputs for a cash plan |
+| [Owner operator](2026-09-11-owner-operator/README.md) | The v1 spec (conversation → proposal cards → Apply → receipts), its [architecture](2026-09-11-owner-operator/architecture.md) and framework posture, and the [vision](2026-09-11-owner-operator/vision.md) beyond v1 |
+| [Competitor evidence](../plans/2026-09-11-reputation-competitor-landscape.md) | Desk review of NiceJob, TrueReview and GatherUp (checked Sep 11): documented AI replies, automation and international coverage |
 | [Roadmap review](2026-09-07-roadmap-review.md) | Two Claude review rounds, changes made, and documentation checks |
 
 ## Current decisions
 
 1. **Focus the next month.** Choose one customer type from the actual beta
    cohort. Home services, beauty/personal care, and food/beverage remain
-   candidate markets. The first type and connector are still undecided.
+   candidate markets. The provisional buyer hypothesis is owned by
+   [verticals §2](2026-08-26-verticals.md#2-choose-the-first-customer-type-from-the-beta);
+   the roster must support it. Record the recurring job, market, languages,
+   software and acquisition route as well as industry. The first cohort and
+   connector remain undecided.
 2. **Measure value from the start.** Record the owner's time spent doing the
    work, reviewing drafts, correcting mistakes, and getting help. Label
    estimates as estimates. Track commercial decisions alongside usage.
 3. **Choose one engineering improvement.** Use observed beta problems to
-   select it only when it blocks a paid decision or an existing beta promise.
-   Until then, keep engineering hours in reserve. The forward roadmap defines
-   its provisional limits, early cash gates and continuation decision.
+   select a payment/beta blocker or an explicitly chosen, bounded hypothesis
+   experiment addressing a repeated observed burden. Customers need not ask
+   for chat. Until selection, keep engineering hours in reserve. The forward
+   roadmap defines its provisional limits, early cash gates and continuation
+   decision.
 4. **Put necessary facts before dependent automation.** Recovery messages
    must use approved business facts and rules. The minimum needed from
    Phase 4 comes before that recovery work; it need not wait for topic analysis.
@@ -61,16 +85,24 @@ assignments; its numeric targets are proposed, not achieved results.
 7. **Build external agent access when there is a user for it.** An MCP pilot,
    AI-search experiment, additional platform, or new industry competes for
    capacity with the beta's demonstrated needs.
+8. **Test continuing delegation and transferability.** A chat that completes
+   setup alone does not establish the operator hypothesis. Measure subsequent
+   eligible work, corrections and paid continuation. International support
+   needs evidence for the full workflow in each selected market; language
+   generation or an international signup alone does not establish it.
 
 ## What remains open
 
 - Beta account count, customer types, software used, review volume, and
   baseline effort; the five interested prospects are not automatically five
   active beta users or paying customers.
-- Cash on hand, payment obligations, minimum founder support, cash-needed
-  date, and each founder's week-specific allocation within the reported
-  40–60 available hours.
-- The first engineering improvement, its acceptance criteria, and the
+- A current reconciled cash/obligation view, minimum founder support,
+  cash-needed date and week-specific founder allocation. The September 10
+  [decision log](2026-09-08-founder-90-day-plan/ceo-cto/decision-log.md) records
+  private finance inputs supplied, with obligations/final deadline still
+  pending; this page does not re-audit those figures.
+- The owner-operator v1 is selected with acceptance criteria written; still
+  open are its 30-hour checkpoint result, the named pilot owner, and the
   customer evidence needed to continue, change direction, or stop it.
 - Actual investor feedback on RepWorth and any financing timeline.
 - Current launch gates, legal review, and deployed feature availability.
@@ -92,6 +124,13 @@ recovery → topics → business facts. The August 29 overlay pulled MCP and
 AI-search experiments forward. The September 7 owner-approved revision
 supersedes that fixed sequence with the priorities above. The longer-term
 feature sketches remain available for later decisions.
+
+The September 11 owner-approved update makes the owner-facing operator a
+bounded software v1 under a named 60-hour exception, separates it from
+external API/MCP access, and adds tests for business memory and
+international transferability. Cash gates, existing beta promises and the
+20-hour default cap for other improvements remain in force. The September 7
+review predates this revision and did not evaluate it.
 
 Update the relevant document when evidence or a decision changes, record the
 date, and fix references in the same change. Keep deployment claims tied to

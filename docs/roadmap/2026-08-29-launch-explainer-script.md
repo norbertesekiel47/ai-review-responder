@@ -1,13 +1,17 @@
 # RepWorth launch explainer — script and shot list
 
-Refreshed 2026-09-07 after the roadmap review; original filename retained.
+Refreshed 2026-09-11 after approval of the operator direction; original filename retained.
 Create a short real-product demo first. The longer film below preserves the
 creative direction for later; it is not a prerequisite for beta learning,
 investor conversations or public launch. This refresh verifies neither the
 running product nor the availability of its depicted UI states.
 
-Source of truth for narrative: `docs/brand-asset-library/brand-guidelines/brand-story.md`.
-This file adds nothing to that story. It sequences it for film.
+Source of truth for the current-product narrative (Acts A–C):
+`docs/brand-asset-library/brand-guidelines/brand-story.md`. Source of truth
+for the labeled future concept (Act D): the forward roadmap's
+[bounded operator experiment](2026-08-26-forward-roadmap.md#bounded-owner-operator-experiment).
+Act D leads the brand story on purpose; brand-story.md gains that direction
+only after the experiment produces evidence. Act D changes no live marketing copy.
 
 ## First deliverable: 60–90 seconds of the real product
 
@@ -178,17 +182,23 @@ Label this act on screen: **"Where this is going."** Non-negotiable — brand st
 
 **Narration**
 
-> We want one useful morning report:
-> work completed, issues still waiting and what happened after a complaint was followed up.
-> Over time, it could help you spot recurring service problems and see what improved.
+> Tell RepWorth what you want handled, and the rules of your business.
+> Review the plan. See the work completed and what still needs you.
+> Change an instruction, and have the next task follow it.
 
 **Shots**
 
 | # | Shot | Motion |
 |---|---|---|
-| D1 | Morning sun through the window of the same empty dining room from A1. | Slow push in — mirrors A1 |
-| D2 | Phone on the counter. Concept report with proposed completed-work, unresolved-issue and follow-up sections. "Future concept · Demo data" stays visible. | Static, text builds |
-| D3 | Staff prepare for the day. Do not imply a full room or recovered sale resulted from RepWorth. | Slow drift right |
+| D1 | Owner instruction and proposed operating plan: one job, known facts, missing decision and requested authority. "Future concept · Demo data" stays visible throughout this act. | Instruction then plan builds |
+| D2 | Later eligible task, completed-work evidence and one unresolved exception with its next action. This is a concept, not proof of a live external action. | Simple chronological transition |
+| D3 | Owner changes one rule; a subsequent comparable task reflects it. A morning report is one output of this ongoing workflow. | Correction then next-task result |
+
+Keep the concept bounded to the chosen customer/job. Do not imply automatic
+compensation, recovered sales, universally supported channels or a shipped
+conversational UI. If the three steps do not fit this short act, move them to
+a separate labeled concept walkthrough; the real-product demo stays the first
+deliverable.
 
 Music lifts here. This is the only lift in the film.
 
