@@ -15,6 +15,7 @@ import { getLocationsForAccount } from '@/lib/locations/repo';
 import { getDisplayLabel, type HasDisplayLabel } from '@/lib/locations/display-label';
 import { jsonResponse, requireOwnerWithAccount, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { updateVoiceConfig, type VoiceConfig } from '@/lib/responses/voice-settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,9 +37,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       tone: string | null;
       products_services: string | null;
       avoid_facts: string[] | null;
+      highlight_facts: string[] | null;
       sample_responses: string[] | null;
     }[]>`
-      SELECT id, name, display_label, tone, products_services, avoid_facts, sample_responses
+      SELECT id, name, display_label, tone, products_services, avoid_facts, highlight_facts, sample_responses
       FROM businesses
       WHERE id = ${locationId}::uuid
         AND account_id = ${user.accountId}::uuid
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       tone: row.tone ?? '',
       productsServices: row.products_services ?? '',
       avoidFacts: row.avoid_facts ?? [],
+      highlightFacts: row.highlight_facts ?? [],
       sampleResponses: row.sample_responses ?? [],
     });
   }
@@ -74,10 +77,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     tone: string | null;
     products_services: string | null;
     avoid_facts: string[] | null;
+    highlight_facts: string[] | null;
     sample_responses: string[] | null;
     is_primary: boolean;
   }[]>`
-    SELECT id, name, display_label, tone, products_services, avoid_facts, sample_responses, is_primary
+    SELECT id, name, display_label, tone, products_services, avoid_facts, highlight_facts, sample_responses, is_primary
     FROM businesses
     WHERE id = ANY(${locationIds}::uuid[])
       AND archived_at IS NULL
@@ -92,6 +96,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       tone: r.tone ?? '',
       productsServices: r.products_services ?? '',
       avoidFacts: r.avoid_facts ?? [],
+      highlightFacts: r.highlight_facts ?? [],
       sampleResponses: r.sample_responses ?? [],
     })),
   });
@@ -105,6 +110,7 @@ const VoiceConfigSchema = z
     tone: z.string().trim().max(100).optional(),
     productsServices: z.string().max(2000).nullable().optional(),
     avoidFacts: z.array(z.string().trim().max(500)).max(20, 'Maximum 20 avoid facts').optional(),
+    highlightFacts: z.array(z.string().trim().max(500)).max(20, 'Maximum 20 highlight facts').optional(),
     sampleResponses: z.array(z.string().trim().max(2000)).max(10, 'Maximum 10 sample responses').optional(),
   })
   .refine((data) => {
@@ -113,15 +119,6 @@ const VoiceConfigSchema = z
   }, {
     message: 'At least one voice config field must be provided',
   });
-
-const VOICE_FIELD_TO_COLUMN = {
-  tone: 'tone',
-  productsServices: 'products_services',
-  avoidFacts: 'avoid_facts',
-  sampleResponses: 'sample_responses',
-} as const;
-
-type VoiceField = keyof typeof VOICE_FIELD_TO_COLUMN;
 
 async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
   const owner = await requireWritableOwner(sql, request);
@@ -143,51 +140,24 @@ async function putVoiceConfig(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const data = parsed.data;
-  const { locationId, ...voiceFields } = data;
-
-  // Validate the location belongs to this account and is active
-  const [locRow] = await sql<{ id: string }[]>`
-    SELECT id FROM businesses
-    WHERE id = ${locationId}::uuid
-      AND account_id = ${user.accountId}::uuid
-      AND archived_at IS NULL
-  `;
-
-  if (!locRow) {
-    return jsonResponse({ error: 'Location not found or not accessible' }, 404);
-  }
-
-  const fields = Object.keys(voiceFields).filter(
-    (f): f is VoiceField => f in VOICE_FIELD_TO_COLUMN,
-  );
-
-  if (fields.length === 0) {
-    return jsonResponse({ error: 'No fields to update' }, 400);
-  }
-
-  // Map validated fields → columns and let Postgres.js parameterize both the
-  // identifiers and values via the dynamic-column helper. No string
-  // interpolation — mirrors runScopedUpdate in ../route.ts.
-  const updates: Record<string, string | string[] | null> = {};
-  for (const field of fields) {
-    updates[VOICE_FIELD_TO_COLUMN[field]] = voiceFields[field] ?? null;
-  }
+  const { locationId, ...voiceFields } = parsed.data;
 
   try {
-    const result = await sql`
-      UPDATE businesses
-      SET ${sql(updates)}, updated_at = NOW()
-      WHERE id = ${locationId}::uuid
-        AND account_id = ${user.accountId}::uuid
-        AND archived_at IS NULL
-    `;
+    const result = await sql.begin((tx) =>
+      updateVoiceConfig(tx, {
+        accountId: user.accountId!,
+        locationId,
+        fields: voiceFields satisfies Partial<VoiceConfig>,
+      }),
+    );
 
-    if (result.count === 0) {
-      return jsonResponse({ error: 'Location not found or not updated' }, 404);
+    if (!result.ok) {
+      return result.reason === 'no_fields'
+        ? jsonResponse({ error: 'No fields to update' }, 400)
+        : jsonResponse({ error: 'Location not found or not accessible' }, 404);
     }
 
-    return jsonResponse({ success: true });
+    return jsonResponse({ success: true, updatedAt: result.updatedAt });
   } catch (error) {
     reportCaughtError('api/settings/voice PUT', error, { locationId });
     return jsonResponse({ error: 'Failed to update voice config' }, 500);

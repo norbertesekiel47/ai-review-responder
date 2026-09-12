@@ -94,3 +94,77 @@ after Step 6, which is the intended end state.
 
 **Verdict:** ACCEPT — no contract change; the plan's named surfaces, titles and
 assertions are all honoured.
+
+## 2026-09-11 — T2 Step 5's route suite needs `NEXT_PUBLIC_APP_URL` pinned to its ORIGIN
+
+T2's route-suite snippet builds every PUT against
+`ORIGIN = 'https://app.repworth.test'` but never sets `NEXT_PUBLIC_APP_URL`.
+`withSameOrigin()` → `assertSameOrigin` compares the `Origin` header against
+that env var, which `vitest.setup.ts:16` defaults to `http://localhost:3000`, so
+every PUT in the suite returned 403 before reaching the handler. T2 added one
+line to the existing `beforeEach` — `process.env.NEXT_PUBLIC_APP_URL = ORIGIN;`
+— which is exactly what the sibling settings suite does
+(`src/app/api/settings/__tests__/route.test.ts:154`). The test title, the
+assertions and every mock are verbatim as the plan specifies.
+
+**Verdict:** ACCEPT — a suite-setup line, no contract change.
+
+## 2026-09-11 — T2's new `src/lib/responses/voice-settings.ts` has no `docs/directory` row
+
+`ci:directory-map` is CI-complete for `src/lib/`, so the new writer fails the
+audit with "`src/lib/responses/voice-settings.ts` has no row in
+docs/directory.md + docs/directory/\*.md". Its owning page is
+`docs/directory/lib-reviews-responses.md` (§ `src/lib/responses/`), which is
+**outside T2's edit lease** and outside T2's Step 9 `git add` list, so T2 did not
+write it. The row is a one-line addition and must land before the branch's CI
+gate goes green — the plan assigns it to no task, and the same gap will hit every
+task in this run that creates a file under `worker/` or `src/lib/`.
+
+**Verdict:** RE-PLAN (small) — the run needs one owner for the `docs/directory`
+rows of all of Run A's new `src/lib/**` and `worker/**` files.
+
+## 2026-09-11 — T2's GET change staleness-fails the tenant-scope allowlist
+
+Step 7.3 adds `highlight_facts` to the all-locations GET `SELECT` list, which is
+reproduced verbatim as the `sqlSnippet` of the
+`src/app/api/settings/voice/route.ts` / `businesses` entry in
+`scripts/ci/tenant-scope-allowlist.ts:677-682`. `pnpm ci:tenant-scope` now fails
+with `businesses: unused tenant scope allowlist entry` — the snippet no longer
+matches the source. The fix is to re-spell that one `sqlSnippet` with
+`highlight_facts` between `avoid_facts` and `sample_responses`; the entry's
+category and reason are unchanged, and the query is no less scoped than before.
+`scripts/ci/tenant-scope-allowlist.ts` is **outside T2's edit lease**, so T2 did
+not write it.
+
+**Verdict:** RE-PLAN (small) — same follow-up as the `docs/directory` row: one
+owner for T2's out-of-lease audit fixtures.
+
+## 2026-09-11 — T2 breaks the PRE-EXISTING voice route suite, which is outside T2's lease
+
+T2's Files block and Step 9 `git add` list name only the NEW suite
+`src/app/api/settings/__tests__/voice-route.test.ts`, and Step 8's regression
+check runs `src/app/api/settings/__tests__/route.test.ts` — the *account*
+settings route. Neither mentions
+**`src/app/api/settings/voice/__tests__/route.test.ts`**, the route's own
+pre-existing suite, which asserts on exactly what Step 7 extracts: the field →
+column map, the location-ownership `SELECT`, and the `UPDATE`'s bound
+`account_id`, all observed through a `sql` tagged-template double that has no
+`.begin`. After Step 7 the PUT path issues no statements of its own, so 8 of its
+18 tests fail (10 GET tests still pass):
+
+- `updates tone for a specific location`
+- `returns 404 when location not found or not accessible`
+- `binds account_id as a parameterized value in the UPDATE WHERE clause (not interpolated)`
+- `maps schema field tone → column tone` (and the `productsServices` ×2,
+  `avoidFacts`, `sampleResponses` cases of the same table-driven `it.each`)
+
+The behaviour those tests pin is preserved — it moved into
+`src/lib/responses/voice-settings.ts` and is asserted by the new writer suite
+(title 5) and the new route suite (title 6). What is needed is to re-point that
+file's PUT section at `sql.begin` + the mocked writer, the way title 6's suite
+does. The file is **outside T2's edit lease**, so T2 did not touch it and
+committed with the suite red.
+
+**Verdict:** RE-PLAN (small) — assign
+`src/app/api/settings/voice/__tests__/route.test.ts` to a follow-up with the
+lease to edit it; the branch gate stays red until then.
