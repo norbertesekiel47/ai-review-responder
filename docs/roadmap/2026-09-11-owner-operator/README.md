@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **RUN A BUILT, FLAG OFF EVERYWHERE** (the turn pipeline and the voice-scope proposal; the screen, Apply, Decline and receipts are Run B) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
+_Status: **RUN A IN REVIEW on branch `feat/owner-operator-run-a`, unmerged; `OWNER_OPERATOR_ENABLED` off everywhere** (the turn pipeline and the voice-scope proposal; the screen, Apply, Decline and receipts are Run B) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 

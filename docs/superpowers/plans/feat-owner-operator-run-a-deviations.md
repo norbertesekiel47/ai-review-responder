@@ -120,10 +120,12 @@ write it. The row is a one-line addition and must land before the branch's CI
 gate goes green — the plan assigns it to no task, and the same gap will hit every
 task in this run that creates a file under `worker/` or `src/lib/`.
 
-**Verdict:** RE-PLAN (small) — **STILL OPEN, assigned to T8.** The coordinator
-extended T2's lease for the two blockers below but explicitly not for this row,
-so `ci:directory-map` stays red until T8 lands it. T4 reports the same failure
-for the six `src/lib/agents/operator/*.ts` files, so T8 owns one sweep, not two.
+**Verdict:** ACCEPT — resolved by T8 (commit `9301b8e89`): the row sits on the
+sibling page `docs/directory/lib-owner-operator.md` under `### responses/
+(continued)`, because the owning page is at its 3,000-word cap (see the
+amendment #2 entry below). `ci:directory-map` passes at HEAD. Earlier text of
+this verdict read "RE-PLAN (small) — STILL OPEN, assigned to T8"; the
+orchestrator closed it at the step-6 read-back.
 
 ## 2026-09-11 — T2's GET change staleness-fails the tenant-scope allowlist
 
@@ -487,4 +489,29 @@ asserts `requires_confirmation` (the term is not defined there), the
 and `catalog.ts`. Nothing edited.
 
 **Verdict:** ACCEPT — (a) is the instruction's own fallback, (b) removes a
-self-contradiction, (c) is a no-op.
+self-contradiction, (c) is a no-op. Orchestrator correction to (b) at the
+step-6 read-back: the status line now reads "RUN A IN REVIEW on branch …,
+unmerged; flag off everywhere" — "BUILT" overstated an unmerged branch.
+
+## Step-6 read-back (orchestrator, 2026-09-11, HEAD after T8)
+
+Every entry above re-read end to end. One-line verdicts, in file order:
+
+1. `grill-with-docs` absent — **ACCEPT** (ticket-seeded delta grill; decisions on disk).
+2. Baseline gate RED on `feature-surface` — **ACCEPT** (cleared at the T0 commit; T6's entry confirms `feature-surface: passed`).
+3. Codex round-3 flag-off ordering — **ACCEPT** (T5 applied CAS-first; title 22 pins it).
+4. T0 startup-assertion file listed, not edited — **ACCEPT** (T5 owned the edit).
+5. T1 missing test helpers / `noUncheckedIndexedAccess` / log ordering — **ACCEPT** (no contract change).
+6. T2 `NEXT_PUBLIC_APP_URL` in the suite — **ACCEPT** (sibling-suite precedent).
+7. T2 `voice-settings.ts` directory row — **ACCEPT** (closed by T8, see the amended verdict).
+8. T2 tenant-scope allowlist snippet — **ACCEPT** (re-spelled, baseline unchanged).
+9. T2 pre-existing voice route suite — **ACCEPT** (surface amendment #1; re-pointed, no case deleted).
+10. T3 `threshold: 'manual'` fixture — **ACCEPT** (type wins; T6 applied the same fix).
+11. T4 missing helpers / app URL / seam todo / destructure — **ACCEPT**.
+12. T5 flag-off assertion order + three drifts — **ACCEPT** (binding decision wins).
+13. T6 `vetoWindowMinutes | null` + fixture — **ACCEPT** (compile contradiction resolved by widening).
+14. Surface amendment #2 (sibling directory page) — **ACCEPT** (forced by a word cap; docs only).
+15. T7 five live-schema fixture drifts + one TS2367 — **ACCEPT** (schema and landed types over snippets; no production defect surfaced).
+16. T8 three departures — **ACCEPT** with the status-line correction above.
+
+No RE-PLAN remains. No entry invalidates a locked intake decision.
