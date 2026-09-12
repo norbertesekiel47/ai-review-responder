@@ -1,6 +1,6 @@
 # Red team — feat/owner-operator-run-a — ROUND 3
 
-**Status: `CLEAR`** (13 inventory rows: 11 executed, 0 inconclusive, 2 excluded · 27 of 30 mutation runs used). The round closed `OPEN_P1` on R11; the owner accepted R11 as risk on 2026-09-12 (authorization `auth-r11-accepted-risk-2026-09-12` in `findings.json`; the two clauses are corrected in the step-8 PR-description commit), which recomputes the status to `CLEAR`. P2s R9, R12, R13 remain open and never block.
+**Status: `CLEAR`** (13 inventory rows: 11 executed, 0 inconclusive, 2 excluded · 27 of 30 mutation runs used). The round closed `OPEN_P1` on R11; the owner accepted R11 as risk on 2026-09-12 (authorization `auth-r11-accepted-risk-2026-09-12` in `findings.json`; the corrected wording is carried in the PR description's accepted-risk section and lands in the spec in Run B's first docs commit — no further commit is made on this branch after these artifacts, because this evidence is pinned to its head), which recomputes the status to `CLEAR`. P2s R9, R12, R13 remain open and never block.
 
 | Field | Value |
 |---|---|

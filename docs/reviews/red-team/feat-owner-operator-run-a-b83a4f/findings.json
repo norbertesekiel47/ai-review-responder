@@ -238,7 +238,7 @@
       "id": "auth-r11-accepted-risk-2026-09-12",
       "date": "2026-09-12",
       "finding_ids": ["R11"],
-      "text": "Owner (Norbert) selected \"Accept-risk R11, correct the wording at ship\" via AskUserQuestion on 2026-09-12 after round 3 closed OPEN_P1 at the round cap: R11 is a wording inaccuracy in the spec §14 go-live bullet (two of six enumerated terminal paths misdescribed); its conclusion was re-verified true. The two clauses are corrected in the step-8 PR-description commit, a docs-only change the PR shows."
+      "text": "Owner (Norbert) selected \"Accept-risk R11, correct the wording at ship\" via AskUserQuestion on 2026-09-12 after round 3 closed OPEN_P1 at the round cap: R11 is a wording inaccuracy in the spec §14 go-live bullet (two of six enumerated terminal paths misdescribed); its conclusion was re-verified true. The corrected wording is carried in the PR description's accepted-risk section and lands in the spec in Run B's first docs commit; no further commit is made on this branch after the round-3 artifacts, because the red-team evidence is pinned to this head."
     },
     {
       "id": "auth-round-3-2026-09-11",
