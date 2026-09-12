@@ -65,6 +65,7 @@ describe('Sidebar', () => {
         <Sidebar
           businessName="Bristol Bay Coffee"
           solicitationEnabled={false}
+          operatorEnabled={false}
         />,
       ),
     );
@@ -84,7 +85,7 @@ describe('Sidebar', () => {
   it('hides the All Reviews child until the Reviews section is open', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
       ),
     );
     expect(screen.queryByRole('link', { name: /all reviews/i })).not.toBeInTheDocument();
@@ -95,7 +96,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews/history');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
       ),
     );
     expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
@@ -112,7 +113,7 @@ describe('Sidebar', () => {
   it('marks active nav item based on usePathname', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
       ),
     );
     const dash = screen.getByRole('link', { name: /dashboard/i });
@@ -124,7 +125,7 @@ describe('Sidebar', () => {
   it('renders the Reviews nav item (Insights/Past Replies removed)', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/dashboard/reviews');
@@ -135,7 +136,7 @@ describe('Sidebar', () => {
   it('renders the Analytics nav item (final order: Dashboard · Reviews · Analytics · Settings)', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
@@ -145,7 +146,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/analytics');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /^analytics$/i }).className).toContain('active');
@@ -168,7 +169,7 @@ describe('Sidebar', () => {
   it('hides the Requests sidebar row when watch-mode is off', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
       ),
     );
     expect(screen.queryByRole('link', { name: /requests/i })).not.toBeInTheDocument();
@@ -177,7 +178,7 @@ describe('Sidebar', () => {
   it('renders exactly one Requests row, between Reviews and Analytics, when watch-mode is on', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />,
       ),
     );
     const requests = screen.getAllByRole('link', { name: /requests/i });
@@ -199,7 +200,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/requests');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />,
       ),
     );
     const requests = screen.getByRole('link', { name: /requests/i });
@@ -212,7 +213,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/requests/contacts');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" solicitationEnabled />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /requests/i }).className).toContain('active');
@@ -223,7 +224,7 @@ describe('Sidebar', () => {
     const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
     render(
       wrapWithProvider(
-        <Sidebar businessName="Bristol Bay Coffee" solicitationEnabled={false} />,
+        <Sidebar businessName="Bristol Bay Coffee" solicitationEnabled={false} operatorEnabled={false} />,
         {
           locations: [
             { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },
@@ -244,7 +245,7 @@ describe('Sidebar', () => {
     const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
     render(
       wrapWithProvider(
-        <Sidebar businessName="Bristol Bay Coffee" solicitationEnabled={false} />,
+        <Sidebar businessName="Bristol Bay Coffee" solicitationEnabled={false} operatorEnabled={false} />,
         {
           locations: [
             { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },
@@ -276,7 +277,7 @@ describe('Sidebar — section children', () => {
   it('the sidebar lists Needs Action and All Reviews under Reviews', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />),
     );
     expect(screen.getByRole('link', { name: 'Needs Action' })).toHaveAttribute(
       'href',
@@ -291,7 +292,7 @@ describe('Sidebar — section children', () => {
   it('the sidebar lists Contacts and Review QR under Requests', () => {
     pathnameMock.mockReturnValue('/dashboard/requests');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />),
     );
     expect(screen.getByRole('link', { name: 'Contacts' })).toHaveAttribute(
       'href',
@@ -307,7 +308,7 @@ describe('Sidebar — section children', () => {
   it('the sidebar lists Metrics and Restraint under Analytics', () => {
     pathnameMock.mockReturnValue('/dashboard/analytics');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />),
     );
     expect(screen.getByRole('link', { name: 'Metrics' })).toHaveAttribute(
       'href',
@@ -325,7 +326,7 @@ describe('Sidebar — section children', () => {
     // route with no visible way back.
     pathnameMock.mockReturnValue('/dashboard/requests');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />),
     );
     expect(screen.queryByRole('link', { name: 'Requests' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Contacts' })).not.toBeInTheDocument();
@@ -341,7 +342,7 @@ describe('Sidebar — section children', () => {
   it('opens only the ACTIVE section, so two child groups never show at once', () => {
     pathnameMock.mockReturnValue('/dashboard/analytics');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />),
     );
     expect(screen.getByRole('link', { name: 'Restraint' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'All Reviews' })).not.toBeInTheDocument();
@@ -358,7 +359,7 @@ describe('Sidebar — Review QR reachability', () => {
   it('offers Review QR as a top-level row when solicitation is disabled', () => {
     pathnameMock.mockReturnValue('/dashboard');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />),
     );
     expect(screen.getByRole('link', { name: 'Review QR' })).toHaveAttribute(
       'href',
@@ -374,7 +375,7 @@ describe('Sidebar — Review QR reachability', () => {
     // is the drift deriveNavSection exists to prevent.
     pathnameMock.mockReturnValue('/dashboard/requests');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />),
     );
     expect(screen.getAllByRole('link', { name: 'Review QR' })).toHaveLength(1);
   });
@@ -390,7 +391,7 @@ describe('Sidebar — exactly one current page', () => {
   function expectSingleCurrent(pathname: string, section: RegExp, child: string) {
     pathnameMock.mockReturnValue(pathname);
     const { container } = render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />),
     );
     expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
     // The SECTION is still visibly open — `.active` and aria-current are
@@ -412,10 +413,33 @@ describe('Sidebar — exactly one current page', () => {
     expectSingleCurrent('/dashboard/analytics', /^Analytics$/, 'Metrics');
   });
 
+  it('shows the Operator row only when the server-authoritative prop is true', () => {
+    const { unmount } = render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled={false} />,
+      ),
+    );
+    expect(screen.queryByRole('link', { name: /^Operator$/i })).not.toBeInTheDocument();
+    unmount();
+
+    pathnameMock.mockReturnValue('/dashboard/operator');
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} operatorEnabled />,
+      ),
+    );
+    const operator = screen.getByRole('link', { name: /^Operator$/i });
+    expect(operator).toHaveAttribute('href', '/dashboard/operator');
+    // The real `Link` composes the class string, so this suite asserts with
+    // `.className` rather than `toHaveClass` (the file's own idiom).
+    expect(operator.className).toContain('active');
+    expect(operator).toHaveAttribute('aria-current', 'page');
+  });
+
   it('keeps aria-current on the parent when no child owns the page', () => {
     pathnameMock.mockReturnValue('/dashboard/requests');
     render(
-      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled />),
+      wrapWithProvider(<Sidebar businessName="Coffee Co" solicitationEnabled operatorEnabled={false} />),
     );
     // Requests has no self-child, so nothing more specific can claim the page.
     expect(screen.getByRole('link', { name: 'Requests' })).toHaveAttribute(

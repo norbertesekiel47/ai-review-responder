@@ -17,6 +17,10 @@ interface Props {
    *  (authenticated)/layout.tsx. Invariant #13: the browser learns flag state
    *  only through this prop — there is no NEXT_PUBLIC companion. */
   solicitationEnabled: boolean;
+  /** Server-authoritative OWNER_OPERATOR_ENABLED, passed down from
+   *  (authenticated)/layout.tsx. Invariant #13: the browser learns flag state
+   *  only through this prop — there is no NEXT_PUBLIC companion. */
+  operatorEnabled: boolean;
 }
 
 /** One nav row. Pairing className and aria-current here keeps the visual
@@ -136,7 +140,7 @@ function NavChild({ href, label }: { href: string; label: string }) {
   );
 }
 
-export function Sidebar({ businessName, solicitationEnabled }: Props) {
+export function Sidebar({ businessName, solicitationEnabled, operatorEnabled }: Props) {
   const pathname = usePathname() ?? '';
   const { isMultiLocation } = useLocationScope();
   const pendingCount = usePendingCount();
@@ -180,6 +184,14 @@ export function Sidebar({ businessName, solicitationEnabled }: Props) {
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </NavItem>
         {activeNav === 'reviews' && <NavChildren section="reviews" />}
+        {/* The row gets NO NAV_CHILDREN entry — the Operator is one screen, and
+            a self-named child would give a screen reader two identical links to
+            one href (the reason Requests has none, see NAV_CHILDREN above). */}
+        {operatorEnabled && (
+          <NavItem href="/dashboard/operator" section="operator" activeNav={activeNav}>
+            <Icon name="sparkle" /> Operator
+          </NavItem>
+        )}
         {solicitationEnabled && (
           <>
             <NavItem
