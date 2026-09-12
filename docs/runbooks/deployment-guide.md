@@ -206,9 +206,9 @@ deployment is READY and `/login` returns 200. Source production
 `ADMIN_APP_ORIGINS` and `ADMIN_APP_URL` are configured for
 `https://admin.repworth.net`; the rebuilt existing source main returns exact-origin
 preflight 204 and unrelated-origin 403. The deployment and configuration evidence
-is in `evidence/2026-09-11-admin-production-readiness-evidence.md`. This runtime setup does not
-issue the second developer's production account: **#1179 still waits for the
-owner's go-live date**.
+is in `evidence/2026-09-11-admin-production-readiness-evidence.md`. The second
+developer's production admin was minted on 2026-09-11 (#1179, `scripts/mint-admin.ts`
+from a production-scoped shell) and the single-use recovery link delivered by the owner.
 
 > **The Admin app holds public runtime configuration only** — ADR 0024 D1 and
 > ADR 0030 D4. Use the modern publishable key, never the legacy anon key; optional
@@ -216,6 +216,32 @@ owner's go-live date**.
 > Never a `service_role` key, never a `secret` key, never a database URL. The Vercel
 > GitHub App must be granted access to each new org repo
 > by hand; org-level installs here are scoped to selected repositories.
+
+#### §1.1.2 The Admin app — operating workflow (post-split, 2026-09-11)
+
+The split is complete (map #1159, ADRs 0024–0031). Three parts, three owners:
+
+| Part | Where | Who changes it |
+|---|---|---|
+| **Admin app** — the sixteen admin pages, its own login + MFA screens, the **Admin app fetch seam** | `RepWorth/admin-app` → `admin.repworth.net` | the second developer (write on that repo only) |
+| **Admin API** — `src/app/api/admin/**` + `src/lib/admin/**`, bearer-only, exact-origin CORS | this repo → `repworth.net/api/admin/**` | this repo's maintainers |
+| **Impersonation** — `/admin/impersonate/**`, cookie + same-origin, never moves | this repo | this repo's maintainers |
+
+**Request path.** Browser on `admin.repworth.net` → seam adds the Supabase access token as a bearer → cross-origin call to `repworth.net/api/admin/...` → `src/proxy.ts` (CORS allowlist `ADMIN_APP_ORIGINS`, 401 with no bearer) → route gate `requireAdminWithAal2` (token verified locally via `getClaims`, `users.role='admin'`, `aal2`) → `src/lib/admin/*` → Postgres. A cookie-only or `aal1` request is refused (`401` / `403 {error:'mfa_required'}`); the Admin app answers `mfa_required` by opening its own challenge and retrying once.
+
+**An admin's session.** Sign in on the Admin app with the shared Supabase project; enrol in MFA on its Security page at first sign-in (reachable at `aal1` by design); every later sign-in runs the TOTP challenge. Impersonation is a link-out to `repworth.net/admin/impersonate`, where the admin holds a separate cookie session (password + TOTP again); the `rw_impersonation` cookie never leaves this app.
+
+**When an Admin API route changes here.** `ci:admin-contract` fails the PR until `pnpm admin-contract:generate` regenerates `docs/admin-api/`. On merge to `main`, `.github/workflows/admin-contract-delivery.yml` opens (or updates) a PR on `RepWorth/admin-app` from branch `automation/admin-api-contract`; the owner merges it there, and the developer codes against the new `docs/admin-api/admin-api.d.ts`. Breaking changes: land the route change and the Admin app change in the same week, or keep the old shape until the Admin app PR is merged (ADR 0028 D4).
+
+**When the developer needs a new or changed route.** They cannot open issues here. They ask the owner; the owner cuts the ticket in this repo, the route ships with its gate (one of the three `ci:admin-aal2` shapes) and its contract regeneration, and the contract PR carries it across.
+
+**Admins.** Mint: `pnpm tsx scripts/mint-admin.ts --email … --name … --confirm-ref <ref> --env production` from a production-scoped shell (`.env.production.local` via `vercel env pull`); it prints a single-use recovery link — deliver it over a trusted channel and delete the local copy. Revoke / restore: `scripts/revoke-admin.ts` (a reversible Supabase Auth ban, never a row deletion). Runbook: `docs/runbooks/mint-admin.md`. `MFA_ENFORCEMENT_ENABLED` is on in both environments.
+
+**Deploying.** Admin app: PR to `admin-app` `main` (its CI: lint, typecheck, fetch-seam audit, tests, build, then Gate A against the deployed staging app and Gate B against the PR's own build + live staging API) → merge → Vercel deploys `main` to `admin.repworth.net`; push `admin-app` `staging` to redeploy `admin.staging.repworth.net`. Admin API: this repo's normal lane (§"Re-sync staging" after every merge). The two repos deploy independently; the contract is the only coupling.
+
+**Alerting.** The Admin API's caught 500 (`internalError`) reaches Sentry tagged `endpoint:admin-mfa-gate` (#1212); the rule row is in `beta-launch-alerting.md` §1.
+
+**Developer access, verified 2026-09-11.** `write` on `admin-app`, `none` on this repo, outside collaborator of the org. Staging admin `yoknyei@repworth.net` (MFA enrolled); production admin minted 2026-09-11 (#1179), enrols at first sign-in. The Admin app holds the Supabase URL and **publishable** key only.
 
 - [ ] Add the `worker.` CNAME in your DNS panel once the Railway project exists (§5)
       — Railway gives you the target hostname. The staging *worker* can use the free
