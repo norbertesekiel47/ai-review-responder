@@ -84,6 +84,13 @@
 }
 .op-asof { font: var(--rw-app-micro); color: var(--rw-app-text-soft); }
 
+/* The Receipt's record rows, a description list on top of `.op-kv`. A `dl`
+   carries a UA block margin and every `dd` a 40px inline-start indent, and a
+   flex column clears neither — the timeline fact lists reset the same two
+   (src/app/(authenticated)/_styles/console.css:903-905). */
+.op-facts { margin: 0; }
+.op-facts dd { margin: 0; }
+
 .op-receipt {
   display: flex;
   flex-direction: column;

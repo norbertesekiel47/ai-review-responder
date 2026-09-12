@@ -68,3 +68,39 @@ T3 test contradicts.
    `findByText` rejects.
 
 - **Verdict:** ACCEPT
+
+## T4 — 2026-09-12
+
+Four departures from the plan's literal T4 code. Three are assertions or markup the
+plan's own snippets make ambiguous against each other; one is a lease narrowing the
+root handed down after the plan was written.
+
+1. **Title 35's value assertion is the EXACT string, not `/warm and brief/`.** The
+   fixture's `describe` is `Set the reply tone to "warm and brief"`, so the regex matches
+   the card's `h2` as well as the diff's after-tone span — two elements, and `getByText`
+   throws on two. Worse, the regex would have PASSED against the T3 placeholder, which
+   renders the headline and no diff at all: the one thing the line exists to prove is the
+   one thing it could not have caught. `getByText('warm and brief')` matches only the
+   diff value, because Testing Library matches a node's own direct text children.
+2. **The Receipt's date row is labelled `Applied at`, not `Applied`.** `PROPOSAL_APPLIED`
+   is exactly `'Applied'` and the card prints it as the applied state line, so the plan's
+   `<dt>Applied</dt>` put a second node with that exact text inside the same card and
+   title 36's `getByText(PROPOSAL_APPLIED)` threw on two matches. The actor row is
+   `Applied by` for the same reason.
+3. **The Receipt also renders `operation` and `actorUserId`.** The plan's `ReceiptView`
+   snippet omits both, and the T4 brief enumerates them as fields the applied card must
+   show (`operation, scope, before, after actual, effective now, affects, applied at,
+   actor, verbatim owner text, turn id, differsFromPreview`). Added as the `Change` and
+   `Applied by` rows, both passthroughs of the stored JSONB. The record rows are a `dl`,
+   which needs a two-line reset in `operator.css` (`.op-facts`) because a UA `dd` carries
+   a 40px inline-start indent that `.op-kv`'s flex column does not clear — the same reset
+   the timeline fact lists carry (`console.css:903-905`). No token, colour or literal.
+4. **The plan's second `OperatorClient` case is folded INTO R3 rather than added beside
+   it.** The plan's Step 6 appends two cases (`R3` plus a sibling `Refresh plan works
+   under All locations`); the root's T4 lease permits ONLY the R3 todo in that file. Both
+   assertions survive — R3 now drives the Cafe-scope case, unmounts, and re-drives the
+   same stale card under scope `all`, asserting the button is enabled and still posts the
+   Salon. RB-03's disposition ("R3 plus a sibling `all`-scope case") is satisfied by one
+   case instead of two.
+
+Also, R4 is declared non-`async`: the plan marks it `async` and it contains no `await`.

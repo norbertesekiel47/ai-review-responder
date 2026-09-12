@@ -578,5 +578,64 @@ describe('OperatorClient', () => {
   });
 
   // Round-1 addition RB-03, converted by T4 (it wires Refresh plan).
-  it.todo('Refresh plan preserves the original instruction and location after scope changes');
+  it('Refresh plan preserves the original instruction and location after scope changes', async () => {
+    // A STALE plan prepared for the Salon, while the browser now points at the
+    // Cafe. Reading the composer scope here would prepare the replacement for
+    // the wrong location, and `createTurn` would accept it without complaint —
+    // it validates only that the location is an active member of the account
+    // (src/lib/agents/operator/turns.ts:122-129).
+    const stale = {
+      id: PROPOSAL, turnId: TURN, operation: 'set_tone', contractVersion: 1,
+      labelKind: 'fact', locationId: SALON, status: 'stale',
+      rationale: 'You asked for warmer replies.', input: { tone: 'warm and brief' },
+      before: { tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      after: { tone: 'warm and brief', productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      describe: 'Set the reply tone to "warm and brief"',
+      preparedVersionToken: { businessId: SALON, updatedAt: '2026-09-12 09:00:00.111111+00' },
+      receipt: null, appliedAt: null, failureReason: 'version_mismatch',
+    };
+    const staleConversation = (): Array<[RegExp, () => { status: number; body: unknown }]> => [
+      [/^GET .*\/api\/operator\/conversation/, () => ({
+        status: 200,
+        body: conversationWith([storedTurn({ proposals: [stale] })]),
+      })],
+      [/^POST .*\/api\/operator\/turns$/, () => ({ status: 200, body: { conversationId: CONVERSATION, turnId: TURN } })],
+      [/^GET .*\/api\/operator\/turns\//, () => ({ status: 200, body: turnBody() })],
+    ];
+
+    const fetchMock = routeFetch(staleConversation());
+    vi.stubGlobal('fetch', fetchMock);
+    searchParamsMock.value = new URLSearchParams({ conversationId: CONVERSATION });
+
+    // THE SELECTOR HAS MOVED to the Cafe.
+    scopeMock.value = CAFE;
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const moved = render(<OperatorClient />);
+
+    await user.click(await screen.findByRole('button', { name: 'Refresh plan' }));
+    await waitFor(() => expect(postBodies(fetchMock)).toHaveLength(1));
+    const [refreshed] = postBodies(fetchMock);
+    // The ORIGINAL instruction and the ORIGINAL location, verbatim.
+    expect(refreshed.text).toBe('Make my replies warmer.');
+    expect(refreshed.locationId).toBe(SALON);
+    // A NEW key: this is a new turn, not a replay of the old one.
+    expect(refreshed.clientTurnKey).not.toBe(stale.preparedVersionToken.updatedAt);
+    expect(typeof refreshed.clientTurnKey).toBe('string');
+    moved.unmount();
+
+    // AND UNDER `All locations`. The composer is disabled there, but the plan
+    // already names its location — refusing to refresh it would leave the
+    // owner with a dead card and no way back except changing a selector the
+    // card does not use.
+    const underAll = routeFetch(staleConversation());
+    vi.stubGlobal('fetch', underAll);
+    scopeMock.value = 'all';
+    render(<OperatorClient />);
+
+    const button = await screen.findByRole('button', { name: 'Refresh plan' });
+    expect(button).toBeEnabled();
+    await user.click(button);
+    await waitFor(() => expect(postBodies(underAll)).toHaveLength(1));
+    expect(postBodies(underAll)[0].locationId).toBe(SALON);
+  });
 });

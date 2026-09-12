@@ -8,17 +8,21 @@ export interface RequestedCapabilityCardProps {
 }
 
 /**
- * T4 owns the body. No button, ever — a **Requested capability** is not a Proposal.
+ * A **Requested capability** (spec §3.3). A SEPARATE KIND, not a Proposal with
+ * no button: the two travel under separate response keys (`proposals`,
+ * `unsupported`) so a renderer can never grow an Apply affordance onto one.
+ * There is no interactive element in this component at all, which is what the
+ * test asserts.
  *
- * The refusal sentence ships with the placeholder rather than waiting for T4:
- * T3's own R7 case asserts it, because a card that names what the owner asked
- * for without saying it cannot be done reads as a pending action.
+ * The card is the server's NORMALIZED request text plus the fixed refusal
+ * sentence, and nothing else — naming what the owner asked for without saying
+ * it cannot be done reads as a pending action.
  */
 export function RequestedCapabilityCard({ request }: RequestedCapabilityCardProps) {
   return (
     <section className="card op-card">
       <h2 className="card-h2">{request}</h2>
-      <p className="op-body">{CANNOT_DO_YET}</p>
+      <p className="op-state-line">{CANNOT_DO_YET}</p>
     </section>
   );
 }
