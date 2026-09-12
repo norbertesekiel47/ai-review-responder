@@ -327,11 +327,16 @@ email shares the Resend provider with the product.
   `queue:agent_turn`, emitted by `reportJobFailure` in
   `worker/job-failure-sink.ts` (`captureException`, level `error` by default,
   grouped by Sentry's exception fingerprint; `topic` is a tag too and equals
-  `agent_turn`). One event means one owner's Operator message ran out of BullMQ
-  retries and the turn ended `failure_reason = exhausted` through
-  `worker/jobs/agent-turn/failed-hook.ts`, so the owner never receives a reply:
-  page on **every event**, Discord channel through the integration (click-path
-  row 11). The companion signal — a `job_outbox` row for topic `agent_turn` that
+  `agent_turn`). One event means one `agent_turn` JOB exhausted its BullMQ
+  retries — `reportJobFailure` fires on every terminal `failed` event. What it
+  means for the TURN depends on ownership: `worker/jobs/agent-turn/failed-hook.ts`
+  ends the turn `failure_reason = exhausted` only when its `markOutboxFailed`
+  CAS still owns the outbox row; a superseded dispatch logs
+  `agent_turn exhaustion for a superseded dispatch` and leaves the turn to the
+  attempt that owns it, so a paged event can belong to a turn another attempt is
+  running or has already completed. Read `agent_turns.status` for the
+  `turn_id` before treating the event as an unanswered owner message. Page on
+  **every event**, Discord channel through the integration (click-path row 11). The companion signal — a `job_outbox` row for topic `agent_turn` that
   lands `failed`, by dispatch exhaustion or by the watchdog terminalising a
   long-`dispatched` row — is `outbox_failed:agent_turn` from
   `checkFailedOutboxByTopic` and rides **rule 1**; the topic joined that CLOSED
@@ -339,7 +344,8 @@ email shares the Resend provider with the product.
   covered, by design and recorded in the Owner Operator spec §14: the six domain
   terminal reasons (`operator_disabled` through `budget_exceeded`) complete the
   job normally and emit structured logs only, and the watchdog's re-pend of a
-  stuck `dispatched` row is a topic-aggregated log line. `OWNER_OPERATOR_ENABLED`
+  stuck `dispatched` row is one count-only log line (`Watchdog recovered stale
+  entries`: `recovered`, `failed`, `stale_dispatching` — no topic field). `OWNER_OPERATOR_ENABLED`
   is off in production until go-live, so this rule pages nothing before then.
 
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
