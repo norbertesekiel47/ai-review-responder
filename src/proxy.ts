@@ -11,6 +11,8 @@ import {
 } from '@/lib/shared/protected-routes';
 import { REQUEST_PATHNAME_HEADER } from '@/lib/shared/request-path-header';
 import { mfaEnforcementEnabled } from '@/lib/auth/flags';
+import { readBearerToken } from '@/lib/auth/admin-transport';
+import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import {
   AdminOriginConfigError,
   isAllowedAdminOrigin,
@@ -201,9 +203,12 @@ async function handleProxy(request: NextRequest): Promise<NextResponse> {
 
   // Ordinary Admin API requests reach the canonical bearer-only route gates
   // after CORS, without constructing or refreshing an ambient cookie session.
-  // This is unconditional: absent/malformed credentials are the gate's 401.
+  // Reject absent/malformed tokens before channel feature/config checks can run.
   // Only permanent impersonation keeps the existing cookie proxy (ADR 0031 D6).
   if (isAdminApiRoute(routePath) && !isAdminImpersonationApiRoute(routePath)) {
+    if (readBearerToken(request) === null) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE_HEADERS });
+    }
     return NextResponse.next({ request: createDownstreamRequest() });
   }
 

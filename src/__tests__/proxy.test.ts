@@ -168,15 +168,16 @@ describe('Admin API bearer transport', () => {
     expect(createServerClient).not.toHaveBeenCalled();
   });
 
-  it('defers malformed Authorization to the canonical gate without consulting cookies', async () => {
+  it('refuses malformed Authorization before route work without consulting cookies', async () => {
     getUser.mockResolvedValue({ data: { user: { id: 'admin-auth' } } });
     selfRow.value = { role: 'admin', account_id: null };
     for (const authorization of ['', 'Basic abc', 'Bearer', 'Bearer a b']) {
       const response = await proxy(new NextRequest('https://repworth.net/api/admin/overview', {
         headers: { authorization, cookie: 'sb-session=valid-admin', origin: 'https://admin.example.com' },
       }));
-      expect(response.headers.get('x-middleware-next')).toBe('1');
-      expect(response.headers.get('x-middleware-request-authorization')).toBe(authorization);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'Unauthorized' });
+      expect(response.headers.get('cache-control')).toBe('no-store, private');
       expect(response.headers.get('set-cookie')).toBeNull();
       expect(response.headers.get('access-control-allow-origin')).toBe('https://admin.example.com');
       expect(createServerClient).not.toHaveBeenCalled();
@@ -184,18 +185,43 @@ describe('Admin API bearer transport', () => {
   });
 
   it.each(['/api/admin/overview', '/api/admin/impersonation-extra', '/api/admin/impersonations/start'])(
-    'defers cookie-only %s to the bearer gate without refreshing cookies',
+    'refuses cookie-only %s without refreshing cookies',
     async (path) => {
       setSupabaseCookies.value = true;
       const response = await proxy(new NextRequest(`https://repworth.net${path}`, {
         headers: { cookie: 'sb-session=valid-admin' },
       }));
-      expect(response.headers.get('x-middleware-next')).toBe('1');
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'Unauthorized' });
+      expect(response.headers.get('cache-control')).toBe('no-store, private');
       expect(response.headers.get('set-cookie')).toBeNull();
       expect(createServerClient).not.toHaveBeenCalled();
       expect(getUser).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ['/api/admin/channels/telegram/start', 'disabled'],
+    ['/api/admin/channels/whatsapp/start', 'missing-env'],
+    ['/api/admin/channels/telegram/cancel', 'disabled'],
+    ['/api/admin/channels/whatsapp/disable', 'missing-env'],
+  ])('refuses absent or malformed credentials before %s %s checks', async (path, state) => {
+    vi.stubEnv('CHANNELS_TELEGRAM_ENABLED', state === 'disabled' ? 'false' : 'true');
+    vi.stubEnv('CHANNELS_WHATSAPP_ENABLED', state === 'disabled' ? 'false' : 'true');
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', '');
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', '');
+    for (const authorization of [undefined, '', 'Basic invalid', 'Bearer']) {
+      const headers = new Headers({ cookie: 'sb-session=valid-admin' });
+      if (authorization !== undefined) headers.set('authorization', authorization);
+      const response = await proxy(new NextRequest(`https://repworth.net${path}`, { method: 'POST', headers }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'Unauthorized' });
+      expect(response.headers.get('cache-control')).toBe('no-store, private');
+      expect(response.headers.get('x-middleware-next')).toBeNull();
+      expect(response.headers.get('set-cookie')).toBeNull();
+      expect(createServerClient).not.toHaveBeenCalled();
+    }
+  });
 
   it('keeps impersonation on the cookie path', async () => {
     for (const path of ['/api/admin/impersonation', '/api/admin/impersonation/start', '/api/admin/impersonation/end']) {
@@ -509,8 +535,8 @@ describe('admin API CORS', () => {
   it('echoes Access-Control-Allow-Origin for an allowlisted admin origin', async () => {
     const response = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
 
-    // The route's bearer gate owns authentication; proxy contributes CORS.
-    expect(response.headers.get('x-middleware-next')).toBe('1');
+    // Missing bearer is refused before route work; CORS still reaches the browser.
+    expect(response.status).toBe(401);
     expect(response.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
     expect(createServerClient).not.toHaveBeenCalled();
   });
@@ -590,10 +616,11 @@ describe('admin API CORS', () => {
     expect(createServerClient).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves an admin API request with no Origin header to the canonical bearer gate', async () => {
+  it('refuses an admin API request without a bearer even when Origin is absent', async () => {
     const response = await proxy(corsRequest(ADMIN_API_URL));
 
-    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: 'Unauthorized' });
     expect(response.headers.get('set-cookie')).toBeNull();
     expect(response.headers.get('access-control-allow-origin')).toBeNull();
     expect(createServerClient).not.toHaveBeenCalled();
@@ -785,11 +812,11 @@ describe('admin API CORS', () => {
     expect(accessControlHeaderNames(refused)).toEqual([]);
   });
 
-  it('lets an OPTIONS request with no Origin reach the route handler and adds only Vary', async () => {
-    // Not a preflight: no Origin, so no CORS check and no short-circuit.
+  it('refuses an OPTIONS request without Origin or bearer and adds only Vary', async () => {
+    // Not a preflight: an absent bearer still gets the ordinary 401.
     const response = await proxy(corsRequest(ADMIN_API_URL, { method: 'OPTIONS' }));
 
-    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(response.status).toBe(401);
     expect(response.headers.get('vary')).toBe('Origin');
     expect(accessControlHeaderNames(response)).toEqual([]);
     expect(createServerClient).not.toHaveBeenCalled();

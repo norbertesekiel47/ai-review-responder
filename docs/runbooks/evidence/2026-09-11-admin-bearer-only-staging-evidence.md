@@ -22,7 +22,7 @@ Execution contract: [.agents/skills/runbook/SKILL.md](../../../.agents/skills/ru
 |---|---|---|
 | Prerequisite retirements | #1193 merged after all ten tranche-4 retirements | Before campaign |
 | Vercel CLI | Existing authenticated session confirmed | 2026-09-12T01:56Z |
-| Local validation | Full suite: 15,454 passed / 11 expected skips; lint/typecheck pass; build pending | 2026-09-12T01:56Z |
+| Local validation | Full suite: 15,454 passed / 11 expected skips; lint/typecheck pass; build pass | 2026-09-12T01:56Z |
 | Canonical gates and contract | 37 routes / 5 pages pass; 19 generated artifacts match | 2026-09-12T01:56Z |
 | Computer Use | Unavailable; automated checks must not be described as Computer Use | 2026-09-12T01:56Z |
 | Live alias/environment pins | Source READY `dpl_G6php8zX64yu5XmKT7tVeCcnVmzQ` at `f747cb7b`; Admin READY `dpl_5Mq5BLSYQ9rVAnM2YCiFPSQEkJv1` at `44452f060`; both expected custom environments and aliases verified. All nine public baseline checks passed. | 2026-09-12T01:57:44Z |
@@ -50,6 +50,8 @@ Execution contract: [.agents/skills/runbook/SKILL.md](../../../.agents/skills/ru
 
 - D-1 (2026-09-12T01:56Z): Initial local validation exposed stale cookie-route expectations, unused imports and a documentation word-cap breach; corrected before staging. The contract generator does not follow a plain identifier alias after removing a wrapper, so ordinary routes now use direct exported functions. Generated schema changes contain source-line citations only, with request/response shapes unchanged.
 - D-2 (2026-09-12T01:56Z): Computer Use is unavailable. The owner acceptance of browser gaps for #1253 does not apply to this ticket. The separate #1203 live-cookie checks remain open until demonstrated or explicitly accepted.
+
+- D-3 (2026-09-12T02:07Z): Standards review found that removing the proxy's token syntax refusal let absent/malformed credentials reach the channel runners' feature/environment checks. The proxy now uses the existing bearer parser to refuse these requests with no-store 401 before any route work. Valid-shaped bearers still reach the canonical verification gate, with no cookie fallback. New regressions cover disabled/missing-environment channel states.
 
 ## Unproven paths
 
