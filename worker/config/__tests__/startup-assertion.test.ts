@@ -111,6 +111,7 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
     'GOVERNOR_ENABLED',
     'JUDGE_ENABLED',
+    'OWNER_OPERATOR_ENABLED',
     'STRIPE_TAX_ENABLED',
   ];
 
@@ -157,12 +158,25 @@ describe('assertServerOnlyFeatureOptionalBooleansEnv', () => {
     );
   });
 
-  it.each(['JUDGE_ENABLED', 'GOVERNOR_ENABLED'] as const)(
+  it.each(['JUDGE_ENABLED', 'GOVERNOR_ENABLED', 'OWNER_OPERATOR_ENABLED'] as const)(
     'rejects loose %s values',
     (key) => {
       process.env[key] = '1';
 
       expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).toThrow(key);
+    },
+  );
+
+  // "Unset is fine" asserted rather than assumed: a default-off flag that
+  // accidentally became REQUIRED would fail boot everywhere and no other case
+  // in this file would say why.
+  it.each([undefined, 'true', 'false'] as const)(
+    'accepts OWNER_OPERATOR_ENABLED=%s',
+    (value) => {
+      if (value === undefined) delete process.env.OWNER_OPERATOR_ENABLED;
+      else process.env.OWNER_OPERATOR_ENABLED = value;
+
+      expect(() => assertServerOnlyFeatureOptionalBooleansEnv()).not.toThrow();
     },
   );
 
@@ -441,6 +455,7 @@ describe('assertWorkerStartupEnv', () => {
     'AUTO_APPROVAL_PROVIDER_MODERATION_READY',
     'GOVERNOR_ENABLED',
     'JUDGE_ENABLED',
+    'OWNER_OPERATOR_ENABLED',
     'STRIPE_TAX_ENABLED',
     ...TIER_COST_LIMIT_ENV_VARS,
     ...STRIPE_WORKER_REQUIRED,
@@ -499,7 +514,7 @@ describe('assertWorkerStartupEnv', () => {
     expect(() => assertWorkerStartupEnv()).toThrow(/ACCOUNT_OFFBOARDING_ENABLED/);
   });
 
-  it.each(['JUDGE_ENABLED', 'GOVERNOR_ENABLED'] as const)(
+  it.each(['JUDGE_ENABLED', 'GOVERNOR_ENABLED', 'OWNER_OPERATOR_ENABLED'] as const)(
     'rejects loose %s through the aggregate startup guard',
     (key) => {
       setEnv('NODE_ENV', 'test');
@@ -1190,24 +1205,26 @@ describe('assertSummedLlmWorkerSlots', () => {
     );
   });
 
-  it('passes the ADR 0005 flag-on envelope at exactly 11 (sum 9 + two flag-gated lanes)', () => {
+  it('passes the ADR 0005 flag-on envelope at exactly 12 (sum 9 + three flag-gated lanes)', () => {
     const entries = [
       ...nonGatedAtNine,
       { queueName: 'judge_verdict', opts: { concurrency: 1 }, flagGated: true },
       { queueName: 'generate_solicitation_asks', opts: { concurrency: 1 }, flagGated: true },
+      { queueName: 'agent_turn', opts: { concurrency: 1 }, flagGated: true },
     ];
     expect(() => assertSummedLlmWorkerSlots(entries)).not.toThrow();
   });
 
-  it('fails boot when a third flag-gated lane pushes the flag-on envelope to 12', () => {
+  it('fails boot when a fourth flag-gated lane pushes the flag-on envelope to 13', () => {
     const entries = [
       ...nonGatedAtNine,
       { queueName: 'judge_verdict', opts: { concurrency: 1 }, flagGated: true },
       { queueName: 'generate_solicitation_asks', opts: { concurrency: 1 }, flagGated: true },
-      { queueName: 'third_gated_lane', opts: {}, flagGated: true },
+      { queueName: 'agent_turn', opts: { concurrency: 1 }, flagGated: true },
+      { queueName: 'fourth_gated_lane', opts: {}, flagGated: true },
     ];
     expect(() => assertSummedLlmWorkerSlots(entries)).toThrow(
-      /third_gated_lane.*flag-gated.*12.*flag-on envelope of 11/,
+      /fourth_gated_lane.*flag-gated.*13.*flag-on envelope of 12/,
     );
   });
 });

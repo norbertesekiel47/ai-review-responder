@@ -453,6 +453,31 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
       DELETE FROM refusal_events
       WHERE account_id = ${row.account_id}::uuid
     `;
+    // The four Owner Operator tables (migration 120), children first:
+    // unsupported requests -> proposals -> turns -> conversations. Not optional
+    // and not covered by any cascade that a purge triggers — the accounts,
+    // users and businesses roots are all retained, so the ON DELETE CASCADE
+    // columns these tables carry point at relations this block is itself
+    // deleting. Ordering them explicitly means the block is correct whether or
+    // not those cascades fire. Every DELETE is account-scoped and none joins
+    // through businesses: two of the four have no location column and the
+    // third's is nullable.
+    await tx`
+      DELETE FROM agent_unsupported_requests
+      WHERE account_id = ${row.account_id}::uuid
+    `;
+    await tx`
+      DELETE FROM agent_proposals
+      WHERE account_id = ${row.account_id}::uuid
+    `;
+    await tx`
+      DELETE FROM agent_turns
+      WHERE account_id = ${row.account_id}::uuid
+    `;
+    await tx`
+      DELETE FROM agent_conversations
+      WHERE account_id = ${row.account_id}::uuid
+    `;
   });
 }
 

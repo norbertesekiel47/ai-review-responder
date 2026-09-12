@@ -26,6 +26,8 @@ import { handleAutonomySuspendedNotice } from './jobs/autonomy-suspended-notice/
 import { handleAutonomyAdminAlert } from './jobs/AutonomyAdminAlertWorker';
 import { handleJudgeVerdict } from './jobs/judge/JudgeWorker';
 import { handleJudgeFailed } from './jobs/judge/failed-hook';
+import { handleAgentTurn } from './jobs/agent-turn/AgentTurnWorker';
+import { handleAgentTurnFailed } from './jobs/agent-turn/failed-hook';
 import { handleCsvIngest } from './jobs/csv-ingest';
 import { handleCsvIngestFailed } from './jobs/csv-ingest/failed-hook';
 import { handleSolicitationBatch } from './jobs/solicitation-batch';
@@ -58,6 +60,7 @@ import type {
   AutonomySuspendedNoticePayload,
   AutonomyAdminAlertPayload,
   JudgeVerdictPayload,
+  AgentTurnPayload,
   PublishResponsePayload,
   CsvIngestPayload,
   BuildSolicitationBatchPayload,
@@ -291,6 +294,17 @@ const judgeVerdictWorker = new Worker<JudgeVerdictPayload>(
 
 judgeVerdictWorker.on('failed', (job, err) => handleJudgeFailed(sql, job, err));
 
+// Owner Operator Run A. Default concurrency (1 slot) is deliberate: the claim
+// protocol serializes a conversation anyway, and the flag-on envelope
+// (ADR 0005, cap 12) has exactly one slot budgeted for this lane.
+const agentTurnWorker = new Worker<AgentTurnPayload>(
+  QUEUE_NAMES.AGENT_TURN,
+  withJobLogContext<AgentTurnPayload>((job) => handleAgentTurn(sql, job)),
+  workerOpts,
+);
+
+agentTurnWorker.on('failed', (job, err) => handleAgentTurnFailed(sql, job, err));
+
 // Contacts/visits CSV ingest (#541). Default concurrency 1 slot is fine: the
 // per-business advisory lock inside ingestContactsCsvUpload serializes same-
 // business ingests anyway, and uploads are rare owner-initiated events.
@@ -419,6 +433,15 @@ assertSummedLlmWorkerSlots([
     // The non-gated sum sits at the cap (9), so this entry MUST stay gated.
     flagGated: true,
   },
+  {
+    queueName: QUEUE_NAMES.AGENT_TURN,
+    opts: agentTurnWorker.opts,
+    // Gated by OWNER_OPERATOR_ENABLED at the route AND inside the handler
+    // (flag off ⇒ the turn fails operator_disabled, zero LLM calls) — the
+    // judge posture. The non-gated sum sits at the cap (9), so this entry MUST
+    // stay gated.
+    flagGated: true,
+  },
 ]);
 
 const updateStripeOverageWorker = new Worker<UpdateStripeOveragePayload>(
@@ -503,6 +526,7 @@ const workersByQueue = {
   [QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE]: autonomySuspendedNoticeWorker,
   [QUEUE_NAMES.AUTONOMY_ADMIN_ALERT]: autonomyAdminAlertWorker,
   [QUEUE_NAMES.JUDGE_VERDICT]: judgeVerdictWorker,
+  [QUEUE_NAMES.AGENT_TURN]: agentTurnWorker,
   [QUEUE_NAMES.CSV_INGEST]: csvIngestWorker,
   [QUEUE_NAMES.BUILD_SOLICITATION_BATCH]: solicitationBatchWorker,
   [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: generateSolicitationAsksWorker,

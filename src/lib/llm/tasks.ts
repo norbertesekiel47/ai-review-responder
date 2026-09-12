@@ -2,6 +2,7 @@ import type { LLMTaskDescriptor, LLMTaskId } from './types';
 import { TriageOutputSchema } from '@/lib/reviews/triage-schema';
 import { JudgeOutputSchema } from '@/lib/responses/judge-schema';
 import { SolicitationAskOutputSchema } from '@/lib/solicitation/ask-schema';
+import { OperatorModelOutputSchema } from '@/lib/agents/operator/schema';
 
 // Pinned snapshots — never a bare alias like 'gpt-4o-mini' (silent-regression
 // risk). Guarded by model-pinning.test.ts. Single owner: consumers import
@@ -52,6 +53,19 @@ const LLM_TASKS: Record<LLMTaskId, LLMTaskDescriptor> = {
     // near-identical bodies. Structured output does NOT imply temperature 0 here.
     temperature: 0.6,
     outputSchema: SolicitationAskOutputSchema,
+  },
+  owner_operator: {
+    taskId: 'owner_operator',
+    primary: { provider: 'openai', model: OPENAI_MODEL },
+    fallback: { provider: 'anthropic', model: ANTHROPIC_MODEL },
+    // 1200 by design: an Operator reply is an ordered segment list plus up to
+    // five proposals with rationales — several times a judge verdict's budget.
+    maxTokens: 1200,
+    // 0.2, not 0: structured planning output that still needs to read as a
+    // sentence. Below reply_generation's 0.7 because a proposal is a contract,
+    // not prose. Spec §14 leaves the MODEL choice open; this run only pins it.
+    temperature: 0.2,
+    outputSchema: OperatorModelOutputSchema,
   },
 };
 

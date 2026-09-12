@@ -22,6 +22,7 @@ RepWorth's domain glossary is multi-context. Each context below is one file unde
 - [Admin invite funnel](./docs/context/admin-invite-funnel.md) — the staff-minted account, its durable checkout lease, the one server-computed destination an owner is owed, and the beta comp coupon. Terms: **Admin invite**, **Checkout attempt**, **Funnel entry**, **Beta comp coupon**.
 - [Refusal ledger](./docs/context/refusal-ledger.md) — what RepWorth decided not to do and recorded when it decided, its owner-facing category axis, the Restraint tab, and the section's open-work list. Terms: **Refusal**, **Refusal source**, **Refusal category**, **Restraint tab**, **Coverage start**, **Ledger attribution**.
 - [Stripe Customer redaction](./docs/context/stripe-customer-redaction.md) — the `delete_data` purge stage against Stripe and the provider-retention inventory it reads. Terms: **Stripe Customer redaction**, **Provider data retention**.
+- [Owner Operator](./docs/context/owner-operator.md) — the conversational configuration surface: one owner message, one model reply built of validated segments, and the stored proposals it prepares but never applies. Terms: **Operator turn**, **Turn claim**, **Fenced completion**, **Context snapshot**, **Reply segment**, **Proposal**, **Requested capability**, **Contract version**, **Version token**, **Operating rules**, **Pasted-review scrub**, **Operator flag**.
 
 ## Relationships
 
@@ -33,3 +34,4 @@ RepWorth's domain glossary is multi-context. Each context below is one file unde
 - **Core reviews → Send-mode parts 2 and 3**: **Approval method** names the two ways a response earns posting (`owner` | `auto_policy`); **Owner approval** (`approval_method='owner'`) and the **Auto-approval lane** (`approval_method='auto_policy'`) are the solicitation send lane's two instances of it.
 - **Refusal ledger ← solicitation and response lanes**: an **Ask** withheld at build, an Outreach withheld at send, a batch halted, and a draft a policy gate held are each a **Refusal**; an owner act (`owner_veto`, `owner_halt`, `owner_excluded`, `owner_withdrawn`) is the owner's decision and is not.
 - **Admin invite funnel → Core accounts**: an **Admin invite** is an **Account** minted by staff, and the **Checkout attempt** is the **Account**-owned durable lease.
+- **Owner Operator → Core reviews**: a **Proposal** never posts; a voice **Proposal** changes only future drafts.

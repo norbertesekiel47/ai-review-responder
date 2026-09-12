@@ -78,6 +78,12 @@ export const queues = {
   escalationNotice: new Queue(QUEUE_NAMES.ESCALATION_NOTICE, { connection: opts, defaultJobOptions }),
   pendingPostNotice: new Queue(QUEUE_NAMES.PENDING_POST_NOTICE, { connection: opts, defaultJobOptions }),
   judgeVerdict: new Queue(QUEUE_NAMES.JUDGE_VERDICT, { connection: opts, defaultJobOptions }),
+  // Owner Operator Run A. llmJobOptions (5 attempts), NOT defaultJobOptions:
+  // the handler makes one cost-guarded provider call, so a short provider blip
+  // should be absorbed in-band rather than stalling the turn until the outbox
+  // watchdog re-pends it. Retries are spend-safe — the reservation precedes
+  // every call and the claim protocol means only one attempt ever commits.
+  agentTurn: new Queue(QUEUE_NAMES.AGENT_TURN, { connection: opts, defaultJobOptions: llmJobOptions }),
   autonomySuspendedNotice: new Queue(QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE, { connection: opts, defaultJobOptions }),
   autonomyAdminAlert: new Queue(QUEUE_NAMES.AUTONOMY_ADMIN_ALERT, { connection: opts, defaultJobOptions }),
   csvIngest: new Queue(QUEUE_NAMES.CSV_INGEST, { connection: opts, defaultJobOptions }),
@@ -138,6 +144,7 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.ESCALATION_NOTICE]: queues.escalationNotice,
   [QUEUE_NAMES.PENDING_POST_NOTICE]: queues.pendingPostNotice,
   [QUEUE_NAMES.JUDGE_VERDICT]: queues.judgeVerdict,
+  [QUEUE_NAMES.AGENT_TURN]: queues.agentTurn,
   [QUEUE_NAMES.AUTONOMY_SUSPENDED_NOTICE]: queues.autonomySuspendedNotice,
   [QUEUE_NAMES.AUTONOMY_ADMIN_ALERT]: queues.autonomyAdminAlert,
   [QUEUE_NAMES.CSV_INGEST]: queues.csvIngest,

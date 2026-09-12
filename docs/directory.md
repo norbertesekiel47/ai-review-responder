@@ -45,6 +45,7 @@ Every page starts with the verbatim `##` root heading of the folder it inventori
 | [`docs/directory/lib-dashboard-locations-accounts.md`](directory/lib-dashboard-locations-accounts.md) | `src/lib/` — `config/`, `dashboard/`, `locations/`, `accounts/`, `past-replies/`. |
 | [`docs/directory/lib-reviews-responses.md`](directory/lib-reviews-responses.md) | `src/lib/` — `reviews/`, `responses/`, `moderation/`, `approval/`, `auto-approval/`, `escalations/`. |
 | [`docs/directory/lib-refusals.md`](directory/lib-refusals.md) | `src/lib/refusals/` — the Refusal ledger. |
+| [`docs/directory/lib-owner-operator.md`](directory/lib-owner-operator.md) | `src/lib/` — `agents/operator/` (Owner Operator Run A) + `responses/voice-settings.ts` (`` ### `responses/` (continued) ``). Both default pages (lib-platform.md, lib-reviews-responses.md) were at the 3,000-word cap, so these rows went to a sibling. |
 | [`docs/directory/lib-solicitation-a.md`](directory/lib-solicitation-a.md) | `src/lib/solicitation/` part 1 of 3 (the folder's 5,900-word inventory is split at table boundaries; `approval.ts` alone is a 900-word row). |
 | [`docs/directory/lib-solicitation-b.md`](directory/lib-solicitation-b.md) | `src/lib/solicitation/` part 2 of 3 (`` ### `solicitation/` (continued) ``). |
 | [`docs/directory/lib-solicitation-c.md`](directory/lib-solicitation-c.md) | `src/lib/solicitation/` part 3 of 3 (`` ### `solicitation/` (continued) ``). |
@@ -52,7 +53,7 @@ Every page starts with the verbatim `##` root heading of the folder it inventori
 | [`docs/directory/lib-admin-onboarding-payments.md`](directory/lib-admin-onboarding-payments.md) | `src/lib/` — `admin/`, `onboarding/`, `payments/`. |
 | [`docs/directory/lib-account-offboarding.md`](directory/lib-account-offboarding.md) | `src/lib/account-offboarding/` — owner offboarding (cancel_only / delete_data / purge). |
 | [`docs/directory/worker-root.md`](directory/worker-root.md) | `worker/` intro + root modules (`env.ts`, `index.ts`, `queues.ts`, `internal/queue-health.ts`, boot/lifecycle/sinks) + `worker/config/`. |
-| [`docs/directory/worker-jobs-a.md`](directory/worker-jobs-a.md) | `worker/jobs/` part 1 — the BullMQ job-handler table + `csv-ingest/`, `judge/`, `autonomy-suspended-notice/`, `notification/`, `escalation-notice/`, `auto-post-notice/`, `pending-post-notice/`, `solicitation-veto-notice/`. |
+| [`docs/directory/worker-jobs-a.md`](directory/worker-jobs-a.md) | `worker/jobs/` part 1 — the BullMQ job-handler table + `csv-ingest/`, `judge/`, `agent-turn/`, `autonomy-suspended-notice/`, `notification/`, `escalation-notice/`, `auto-post-notice/`, `pending-post-notice/`, `solicitation-veto-notice/`. |
 | [`docs/directory/worker-jobs-b.md`](directory/worker-jobs-b.md) | `worker/jobs/` part 2 (`` ### `worker/jobs/` (continued) ``) — `publisher/`, `response-generation/`. |
 | [`docs/directory/worker-jobs-c.md`](directory/worker-jobs-c.md) | `worker/jobs/` part 3 — `zernio/`, `onboarding-demo/`, `solicitation-batch/`, `solicitation-send/`, `billing/`, `account-offboarding/`. |
 | [`docs/directory/worker-background.md`](directory/worker-background.md) | `worker/background/` — shared loop primitives, `pollers/` (+ `billing-reconciliation/`, `health-alert/`), `schedulers/`. |

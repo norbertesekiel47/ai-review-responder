@@ -1,0 +1,2083 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-owner-operator-run-a-b83a4f",
+  "branch": "feat/owner-operator-run-a",
+  "fork_sha": "10c9444a9832cae0e45854f1d19cb124bb2ee5e9",
+  "merge_base_sha": "10c9444a9832cae0e45854f1d19cb124bb2ee5e9",
+  "head_sha": "7583062a4ea206702bab339930a315fdd6875496",
+  "intake_sha256": "43b0b7ef5336f5081e6877cb6eaab8f6f8d138521332e8529df47d47cb43e89d",
+  "risk": "high",
+  "round": 3,
+  "generated_at": "2026-09-12T10:33:53Z",
+  "inventory": [
+    {
+      "id": "INV-001",
+      "test": "validator rejects a text segment that invents a count next to a metric word",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m1: validateTextSegments invented-count rule (render.ts:134-136). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-002",
+      "test": "validator rejects a text segment that claims a change was applied before any click",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m2: validateTextSegments completion-claim rule (render.ts:137-139). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-003",
+      "test": "validator applies the count and completion patterns to question segments, not only text",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m3: validateTextSegments prose-member guard, question arm (render.ts:133). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-004",
+      "test": "validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m4: validateRefSegments status_ref membership rule (render.ts:152-154). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-005",
+      "test": "validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m5: validateRefSegments proposal_ref bound, >= to > (render.ts:155). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-006",
+      "test": "validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m6: validateScopeCheck stored-location comparison inverted (render.ts:172). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-007",
+      "test": "validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m8: validateScopeCheck coexistence rule (render.ts:183-185). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-008",
+      "test": "validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m11: validateProposalScope location-scoped-must-name-location rule (render.ts:207-209). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-009",
+      "test": "validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m12: validateProposals unknown-operation rule (render.ts:227-229). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-010",
+      "test": "scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m15: scrubPastedReview block splitting (render.ts:64). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-011",
+      "test": "scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation r-m16: scrubPastedReview rating-header carries the next block (render.ts:73-75). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-012",
+      "test": "worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m14: handleAgentTurn kill-switch gate (AgentTurnWorker.ts:323). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-013",
+      "test": "worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m1: failTurnAndCompleteOutbox CAS-before-fail ordering (turns.ts:496-499). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-014",
+      "test": "worker fails the turn unauthorized when the location voice row vanished after authorization",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m7: generateAndAssemble vanished-voice terminal reason (AgentTurnWorker.ts:226). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-015",
+      "test": "worker fails the turn unauthorized when the location voice row vanished after authorization",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m5: failTurnFenced outbox completion inside the transaction (turns.ts:441). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-016",
+      "test": "worker scrubs a pasted review out of the prompt and stores the notice as the first segment",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m10: generateAndAssemble passes the SCRUBBED text to the model (AgentTurnWorker.ts:193). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-017",
+      "test": "worker scrubs a pasted review out of the prompt and stores the notice as the first segment",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m9: generateAndAssemble scrub flag reaches materializeReply (AgentTurnWorker.ts:264). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-018",
+      "test": "worker releases its claim on a transient failure so the retry re-claims and completes",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m12: handleTurnError releases the claim before a transient rethrow (AgentTurnWorker.ts:309-313). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-019",
+      "test": "worker fails the turn predecessor_stalled after the stall limit",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m3: waitOrFailOnPredecessor stall threshold comparison (AgentTurnWorker.ts:114). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-020",
+      "test": "worker predecessor wait releases the claim and delays the job without spending retry budget",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m4: waitOrFailOnPredecessor releases the claim before moveToDelayed (AgentTurnWorker.ts:132-136). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-021",
+      "test": "worker step 3 fails the turn account_offboarding for an offboarding account and builds no snapshot",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m6: generateAndAssemble offboarding-vs-unauthorized reason split (AgentTurnWorker.ts:166-168). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-022",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m8: generateAndAssemble binds stored proposal ids by index (AgentTurnWorker.ts:263). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-023",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "ROUND 2 RE-EXECUTION of round-1 mutation t-m4, now M1: the lease arm (\"claimed_at IS NULL OR claimed_at < NOW() - (leaseSeconds * INTERVAL '1 second')\") deleted from claimTurn's WHERE clause in src/lib/agents/operator/turns.ts (original blob 7c5479c27ed0 -> mutant 83d244562b94). Green baseline re-derived at head 3a377f656 for this individual test; under the mutant it FAILED at turn-worker.integration.test.ts:482 with \"expected 2 to be 1\" \u2014 the new spend oracle expect(runLlmTask.mock.calls.length - llmCallsBefore).toBe(1). assert-one-test confirmed exactly one executed test. Round-1 outcome survived-confirmed-P0 is SUPERSEDED."
+    },
+    {
+      "id": "INV-024",
+      "test": "worker fenced completion discards an attempt whose lease was lost",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m2: completeTurnFenced attempt_token fence (turns.ts:386). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-025",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation w-m18: settleClaimMiss terminal-turn outbox completion (AgentTurnWorker.ts:87). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-026",
+      "test": "worker supersedes earlier pending proposals with the same operation and scope",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Mutation t-m3: completeTurnFenced supersession replacements (turns.ts:400-404). Green baseline re-derived at HEAD for the whole file; the single targeted test then FAILED under the mutant (assert-one-test confirmed exactly one executed test)."
+    },
+    {
+      "id": "INV-027",
+      "test": "worker step 3 fails the turn unauthorized for a revoked owner and builds no snapshot",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-028",
+      "test": "validator rejects a catalog operation the snapshot does not allow this account to use",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "ROUND 2: the fix commit 3a377f656 added the covering case this row recorded as missing. Mutation M2 negated the gate at src/lib/agents/operator/render.ts:231 (removed the leading `!` from `if (!snapshot.allowedOperations.some(...))`; original blob 59136e838fdc -> mutant a846a141fc71). Green baseline re-derived at head for the individual test; under the mutant it FAILED at render.test.ts:280 with \"expected true to be false\" (expect(result.ok).toBe(false)). assert-one-test confirmed exactly one executed test. Round-1 outcome inconclusive/oracle is SUPERSEDED."
+    },
+    {
+      "id": "INV-029",
+      "test": "worker fails the turn budget_exceeded terminally instead of burning the retry ladder",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "ROUND 2: the fix commit 3a377f656 added the covering live case this row recorded as missing. Mutation M4 made isBudgetDecision return false at worker/jobs/agent-turn/AgentTurnWorker.ts:38 (original blob c1a84da2ddd8 -> mutant 94bf7ce0250a), removing the terminal-by-decision branch. Green baseline re-derived at head for the individual test; under the mutant it FAILED with \"promise rejected CostLimitExceededError instead of resolving\" \u2014 the handler fell through to the BullMQ ladder exactly as the finding predicted. assert-one-test confirmed exactly one executed test. Round-1 outcome inconclusive/oracle is SUPERSEDED."
+    },
+    {
+      "id": "INV-030",
+      "test": "every runLlmTask call site is in the reviewed-caller allowlist",
+      "file": "src/__tests__/cost-guard-contract.test.ts:81",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-031",
+      "test": "the allowlist carries no stale entries (files without a call site)",
+      "file": "src/__tests__/cost-guard-contract.test.ts:93",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-032",
+      "test": "GET conversation returns the actor's most recent conversation and the summary reads with timestamps",
+      "file": "src/app/api/operator/__tests__/conversation-route.test.ts:36",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-033",
+      "test": "GET turn returns rendered segments and stored rows scoped by account and 404 across accounts",
+      "file": "src/app/api/operator/__tests__/turn-get-route.test.ts:34",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-034",
+      "test": "POST turns inserts the conversation, the accepted turn, and the outbox row in one transaction and returns the ids",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:65",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-035",
+      "test": "POST turns returns the existing ids for a repeated clientTurnKey with the same payload and 409 for a different payload",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:96",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-036",
+      "test": "POST turns rejects a missing or mismatched Origin before any write",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:118",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-037",
+      "test": "POST turns returns 404 operator_disabled before any write when OWNER_OPERATOR_ENABLED is off",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:140",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-038",
+      "test": "POST turns rejects an impersonating admin with 409 before any write",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:153",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-039",
+      "test": "POST turns rejects a location that is archived or belongs to another account and a conversation owned by another account",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts:175",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-040",
+      "test": "voice route accepts and returns highlightFacts through the shared writer",
+      "file": "src/app/api/settings/__tests__/voice-route.test.ts:70",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-041",
+      "test": "returns voice config for a specific location",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:160",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-042",
+      "test": "returns voice config for all locations",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:190",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-043",
+      "test": "returns 404 when location not found",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:226",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-044",
+      "test": "returns 401 when not authenticated",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:233",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-045",
+      "test": "returns defaults for null voice fields",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:240",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-046",
+      "test": "updates tone for a specific location",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:278",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-047",
+      "test": "returns 404 when location not found or not accessible",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:303",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-048",
+      "test": "returns 400 when the writer reports no fields to update",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:316",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-049",
+      "test": "returns 500 when the writer transaction throws",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:324",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-050",
+      "test": "returns 400 when no voice fields provided",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:332",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-051",
+      "test": "returns 403 when user has no account",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:337",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-052",
+      "test": "returns 402 without updating when the account is past-due read-only",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:344",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-053",
+      "test": "validates avoidFacts max length (500 chars)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:362",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-054",
+      "test": "validates sampleResponses max count (10)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:370",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-055",
+      "test": "binds account_id as a parameterized value in the UPDATE WHERE clause (not interpolated)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:378",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-056",
+      "test": "it.each block at line 390",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:390",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-057",
+      "test": "throws for a table with no verification branch so inventory drift is caught, not silently passed",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:52",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-058",
+      "test": "throws for an absent-by-business table that is not on the allowlist",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:69",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-059",
+      "test": "has explicit verification SQL for every disposition table that requires purge verification",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:87",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-060",
+      "test": "reports only tables with remaining verification violations",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:92",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-061",
+      "test": "reports surviving judge verdicts as account-scoped purge residue",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:122",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-062",
+      "test": "fails closed on surviving Solicitation batches or asks",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:151",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-063",
+      "test": "purge verification fails when a solicitation_outreach row survives the purge",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:187",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-064",
+      "test": "purge verification counts refusal_events rows for the target account, including account-wide rows, and ignores another account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:218",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-065",
+      "test": "purge verification fails when a solicitation_consent row survives the purge",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:259",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-066",
+      "test": "uses explicit account, business, offboarding, and compliance retention scopes",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:297",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-067",
+      "test": "checks payload-control tables against the full raw identifier scope",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:333",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-068",
+      "test": "fails purge verification for any retained notification delivery linked to the account or its businesses",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:364",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-069",
+      "test": "compares every tombstone sentinel with IS DISTINCT FROM, never <> or NOT LIKE",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:398",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-070",
+      "test": "pins the businesses OR-chain at 28 predicates, three of them non-residue",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:419",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-071",
+      "test": "binds all nine sentinel values from PURGE_TOMBSTONE_SENTINELS, never a re-typed literal",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:452",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-072",
+      "test": "does not silently add disposition tables without verification coverage",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:483",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-073",
+      "test": "purge verification and the content purge stage remove every owner-operator row for the purged account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:565",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-074",
+      "test": "classifies every tenant table and explicit account-linked table exactly once",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:102",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-075",
+      "test": "classifies every directly account-linked table created by migrations",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:114",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-076",
+      "test": "keeps helper exports in sync with the canonical inventory",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:125",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-077",
+      "test": "uses only known dispositions, link types, and purge verification modes",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:137",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-078",
+      "test": "keeps purge verification modes compatible with disposition semantics",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:148",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-079",
+      "test": "offboarding purge sweeps uploads, contacts, visits, batches, and asks",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:156",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-080",
+      "test": "classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:173",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-081",
+      "test": "requires purge verification for every applicable table",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:205",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-082",
+      "test": "PROVIDER_DATA_RETENTION classifies the Stripe Customer object as retain_compliance_limited_pii",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:223",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-083",
+      "test": "PROVIDER_DATA_RETENTION carries the detached Stripe PaymentMethod as its own entry",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:239",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-084",
+      "test": "PROVIDER_DATA_RETENTION entries never appear in ACCOUNT_OFFBOARDING_TABLES or PURGE_VERIFICATION_TABLES",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:257",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-085",
+      "test": "verificationQuery still throws missing_purge_verification_sql for an unknown table name",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:274",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-086",
+      "test": "table dispositions classify the four owner-operator tables as hard_delete with direct_account_id evidence and must_be_absent verification",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:306",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-087",
+      "test": "reauthorizeTurn maps account_offboarding_blocked to account_offboarding",
+      "file": "src/lib/agents/operator/__tests__/authorize.test.ts:26",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-088",
+      "test": "catalog separates read, proposable, and capture kinds by type and exposes only model-visible operations to the prompt",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts:13",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-089",
+      "test": "invariants: every catalog operation declares a contract version and a describer",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts:62",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-090",
+      "test": "buildSnapshot scopes every read to the stored account and location",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts:59",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-091",
+      "test": "generateOperatorReply records one api_costs row per billed attempt",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts:104",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-092",
+      "test": "fails model_output_invalid when both attempts return an invalid shape",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts:153",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-093",
+      "test": "insertProposals writes one row per proposal with contract_version and prepared_version_token",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts:68",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-094",
+      "test": "getTurnForOwner returns null for a turn id that belongs to another account",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:236",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-095",
+      "test": "createTurn refuses a conversation id that already exists under another account and writes no turn",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:268",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-096",
+      "test": "getConversationForOwner scopes the most-recent read to the actor and honours an explicit id",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:306",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-097",
+      "test": "getConversationForOwner reports the location override and its dials, per location",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:363",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-098",
+      "test": "getConversationForOwner carries each turn its own stored proposals, and none of another account\\",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:406",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-099",
+      "test": "getConversationForOwner returns a null summary for a conversation with no turns",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:507",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-100",
+      "test": "getConversationForOwner bounds the transcript to the most recent turns",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts:529",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-101",
+      "test": "validator returns the parsed proposals it already computed, in the model order",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:133",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-102",
+      "test": "materializeReply binds proposal ids by index and freezes every status_ref value",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:267",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-103",
+      "test": "materializeReply prepends the scrub notice and drops a reference nothing backs",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:323",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-104",
+      "test": "renderSegments passes a stored proposal id through and resolves no index",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts:347",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-105",
+      "test": "model output schema has no field for counts, approval, confirmation, or receipts",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts:31",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-106",
+      "test": "status narrowings throw on a value no writer produces",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts:78",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-107",
+      "test": "snapshot red team: instruction-shaped review bodies never reach the rendered snapshot or prompt",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:198",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-108",
+      "test": "snapshot summarises each historical turn\\",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:291",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-109",
+      "test": "snapshot operating rules report the location override and its dials",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:352",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-110",
+      "test": "snapshot star bands equal a hand count per location and exclude held drafts",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts:403",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-111",
+      "test": "worker retries the model call once on invalid output and fails the turn model_output_invalid on the second failure",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:650",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-112",
+      "test": "worker leaves two same-scope proposals from ONE turn both pending, and a later turn supersedes both",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:785",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-113",
+      "test": "createTurn resolves one turn key across two conversations to created and turn_key_conflict without leaking 23505",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:853",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-114",
+      "test": "createTurn returns the same ids for two concurrent identical POSTs and writes one row",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:882",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-115",
+      "test": "createTurn stores owner_text byte-for-byte and treats a trimmed repeat as a conflict",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:904",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-116",
+      "test": "content purge removes account A\\",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:953",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-117",
+      "test": "createTurn assigns the next sequence under the conversation row lock",
+      "file": "src/lib/agents/operator/__tests__/turns.test.ts:49",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-118",
+      "test": "pins the OpenAI model to a dated snapshot (no bare alias)",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:10",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-119",
+      "test": "keeps the Anthropic model pinned",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:15",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-120",
+      "test": "has pricing for the pinned OpenAI model",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:19",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-121",
+      "test": "pins the reply_generation task to the snapshot models (no bare alias)",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:24",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-122",
+      "test": "pins the insights task (review-summary tenant) to the snapshot models (no bare alias)",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:30",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-123",
+      "test": "review-summary drives the seam and never hard-codes a bare gpt-4o-mini alias",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:37",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-124",
+      "test": "triage task pins both providers to the pinned snapshots",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:43",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-125",
+      "test": "judge task pins both providers and its structured-output limits",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:51",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-126",
+      "test": "pins solicitation_ask to the shared model pair at temperature 0.6",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:62",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-127",
+      "test": "owner_operator task pins both providers to the snapshot models with the output schema",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts:73",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-128",
+      "test": "voice writer updates highlight_facts under a businesses row lock and rejects a location outside the account",
+      "file": "src/lib/responses/__tests__/voice-settings.test.ts:32",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-129",
+      "test": "accepts legacy missing origin lane and normalizes suppress_notification strictly",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:63",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-130",
+      "test": "returns the typed origin lane for known lane values",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:83",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-131",
+      "test": "fails closed while returning a sanitized unknown non-empty lane",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:104",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-132",
+      "test": "preserves required field fail-fast validation",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:118",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-133",
+      "test": "enqueues generate_response with required origin lane and jsonb payload",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:132",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-134",
+      "test": "enqueues publish_response identifiers only with the in-flight conflict guard",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:161",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-135",
+      "test": "defaults publish_response available_at to NOW() via COALESCE when availableAt is omitted",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:187",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-136",
+      "test": "binds the supplied availableAt date for a delayed publish_response",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:203",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-137",
+      "test": "pins the publish_response ON CONFLICT predicate byte-for-byte (regression guard for the availableAt change)",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:218",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-138",
+      "test": "enqueues pending_post_notice with the in-flight conflict guard matching migration 074 byte-for-byte",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:236",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-139",
+      "test": "omits correlation_id from pending_post_notice payload when not provided and honors a supplied outboxId",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:270",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-140",
+      "test": "enqueues auto_post_notice with the in-flight conflict guard matching migration 067 byte-for-byte",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:285",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-141",
+      "test": "enqueues escalation_notice with the in-flight conflict guard matching migration 073 byte-for-byte",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:313",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-142",
+      "test": "omits correlation_id from escalation_notice payload when not provided",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:343",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-143",
+      "test": "enqueues judge_verdict with the migration-076 in-flight predicate and exact payload",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:352",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-144",
+      "test": "enqueues autonomy_suspended_notice keyed by the suspension event",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:378",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-145",
+      "test": "enqueues autonomy_admin_alert keyed by the same event with evidence",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:403",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-146",
+      "test": "enqueues validate_place_id with the in-flight WHERE NOT EXISTS dedup guard",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:429",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-147",
+      "test": "returns false when an in-flight validate_place_id row already exists (deduped)",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:463",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-148",
+      "test": "enqueueCsvIngest writes a csv_ingest outbox row with the deterministic idempotency key",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:477",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-149",
+      "test": "omits correlation_id from the csv_ingest payload when not provided and honors a supplied outboxId",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:512",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-150",
+      "test": "enqueueBuildSolicitationBatch writes an identifiers-only batch build job",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:527",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-151",
+      "test": "enqueues generate_solicitation_asks with the migration-091 in-flight predicate and returns the outbox id",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:551",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-152",
+      "test": "returns null when an in-flight generate_solicitation_asks row already exists for the batch",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:579",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-153",
+      "test": "carries ask_id for a single-ask regeneration and honors a supplied outboxId",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:592",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-154",
+      "test": "enqueues a dedicated account-scoped Stripe subscription mirror sync",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:609",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-155",
+      "test": "enqueueSolicitationSend returns null when an in-flight solicitation_send row already exists",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:623",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-156",
+      "test": "enqueueSolicitationAttribution binds a time-unbounded guard and the 114 in-flight predicate",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:681",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-157",
+      "test": "enqueueAgentTurn inserts one pending agent_turn outbox row keyed on the turn id",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts:751",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-158",
+      "test": "migration 120 registers all four tables in TENANT_TABLES and TENANT_SCOPE_COLUMNS",
+      "file": "src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts:41",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-159",
+      "test": "migration 120 creates the four owner-operator tables with deny-all RLS, revoked client grants, and the two unique constraints",
+      "file": "src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts:77",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-160",
+      "test": "throws when production is configured with MOCK_EXTERNAL_APIS=true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:77",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-161",
+      "test": "allows MOCK_EXTERNAL_APIS=true outside production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:83",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-162",
+      "test": "allows production when MOCK_EXTERNAL_APIS is not true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:89",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-163",
+      "test": "assertProductionMockModeEnv() rejects MOCK_EXTERNAL_APIS=true on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:95",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-164",
+      "test": "allows all optional flags to be unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:125",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-165",
+      "test": "allows exact true and false strings",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:129",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-166",
+      "test": "rejects non-boolean values instead of interpreting them loosely",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:141",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-167",
+      "test": "rejects loose account offboarding flag values",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:147",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-168",
+      "test": "rejects loose Autopilot sale flag values",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:153",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-169",
+      "test": "it.each block at line 161",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:161",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-170",
+      "test": "it.each block at line 173",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:173",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-171",
+      "test": "is a no-op in non-production MOCK_EXTERNAL_APIS mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:196",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-172",
+      "test": "throws with all missing Stripe worker env vars",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:202",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-173",
+      "test": "throws in production non-mock mode when Stripe worker env vars are missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:212",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-174",
+      "test": "treats whitespace-only Stripe worker env vars as missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:218",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-175",
+      "test": "passes when all required Stripe worker env vars are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:224",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-176",
+      "test": "rejects duplicate Stripe Price IDs at worker startup",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:229",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-177",
+      "test": "assertStripeWorkerEnv() does not honour the mock-mode skip on a deployed lane",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:236",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-178",
+      "test": "throws in production non-mock mode when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:254",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-179",
+      "test": "treats whitespace-only as missing in production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:260",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-180",
+      "test": "passes in production when set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:267",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-181",
+      "test": "is a no-op outside production even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:274",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-182",
+      "test": "is a no-op in production mock mode even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:279",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-183",
+      "test": "assertAdminNotificationEmail() requires ADMIN_NOTIFICATION_EMAIL on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:285",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-184",
+      "test": "throws in production non-mock mode when SENTRY_DSN is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:303",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-185",
+      "test": "treats whitespace-only as missing in production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:309",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-186",
+      "test": "passes in production when SENTRY_DSN is set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:316",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-187",
+      "test": "is a no-op outside production even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:323",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-188",
+      "test": "is a no-op in production mock mode even when unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:328",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-189",
+      "test": "assertAlertSinkEnv() requires SENTRY_DSN on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:334",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-190",
+      "test": "assertAlertSinkEnv() names the resolved lane and its source in the failure message",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:343",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-191",
+      "test": "warns for each unset var in production non-mock mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:370",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-192",
+      "test": "is silent outside production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:380",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-193",
+      "test": "is silent in production mock mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:386",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-194",
+      "test": "does not warn for vars that are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:393",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-195",
+      "test": "is a no-op in non-production MOCK_EXTERNAL_APIS mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:414",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-196",
+      "test": "throws naming the missing core-infra var in non-mock mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:420",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-197",
+      "test": "passes when every core-infra var is present",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:430",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-198",
+      "test": "assertCoreInfraEnv() does not honour the mock-mode skip on a deployed lane",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:437",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-199",
+      "test": "checks unsafe production mock mode before Stripe env vars",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:476",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-200",
+      "test": "does not require Stripe env vars in non-production MOCK_EXTERNAL_APIS mode",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:483",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-201",
+      "test": "passes when production mock mode is off and Stripe + core-infra env vars are present",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:489",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-202",
+      "test": "fails fast when a core-infra var is missing in production",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:499",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-203",
+      "test": "runs optional server-only feature boolean validation",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:509",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-204",
+      "test": "it.each block at line 517",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:517",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-205",
+      "test": "it.each block at line 528",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:528",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-206",
+      "test": "fails fast when a tier cost ceiling is malformed",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:540",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-207",
+      "test": "imports the side-effect full startup guard before queues can evaluate",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:551",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-208",
+      "test": "side-effect guard runs assertWorkerStartupEnv",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:568",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-209",
+      "test": "is a no-op when flag is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:595",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-210",
+      "test": "is a no-op when MOCK_EXTERNAL_APIS=true even with flag on",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:599",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-211",
+      "test": "throws with all missing vars when flag is on and env is empty",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:605",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-212",
+      "test": "passes when flag is on and all required vars are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:611",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-213",
+      "test": "is a no-op when flag is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:639",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-214",
+      "test": "is a no-op in MOCK_EXTERNAL_APIS=true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:643",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-215",
+      "test": "throws when required env vars are missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:649",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-216",
+      "test": "throws if TWILIO_WHATSAPP_NUMBER is not whatsapp:+<digits>",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:654",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-217",
+      "test": "throws if WHATSAPP_APPROVAL_URL_BASE does not equal NEXT_PUBLIC_APP_URL + \"/approve/\"",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:666",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-218",
+      "test": "passes with all vars set correctly",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:678",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-219",
+      "test": "rejects a WORKER_PUBLIC_URL with a trailing slash",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:690",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-220",
+      "test": "rejects a WORKER_PUBLIC_URL with a query string",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:702",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-221",
+      "test": "accepts a clean https WORKER_PUBLIC_URL",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:714",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-222",
+      "test": "rejects a WORKER_PUBLIC_URL with a trailing slash",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:749",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-223",
+      "test": "assertZernioPublishingEnv() rejects an http WORKER_PUBLIC_URL on the production Railway lane when NODE_ENV is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:761",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-224",
+      "test": "is a no-op when SELF_SERVE_SIGNUP_ENABLED is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:795",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-225",
+      "test": "is a no-op when SELF_SERVE_SIGNUP_ENABLED is unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:799",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-226",
+      "test": "throws when flag is on but REDIS_CACHE_URL is missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:803",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-227",
+      "test": "throws when flag is on but NEXT_PUBLIC_APP_URL is missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:810",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-228",
+      "test": "throws listing all missing STRIPE_PRICE_* vars when flag is on and none are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:817",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-229",
+      "test": "throws naming only the missing price var when 5 of 6 are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:830",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-230",
+      "test": "treats whitespace-only price var as missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:844",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-231",
+      "test": "does NOT require STRIPE_PAYMENT_LINK_* vars",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:853",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-232",
+      "test": "passes when all required vars are set",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:862",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-233",
+      "test": "startup-assert checks list and founding base Prices for both WS8 tiers",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:879",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-234",
+      "test": "startup-assert checks one overage Price for each multi-location WS8 tier",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:887",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-235",
+      "test": "startup-assert owns exactly six WS8 Price variables",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:896",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-236",
+      "test": "no STRIPE_PAYMENT_LINK references remain in startup-assert",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:900",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-237",
+      "test": "is a no-op when the flag is off or unset",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:932",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-238",
+      "test": "is a no-op under MOCK_EXTERNAL_APIS even when the flag is on",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:938",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-239",
+      "test": "throws listing both vars when the flag is on and both are missing",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:944",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-240",
+      "test": "does not throw when the flag is on and both required vars are present",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:949",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-241",
+      "test": "throws when SESSION_COOKIE_SECRET is shorter than 32 bytes",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:956",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-242",
+      "test": "accepts a SESSION_COOKIE_SECRET of at least 32 bytes",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:963",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-243",
+      "test": "accepts a multibyte secret that is >=32 bytes even though its .length is < 32",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:970",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-244",
+      "test": "assertSolicitationSendEnv is a no-op when SOLICITATION_SEND_ENABLED is off",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1020",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-245",
+      "test": "assertSolicitationSendEnv is a no-op when MOCK_EXTERNAL_APIS is true",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1027",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-246",
+      "test": "assertSolicitationSendEnv throws naming every missing solicitation env var",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1033",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-247",
+      "test": "assertSolicitationSendEnv accepts an explicit zero platform daily cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1050",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-248",
+      "test": "assertSolicitationSendEnv throws on an unparseable platform daily cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1060",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-249",
+      "test": "assertSolicitationSendEnv throws on a negative platform daily cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1072",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-250",
+      "test": "assertSolicitationSendEnv never logs the solicitation Resend API key",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1080",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-251",
+      "test": "passes when the effective concurrency is exactly 1",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1128",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-252",
+      "test": "throws at boot when the effective concurrency is greater than 1",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1134",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-253",
+      "test": "throws at boot when concurrency is missing from the effective options",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1140",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-254",
+      "test": "passes when the non-flag-gated worker-slot sum is exactly 9 (mixed explicit/undefined opts)",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1156",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-255",
+      "test": "throws when the non-flag-gated sum reaches 10, naming the queues, the sum, and the cap",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1160",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-256",
+      "test": "counts undefined concurrency as 1 (BullMQ default)",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1170",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-257",
+      "test": "passes a flag-gated entry at 1 alongside a non-gated sum of 9",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1181",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-258",
+      "test": "throws when a flag-gated entry exceeds 1",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1189",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-259",
+      "test": "fails boot on drift: the 5-slot queue edited to 6 pushes the sum to 10",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1197",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-260",
+      "test": "passes the ADR 0005 flag-on envelope at exactly 12 (sum 9 + three flag-gated lanes)",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1208",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-261",
+      "test": "fails boot when a fourth flag-gated lane pushes the flag-on envelope to 13",
+      "file": "worker/config/__tests__/startup-assertion.test.ts:1218",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-262",
+      "test": "writes nothing until the retry ladder is exhausted",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:58",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-263",
+      "test": "on exhaustion runs the outbox CAS FIRST and only then fails the turn, in one transaction",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:84",
+      "outcome": "killed",
+      "reason": "ROUND 2 (this row's round-1 mutation was never launched; the candidate was measured instead by round 2's M5, merged here so one test does not carry both 'never measured' and 'killed'). ROUND 2 call-site probe for P2-1 (the shared hardened boundedErrorClass import added in 3a377f656). Mutation M5 replaced the call with a constant: `const errorClass = boundedErrorClass(err);` -> `const errorClass = 'UnknownError';` at worker/jobs/agent-turn/failed-hook.ts:36 (original blob 5df4cae7a075 -> mutant 57cc009caf2f). Green baseline re-derived at head; under the mutant it FAILED with \"expected [ \u2026(2) ] to include 'agent_turn_exhausted:ProviderTimeout'\". assert-one-test confirmed exactly one executed test. The import's own semantics are unchanged code and out of round-2 scope; this row proves only that the call site is load-bearing and observed."
+    },
+    {
+      "id": "INV-264",
+      "test": "writes nothing when a newer dispatch has superseded this one",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:114",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-265",
+      "test": "swallows a transaction failure rather than letting it escape the hook",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:127",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-266",
+      "test": "does not log owner text or the provider message",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts:142",
+      "outcome": "excluded",
+      "reason": "outside round-2 scope by skill rule (round 2 verifies the fix hunks and their direct callers; fronts against unchanged code are forbidden); never executed in any round of this run \u2014 not evidence of coverage"
+    },
+    {
+      "id": "INV-267",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "supabase/migrations/120_owner_operator.sql",
+      "outcome": "excluded",
+      "reason": "Excluded per the protocol: the test database is provisioned to migrations head before the run, so mutating a migration file changes nothing under test. Its shape is asserted by the read-only live-DB suite instead."
+    },
+    {
+      "id": "INV-268",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "docs/** and .claude/reference/** (24 changed files)",
+      "outcome": "excluded",
+      "reason": "Documentation and reference pages carry no executable behaviour, so they are not mutation candidates. They are verified instead under duty 3 (docs vs reality), which produced findings P1-5 and P1-6."
+    },
+    {
+      "id": "INV-269",
+      "test": "n/a \u2014 none changed",
+      "file": "e2e/** (Playwright)",
+      "outcome": "excluded",
+      "reason": "Excluded per the protocol (E2E specs are fragile-assertion review only). This branch changes no Playwright spec, so the set is empty."
+    },
+    {
+      "id": "INV-270",
+      "test": "claimTurn turns a second dispatch away inside the lease and lets one in after it expires",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "NEW in 3a377f656 (P0-1b, the direct claimTurn lease case). Same mutation M1 as INV-023 (lease arm deleted, turns.ts 7c5479c27ed0 -> 83d244562b94). Green baseline re-derived at head; under the mutant it FAILED at turn-worker.integration.test.ts:517 with \"expected { \u2026(9) } to be null\" \u2014 expect(second).toBeNull(), i.e. the second claim inside the live 180 s lease won a claim it must not have. assert-one-test confirmed exactly one executed test."
+    },
+    {
+      "id": "INV-271",
+      "test": "claimTurn binds the lease predicate that makes the Turn claim exclusive",
+      "file": "src/lib/agents/operator/__tests__/turns.test.ts",
+      "outcome": "killed",
+      "reason": "NEW in 3a377f656 (P0-1c, the keyless SQL-text oracle). Same mutation M1. Green baseline re-derived at head; under the mutant it FAILED at turns.test.ts:131 \u2014 expect(claim!.text).toContain('claimed_at IS NULL'). assert-one-test confirmed exactly one executed test. Judged under duty 2 as additive rather than duplicative: it is the ONLY oracle for this predicate in the keyless lane (REPWORTH_DISABLE_LIVE_DB_SUITES / no TEST_DATABASE_POOL_URL), where INV-023 and INV-270 do not run at all."
+    },
+    {
+      "id": "INV-272",
+      "test": "health alerts include terminal agent_turn outbox failures",
+      "file": "worker/background/pollers/health-alert/__tests__/checks.test.ts",
+      "outcome": "killed",
+      "reason": "NEW in 3a377f656 (P1-2 regression case). Mutation M3 removed ${QUEUE_NAMES.AGENT_TURN} from checkFailedOutboxByTopic's closed allowlist at worker/background/pollers/health-alert/checks.ts:124 (original blob 3344523b3361 -> mutant 913698b6a5ff, byte-identical to the pre-fix blob in the commit's own diff index line). Green baseline re-derived at head; under the mutant it FAILED with \"expected [ 'publish_response', \u2026(6) ] to include 'agent_turn'\" \u2014 the bound-values assertion. assert-one-test confirmed exactly one executed test."
+    },
+    {
+      "id": "INV-274",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "docs/roadmap/2026-09-11-owner-operator/README.md:638",
+      "outcome": "excluded",
+      "reason": "Round-3 hunk 1 of 2. Documentation carries no executable behaviour, so it is not a mutation candidate (same protocol rule as INV-268). Verified instead under duty 3 (docs vs reality) by re-resolving every claim in the line against HEAD \u2014 see finding P2-2, disposition fixed."
+    },
+    {
+      "id": "INV-275",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "docs/runbooks/beta-launch-alerting.md:325-348",
+      "outcome": "excluded",
+      "reason": "Round-3 hunk 2 of 2. Documentation carries no executable behaviour, so it is not a mutation candidate (same protocol rule as INV-268). Verified instead under duties 3 and 5 by re-resolving the bullet against the emitter at HEAD \u2014 see findings P2-3 (fixed) and P2-4 (open)."
+    }
+  ],
+  "findings": [
+    {
+      "id": "P0-1",
+      "severity": "P0",
+      "duty": 1,
+      "title": "claimTurn's 180 s lease predicate can be deleted with the entire agent-turn suite still green",
+      "at": "src/lib/agents/operator/turns.ts:250-254",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. The lease predicate now has two oracles and M1 (the identical t-m4 deletion) killed both: the claim-race test's new spend assertions (turn-worker.integration.test.ts:472-483 \u2014 exactly one runLlmTask call and one recordApiCost call for the racy turn) failed \"expected 2 to be 1\" at :482, and the new direct case \"claimTurn turns a second dispatch away inside the lease\u2026\" failed expect(second).toBeNull() at :517. A third, keyless oracle in turns.test.ts:113-136 also failed. INV-023, INV-270, INV-271. || ROUND-1 EVIDENCE (retained): Mutation t-m4 deleted the lease predicate from claimTurn's WHERE clause \u2014 the \"claimed_at IS NULL OR claimed_at < NOW() - (leaseSeconds * INTERVAL '1 second')\" arm \u2014 leaving only \"status IN ('accepted','running')\". The covering test, \"worker claim race: two dispatches of one turn produce one completed turn and one proposal set\" (src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:319), still PASSED. A confirming run of the whole agent-turn test set under the same mutant \u2014 turn-worker.integration.test.ts + worker/jobs/agent-turn/__tests__ + turns.test.ts \u2014 reported 23 passed, 0 failed. The behavioural replacement: the concurrent section of that test (turn-worker.integration.test.ts:500-517) should assert that exactly one attempt reached the model and was billed (expect(runLlmTask).toHaveBeenCalledTimes(1) and one recordApiCost / api_costs row for the racy turn), and a direct claimTurn case should prove a second claim inside the lease returns null while one after lease expiry succeeds.",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || Not an equivalent mutation. Deleting the lease predicate lets a second dispatch claim a turn whose 180 s lease is live (AGENT_TURN_LEASE_SECONDS, worker/jobs/agent-turn/constants.ts), so two attempts each run step 3, each build a snapshot and each make their own cost-guarded owner_operator model call. The intake's own risk_reasons names this consequence verbatim: \"a new BullMQ worker (AgentTurnWorker) makes a cost-guarded LLM call ... a defect can double-bill or strand turns\". Not an unexecuted branch either: the test's third section runs two handleAgentTurn calls under Promise.all on one freshly created turn, so both reach claimTurn inside the same lease window, and claimTurn is the first statement either executes after the flag gate. It survives because the assertions describe only the END STATE \u2014 one completed turn, one agent_proposals row, outbox completed \u2014 and completeTurnFenced's attempt_token fence delivers that end state on its own, independently of the lease. The lease predicate and the completion fence are two separate guards: the fence stops a stale attempt from WRITING, only the lease stops a second attempt from SPENDING. The suite asserts the first and never the second. Independently corroborated without spending a further run: \"rg AGENT_TURN_LEASE_SECONDS|leaseSeconds|LEASE\" across src/lib/agents/operator/__tests__ and worker/jobs/agent-turn/__tests__ returns no hit, the only two claimed_at writes in the suite (turn-worker.integration.test.ts:549, :585) drive loadPredecessor's age rather than the claim, and the claim-race test makes no runLlmTask or recordApiCost call-count assertion at all. Mutation t-m2, which removed completeTurnFenced's attempt_token fence, was KILLED \u2014 so the pair is asymmetric: the written-state half of the protocol is asserted and the spend half is not."
+    },
+    {
+      "id": "P1-1",
+      "severity": "P1",
+      "duty": 1,
+      "title": "The validator's allowedOperations gate is reached by no test",
+      "at": "src/lib/agents/operator/render.ts:231-233",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. render.test.ts:261-307 now proposes set_highlight_facts \u2014 registered in CATALOG with a valid input, so it clears the outside-the-catalog branch \u2014 against a snapshot that omits it, and asserts the \"may not use\" reason; a positive control re-runs the same proposal with the id added to allowedOperations and asserts ok. M2 (negating the gate at render.ts:231) killed it at render.test.ts:280. INV-028. || ROUND-1 EVIDENCE (retained): An uncovered behaviour-affecting production hunk (Direction B, Step 2). The rule fires only for a proposal whose operation IS registered in CATALOG but is NOT in snapshot.allowedOperations. Both validator fixtures close that set \u2014 render.test.ts:31-35 lists set_tone, set_avoid_facts, read_pending_work; model-call.test.ts:57-60 lists set_tone, read_pending_work \u2014 and no test anywhere proposes set_products_services or set_highlight_facts through validateModelOutput (rg over src/lib/agents/operator/__tests__ and src/app/api/operator/__tests__ finds those two ids only in catalog.test.ts's catalog sweep and in two read-path suites that SEED agent_proposals rows directly). The single in-catalog-but-absent id a test does use, set_daily_cap, is not registered at all, so it is rejected by the earlier branch at render.ts:227-229 and continues before reaching 231. Suggested fix: add one case proposing a catalog operation the snapshot omits and assert the \"may not use\" reason.",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || Established statically rather than by mutation, because the per-test cap of 2 mutations was already spent on the only test that could cover this rule. Recorded as P1 (uncovered change) rather than P0: the rule is also unreachable in production today \u2014 modelVisibleOperations (src/lib/agents/operator/catalog.ts:193-203) returns every CATALOG entry and ignores its tier parameter, so snapshot.allowedOperations always equals the catalog \u2014 which makes this a forward guard for Run B's tier-gated operations rather than a live hole in the no-unapproved-operation path. It still blocks the round as an inconclusive oracle row, because \"no test can distinguish this rule from its absence\" is a claim about the oracle."
+    },
+    {
+      "id": "P1-7",
+      "severity": "P1",
+      "duty": 1,
+      "title": "The handleTurnError budget-decision terminal branch has no covering test",
+      "at": "worker/jobs/agent-turn/AgentTurnWorker.ts:282-294",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. turn-worker.integration.test.ts:568-590 drives a real CostLimitExceededError through handleAgentTurn on the live DB and asserts it RESOLVES, the turn is failed/budget_exceeded, the outbox row is completed in the same transaction, and job.moveToDelayed was never called. M4 (isBudgetDecision -> false) killed it: the promise rejected instead of resolving. INV-029. || ROUND-1 EVIDENCE (retained): An uncovered behaviour-affecting production hunk (Direction B, Step 2). This is the branch that makes an exhausted account budget TERMINAL instead of burning the BullMQ retry ladder: isBudgetDecision(error) -> failTurnFenced with TURN_FAILURE_REASON.BUDGET_EXCEEDED. Neither budget_exceeded nor BUDGET_EXCEEDED nor isBudgetDecision appears in any test file in the repository, and no test on this lane constructs a CostLimitExceededError or a GlobalCostLimitExceededError. The sibling transient branch immediately below it IS covered (\"worker releases its claim on a transient failure so the retry re-claims and completes\"), and so is the exhausted reason in failed-hook.test.ts:107 \u2014 budget_exceeded is the one terminal reason with no case. The intake names it in both observability (\"agent_turns.status and failure_reason distinguish failed reasons (... budget_exceeded)\") and edge_cases (\"Terminal failure (... budget exceeded ...)\").",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || Recorded without spending a mutation run: the absence of the token from every test file is direct evidence that no oracle exists, and the round budget was exhausted. Severity P1 rather than P0 because a miss is bounded \u2014 the cost RESERVATION precedes the model call, so a budget-exceeded error that fell through to the retry ladder would spend nothing extra and would end as failure_reason \"exhausted\" via the failed-hook instead of \"budget_exceeded\". The defect would therefore be an observability regression on a reason the intake promises to distinguish, not lost money or a stranded turn."
+    },
+    {
+      "id": "P1-2",
+      "severity": "P1",
+      "duty": 5,
+      "title": "agent_turn is missing from checkFailedOutboxByTopic's closed allowlist, so no health-alert finding can fire for a failed turn",
+      "at": "worker/background/pollers/health-alert/checks.ts:105-124",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. QUEUE_NAMES.AGENT_TURN joined checkFailedOutboxByTopic's closed allowlist (worker/background/pollers/health-alert/checks.ts:124) with a regression case; M3 (removing it again) killed that case. Re-resolved the whole emission path at head: emitHealthFindings (worker/background/pollers/health-alert/emit.ts:10-18) raises Sentry.captureMessage with tags subsystem=health_alert and finding=<key>, so key \"outbox_failed:agent_turn\" at level error rides the existing runbook \u00a71 rule (beta-launch-alerting.md:28-33). failedThreshold defaults to 0 (checks.ts:78), so one failed row raises. INV-272. || ROUND-1 EVIDENCE (retained): A missing alert-path half: the branch adds an owner-impacting outbox topic and no emitting signal watches it. The allowlist binds exactly PUBLISH_RESPONSE, SEND_NOTIFICATION, GENERATE_RESPONSE, BUILD_SOLICITATION_BATCH, GENERATE_SOLICITATION_ASKS and SOLICITATION_VETO_NOTICE; QUEUE_NAMES.AGENT_TURN (src/lib/shared/queue-names.ts:68) is absent. A failed agent_turn row therefore raises no subsystem:health_alert finding, so rule 1 of docs/runbooks/beta-launch-alerting.md can never fire for this lane. Fix: add QUEUE_NAMES.AGENT_TURN to the allowlist, or state in the runbook why a failed turn is not owner-impacting.",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || The code comment directly above the allowlist names this exact defect class as a prior incident \u2014 \"This is a CLOSED allowlist, so a new owner-impacting topic stays invisible until it is added here. generate_solicitation_asks shipped without it (#628 round 5), which silently voided that lane's dead-letter rationale: its terminal handler concedes the batch to 'an operator will see the failed row', and nothing was watching the row.\" The owner-impact test is met: a failed agent_turn means the owner's Operator message never receives a reply, and the branch's own design leans on the row being seen (docs/roadmap/2026-09-11-owner-operator/README.md:636 defers the stranded-turn case to Run B on exactly that basis). Verified independently of the subagent that surfaced it: I re-read checks.ts:105-124 and confirmed the six bound topics, and \"rg -in agent_turn|owner.operator|worker_job docs/runbooks/beta-launch-alerting.md\" returns zero matches."
+    },
+    {
+      "id": "P1-3",
+      "severity": "P1",
+      "duty": 5,
+      "title": "The job-failure-sink Sentry signal for queue agent_turn has no rule row in beta-launch-alerting.md",
+      "at": "worker/job-failure-sink.ts:64-80",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. A \u00a71 checklist bullet (beta-launch-alerting.md:325-341) and click-path row 11 (:406) now carry the signal. All six duty-5 facets re-resolved against the emitter at head and none contradicts it: identity = Sentry.captureException in reportJobFailure (worker/job-failure-sink.ts:64-80); filter = tags subsystem='worker_job' AND queue=<queueName> (:75), with attachJobFailureSink applied to every worker including AGENT_TURN (worker/index.ts:567-575, QUEUE_NAMES.AGENT_TURN at :529) so queue resolves to 'agent_turn' (queue-names.ts:68); level = the captureException default error, no override; grouping = Sentry's exception fingerprint, no custom fingerprint; cadence = every event, not a first-seen rule; destination = the Discord integration named in row 11. || ROUND-1 EVIDENCE (retained): The other missing half: an emitted signal with no rule row. worker/index.ts registers agentTurnWorker into workersByQueue, and the existing loop attaches attachJobFailureSink to every entry, so BullMQ terminal exhaustion on this lane fires Sentry.captureException tagged {subsystem: \"worker_job\", queue: \"agent_turn\", topic}. That tag set matches no _If_ filter in the runbook's rule table and is not listed in the runbook's own register of signals that knowingly have no dedicated rule. Facet compared and contradicted: signal identity and filter (no rule selects this tag set) and destination action (no documented destination). Fix: add a rule row for subsystem:worker_job scoped to this queue, with a cadence, or extend the existing register to acknowledge it.",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || Scoped deliberately to the lane this branch adds rather than opened as a front against the sink, which is unchanged code: the finding is that the branch wires a NEW queue into an existing emitter and ships no rule for it. The runbook keeps an explicit list of signals that have no dedicated rule, which is what makes an unlisted, unrowed signal a reportable omission rather than an accepted posture."
+    },
+    {
+      "id": "P1-4",
+      "severity": "P1",
+      "duty": 5,
+      "title": "The orphaned-lease signal the intake names is a log line only \u2014 no Sentry event, no rule row",
+      "at": "worker/background/pollers/OutboxPoller.ts:93-165",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. The gap was a documented-but-unemitted orphaned-lease alert. After the fix neither half of the path is orphaned: the intake's observability line promises only that \"a stuck 'dispatched' row past the watchdog window is the signal a lease was orphaned\" \u2014 a job_outbox row state, not a Sentry alert \u2014 and runOutboxWatchdogRecovery (OutboxPoller.ts:160-166) is confirmed at head to emit one aggregated logger.log and no Sentry call, which both changed docs now state explicitly. The half that IS operator-actionable, the row landing failed, now alerts through P1-2's allowlist entry. No rule row claims an alert that nothing emits, and no emitted signal lacks a row, so the duty-5 condition no longer holds. Recorded as fixed rather than accepted-risk for that reason; see new finding P2-3 for one wording imprecision that survives. || ROUND-1 EVIDENCE (retained): The intake's observability section states: \"job_outbox rows for topic agent_turn: a stuck 'dispatched' row past the watchdog window is the signal a lease was orphaned.\" Both branches of runOutboxWatchdogRecovery \u2014 re-pending a stale dispatched row, and terminalising it to failed \u2014 only emit a structured log line, aggregated across every topic rather than broken out per topic, and neither captures to Sentry. Combined with P1-2, a worker crash that strands an agent_turn row in dispatched past the watchdog window produces zero Sentry event end to end: nothing from the watchdog, and nothing from checkFailedOutboxByTopic once the row lands failed. Facet contradicted: destination action \u2014 the contract names a signal that has no operator-actionable destination.",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || Reported against the contract the branch wrote rather than against OutboxPoller, which is unchanged: the claim that this row IS the orphaned-lease signal is new on this branch, and it is the claim that fails. Fixing P1-2 alone resolves the terminalised half of this; the re-pend half stays a log line, which is defensible if the runbook says so. Closing either the code or the contract sentence would settle it."
+    },
+    {
+      "id": "P1-5",
+      "severity": "P1",
+      "duty": 3,
+      "title": "A changed doc claim is false: the agent_turn lane does not emit logger.warn uniformly across the six terminal paths",
+      "at": "docs/roadmap/2026-09-11-owner-operator/README.md:638",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. Every claim in the rewritten README:638 bullet re-resolved against head with rg \"logger\\.(log|warn|error)\\(\" over worker/jobs/agent-turn/AgentTurnWorker.ts: predecessor_stalled warn (:122), unauthorized reauthorization arm warn (:171), unauthorized vanished-voice arm warn (:229), model_output_invalid warn (:204), budget_exceeded warn (:292), operator_disabled logger.log/info (:324), lease-lost warn (:370). The false uniformity claim is gone and the per-path levels are now correct. Two residual imprecisions in the same line are recorded separately as P2-2 rather than reopening this finding. || ROUND-1 EVIDENCE (retained): The bullet, added by this branch inside the @@ -627,14 +627,37 @@ hunk, asserts that every terminal path in AgentTurnWorker \u2014 naming operator_disabled first \u2014 \"resolves the turn and emits a logger.warn line\", and concludes \"That is uniform across the six paths, not a gap in one of them\". At HEAD the operator_disabled path emits logger.log (worker/jobs/agent-turn/AgentTurnWorker.ts:324, \"agent_turn flag-off skip\"); the other five use logger.warn (AgentTurnWorker.ts:122, :171, :204, :229, :292). Fix: say five of the six paths warn and the flag-off skip logs at info, or change line 324 to warn.",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || Re-derived at HEAD, not taken from the subagent report: I read the bullet and the six call sites myself and confirmed the hunk membership with git diff. Recorded as P1 rather than P0 after weighing the \"misleading FALSE claim\" bar. The bullet's operative assertions are all true and independently verified here \u2014 there is no Sentry call anywhere in AgentTurnWorker.ts, and beta-launch-alerting.md carries no row for the lane \u2014 and the same sentence itself describes operator_disabled as \"an orderly flag-off skip ... not an incident\", which is consistent with logger.log being deliberate. A reader is therefore misled about one path's log LEVEL, not about whether the lane is alerted or about the single go-live decision the bullet defers. The concrete harm is bounded to whoever later implements that deferred decision with a level:warn filter and silently drops every operator_disabled turn. Recorded at P1 with this reasoning so the owner can escalate it to P0 if they weigh the uniformity assertion as load-bearing."
+    },
+    {
+      "id": "P1-6",
+      "severity": "P1",
+      "duty": 3,
+      "title": "The authoritative JSONB parse-site allowlist names the wrong file for the agent_turns.reply parse sites",
+      "at": ".claude/reference/lab-notes/postgres.md:17",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. .claude/reference/lab-notes/postgres.md:17 now reads \"called in context.ts and twice in reads.ts\"; rg at head resolves parseReplySegments to exactly src/lib/agents/operator/context.ts:297, reads.ts:97 and reads.ts:213 (plus its definition at schema.ts:229). The \"(4)\" count also re-resolves: one agent_turns.reply field plus agent_proposals.input/.before/.after through parseJsonbObject at proposals.ts:186,198,199. || ROUND-1 EVIDENCE (retained): The Owner Operator bullet added by this branch says parseReplySegments is \"called in context.ts and twice in turns.ts\". At HEAD it is called once in src/lib/agents/operator/context.ts:297 and twice in src/lib/agents/operator/reads.ts:97 and :213; src/lib/agents/operator/turns.ts contains no call at all (rg parseReplySegments src worker). The owner reads were split out of turns.ts into reads.ts in commit eb21f55c2 and this line was not re-resolved. Fix: name reads.ts. Everything else in the bullet checks out \u2014 the site count of four is right and the entry's arithmetic closes (2+1+2+4+2+3+4+5 = 23, matching its own \"Exactly 23 production JSONB field-to-parser sites today\").",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || This entry is marked AUTHORITATIVE and its one job is to let a reader find every production JSONB parse site, so pointing at a file that has none while leaving the file that has two unnamed defeats that job. Recorded as P1 rather than P0 because the substantive safety claim \u2014 each site guards typeof-string, narrows and throws \u2014 is true at the real sites, and the enumeration's count and totals are correct; what is wrong is where to look, which is a stale reference of the same family as a stale line number."
+    },
+    {
+      "id": "P2-1",
+      "severity": "P2",
+      "duty": 4,
+      "title": "The branch adds a fifth private boundedErrorClass copy and picks the unhardened shape, while a hardened shared export already exists",
+      "at": "worker/jobs/agent-turn/failed-hook.ts:26-28",
+      "disposition": "fixed",
+      "reason": "FIXED by 3a377f656. The private copy in worker/jobs/agent-turn/failed-hook.ts is deleted and the hardened shared export is imported (failed-hook.ts:8). M5 proved the call site is load-bearing and observed: replacing boundedErrorClass(err) with a constant failed failed-hook.test.ts's 'agent_turn_exhausted:ProviderTimeout' assertion. Sibling sweep at head: three private copies remain (worker/job-failure-sink.ts:59, worker/jobs/judge/failed-hook.ts:39, worker/jobs/csv-ingest/failed-hook.ts:94), all pre-existing unchanged code \u2014 job-failure-sink.ts documents its err.name shape as a deliberate divergence \u2014 and all outside round-2 scope. INV-273. || ROUND-1 EVIDENCE (retained): Missed sibling case. Pattern searched: \"function boundedErrorClass\" across worker and src. Scope: the whole worker and src trees, no exclusions. Result: five definitions \u2014 the shared export at worker/jobs/solicitation-batch/failed-hook-shared.ts:36 (already imported by worker/jobs/solicitation-send/failed-hook.ts, worker/jobs/solicitation-batch/generate-failed-hook.ts and worker/jobs/solicitation-batch/failed-hook.ts) plus four private copies, the newest being this branch's. The shared one validates the class name against /^[A-Za-z][A-Za-z0-9_$]{0,99}$/ and falls back to UnknownError, with a docblock giving the reason (\"so a hostile or exotic error type cannot inject structure into the log line\"); this branch's copy takes err.name unvalidated and slices it to 100 characters, then interpolates it into markOutboxFailed's reason string at failed-hook.ts:56-61, i.e. into a stored job_outbox error value and a log field. The same refactor commit that produced this HEAD (15bc4a4aa) deduplicated parseJsonbObject for exactly this shape; fallow's duplication gate does not reach a two-line helper. Fix: import boundedErrorClass from the shared module, or move it somewhere both hooks can share.",
+      "arbiter_reasoning": "Round 2 re-derived this disposition from evidence produced in this pass at head 3a377f6562ce564051b7fd21bd751c9bd9be49ed; the round-1 arbiter reasoning is retained below and was not re-used as proof. || P2, recorded and non-blocking, because there is no exploitable path today: the errors that reach this hook come from the LLM seam, Postgres and the cost guard, none of which sets .name from provider or owner text, and the value is a bound parameter rather than interpolated SQL. The finding is the divergence itself \u2014 the branch replicated the weaker of two existing siblings (worker/jobs/judge/failed-hook.ts:39) when a hardened shared export with a stated rationale was available."
+    },
+    {
+      "id": "P2-2",
+      "severity": "P2",
+      "duty": 3,
+      "title": "The rewritten go-live alerting bullet miscounts its own terminal paths and misnames the watchdog log line",
+      "at": "docs/roadmap/2026-09-11-owner-operator/README.md:638",
+      "disposition": "fixed",
+      "reason": "FIXED by 7583062a4 (round 3, doc-only). Both halves re-resolved against HEAD 7583062a4ea206702bab339930a315fdd6875496. (1) THE COUNT. The line now opens \"TURN_FAILURE_REASON has seven members\" and partitions them instead of asserting \"six paths\" over a seven-item list: src/lib/agents/operator/schema.ts:52-60 has exactly seven (operator_disabled, unauthorized, account_offboarding, predecessor_stalled, model_output_invalid, budget_exceeded, exhausted). The six the worker writes re-resolve to AgentTurnWorker.ts:119 (predecessor_stalled), :167 (account_offboarding), :168 and :226 (unauthorized), :201 (model_output_invalid), :289 (budget_exceeded), :331 (operator_disabled); the seventh, exhausted, re-resolves to failed-hook.ts:70 \u2014 written by the failed-hook, not the worker, exactly as the line now says. account_offboarding is now NAMED and correctly attributed to \"the other outcome of that same reauthorization arm\" (the ternary at :166-168, whose single logger.warn is at :171). The lease-lost exit is now explicitly excluded from the terminal count (\"One more exit is NOT a terminal\"), which removes the contradiction round 2 flagged; it re-resolves to the logger.warn at :370. Log levels re-derived with rg \"logger\\.(log|warn)\\(\" over AgentTurnWorker.ts: warn at :122, :171, :204, :229, :292; logger.log for operator_disabled at :324. No Sentry call anywhere in AgentTurnWorker.ts, so \"none of the six domain terminals calls Sentry\" holds. (2) THE WATCHDOG LINE. \"topic-aggregated\" is gone, replaced by \"one count-only log line ... (`Watchdog recovered stale entries` with `recovered`, `failed` and `stale_dispatching` counts \u2014 no topic field, no Sentry event)\". Verified VERBATIM at worker/background/pollers/OutboxPoller.ts:162-168: the message string matches byte for byte, all three field names match, there is no topic field, and a grep for Sentry/capture over runOutboxWatchdogRecovery (:101-170) returns nothing. The same correction was applied to the runbook's parallel sentence (beta-launch-alerting.md:346-348). || ROUND-2 EVIDENCE (retained): Two imprecisions inside the fix hunk, neither of them an operationally false claim. (1) The line opens \"The six terminal paths in AgentTurnWorker resolve the turn\" and then enumerates seven items, the last of which \u2014 \"a lease lost before completion\" \u2014 the same sentence says \"resolves NOTHING\"; and it never names account_offboarding, which IS one of the six domain terminal reasons (src/lib/agents/operator/schema.ts:55) and is written by the very reauthorization arm the line does name (AgentTurnWorker.ts:166-171), so the same logger.warn covers it. The runbook's parallel sentence counts correctly (\"the six domain terminal reasons (operator_disabled through budget_exceeded)\" = exactly the six non-exhausted members in declaration order). (2) The line calls the watchdog re-pend \"a topic-aggregated log line in runOutboxWatchdogRecovery\"; at head that call emits logger.log('Watchdog recovered stale entries', { recovered, failed, stale_dispatching }) (worker/background/pollers/OutboxPoller.ts:160-166), which carries NO topic field at all \u2014 the counts are aggregated ACROSS topics, not by topic. The same phrase appears in docs/runbooks/beta-launch-alerting.md:338-340. Suggested replacement: \"the six domain terminal reasons (operator_disabled through budget_exceeded) resolve the turn; a lease lost before completion resolves nothing\", and \"an untyped aggregate count in runOutboxWatchdogRecovery's log line\".",
+      "arbiter_reasoning": "Round 3 re-derived this from evidence produced in this pass at head 7583062a4ea206702bab339930a315fdd6875496. The fix is doc-only: git diff between the round-2 head and HEAD touches no production file (only the two docs plus the round-2 sidecar commit), so every production coordinate cited above was re-resolved rather than carried over. One generalization was inspected and accepted rather than filed: the line says the six domain terminals are written \"through a fenced status update\", and five use failTurnFenced (fenced on attempt_token) while operator_disabled at :328 uses failTurnAndCompleteOutbox, which fences on the outbox-ownership CAS instead (the code's own comment at :325-327 says so). \"Fenced\" is true of both in the sense that matters \u2014 neither write can land from a superseded dispatch \u2014 and the line does not claim attempt_token, so this is not a false claim. || P2, not P1: the operationally load-bearing claims of the line all re-resolve true at head (which paths warn, which logs info, that none calls Sentry, that the terminal outbox row alerts and the re-pend does not). A reader acting on the line reaches the right conclusion; only the arithmetic and one adjective are wrong, so this records rather than blocks. Not P0 under duty 3 because no claim is misleading about behaviour \u2014 account_offboarding is covered by the arm that is named, it is simply unnamed."
+    },
+    {
+      "id": "P2-3",
+      "severity": "P2",
+      "duty": 5,
+      "title": "The new runbook bullet overstates what one agent-turn-exhausted event implies about the turn",
+      "at": "docs/runbooks/beta-launch-alerting.md:330-339",
+      "disposition": "fixed",
+      "reason": "FIXED by 7583062a4 (round 3, doc-only). The overstatement is gone and replaced with the ownership split, re-resolved against HEAD. The bullet now reads \"One event means one agent_turn JOB exhausted its BullMQ retries \u2014 reportJobFailure fires on every terminal failed event\", which matches worker/job-failure-sink.ts:64-66 exactly (the only gate is `if (!job || !isFailedEventTerminal(job)) return;` \u2014 no turn-state condition). It then states the turn consequence conditionally: the failed-hook \"ends the turn failure_reason = exhausted only when its markOutboxFailed CAS still owns the outbox row\", which matches worker/jobs/agent-turn/failed-hook.ts:52-71 \u2014 markOutboxFailed at :53-58, the `if (!owns)` early return at :59-63, and failTurnIfNonTerminal with TURN_FAILURE_REASON.EXHAUSTED at :67-71 reached only on the owning path. The superseded consequence the bullet now spells out (\"leaves the turn to the attempt that owns it, so a paged event can belong to a turn another attempt is running or has already completed\") is precisely that branch. || ROUND-2 EVIDENCE (retained): The new \u00a71 bullet tells the operator \"One event means one owner's Operator message ran out of BullMQ retries and the turn ended failure_reason = exhausted through worker/jobs/agent-turn/failed-hook.ts, so the owner never receives a reply\". The first clause is exact; the rest is not guaranteed. reportJobFailure fires on the terminal 'failed' event unconditionally (worker/job-failure-sink.ts:66-80), while the hook writes TURN_FAILURE_REASON.EXHAUSTED only when markOutboxFailed confirms this dispatch still OWNS the row (failed-hook.ts:52-71); the superseded branch at :59-63 logs 'agent_turn exhaustion for a superseded dispatch, leaving the turn alone' and returns, and a newer attempt may already have completed the turn. So a paged event can correspond to a turn that is running or already completed, and the owner may well receive a reply. Suggested replacement: \"\u2026ran out of BullMQ retries. If that dispatch still owned the outbox row the turn ended failure_reason = exhausted and the owner never receives a reply; if a newer dispatch had superseded it the hook leaves the turn alone, so check agent_turns.status before treating it as a lost reply.\" All six duty-5 facets themselves match the emitter (see P1-3) \u2014 this is the event's MEANING, not a facet.",
+      "arbiter_reasoning": "Round 3 re-derived this from evidence produced in this pass at head 7583062a4ea206702bab339930a315fdd6875496. Two sub-claims were checked for verbatim accuracy rather than assumed. The quoted superseded log text `agent_turn exhaustion for a superseded dispatch` is a PREFIX of the actual string, which is 'agent_turn exhaustion for a superseded dispatch, leaving the turn alone' (failed-hook.ts:60). Accepted, not filed: an operator grepping the quoted text finds the line, so the truncation costs nothing operationally and the quote is not misleading about behaviour. The new triage instruction in the same sentence does have a real gap, which is filed separately and honestly as P2-4 rather than folded into this disposition. || P2, not P1: duty 5's P1 trigger is a missing half of the alert path or a documented FACET that contradicts the emitted signal, and neither applies \u2014 identity, filter, level, grouping, cadence and destination all re-resolve true at head. The overstatement is in the interpretation text, and it errs toward over-investigating rather than under-paging, which is the safe direction for a go-live rule. Recorded so the sentence is corrected before OWNER_OPERATOR_ENABLED is flipped, not blocking the PR."
+    },
+    {
+      "id": "P2-4",
+      "severity": "P2",
+      "duty": 5,
+      "title": "The new triage step tells the operator to use a turn_id the Sentry event does not carry",
+      "at": "docs/runbooks/beta-launch-alerting.md:337-338",
+      "disposition": "open",
+      "reason": "Introduced by the round-3 hunk, so in scope. The bullet's new triage instruction reads \"Read `agent_turns.status` for the `turn_id` before treating the event as an unanswered owner message.\" The emitted event carries no turn_id. reportJobFailure (worker/job-failure-sink.ts:68-78) sets tags { subsystem, queue, topic } and extra { job_id, outbox_id, attempts_made } \u2014 nothing else; turn_id lives in the BullMQ job DATA, which Sentry never receives, and job_id is not the turn either: OutboxPoller builds it as `${entry.id}_${entry.attempts}` (worker/background/pollers/OutboxPoller.ts:301), i.e. <outbox_id>_<attempt>. The step IS performable, but only with a hop the bullet omits: take `outbox_id` from the event, read the turn id out of that job_outbox row's payload, then read agent_turns.status. Suggested replacement: \"Resolve the turn from the event's `outbox_id` (the `turn_id` in that `job_outbox` row's payload), then read `agent_turns.status` before treating the event as an unanswered owner message.\" Alternatively add `turn_id` to the sink's `extra` \u2014 but that is a production change and outside this round's doc-only scope, so it is recorded as an option, not proposed.",
+      "arbiter_reasoning": "P2, not P1. Duty 5's P1 triggers are a missing half of the alert path and a documented FACET that contradicts the emitted signal; neither applies. All six facets were re-resolved at HEAD and still match (identity, filter, level, grouping, cadence, destination \u2014 click-path row 11 at beta-launch-alerting.md:412 is unchanged and correct), and both halves of the agent_turn alert path remain present (allowlist entry at health-alert/checks.ts:121; sink tags at job-failure-sink.ts:74 with attachJobFailureSink applied over every worker at worker/index.ts:574). This is triage guidance, not a facet: the page still fires correctly and reaches the right channel, and the operator reaches the right answer after one extra lookup. Recorded rather than blocking. NOTE: the skill caps the loop at three rounds and no fourth can open, so this cannot be verified by a further red-team round \u2014 it belongs with the runbook work owed before OWNER_OPERATOR_ENABLED is flipped, alongside rule 11's \"NOT CONFIGURED BY THIS CHANGE\" build step."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "auth-round-3-docs-2026-09-12",
+      "date": "2026-09-12",
+      "finding_ids": [
+        "P2-2",
+        "P2-3"
+      ],
+      "text": "Owner (Norbert) selected \"Fix now, third round\" via AskUserQuestion on 2026-09-12 after round 2 closed with P2-2 and P2-3 open (wording defects in the two doc hunks the round-1 fix commit 3a377f656 introduced). A third round is authorized, scoped to those two doc hunks \u2014 docs/roadmap/2026-09-11-owner-operator/README.md line 638 and the agent_turn bullet in docs/runbooks/beta-launch-alerting.md \u00a71 \u2014 after the orchestrator's fix commit."
+    }
+  ],
+  "counts": {
+    "inventory_total": 274,
+    "killed": 32,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 242,
+    "findings_total": 12,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 1,
+    "accepted_risk": 0,
+    "fixed": 11,
+    "rejected": 0
+  },
+  "status": "CLEAR"
+}

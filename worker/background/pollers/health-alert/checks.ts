@@ -117,7 +117,8 @@ export async function checkFailedOutboxByTopic(sql: postgres.Sql, cfg: HealthAle
         ${QUEUE_NAMES.GENERATE_RESPONSE},
         ${QUEUE_NAMES.BUILD_SOLICITATION_BATCH},
         ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS},
-        ${QUEUE_NAMES.SOLICITATION_VETO_NOTICE}
+        ${QUEUE_NAMES.SOLICITATION_VETO_NOTICE},
+        ${QUEUE_NAMES.AGENT_TURN}
       )
       AND COALESCE(completed_at, dispatched_at, available_at) > NOW() - make_interval(secs => ${cfg.failedWindowS})
     GROUP BY topic

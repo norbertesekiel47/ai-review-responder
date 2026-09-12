@@ -179,6 +179,22 @@ export const MIGRATION_071_RUN_SPINE: SchemaRequirement = {
   tables: ['agent_runs', 'agent_run_steps', 'agent_outcomes'],
 };
 
+export const MIGRATION_120_OWNER_OPERATOR: SchemaRequirement = {
+  migration: '120_owner_operator',
+  tables: [
+    'agent_conversations',
+    'agent_turns',
+    'agent_proposals',
+    'agent_unsupported_requests',
+  ],
+  // `constraints` is `readonly { table, name }[]`, never bare names
+  // (src/lib/shared/__tests__/helpers/schema-ready.ts:34).
+  constraints: [
+    { table: 'agent_turns', name: 'agent_turns_account_client_key_uniq' },
+    { table: 'agent_turns', name: 'agent_turns_conversation_sequence_uniq' },
+  ],
+};
+
 export const MIGRATION_072_REVIEW_TRIAGE: SchemaRequirement = {
   migration: '072_review_triage',
   columns: ['reviews.triage_severity', 'reviews.triaged_at', 'reviews.triage_content_hash'],

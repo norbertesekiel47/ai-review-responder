@@ -190,6 +190,29 @@ describe('health-alert checks', () => {
       const [, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
       expect(values).toContain(QUEUE_NAMES.GENERATE_SOLICITATION_ASKS);
     });
+
+    // Owner Operator Run A (red-team P1-2): a failed agent_turn row means the
+    // owner's message never receives a reply; the spec leans on the row being
+    // seen.
+    it('health alerts include terminal agent_turn outbox failures', async () => {
+      sqlReturnQueue.push([{ topic: QUEUE_NAMES.AGENT_TURN, count: 1 }]);
+
+      const findings = await checkFailedOutboxByTopic(mockSql, CFG);
+
+      expect(findings).toEqual([
+        expect.objectContaining({
+          key: `outbox_failed:${QUEUE_NAMES.AGENT_TURN}`,
+          level: 'error',
+          detail: {
+            topic: QUEUE_NAMES.AGENT_TURN,
+            count: 1,
+            window_s: CFG.failedWindowS,
+          },
+        }),
+      ]);
+      const [, ...values] = mockSql.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      expect(values).toContain(QUEUE_NAMES.AGENT_TURN);
+    });
   });
 
   describe('checkFailedInboundEvents', () => {
