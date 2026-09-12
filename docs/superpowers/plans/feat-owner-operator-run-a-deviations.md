@@ -168,3 +168,35 @@ committed with the suite red.
 **Verdict:** RE-PLAN (small) — assign
 `src/app/api/settings/voice/__tests__/route.test.ts` to a follow-up with the
 lease to edit it; the branch gate stays red until then.
+
+## 2026-09-11 — T3's `render.test.ts` fixture says `threshold: 'manual'`, a value `RuleSummary` cannot hold
+
+T3 Step 2's suite snippet builds its `Snapshot` fixture with
+`operatingRules.account.threshold = 'manual'` (twice), but the `RuleSummary`
+declaration T3 must copy verbatim into `context.ts` types it as
+`AutoApprovalThreshold | null`, and `AutoApprovalThreshold` is
+`z.union([z.literal(4), z.literal(5)])` (`src/lib/auto-approval/types.ts:5`) —
+`'manual'` is outside the domain and the fixture does not compile. The two
+readings are semantically the same thing: the plan's own JSDoc says "null means
+no threshold is set", which is what `'manual'` was reaching for. T3 kept the
+TYPE verbatim (T5 and the Run B comparison depend on it) and changed the two
+fixture values to `null`, with a one-line comment in the suite saying so. No
+assertion in any of the six render titles reads `operatingRules`, so no
+behaviour moved. The same fixture spelling appears once more in the plan at
+`feat-owner-operator-run-a-plan.md:5530` (a T6/T7 suite) and will need the same
+one-word fix there.
+
+Two smaller drifts in the same task, both acted on the obvious way: (a) T3 Step 6
+says the `context.ts` type declarations are "exactly as T5 Step 3 declares them",
+but T5 Step 3 registers the LLM task — the declarations are in **T5 Step 6**, and
+that block is what T3 copied; (b) that block declares a seventh type,
+`SnapshotFacts`, which T3's named list (`Snapshot`, `SnapshotMetrics`,
+`StarBands`, `SnapshotTurn`, `SnapshotProposal`, `RuleSummary`) omits —
+`Snapshot.facts` is typed with it and it carries the invariant-5 reason for
+existing, so it shipped with the other six, along with `StarBandKey` which
+`StarBands.byStar` needs. T3 also dropped the unused `type Segment` from
+`render.ts`'s import list (the plan's snippet imports it and never uses it;
+`no-unused-vars` fails the file as written).
+
+**Verdict:** ACCEPT — the type wins over the fixture, no contract change, and
+the plan's own line 5530 is flagged for the task that owns it.
