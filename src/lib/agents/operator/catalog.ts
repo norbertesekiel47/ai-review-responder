@@ -65,6 +65,17 @@ export interface ProposableOperation {
   describe(input: unknown): string;
   parseInput(value: unknown): { ok: true; input: Record<string, unknown> } | { ok: false };
   preview(voice: VoiceConfig, input: unknown): ProposablePreview;
+  /**
+   * The fields this operation — and ONLY this operation — writes, ready for
+   * `updateVoiceConfig`'s `fields` bag.
+   *
+   * NOT `preview().after`. `after` is the FULL effective state, so passing it
+   * to the writer would write the four fields the owner did not agree to
+   * change, silently reverting a concurrent settings edit to a different
+   * field. The **Version token** proves the ROW did not move; once that holds,
+   * writing more than was proposed is a widening nobody approved (D10).
+   */
+  writerFields(input: unknown): Partial<VoiceConfig>;
 }
 
 export type CatalogOperation = ReadOperation | ProposableOperation | CaptureOperation;
@@ -76,6 +87,7 @@ function defineProposable<T extends Record<string, unknown>>(spec: {
   inputSchema: z.ZodType<T>;
   describe: (input: T) => string;
   apply: (voice: VoiceConfig, input: T) => VoiceConfig;
+  writerFields: (input: T) => Partial<VoiceConfig>;
 }): ProposableOperation {
   return {
     id: spec.id,
@@ -95,6 +107,11 @@ function defineProposable<T extends Record<string, unknown>>(spec: {
     // never only the named field (spec §4 "full effective state").
     preview(voice, input) {
       return { before: voice, after: spec.apply(voice, input as T) };
+    },
+    // Same `as T` erasure undoing as `describe`: unreachable without a
+    // successful `parseInput`, which every caller runs first.
+    writerFields(input) {
+      return spec.writerFields(input as T);
     },
   };
 }
@@ -143,6 +160,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     inputSchema: ToneInput,
     describe: (input) => `Set the reply tone to "${input.tone}"`,
     apply: (voice, input) => ({ ...voice, tone: input.tone }),
+    writerFields: (input) => ({ tone: input.tone }),
   }),
   set_products_services: defineProposable({
     id: 'set_products_services',
@@ -153,6 +171,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
       ? 'Clear the products and services the replies may mention'
       : 'Update the products and services the replies may mention',
     apply: (voice, input) => ({ ...voice, productsServices: input.productsServices }),
+    writerFields: (input) => ({ productsServices: input.productsServices }),
   }),
   set_avoid_facts: defineProposable({
     id: 'set_avoid_facts',
@@ -161,6 +180,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     inputSchema: AvoidFactsInput,
     describe: (input) => `Keep ${input.avoidFacts.length} thing(s) out of every reply`,
     apply: (voice, input) => ({ ...voice, avoidFacts: input.avoidFacts }),
+    writerFields: (input) => ({ avoidFacts: input.avoidFacts }),
   }),
   set_highlight_facts: defineProposable({
     id: 'set_highlight_facts',
@@ -169,6 +189,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     inputSchema: HighlightFactsInput,
     describe: (input) => `Highlight ${input.highlightFacts.length} thing(s) when a reply fits`,
     apply: (voice, input) => ({ ...voice, highlightFacts: input.highlightFacts }),
+    writerFields: (input) => ({ highlightFacts: input.highlightFacts }),
   }),
   record_unsupported_request: {
     id: 'record_unsupported_request',

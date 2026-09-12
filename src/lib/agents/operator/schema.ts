@@ -2,6 +2,7 @@
 // parse sites. Nothing here touches the database; the parsers take already-read
 // column values.
 import { z } from 'zod';
+import { VoiceVersionTokenSchema } from './version-token';
 
 export const TURN_STATUS = {
   ACCEPTED: 'accepted',
@@ -60,6 +61,35 @@ export const TURN_FAILURE_REASON = {
 } as const;
 export type TurnFailureReason =
   (typeof TURN_FAILURE_REASON)[keyof typeof TURN_FAILURE_REASON];
+
+/**
+ * Every reason a **Proposal** can carry in `failure_reason`. Six members, and
+ * the split between them is the whole lifecycle (spec §6.3):
+ *
+ *  - `version_mismatch` → `stale`. The settings moved. Offer **Refresh plan**.
+ *  - `contract_changed` → `rejected`. The CODE moved, not the settings; the
+ *    plan must be regenerated, not retried.
+ *  - `unauthorized` / `account_offboarding` → `rejected`. The actor lost the
+ *    right between preparation and the click.
+ *  - `location_not_found` → `rejected`. The location was archived.
+ *  - `write_failed` → `failed`. The executor DETERMINISTICALLY refused. A
+ *    THROWN executor is not this: the transaction rolls back and the row stays
+ *    `pending` (plan decision D12).
+ *
+ * An owner decline stores NO reason — `decided_by_user_id` alone says who, and
+ * a reason column filled with `owner_declined` would make "the owner said no"
+ * look like a failure in every read that counts non-NULL reasons (D5).
+ */
+export const PROPOSAL_FAILURE_REASON = {
+  VERSION_MISMATCH: 'version_mismatch',
+  CONTRACT_CHANGED: 'contract_changed',
+  UNAUTHORIZED: 'unauthorized',
+  ACCOUNT_OFFBOARDING: 'account_offboarding',
+  LOCATION_NOT_FOUND: 'location_not_found',
+  WRITE_FAILED: 'write_failed',
+} as const;
+export type ProposalFailureReason =
+  (typeof PROPOSAL_FAILURE_REASON)[keyof typeof PROPOSAL_FAILURE_REASON];
 
 export const STATUS_METRICS = ['pending_count', 'posted_7d', 'drafts_waiting'] as const;
 export type StatusMetric = (typeof STATUS_METRICS)[number];
@@ -237,6 +267,123 @@ export function parseReplySegments(value: unknown): StoredSegment[] {
   const validated = z.array(StoredSegmentSchema).safeParse(parsed);
   if (!validated.success) {
     throw new Error('agents/operator: agent_turns.reply holds a segment shape no writer produces');
+  }
+  return validated.data;
+}
+
+// ── The Receipt ───────────────────────────────────────────────────────────
+//
+// Server-written, in the SAME transaction as the mutation. The client supplies
+// no field of it. `.strict()` for the same reason the model schema is strict:
+// a Receipt is the owner's record that something changed, and an unknown key
+// in it is a writer this codebase does not have.
+
+/**
+ * The five `VoiceConfig` fields, as a value rather than an interface, so the
+ * Receipt's `before`/`after` can be VALIDATED and not merely asserted. It
+ * mirrors `VoiceConfig` (src/lib/responses/voice-settings.ts:10-22) field for
+ * field. This is the shape the **Receipt** CARRIES.
+ */
+export const VoiceStateSchema = z.object({
+  tone: z.string().nullable(),
+  productsServices: z.string().nullable(),
+  avoidFacts: z.array(z.string()),
+  highlightFacts: z.array(z.string()),
+  sampleResponses: z.array(z.string()),
+}).strict();
+export type VoiceState = z.infer<typeof VoiceStateSchema>;
+
+/**
+ * What Run A actually STORED in `agent_proposals.before` / `.after` — the five
+ * fields PLUS `updatedAt`, and that extra key is not an accident to be
+ * tightened away.
+ *
+ * `AgentTurnWorker` reads the voice config with `readVoiceConfig`
+ * (`worker/jobs/agent-turn/AgentTurnWorker.ts:211-214`), whose return type is
+ * `VoiceConfig & { updatedAt: string }`; `defineProposable`'s `preview` returns
+ * that object as `before` and spreads it into `after`
+ * (`src/lib/agents/operator/catalog.ts:96-98`); and `buildProposalRows` stores
+ * both with `{ ...before }` / `{ ...after }`
+ * (`src/lib/agents/operator/proposals.ts:77-78`). **Every Proposal Run A has
+ * ever written therefore carries SIX keys.** A five-field `.strict()` parse
+ * would reject all of them — crashing the card and rolling back Apply on real
+ * data while every hand-typed fixture passed.
+ *
+ * So the parser ACCEPTS `updatedAt` and DROPS it: the `updatedAt` inside a
+ * preview is the **Version token**'s own value at preparation time, which the
+ * Receipt already records under `versionToken.before`. Carrying it a second
+ * time inside `before`/`after` would put two copies of one fact in one
+ * document. Any OTHER unknown key is still a hard rejection.
+ */
+const StoredVoiceStateSchema = VoiceStateSchema.extend({
+  updatedAt: z.string().optional(),
+}).strict();
+
+/**
+ * `agent_proposals.before` / `.after` → a `VoiceState`.
+ *
+ * NOT a JSONB parse site: `mapStored` already ran `parseJsonbObject` over the
+ * column, so this narrows an in-memory object. It throws rather than defaulting
+ * because a Proposal whose stored preview cannot be read is one whose Receipt
+ * would be a guess.
+ */
+export function parseVoiceState(value: unknown, column: string): VoiceState {
+  const validated = StoredVoiceStateSchema.safeParse(value);
+  if (!validated.success) {
+    throw new Error(`agents/operator: ${column} holds a voice state no writer produces`);
+  }
+  // Drop the stored `updatedAt`; the Receipt records it once, under
+  // `versionToken`, and nowhere else.
+  const { updatedAt: _preparedAt, ...state } = validated.data;
+  return state;
+}
+
+export const ReceiptSchema = z.object({
+  /** Bumped only when a stored Receipt's SHAPE changes. Run B writes 1. */
+  version: z.literal(1),
+  operation: z.string().min(1),
+  scope: z.object({ accountId: z.uuid(), locationId: z.uuid() }).strict(),
+  /** The state the card SHOWED the owner when they clicked (plan decision P6). */
+  before: VoiceStateSchema,
+  /** The state that actually committed, read back under the lock. */
+  after: VoiceStateSchema,
+  /**
+   * True when the committed `after` is not the previewed `after` — a seeded
+   * column or a concurrent trigger. The Apply still succeeds (spec §6.5); this
+   * flag is how the card says the result is not what was previewed.
+   */
+  differsFromPreview: z.boolean(),
+  /** Voice changes take effect at once. A literal, not a boolean: no Run B operation is scheduled. */
+  effectiveNow: z.literal(true),
+  /** Spec §8.4, the tone/facts row: future drafts only. */
+  affects: z.literal('future_drafts'),
+  /** Readiness reasons still blocking something. Always `[]` for voice (P7). */
+  remainingBlocked: z.array(z.string()),
+  appliedAt: z.string().min(1),
+  actorUserId: z.uuid(),
+  /** The VERBATIM `owner_text` of the turn that produced the Proposal (§6.5). */
+  ownerText: z.string(),
+  /** The turn id, as the correlation id (§6.5). */
+  turnId: z.uuid(),
+  versionToken: z.object({
+    before: VoiceVersionTokenSchema,
+    after: VoiceVersionTokenSchema,
+  }).strict(),
+}).strict();
+export type Receipt = z.infer<typeof ReceiptSchema>;
+
+/**
+ * `agent_proposals.receipt` → a **Receipt**. A PgBouncer JSONB parse site
+ * (lab-notes/postgres.md allowlist): guard `typeof x === 'string'`, narrow,
+ * throw. `null` is a legitimate value — every Proposal that has not been
+ * applied has one — and returns `null` rather than throwing.
+ */
+export function parseReceipt(value: unknown): Receipt | null {
+  if (value == null) return null;
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  const validated = ReceiptSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error('agents/operator: agent_proposals.receipt holds a shape no writer produces');
   }
   return validated.data;
 }

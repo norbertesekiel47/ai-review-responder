@@ -1,12 +1,13 @@
 import type postgres from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
+const { mockSql, sqlCalls, sqlReturnQueue, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../../worker/__tests__/helpers/mock-sql');
   return { ...createMockSql() };
 });
 
-import { insertProposals, type ProposalRow } from '../proposals';
+import { mkTaggedResult } from '../../../../../worker/__tests__/helpers/mock-sql';
+import { insertProposals, listProposalsForTurn, type ProposalRow } from '../proposals';
 import { PROPOSAL_STATUS } from '../schema';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
@@ -130,5 +131,67 @@ describe('declineProposal', () => {
 });
 
 describe('proposal view', () => {
-  it.todo('proposal view carries receipt, prepared version token, applied_at and failure_reason');
+  it('proposal view carries receipt, prepared version token, applied_at and failure_reason', async () => {
+    const receipt = {
+      version: 1,
+      operation: 'set_tone',
+      scope: { accountId: ACCOUNT, locationId: LOCATION },
+      before: { tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      after: { tone: 'warm and brief', productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      differsFromPreview: false,
+      effectiveNow: true,
+      affects: 'future_drafts',
+      remainingBlocked: [],
+      appliedAt: '2026-09-12T10:00:00.000Z',
+      actorUserId: ACTOR,
+      ownerText: 'Make my replies warmer.',
+      turnId: TURN,
+      versionToken: {
+        before: { businessId: LOCATION, updatedAt: '2026-09-12 09:00:00.111111+00' },
+        after: { businessId: LOCATION, updatedAt: '2026-09-12 10:00:00.222222+00' },
+      },
+    };
+
+    sqlReturnQueue.push(mkTaggedResult([{
+      turn_id: TURN,
+      id: '66666666-6666-4666-8666-666666666666',
+      operation: 'set_tone',
+      contract_version: 1,
+      label_kind: 'fact',
+      location_id: LOCATION,
+      status: 'applied',
+      rationale: 'You asked for shorter replies.',
+      input: { tone: 'warm and brief' },
+      before: receipt.before,
+      after: receipt.after,
+      // The PgBouncer STRING form on purpose: these two columns are the new
+      // parse sites, and a string is what the pooler can hand back.
+      prepared_version_token: JSON.stringify(receipt.versionToken.before),
+      receipt: JSON.stringify(receipt),
+      applied_at: new Date('2026-09-12T10:00:00.000Z'),
+      failure_reason: null,
+    }]));
+
+    const [view] = await listProposalsForTurn(
+      mockSql as unknown as postgres.Sql,
+      { turnId: TURN, accountId: ACCOUNT },
+    );
+
+    expect(view!.turnId).toBe(TURN);
+    expect(view!.preparedVersionToken).toEqual({
+      businessId: LOCATION,
+      updatedAt: '2026-09-12 09:00:00.111111+00',
+    });
+    expect(view!.receipt).toEqual(receipt);
+    expect(view!.appliedAt).toBe('2026-09-12T10:00:00.000Z');
+    expect(view!.failureReason).toBeNull();
+
+    // The projection has to ASK for the four columns, or the view above would
+    // be built from undefineds that happen to satisfy a loose assertion.
+    const [call] = sqlCalls;
+    for (const column of ['prepared_version_token', 'receipt', 'applied_at', 'failure_reason', 'turn_id']) {
+      expect(call!.text).toContain(column);
+    }
+    expect(call!.text).toContain('account_id = ?');
+  });
 });
