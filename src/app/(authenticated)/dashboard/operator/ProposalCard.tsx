@@ -62,10 +62,7 @@ export function ProposalCard({
   const before = parseVoiceState(proposal.before, 'agent_proposals.before');
   const after = parseVoiceState(proposal.after, 'agent_proposals.after');
 
-  const pending = proposal.status === 'pending';
   const applied = proposal.status === 'applied';
-  const refreshable =
-    proposal.failureReason !== null && OFFERS_REFRESH_PLAN.has(proposal.failureReason);
 
   return (
     <section className="card op-card" aria-labelledby={headingId}>
@@ -106,14 +103,56 @@ export function ProposalCard({
 
       <p className="op-state-line">{AFFECTS_FUTURE_DRAFTS}</p>
 
+      <ProposalState
+        proposal={proposal}
+        locationLabel={locationLabel}
+        reasonId={reasonId}
+        onApply={onApply}
+        onDecline={onDecline}
+        onRefreshPlan={onRefreshPlan}
+        busy={busy}
+        error={error}
+      />
+    </section>
+  );
+}
+
+/**
+ * WHAT THIS CARD'S STATUS MEANS, and what the owner may still do about it.
+ *
+ * Every status has a rendering, deliberately: a card with a headline and no
+ * state line is a card the owner cannot act on and cannot interpret. Split out
+ * of `ProposalCard` so the card above stays a description of the plan and this
+ * stays the one place the six statuses are answered.
+ */
+function ProposalState({
+  proposal,
+  locationLabel,
+  reasonId,
+  onApply,
+  onDecline,
+  onRefreshPlan,
+  busy,
+  error,
+}: Pick<
+  ProposalCardProps,
+  'proposal' | 'locationLabel' | 'onApply' | 'onDecline' | 'onRefreshPlan' | 'busy' | 'error'
+> & {
+  /** The id the refusal notice carries, so Apply can describe itself by it. */
+  reasonId: string;
+}) {
+  const pending = proposal.status === 'pending';
+  const refreshable =
+    proposal.failureReason !== null && OFFERS_REFRESH_PLAN.has(proposal.failureReason);
+
+  return (
+    <>
       {/* THE APPLIED LABEL IS NOT CONDITIONAL ON THE RECEIPT. Apply writes the
           status and the Receipt in one transaction, so the two always travel
           together — but a row that somehow arrived applied without one must
           still SAY it was applied rather than render as a plan the owner has
-          not decided yet. Every status below has a rendering for the same
-          reason: a card with a headline and no state line is a card the owner
-          cannot act on and cannot interpret. */}
-      {applied && (
+          not decided yet. */}
+      {proposal.status === 'applied' && (
         <>
           {/* The APPLIED half of the §1 contract, in place of the bare word
               "Applied": after success the card names what it now IS — an
@@ -181,7 +220,7 @@ export function ProposalCard({
           </button>
         </div>
       )}
-    </section>
+    </>
   );
 }
 

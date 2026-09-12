@@ -144,28 +144,14 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
     });
     if (!proposal) return { kind: 'not_found' };
 
-    if (!locked) {
-      if (proposal.status === PROPOSAL_STATUS.APPLIED) {
-        return { kind: 'applied', proposal, repeated: true };
-      }
-      if (proposal.status !== PROPOSAL_STATUS.PENDING) {
-        return { kind: 'not_pending', proposal, status: proposal.status };
-      }
-      // Still pending, and the location it names is gone: this one genuinely
-      // cannot be applied.
-      return rejected(tx, input, PROPOSAL_FAILURE_REASON.LOCATION_NOT_FOUND);
-    }
+    if (!locked) return locationMissingResult(tx, input, proposal);
 
     // 2. Ownership and state. A repeat Apply on an `applied` proposal returns
     //    the STORED Receipt and executes nothing (spec §6.4 step 2) — that is
     //    the whole idempotency story, and it is why the read happens under the
     //    lock rather than before it.
-    if (proposal.status === PROPOSAL_STATUS.APPLIED) {
-      return { kind: 'applied', proposal, repeated: true };
-    }
-    if (proposal.status !== PROPOSAL_STATUS.PENDING) {
-      return { kind: 'not_pending', proposal, status: proposal.status };
-    }
+    const settled = settledResult(proposal);
+    if (settled !== null) return settled;
     // UNREACHABLE, and kept anyway. The row is `pending` by the two branches
     // above, and a PENDING row with a stale contract was already answered by
     // the pre-transaction guard, so `contractCurrent` is necessarily true here.
@@ -177,43 +163,9 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
       return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
     }
 
-    // 3. Revalidate WITH THE LOCKS HELD. The POST-time gate is not reusable
-    //    here: minutes may have passed, the owner may be revoked, and the
-    //    account may have entered offboarding. Same three checks
-    //    `reauthorizeTurn` makes (src/lib/agents/operator/authorize.ts:21-58),
-    //    run against `tx` so they see the locked state.
-    // `name` and `email` ride along on the read the gate already makes: the
-    // Receipt records WHO applied this in words the owner recognises, and a
-    // second query for it would be a second chance to disagree with the gate
-    // about which row the actor is.
-    const [actor] = await tx<{ id: string; name: string | null; email: string | null }[]>`
-      SELECT id, name, email
-      FROM users
-      WHERE id = ${input.actorUserId}::uuid
-        AND account_id = ${input.accountId}::uuid
-        AND role = 'owner'
-    `;
-    if (!actor) return rejected(tx, input, PROPOSAL_FAILURE_REASON.UNAUTHORIZED);
-
-    const writable = await assertWritableSubscriptionForAccount(input.accountId, tx);
-    if (!writable.ok) {
-      return rejected(
-        tx,
-        input,
-        writable.error === 'account_offboarding_blocked'
-          ? PROPOSAL_FAILURE_REASON.ACCOUNT_OFFBOARDING
-          : PROPOSAL_FAILURE_REASON.UNAUTHORIZED,
-      );
-    }
-
-    const [account] = await tx<{ subscription_tier: string }[]>`
-      SELECT subscription_tier
-      FROM accounts
-      WHERE id = ${input.accountId}::uuid
-    `;
-    if (!account || !isSubscriptionTier(account.subscription_tier)) {
-      return rejected(tx, input, PROPOSAL_FAILURE_REASON.UNAUTHORIZED);
-    }
+    // 3. Revalidate WITH THE LOCKS HELD — one call, three checks, one answer.
+    const revalidated = await revalidateActor(tx, input);
+    if (!revalidated.ok) return rejected(tx, input, revalidated.reason);
 
     // 3b. The three tokens, TEXT TO TEXT (D9). `current` comes from the row we
     //     are holding, `prepared` from the proposal, `expected` from the client.
@@ -222,10 +174,7 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
     //     not, even when the row itself has not moved (spec §6.4 step 3).
     const current = computeVoiceVersionToken({ businessId: locationId, updatedAt: locked.updated_at });
     const prepared = proposal.preparedVersionToken;
-    if (
-      !versionTokensEqual(current, prepared) ||
-      !versionTokensEqual(prepared, input.expectedVersionToken)
-    ) {
+    if (!versionTokensAgree(current, prepared, input.expectedVersionToken)) {
       const stale = await recordTerminal(tx, {
         proposalId: input.proposalId,
         accountId: input.accountId,
@@ -261,21 +210,7 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
       locationId,
       fields,
     });
-    if (!write.ok) {
-      if (write.reason === 'location_not_found') {
-        // Unreachable while the lock above holds, but a branch rather than a
-        // non-null assertion: the writer owns that reason, not this module.
-        return rejected(tx, input, PROPOSAL_FAILURE_REASON.LOCATION_NOT_FOUND);
-      }
-      const failed = await recordTerminal(tx, {
-        proposalId: input.proposalId,
-        accountId: input.accountId,
-        actorUserId: input.actorUserId,
-        status: PROPOSAL_STATUS.FAILED,
-        reason: PROPOSAL_FAILURE_REASON.WRITE_FAILED,
-      });
-      return { kind: 'failed', proposal: failed.proposal };
-    }
+    if (!write.ok) return writeRefusedResult(tx, input, write.reason);
 
     // 6. The Receipt. Read the committed-to-be state back from the locked row.
     const committed = await readVoiceConfig(tx, { accountId: input.accountId, locationId });
@@ -292,39 +227,22 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
         AND account_id = ${input.accountId}::uuid
     `;
 
-    const afterActual = toVoiceState(committed);
-    const afterPreviewed = parseVoiceState(proposal.after, 'agent_proposals.after');
     // ONE clock for both the column and the Receipt field (P3).
     const appliedAt = new Date().toISOString();
-
-    const receipt: Receipt = {
-      version: 1,
-      operation: proposal.operation,
-      scope: { accountId: input.accountId, locationId },
-      // The state the card SHOWED when the owner clicked (P6).
-      before: parseVoiceState(proposal.before, 'agent_proposals.before'),
-      after: afterActual,
-      differsFromPreview: !voiceStatesEqual(afterActual, afterPreviewed),
-      effectiveNow: true,
-      affects: 'future_drafts',
-      // No readiness gate applies to a fact change (P7).
-      remainingBlocked: [],
-      appliedAt,
-      actorUserId: input.actorUserId,
-      // The name the card shows. `email` is the fallback for an owner row with
-      // no name yet; `null` only if the row has neither, and the card then
-      // falls back to its own wording rather than printing a uuid.
-      actorName: actor.name ?? actor.email ?? null,
+    const receipt = buildReceipt({
+      input,
+      locationId,
+      proposal,
+      committed,
+      actorName: revalidated.actorName,
       // VERBATIM. A missing turn row cannot happen (the FK is NOT NULL), but an
       // empty string is a safer fallback than a throw that would roll back a
       // committed-to-be voice write over a cosmetic field.
       ownerText: turn?.owner_text ?? '',
-      turnId: proposal.turnId,
-      versionToken: {
-        before: prepared,
-        after: computeVoiceVersionToken({ businessId: locationId, updatedAt: write.updatedAt }),
-      },
-    };
+      prepared,
+      updatedAt: write.updatedAt,
+      appliedAt,
+    });
 
     await tx`
       UPDATE agent_proposals
@@ -355,6 +273,190 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
 
     return { kind: 'applied', proposal: applied, repeated: false };
   });
+}
+
+/**
+ * A proposal that is NO LONGER PENDING answers from its own stored status, and
+ * `null` means "still pending, carry on".
+ *
+ * A repeat Apply on an `applied` row returns the STORED Receipt and executes
+ * nothing (spec §6.4 step 2) — the whole idempotency story — which is why the
+ * same two branches are asked twice: once for a location that is gone, once
+ * under the lock.
+ */
+function settledResult(proposal: ProposalView): ApplyResult | null {
+  if (proposal.status === PROPOSAL_STATUS.APPLIED) {
+    return { kind: 'applied', proposal, repeated: true };
+  }
+  if (proposal.status !== PROPOSAL_STATUS.PENDING) {
+    return { kind: 'not_pending', proposal, status: proposal.status };
+  }
+  return null;
+}
+
+/**
+ * The `businesses` row is gone (archived, or never this account's) and the
+ * proposal row is locked. The STATUS answers first: rejecting on the missing
+ * business would turn a repeat Apply on an already-applied row into a 409 and
+ * lose the owner the Receipt that records what did happen. The location
+ * refusal is reserved for a Proposal that is still `pending`.
+ */
+async function locationMissingResult(
+  tx: Tx,
+  input: ApplyProposalInput,
+  proposal: ProposalView,
+): Promise<ApplyResult> {
+  const settled = settledResult(proposal);
+  if (settled !== null) return settled;
+  return rejected(tx, input, PROPOSAL_FAILURE_REASON.LOCATION_NOT_FOUND);
+}
+
+/**
+ * The voice writer REFUSED (as opposed to throwing, which rolls the whole
+ * transaction back — D12). `location_not_found` is unreachable while the lock
+ * above holds, but it is a branch rather than a non-null assertion: the writer
+ * owns that reason, not this module.
+ */
+async function writeRefusedResult(
+  tx: Tx,
+  input: ApplyProposalInput,
+  reason: 'location_not_found' | 'no_fields',
+): Promise<ApplyResult> {
+  if (reason === 'location_not_found') {
+    return rejected(tx, input, PROPOSAL_FAILURE_REASON.LOCATION_NOT_FOUND);
+  }
+  const failed = await recordTerminal(tx, {
+    proposalId: input.proposalId,
+    accountId: input.accountId,
+    actorUserId: input.actorUserId,
+    status: PROPOSAL_STATUS.FAILED,
+    reason: PROPOSAL_FAILURE_REASON.WRITE_FAILED,
+  });
+  return { kind: 'failed', proposal: failed.proposal };
+}
+
+/**
+ * THE THREE TOKENS, TEXT TO TEXT (D9). `current` comes from the row being
+ * held, `prepared` from the proposal, `expected` from the client. All three
+ * must agree: a browser one render behind is describing a plan this row is
+ * not, even when the row itself has not moved (spec §6.4 step 3).
+ */
+function versionTokensAgree(
+  current: VoiceVersionToken,
+  prepared: VoiceVersionToken,
+  expected: VoiceVersionToken,
+): boolean {
+  return versionTokensEqual(current, prepared) && versionTokensEqual(prepared, expected);
+}
+
+/**
+ * STEP 3 OF THE APPLY PROTOCOL: revalidate the actor WITH THE LOCKS HELD.
+ *
+ * The POST-time gate is not reusable here: minutes may have passed, the owner
+ * may be revoked, and the account may have entered offboarding. Same three
+ * checks `reauthorizeTurn` makes (src/lib/agents/operator/authorize.ts:21-58),
+ * run against `tx` so they see the locked state.
+ *
+ * It answers with the actor's DISPLAY NAME rather than a bare `null`, because
+ * `name` and `email` ride along on the read the gate already makes: the
+ * Receipt records WHO applied this in words the owner recognises, and a second
+ * query for it would be a second chance to disagree with the gate about which
+ * row the actor is.
+ */
+async function revalidateActor(
+  tx: Tx,
+  input: ApplyProposalInput,
+): Promise<
+  | { ok: true; actorName: string | null }
+  | { ok: false; reason: ProposalFailureReason }
+> {
+  const [actor] = await tx<{ id: string; name: string | null; email: string | null }[]>`
+    SELECT id, name, email
+    FROM users
+    WHERE id = ${input.actorUserId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND role = 'owner'
+  `;
+  if (!actor) return { ok: false, reason: PROPOSAL_FAILURE_REASON.UNAUTHORIZED };
+
+  const writable = await assertWritableSubscriptionForAccount(input.accountId, tx);
+  if (!writable.ok) {
+    return {
+      ok: false,
+      reason: writable.error === 'account_offboarding_blocked'
+        ? PROPOSAL_FAILURE_REASON.ACCOUNT_OFFBOARDING
+        : PROPOSAL_FAILURE_REASON.UNAUTHORIZED,
+    };
+  }
+
+  const [account] = await tx<{ subscription_tier: string }[]>`
+    SELECT subscription_tier
+    FROM accounts
+    WHERE id = ${input.accountId}::uuid
+  `;
+  if (!account || !isSubscriptionTier(account.subscription_tier)) {
+    return { ok: false, reason: PROPOSAL_FAILURE_REASON.UNAUTHORIZED };
+  }
+
+  // The name the card shows. `email` is the fallback for an owner row with no
+  // name yet; `null` only if the row has neither, and the card then falls back
+  // to its own wording rather than printing a uuid.
+  return { ok: true, actorName: actor.name ?? actor.email ?? null };
+}
+
+/**
+ * STEP 6: the **Receipt**, assembled from values already read under the lock.
+ *
+ * Pure on purpose — every field is either a parameter or derived from one — so
+ * what the document says can be checked without a transaction.
+ */
+function buildReceipt({
+  input,
+  locationId,
+  proposal,
+  committed,
+  actorName,
+  ownerText,
+  prepared,
+  updatedAt,
+  appliedAt,
+}: {
+  input: ApplyProposalInput;
+  locationId: string;
+  proposal: ProposalView;
+  /** The state that actually committed, read back from the locked row. */
+  committed: VoiceConfig;
+  actorName: string | null;
+  ownerText: string;
+  prepared: VoiceVersionToken;
+  /** `businesses.updated_at` AFTER the write — the Receipt's `after` token. */
+  updatedAt: string;
+  appliedAt: string;
+}): Receipt {
+  const afterActual = toVoiceState(committed);
+  const afterPreviewed = parseVoiceState(proposal.after, 'agent_proposals.after');
+  return {
+    version: 1,
+    operation: proposal.operation,
+    scope: { accountId: input.accountId, locationId },
+    // The state the card SHOWED when the owner clicked (P6).
+    before: parseVoiceState(proposal.before, 'agent_proposals.before'),
+    after: afterActual,
+    differsFromPreview: !voiceStatesEqual(afterActual, afterPreviewed),
+    effectiveNow: true,
+    affects: 'future_drafts',
+    // No readiness gate applies to a fact change (P7).
+    remainingBlocked: [],
+    appliedAt,
+    actorUserId: input.actorUserId,
+    actorName,
+    ownerText,
+    turnId: proposal.turnId,
+    versionToken: {
+      before: prepared,
+      after: computeVoiceVersionToken({ businessId: locationId, updatedAt }),
+    },
+  };
 }
 
 /**

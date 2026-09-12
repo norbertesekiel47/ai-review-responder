@@ -54,7 +54,7 @@ export function asProposalStatus(value: string): ProposalStatus {
  * the only way to prove the branch refuses an out-of-vocabulary value is to
  * call it directly, which an unexported chain does not allow.
  */
-export const CONNECTION_STATUS = {
+const CONNECTION_STATUS = {
   PENDING: 'pending',
   ACTIVE: 'active',
   DISCONNECTED: 'disconnected',
@@ -308,7 +308,7 @@ export function parseReplySegments(value: unknown): StoredSegment[] {
  * mirrors `VoiceConfig` (src/lib/responses/voice-settings.ts:10-22) field for
  * field. This is the shape the **Receipt** CARRIES.
  */
-export const VoiceStateSchema = z.object({
+const VoiceStateSchema = z.object({
   tone: z.string().nullable(),
   productsServices: z.string().nullable(),
   avoidFacts: z.array(z.string()),
@@ -362,7 +362,7 @@ export function parseVoiceState(value: unknown, column: string): VoiceState {
   return state;
 }
 
-export const ReceiptSchema = z.object({
+const ReceiptSchema = z.object({
   /** Bumped only when a stored Receipt's SHAPE changes. Run B writes 1. */
   version: z.literal(1),
   operation: z.string().min(1),

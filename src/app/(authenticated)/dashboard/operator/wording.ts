@@ -74,7 +74,7 @@ export const TURN_FAILURE_WORDING: Readonly<Record<string, string>> = {
   exhausted: 'We tried several times and could not finish this message. Nothing was changed. Start a new conversation to try again.',
 };
 
-export const TURN_FAILURE_FALLBACK = 'That message did not finish. Nothing was changed — try again.';
+const TURN_FAILURE_FALLBACK = 'That message did not finish. Nothing was changed — try again.';
 
 /**
  * Which failures are worth offering a fresh conversation for. Both are
@@ -146,12 +146,12 @@ export const CANNOT_DO_YET = 'RepWorth cannot do this yet. Nothing changed.';
  * one sentence — spelling them twice let the live answer and the stored record
  * drift apart, which is the same reason `PROPOSAL_STALE` is a constant (F4).
  */
-export const ACTOR_UNAUTHORIZED =
+const ACTOR_UNAUTHORIZED =
   'Your account can no longer make this change. Nothing was applied.';
-export const ACCOUNT_OFFBOARDING =
+const ACCOUNT_OFFBOARDING =
   'This account is closing, so changes are not accepted. Nothing was applied.';
 
-export const PROPOSAL_FAILURE_WORDING: Readonly<Record<string, string>> = {
+const PROPOSAL_FAILURE_WORDING: Readonly<Record<string, string>> = {
   version_mismatch: PROPOSAL_STALE,
   contract_changed: 'RepWorth changed since this plan was prepared, so it must be prepared again. Nothing was applied.',
   unauthorized: ACTOR_UNAUTHORIZED,
@@ -201,7 +201,7 @@ export const ROUTE_ERROR_WORDING: Readonly<Record<string, string>> = {
   invalid_body: 'We could not send that. Reload the page and try again.',
 };
 
-export const ROUTE_ERROR_FALLBACK = 'Something went wrong. Nothing was changed — try again.';
+const ROUTE_ERROR_FALLBACK = 'Something went wrong. Nothing was changed — try again.';
 
 export function routeErrorSentence(code: string | null): string {
   if (code === null) return ROUTE_ERROR_FALLBACK;

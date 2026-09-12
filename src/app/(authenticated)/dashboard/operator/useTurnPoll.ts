@@ -27,7 +27,7 @@ const TURNS_PATH = '/api/operator/turns';
  * from the durable transcript instead (RB-07). A `Pick` rather than a
  * re-spelled interface, so a change to the server type lands here (F3).
  */
-export type TurnView = Pick<
+type TurnView = Pick<
   OwnerTurnView,
   'id' | 'status' | 'failureReason' | 'segments' | 'proposals' | 'unsupported'
 >;
@@ -41,16 +41,94 @@ export interface TurnPoll {
 }
 
 /**
- * The poll loop, with an INDEPENDENT DEADLINE TIMER.
+ * THE POLL LOOP ITSELF, a plain function that OWNS ITS OWN TEARDOWN.
  *
- * The deadline is its own `setTimeout`, armed once when the loop starts, and
+ * It is deliberately not written inline in the effect: a loop that re-arms
+ * itself from a `schedule()` helper allocates its next timer somewhere other
+ * than the effect body, and an effect's cleanup can only be said to own every
+ * allocation when the thing it tears down is the one that made them. So the
+ * loop hands back ONE stop function, and the effect's cleanup is that call
+ * plus nothing else.
+ *
+ * THE DEADLINE IS ITS OWN `setTimeout`, armed once when the loop starts, and
  * it is the only thing that can end a stuck poll. Checking the clock at the
  * top of `poll()` is not enough: if `fetch` or `response.json()` never
  * settles, `poll()` never returns, no next tick is ever scheduled, and the
  * screen spins forever with no timer left to notice. The independent timer
  * aborts the controller, which rejects the in-flight request, and shows the
- * recovery actions (RB-02). Both timers are cleared on completion and on
- * unmount.
+ * recovery actions (RB-02). Both timers are cleared by the returned stopper.
+ */
+function startTurnPoll(
+  turnId: string,
+  { onDisabled, onTerminal, onTimedOut }: {
+    onDisabled: () => void;
+    onTerminal: () => void;
+    onTimedOut: () => void;
+  },
+): () => void {
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  let stopped = false;
+  let inFlight = false;
+  let tick: ReturnType<typeof setTimeout> | null = null;
+
+  const stop = () => {
+    stopped = true;
+    if (tick !== null) clearTimeout(tick);
+    tick = null;
+  };
+
+  const deadline = setTimeout(() => {
+    stop();
+    controller.abort();
+    onTimedOut();
+  }, POLL_DEADLINE_MS);
+
+  const schedule = () => {
+    if (stopped) return;
+    const elapsed = Date.now() - startedAt;
+    tick = setTimeout(
+      () => void poll(),
+      elapsed > POLL_BACKOFF_AFTER_MS ? POLL_SLOW_MS : POLL_FAST_MS,
+    );
+  };
+
+  const poll = async () => {
+    if (stopped || inFlight) { if (!stopped) schedule(); return; }
+    inFlight = true;
+    try {
+      const result = await getJson<TurnView>(`${TURNS_PATH}/${turnId}`, controller.signal);
+      if (stopped || result.kind === 'aborted') return;
+      if (result.kind === 'disabled') { stop(); onDisabled(); return; }
+      // A failed read is not a failed turn: the loop keeps its cadence and
+      // asks again until the deadline decides otherwise.
+      if (result.kind === 'error' || result.kind === 'unreachable') { schedule(); return; }
+
+      if (
+        result.value.status === TURN_STATUS.COMPLETED
+        || result.value.status === TURN_STATUS.FAILED
+      ) {
+        stop();
+        onTerminal();
+        return;
+      }
+    } finally {
+      inFlight = false;
+    }
+    schedule();
+  };
+
+  void poll();
+  return () => {
+    stop();
+    clearTimeout(deadline);
+    controller.abort();
+  };
+}
+
+/**
+ * The wait: start the loop, and stop it on unmount or whenever the turn, the
+ * halt or the epoch changes.
  *
  * `halted` covers every reason there is nothing to wait for: the surface is
  * gone (`operator_disabled`), or the location the screen is scoped to is not
@@ -71,64 +149,12 @@ export function useTurnPoll(
   useEffect(() => {
     if (turnId === null || halted) return;
 
-    const controller = new AbortController();
-    const startedAt = Date.now();
-    let stopped = false;
-    let inFlight = false;
-    let tick: ReturnType<typeof setTimeout> | null = null;
-
-    const stop = () => {
-      stopped = true;
-      if (tick !== null) clearTimeout(tick);
-      tick = null;
-    };
-
-    const deadline = setTimeout(() => {
-      stop();
-      controller.abort();
-      setTimedOut(true);
-    }, POLL_DEADLINE_MS);
-
-    const schedule = () => {
-      if (stopped) return;
-      const elapsed = Date.now() - startedAt;
-      tick = setTimeout(
-        () => void poll(),
-        elapsed > POLL_BACKOFF_AFTER_MS ? POLL_SLOW_MS : POLL_FAST_MS,
-      );
-    };
-
-    const poll = async () => {
-      if (stopped || inFlight) { if (!stopped) schedule(); return; }
-      inFlight = true;
-      try {
-        const result = await getJson<TurnView>(`${TURNS_PATH}/${turnId}`, controller.signal);
-        if (stopped || result.kind === 'aborted') return;
-        if (result.kind === 'disabled') { stop(); onDisabled(); return; }
-        // A failed read is not a failed turn: the loop keeps its cadence and
-        // asks again until the deadline decides otherwise.
-        if (result.kind === 'error' || result.kind === 'unreachable') { schedule(); return; }
-
-        if (
-          result.value.status === TURN_STATUS.COMPLETED
-          || result.value.status === TURN_STATUS.FAILED
-        ) {
-          stop();
-          onTerminal();
-          return;
-        }
-      } finally {
-        inFlight = false;
-      }
-      schedule();
-    };
-
-    void poll();
-    return () => {
-      stop();
-      clearTimeout(deadline);
-      controller.abort();
-    };
+    const stop = startTurnPoll(turnId, {
+      onDisabled,
+      onTerminal,
+      onTimedOut: () => { setTimedOut(true); },
+    });
+    return () => { stop(); };
   }, [turnId, halted, pollEpoch, onDisabled, onTerminal]);
 
   const clearTimedOut = useCallback(() => { setTimedOut(false); }, []);
