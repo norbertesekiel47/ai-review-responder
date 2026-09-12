@@ -1,0 +1,572 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-owner-operator-run-b-fec8cf",
+  "branch": "feat/owner-operator-run-b",
+  "fork_sha": "6edacd0b094e47a1f72008ce75b126a4eead87ed",
+  "merge_base_sha": "6edacd0b094e47a1f72008ce75b126a4eead87ed",
+  "head_sha": "dba7af671f8dcba589dc482e0a3ba86d8324fb07",
+  "intake_sha256": "44996c450670c1ba2a7f2bf6019091ff4d3ece1372ab17b45ebf48657780456c",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-12T17:15:45.963Z",
+  "inventory": [
+    {
+      "id": "A01",
+      "test": "applyProposal locks the businesses row before the proposal row and writes only the operation's own fields through updateVoiceConfig",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "killed",
+      "reason": "M03 swapped the businesses/proposal lock order → failed. M09 widened the writer bag to the full previewed state → failed on Object.keys(fields) === [\"tone\"]. Two mutations, both killed."
+    },
+    {
+      "id": "A02",
+      "test": "applyProposal on an applied proposal returns the stored receipt and executes nothing",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "A03",
+      "test": "applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "killed",
+      "reason": "M08 dropped the versionTokensEqual(current, prepared) arm of the three-way compare → failed."
+    },
+    {
+      "id": "A04",
+      "test": "applyProposal marks the proposal stale without mutation when the client's expected token differs from the prepared token",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "killed",
+      "reason": "M07 dropped the versionTokensEqual(prepared, expected) arm of the three-way compare → failed."
+    },
+    {
+      "id": "A05",
+      "test": "applyProposal rejects a proposal whose contract_version is not the catalog's with contract_changed before any lock",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "killed",
+      "reason": "M02 removed recordTerminal's `AND status = 'pending'` predicate → failed on the bound-value assertion and on the lost-race re-read."
+    },
+    {
+      "id": "A06",
+      "test": "applyProposal returns proposal_not_found for a proposal of another account",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "A07",
+      "test": "applyProposal answers proposal_not_pending for a stale, rejected, superseded or failed proposal",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "A08",
+      "test": "applyProposal rejects the proposal unauthorized when the actor is no longer a writable owner",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "A09",
+      "test": "applyProposal rejects the proposal location_not_found when the location was archived after preparation",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "killed",
+      "reason": "M04 (delete `AND archived_at IS NULL` from the businesses lock) SURVIVED — this case primes an empty lock result, so it never reaches the state the predicate decides (finding RT-04). M05, on the branch this case does execute (wrong failure reason on the still-pending arm), was killed, which resolves this row."
+    },
+    {
+      "id": "A10",
+      "test": "invariants: from any non-pending status applyProposal never writes businesses",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "V01",
+      "test": "version token equality is text-to-text on both fields and a one-microsecond difference is not equal",
+      "file": "src/lib/agents/operator/__tests__/version-token.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "V02",
+      "test": "version token parser rejects a stored token missing businessId or updatedAt",
+      "file": "src/lib/agents/operator/__tests__/version-token.test.ts",
+      "outcome": "killed",
+      "reason": "M01 removed `.strict()` from VoiceVersionTokenSchema → the unknown-key case stopped throwing → failed."
+    },
+    {
+      "id": "V03",
+      "test": "invariants: equal version tokens are exactly those with equal businessId and equal updatedAt text",
+      "file": "src/lib/agents/operator/__tests__/version-token.test.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "M06 dropped the businessId comparison from versionTokensEqual and the property PASSED. The generator pairs fc.constantFrom(two uuids) with fc.string({minLength:1,maxLength:40}); two independently generated free strings are never equal, so the discriminating input (different businessId, SAME updatedAt) is never produced and the mutant is unobservable to this oracle. Not equivalent (behaviour differs) and not an unexecuted branch, but unobservable under this property’s input distribution — an ORACLE claim. Finding RT-02."
+    },
+    {
+      "id": "P01",
+      "test": "declineProposal sets status rejected and decided_by_user_id with no reason and is idempotent",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "P02",
+      "test": "declineProposal answers proposal_not_pending for an applied proposal",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "killed",
+      "reason": "M10 dropped the `failureReason === null` half of the owner-decline signature → a server-rejected row answered `rejected/repeated` instead of `not_pending` → failed."
+    },
+    {
+      "id": "P03",
+      "test": "proposal view carries receipt, prepared version token, applied_at and failure_reason",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "I01",
+      "test": "applyProposal writes the receipt, status applied and decided_by_user_id in the same transaction as the voice write",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "outcome": "killed",
+      "reason": "M22 (stop dropping the stored `updatedAt` in parseVoiceState) SURVIVED — this case’s hand-built before/after carry only the five fields, so the drop never fires; the same mutant is killed by I06, which goes through buildProposalRows. M26 (drop `decided_by_user_id` from the applied UPDATE) was killed, which resolves this row."
+    },
+    {
+      "id": "I02",
+      "test": "applyProposal marks sibling pending proposals on the same location stale in the same transaction and leaves other locations alone",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "outcome": "killed",
+      "reason": "M12 (drop `location_id` from markSiblingProposalsStale) → failed. M11 (drop `AND status = 'pending'`) SURVIVED: no non-pending sibling exists on the location in this fixture (finding RT-03). M13 (drop `account_id`) also survived and is provably behaviour-preserving — businesses.id is globally unique and every row’s (account_id, location_id) pair is written together from one validated turn, so the extra predicate removes no row (finding RT-10). THREE mutations on one test: over the 2-per-test cap, disclosed as deviation D3."
+    },
+    {
+      "id": "I03",
+      "test": "applyProposal receipt after equals the committed voice state and flags a difference from the stored after",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "I04",
+      "test": "applyProposal rolls back the receipt when the voice write throws",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "I05",
+      "test": "two concurrent applies on one proposal produce one voice write and both return the same receipt",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "I06",
+      "test": "worker-produced proposals render and apply successfully",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "outcome": "killed",
+      "reason": "M25 (stop dropping the stored `updatedAt` in parseVoiceState) → failed on `expect(receipt.before).not.toHaveProperty(\"updatedAt\")`. This is the case that pins the six-key stored shape Run A actually writes."
+    },
+    {
+      "id": "I07",
+      "test": "repeat Apply after location archival returns the original receipt without writes",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "outcome": "killed",
+      "reason": "M24 disabled the applied-status arm inside the `!locked` branch (RB-10 ordering) → the repeat Apply answered not_pending instead of returning the stored Receipt → failed."
+    },
+    {
+      "id": "R01",
+      "test": "first-time owner receives a scoped summary and connection CTA before sending",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "outcome": "killed",
+      "reason": "M14 (drop `account_id` from activeLocationId) → the foreign-location probe stopped returning null → failed. M15 (drop `archived_at IS NULL`) SURVIVED — no archived location exists in this fixture (finding RT-08)."
+    },
+    {
+      "id": "AR1",
+      "test": "POST apply returns 404 operator_disabled before auth when the flag is off",
+      "file": "src/app/api/operator/__tests__/apply-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "AR2",
+      "test": "POST apply rejects a missing or mismatched Origin before any read",
+      "file": "src/app/api/operator/__tests__/apply-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "AR3",
+      "test": "POST apply rejects an impersonated session with 409 impersonation_not_allowed",
+      "file": "src/app/api/operator/__tests__/apply-route.test.ts",
+      "outcome": "killed",
+      "reason": "M18 deleted the hasImpersonationCookie gate from the apply route → 200 instead of 409 → failed. The fixture cookie carries an invalid signature, so this also pins presence-not-validity."
+    },
+    {
+      "id": "AR4",
+      "test": "POST apply maps applied to 200 with the receipt, stale to 409 proposal_stale, contract_changed to 409, not_found to 404 and not_pending to 409",
+      "file": "src/app/api/operator/__tests__/apply-route.test.ts",
+      "outcome": "killed",
+      "reason": "M23 removed `.strict()` from ApplyBodySchema → an unknown body key stopped being a 400 → failed."
+    },
+    {
+      "id": "DR1",
+      "test": "POST decline returns 404 operator_disabled before auth when the flag is off and rejects a mismatched Origin",
+      "file": "src/app/api/operator/__tests__/decline-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "DR2",
+      "test": "POST decline returns 200 with the rejected proposal and 404 for another account's proposal",
+      "file": "src/app/api/operator/__tests__/decline-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "CR1",
+      "test": "GET conversation returns the actor's most recent conversation and the summary reads with timestamps",
+      "file": "src/app/api/operator/__tests__/conversation-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "CR2",
+      "test": "GET conversation scopes the summary to ?locationId= when the conversation has no turns",
+      "file": "src/app/api/operator/__tests__/conversation-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "PR1",
+      "test": "isProtectedOwnerApiRoute returns true for /api/operator, /api/operator/turns, /api/operator/conversation and both proposal routes",
+      "file": "src/lib/shared/__tests__/protected-routes.test.ts",
+      "outcome": "killed",
+      "reason": "M16 removed the exact `normalized === '/api/operator'` arm, keeping only the prefix → failed."
+    },
+    {
+      "id": "AN1",
+      "test": "folds /dashboard/operator into the operator section",
+      "file": "src/components/dashboard/shell/__tests__/active-nav.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "AN2",
+      "test": "keeps the operator arm above the /dashboard catch-all",
+      "file": "src/components/dashboard/shell/__tests__/active-nav.test.ts",
+      "outcome": "killed",
+      "reason": "M17 moved the operator arm below the catch-all → `/dashboard/operator` folded into `dashboard` → failed."
+    },
+    {
+      "id": "MT1",
+      "test": "stays five tabs wide either way with the Operator off",
+      "file": "src/components/dashboard/__tests__/MobileTabBar.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "MT2",
+      "test": "adds a sixth Operator tab when the server says the flag is on",
+      "file": "src/components/dashboard/__tests__/MobileTabBar.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "MT3",
+      "test": "marks Operator active on /dashboard/operator without lighting up Home",
+      "file": "src/components/dashboard/__tests__/MobileTabBar.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "SB1",
+      "test": "shows the Operator row only when the server-authoritative prop is true",
+      "file": "src/components/dashboard/__tests__/Sidebar.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC01",
+      "test": "operator screen posts a turn with the stored location, shows Preparing your plan and resumes the same turn from URL state after a reload",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC02",
+      "test": "operator screen backs off polling and shows the timeout notice with Start a new conversation after four minutes",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "killed",
+      "reason": "M19 widened POLL_DEADLINE_MS from 4 to 40 minutes → the timeout notice never rendered → failed. M20 removed the backoff ternary (always POLL_FAST_MS) → the poll-count bound (<= 15) failed at 30. Two mutations, both killed."
+    },
+    {
+      "id": "OC03",
+      "test": "operator times out while a poll request remains unresolved",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC04",
+      "test": "operator screen renders each failure reason with its wording and stops polling on 404 operator_disabled",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC05",
+      "test": "operator screen disables the composer under All locations and enables it once a location is chosen",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC06",
+      "test": "retry after a lost POST response resumes the original turn",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC07",
+      "test": "operator renders every stored segment kind in order",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC08",
+      "test": "terminal failures and requested capabilities survive reload and subsequent turns",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC09",
+      "test": "loaded conversations retain identity and starting over stays empty",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "OC10",
+      "test": "a delayed conversation response never replaces a newly submitted turn",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "killed",
+      "reason": "M21 dropped the `activeTurnIdRef.current === null` half of the resume guard → the stale conversation response adopted the older turn and rewrote the URL → failed."
+    },
+    {
+      "id": "OC11",
+      "test": "Refresh plan preserves the original instruction and location after scope changes",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "PC1",
+      "test": "proposal card renders the target from the stored location and shows Prepared for the location when the selector moved",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "PC2",
+      "test": "proposal card shows the receipt after Apply and the stale wording with Refresh plan after a version mismatch",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "PC3",
+      "test": "proposal previews expose exact fact replacements before approval",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "PC4",
+      "test": "requested capability card has no Apply button",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "SP1",
+      "test": "summary panel renders the three blocks with as-of timestamps and the connect call to action when the connection is missing",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/SummaryPanel.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "PG1",
+      "test": "operator page calls notFound when the flag is off and the nav omits the entry",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/page.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "not executed — the 30-run per-round cap was reached (29 launches: 3 baselines + 26 mutants) against a 62-row inventory"
+    },
+    {
+      "id": "B01",
+      "test": "(no covering vitest test) reads.ts per-turn `unsupported` + proposals.ts listUnsupportedForTurns",
+      "file": "src/lib/agents/operator/reads.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Reverse import search found no vitest test that exercises the durable Requested-capability wiring added at reads.ts:268 / reads.ts:121. reads.integration.test.ts only DELETEs from agent_unsupported_requests in cleanup and never seeds one; OperatorClient.test.tsx renders the field from a mocked fetch, so it cannot observe the server wiring. Only the local-only Playwright spec touches it. P1 uncovered change — finding RT-06."
+    },
+    {
+      "id": "B02",
+      "test": "(no covering vitest test) reads.ts readConnectionStatus non-null branches and the invalid-value throw",
+      "file": "src/lib/agents/operator/reads.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "reads.integration.test.ts:608 asserts only `connectionStatus === null` (a location with no zernio_connections row). No vitest test seeds a zernio_connections row, so the ORDER BY created_at DESC LIMIT 1 latest-row rule, the JOIN businesses tenant scoping, the three accepted values and the throw are all unexercised server-side. SummaryPanel.test.tsx covers the CLIENT rendering only. P1 uncovered change — finding RT-07."
+    },
+    {
+      "id": "B03",
+      "test": "(no covering vitest test) catalog.ts writerFields for set_products_services, set_avoid_facts, set_highlight_facts",
+      "file": "src/lib/agents/operator/catalog.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "catalog.test.ts does not mention writerFields at all; apply.test.ts and every live-DB Apply fixture use set_tone only. A wrong field name in any of the other three writerFields closures would write the wrong voice column (or none) with no test failing — the D10 \"only this operation’s own fields\" rule is pinned for one operation of four. P1 uncovered change — finding RT-05."
+    },
+    {
+      "id": "E01",
+      "test": "unauthenticated /dashboard/operator redirects to the owner login",
+      "file": "e2e/operator.spec.ts",
+      "outcome": "excluded",
+      "reason": "Playwright/E2E spec — out of scope for mutation by the skill (fragile-assertion review only); the two authenticated cases additionally self-skip without the local auth harness"
+    },
+    {
+      "id": "E02",
+      "test": "e2e: owner sends a turn, applies the tone proposal and sees the receipt at 390 and 1440",
+      "file": "e2e/operator.spec.ts",
+      "outcome": "excluded",
+      "reason": "Playwright/E2E spec — out of scope for mutation by the skill (fragile-assertion review only); the two authenticated cases additionally self-skip without the local auth harness"
+    },
+    {
+      "id": "E03",
+      "test": "e2e: a settings write between proposal and Apply produces a stale card with Refresh plan",
+      "file": "e2e/operator.spec.ts",
+      "outcome": "excluded",
+      "reason": "Playwright/E2E spec — out of scope for mutation by the skill (fragile-assertion review only); the two authenticated cases additionally self-skip without the local auth harness"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-01",
+      "severity": "P0",
+      "title": "The runbook and the roadmap record Sentry rule 11 as BUILT in both projects; it exists in neither, and the rule ids are literal placeholders",
+      "at": "docs/runbooks/beta-launch-alerting.md:416",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "The diff rewrites the rule 11 row from \"REQUIRED BEFORE OWNER_OPERATOR_ENABLED GOES ON; NOT CONFIGURED BY THIS CHANGE\" to \"**BUILT 2026-09-12, staging rule `<staging-rule-id>`, production rule `<prod-rule-id>`**\" — the row asserts BUILT while carrying unfilled placeholders where the file’s own convention (rule 9: \"BUILT 2026-09-04, rule `3946648`\") records a real id. docs/roadmap/2026-09-11-owner-operator/README.md:649 states BullMQ retry exhaustion \"reaches Sentry ... under runbook **rule 11**, which Run B built in both Sentry projects before the staging flip\", and README:697 says the decision was \"closed as logs-only with rule 11 built in both Sentry projects\". Read back from the Sentry API on 2026-09-12 (org repworth-nv): repworth-staging holds exactly two issue alert rules (3927243 solicitation-unattributed-suppression, 3608329 high-priority default) and repworth-production exactly four (3946648, 3927261, 3925256, 3920752). No rule matching agent-turn-exhausted, and no rule filtering subsystem:worker_job AND queue:agent_turn, exists in either project. The emitting half of the path IS present and correct (worker/job-failure-sink.ts:74 tags {subsystem:\"worker_job\", queue: queueName}; QUEUE_NAMES.AGENT_TURN === \"agent_turn\"), so this is the receiving half missing while three documents say it is in place — the intake names this exact alert as a go-live precondition (\"First flip of OWNER_OPERATOR_ENABLED anywhere ... the Sentry rule-11 alert must exist before it\") and .claude/CLAUDE.md carries the same owed item. Remedy: either build both rules and record their real ids, or revert all three claims to the REQUIRED/NOT CONFIGURED wording. Note that env-vars.md and eservices-variables.md state the precondition correctly, so the three claims above are the only false ones."
+    },
+    {
+      "id": "RT-02",
+      "severity": "P1",
+      "title": "The version-token fast-check property cannot distinguish a versionTokensEqual that ignores businessId",
+      "at": "src/lib/agents/operator/__tests__/version-token.test.ts:83",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "The property is titled \"equal version tokens are exactly those with equal businessId and equal updatedAt text\" and computes `expected = a.businessId === b.businessId && a.updatedAt === b.updatedAt`, but its generator draws updatedAt from fc.string({minLength:1,maxLength:40}). Two independently generated free strings are never equal in the default 100 runs, so the only pair that separates the real function from one comparing updatedAt alone — different businessId, SAME updatedAt — is never generated. Mutation M06 (drop the businessId comparison) passed the property. The example test at line 22 does cover the case, so production behaviour is pinned; the property is what is weak. Behavioural replacement: draw updatedAt from a small fc.constantFrom of two or three fixed timestamp strings (as businessId already is), so the cross product actually reaches equal-timestamp/different-row."
+    },
+    {
+      "id": "RT-03",
+      "severity": "P1",
+      "title": "markSiblingProposalsStale's `AND status = 'pending'` guard is unverified — deleting it kills no test",
+      "at": "src/lib/agents/operator/proposals.ts:448",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "Mutation M11 removed the pending predicate from the sibling sweep and the live-DB case that exists for this sweep still passed. The fixture creates one pending sibling on the location, one pending proposal on a second location, and the proposal being applied — no ALREADY-TERMINAL sibling on the applied location, which is the only state the predicate decides. Without it, a previously APPLIED proposal on the same location is rewritten to status `stale` with failure_reason `version_mismatch` on the next Apply of that location, overwriting the applied record whose Receipt is still stored beside it — the state the intake’s Receipt invariant exists to prevent. Remedy: add one fixture row to the existing case — a second proposal on the applied location that is already `applied` (or `rejected`) — and assert its status and failure_reason are untouched after the sweep."
+    },
+    {
+      "id": "RT-04",
+      "severity": "P1",
+      "title": "`archived_at IS NULL` in the Apply businesses lock is pinned only by a SQL-text toContain, not by behaviour",
+      "at": "src/lib/agents/operator/apply.ts:127",
+      "duty": 2,
+      "disposition": "open",
+      "reason": "Mutation M04 deleted the predicate and \"applyProposal rejects the proposal location_not_found when the location was archived after preparation\" still passed: that case primes an EMPTY lock result from the mock, so it proves the !locked branch, not the predicate that produces it. The only thing that catches the deletion is `expect(sqlCalls[1]!.text).toContain('archived_at IS NULL')` at apply.test.ts:174 — a string proxy for a behaviour, which passes for any query that merely mentions the phrase and would fail on an equivalent rewrite. The live-DB suite’s archival case applies FIRST and archives afterwards, so it exercises the repeat-Apply path, never pending-plus-archived. Behavioural replacement: one live-DB case that seeds a pending voice proposal, archives the location with the production helper, then applies — asserting rejected/location_not_found and that businesses is unchanged."
+    },
+    {
+      "id": "RT-05",
+      "severity": "P1",
+      "title": "catalog.ts writerFields is covered for set_tone only; the other three proposables have no test",
+      "at": "src/lib/agents/operator/catalog.ts:174",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "`writerFields` is the new mechanism behind decision D10 (\"only this operation’s own fields reach the shared voice writer\"). catalog.test.ts never references it, and every Apply fixture — unit and live-DB — uses set_tone. set_products_services, set_avoid_facts and set_highlight_facts therefore have no test at all: swapping avoidFacts for highlightFacts in one closure, or returning {}, would write the wrong voice column or none, and the whole suite stays green. Remedy: a table-driven catalog case asserting, for each of the four proposables, that writerFields(parsed) returns exactly the operation’s own key with the parsed value."
+    },
+    {
+      "id": "RT-06",
+      "severity": "P1",
+      "title": "The durable per-turn Requested-capability wiring added to the conversation read has no vitest coverage",
+      "at": "src/lib/agents/operator/reads.ts:268",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "RB-07 added `unsupported` to OwnerConversationTurn and a batched listUnsupportedForTurns. Reverse import search finds no vitest test that seeds an agent_unsupported_requests row and reads it back through getConversationForOwner: reads.integration.test.ts only DELETEs the table in cleanup, and the client test renders the field from a mocked fetch. The batched map’s keying, its account predicate, and the `?? []` default are unmeasured; only e2e/operator.spec.ts (local-only, self-skips in CI) touches the path. Remedy: extend the existing live-DB transcript case to insert one unsupported row on one turn and assert it lands on that turn and no other, and that a turn with none carries []."
+    },
+    {
+      "id": "RT-07",
+      "severity": "P1",
+      "title": "readConnectionStatus is covered only for the never-connected (null) case",
+      "at": "src/lib/agents/operator/reads.ts:424",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "The only server-side assertion is `expect(summary.connectionStatus).toBeNull()` (reads.integration.test.ts:608). No vitest test seeds a zernio_connections row, so the latest-row rule (ORDER BY created_at DESC LIMIT 1, which is what makes a soft-deleted disconnect read as the current state), the JOIN businesses tenant scoping that stands in for the missing account_id column, the three accepted values and the \"value no writer produces\" throw are all unexercised. SummaryPanel.test.tsx covers the CLIENT rendering of the three values, which is a different question. Remedy: seed two connection rows for one location (an older `active`, a newer `disconnected`) and assert `disconnected`, plus one row on another account’s location asserting it is not read."
+    },
+    {
+      "id": "RT-08",
+      "severity": "P2",
+      "title": "activeLocationId's `archived_at IS NULL` is unverified",
+      "at": "src/lib/agents/operator/reads.ts:407",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "Mutation M15 deleted the predicate and the first-time-owner case still passed — it probes a foreign location (which M14 proved is caught by the account predicate) but never an archived one. Effect if the predicate were lost: an owner could scope the empty-screen summary panel to their own archived location. Read-only and same-tenant, hence P2. Remedy: one extra probe in the same case against an archived location of the same account, asserting null."
+    },
+    {
+      "id": "RT-09",
+      "severity": "P2",
+      "title": "A third impersonation-presence spelling survives the H1-B consolidation",
+      "at": "src/app/(authenticated)/settings/auto-approval/page.tsx:16",
+      "duty": 4,
+      "disposition": "open",
+      "reason": "Duty-4 sibling search. Patterns searched: `rw_impersonation`, `IMPERSONATION_COOKIE_NAME`, `hasImpersonationCookie` across src/ and worker/, excluding __tests__ and e2e/. Scope: every match, 26 hits. Result: the two byte-identical private copies the diff folded into the shared helper are gone, and all four operator/settings ROUTES now call it. One presence check remains hand-rolled — `Boolean(cookieStore.get(IMPERSONATION_COOKIE_NAME)?.value)` on the auto-approval server PAGE. It is not a defect: the shared helper takes a NextRequest and a server component has only `cookies()`, so the helper does not fit; recorded so the next consolidation does not report it as newly discovered. The remaining hits (admin/layout.tsx, admin/impersonate/[sessionId]/view/page.tsx, the impersonation start/end routes) read or set the raw value for verification, not as a presence gate, and are correctly untouched. Second pattern searched: nav arms below a `/dashboard` catch-all — `startsWith('/dashboard/')` across src/components and src/lib; two hits, active-nav.ts (the module the diff fixes) and protected-routes.ts (a flat allowlist with no fall-through order). ZERO siblings for that pattern."
+    },
+    {
+      "id": "RT-10",
+      "severity": "P2",
+      "title": "markSiblingProposalsStale's account_id predicate is behaviourally redundant (kept for ci:tenant-scope)",
+      "at": "src/lib/agents/operator/proposals.ts:446",
+      "duty": 1,
+      "disposition": "open",
+      "reason": "Mutation M13 removed the predicate and the live-DB sibling case passed. This is a provable non-defect rather than a coverage gap: businesses.id is globally unique, and every agent_proposals row has its account_id and location_id written together in buildProposalRows from one already-validated turn, so `location_id = L` already selects rows of exactly one account and adding `account_id = A` removes none and adds none. The predicate must stay — ci:tenant-scope requires it and it is the guard if a writer ever diverges — but no test can be written that would fail without it while the writer discipline holds. Recorded so it is not re-reported as an uncovered guard next round. No action."
+    },
+    {
+      "id": "RT-11",
+      "severity": "P2",
+      "title": "prevalidate-plan.py reports two stale commits in the handoff; both are fragments of a Codex session UUID",
+      "at": "docs/superpowers/plans/feat-owner-operator-run-b-handoff.md:19",
+      "duty": 3,
+      "disposition": "open",
+      "reason": "Duty 3 re-resolution. prevalidate-plan.py PASSES on the plan (97 citations, 16 fixtures, 1 commit), the deviations file (6 citations), the evidence file, the roadmap README and the runbook. It reports 2 issues on the handoff: `01a0960d` and `e1d2f82c8a0c` \"do not resolve to a commit in this repo\". Both are hex runs inside the Codex session id `01a0960d-4387-7f72-be06-e1d2f82c8a0c`, not commit references — a tool false positive, not a false claim. Recorded rather than silently dropped so the next pass does not re-investigate. No action."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 62,
+    "killed": 18,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 4,
+    "skipped_budget": 37,
+    "excluded": 3,
+    "findings_total": 11,
+    "p0_open": 1,
+    "p1_open": 6,
+    "p2_open": 4,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
