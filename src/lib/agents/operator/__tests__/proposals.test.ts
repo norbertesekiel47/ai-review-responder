@@ -281,7 +281,9 @@ describe('proposal view', () => {
       businessId: LOCATION,
       updatedAt: '2026-09-12 09:00:00.111111+00',
     });
-    expect(view!.receipt).toEqual(receipt);
+    // Byte for byte, PLUS the `actorName` the reader defaults: this fixture is
+    // a Receipt written before that field existed and must still parse (S5).
+    expect(view!.receipt).toEqual({ ...receipt, actorName: null });
     expect(view!.appliedAt).toBe('2026-09-12T10:00:00.000Z');
     expect(view!.failureReason).toBeNull();
 

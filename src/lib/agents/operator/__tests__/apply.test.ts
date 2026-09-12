@@ -48,6 +48,8 @@ const ACTOR = '22222222-2222-4222-8222-222222222222';
 const LOCATION = '33333333-3333-4333-8333-333333333333';
 const TURN = '55555555-5555-4555-8555-555555555555';
 const PROPOSAL = '66666666-6666-4666-8666-666666666666';
+const ACTOR_NAME = 'Dana Owner';
+const ACTOR_EMAIL = 'dana@example.test';
 
 const PREPARED_AT = '2026-09-12 09:00:00.111111+00';
 const WRITTEN_AT = '2026-09-12 10:00:00.222222+00';
@@ -135,7 +137,7 @@ function primeHappyPath(options: { currentUpdatedAt?: string; storedOverrides?: 
     mkTaggedResult([locked]),
     mkTaggedResult([{ updated_at: options.currentUpdatedAt ?? PREPARED_AT }]),
     mkTaggedResult([locked]),
-    mkTaggedResult([{ id: ACTOR }]),
+    mkTaggedResult([{ id: ACTOR, name: ACTOR_NAME, email: ACTOR_EMAIL }]),
     mkTaggedResult([{ subscription_tier: 'copilot' }]),
     mkTaggedResult([{ owner_text: 'Make my replies warmer.' }]),
     mkTaggedResult([]),
@@ -186,6 +188,52 @@ describe('applyProposal', () => {
     expect(writerInput.fields).toEqual({ tone: 'warm and brief' });
   });
 
+  it("applyProposal writes the actor's name on the receipt, falling back to the email", async () => {
+    // S5 / F10. The card used to print `actorUserId`, a raw uuid. The name is
+    // read on the gate's OWN `users` statement — one row, one source of truth
+    // about who the actor is — and frozen into the Receipt, so a later rename
+    // does not rewrite what the owner was told happened.
+    primeHappyPath();
+    await applyProposal(sql, input());
+
+    const appliedWrite = writes()[0]!;
+    expect(appliedWrite.text).toContain('SET status = ?');
+    const receipt = appliedWrite.values.find(
+      (value): value is { actorName: unknown; actorUserId: unknown } =>
+        typeof value === 'object' && value !== null && 'actorName' in value,
+    );
+    expect(receipt).toBeDefined();
+    expect(receipt!.actorName).toBe(ACTOR_NAME);
+    // The uuid is still recorded — the NAME is what the card renders, the id
+    // is what an audit follows.
+    expect(receipt!.actorUserId).toBe(ACTOR);
+
+    // A row with no name yet falls back to the email rather than to the uuid.
+    resetMockSql();
+    vi.clearAllMocks();
+    mockWritable.mockResolvedValue({ ok: true });
+    mockUpdateVoice.mockResolvedValue({ ok: true, updatedAt: WRITTEN_AT });
+    mockReadVoice.mockResolvedValue({ ...VOICE_AFTER, updatedAt: WRITTEN_AT });
+    const locked = storedRow();
+    sqlReturnQueue.push(
+      mkTaggedResult([locked]),
+      mkTaggedResult([{ updated_at: PREPARED_AT }]),
+      mkTaggedResult([locked]),
+      mkTaggedResult([{ id: ACTOR, name: null, email: ACTOR_EMAIL }]),
+      mkTaggedResult([{ subscription_tier: 'copilot' }]),
+      mkTaggedResult([{ owner_text: 'Make my replies warmer.' }]),
+      mkTaggedResult([]),
+      mkTaggedResult([storedRow({ status: PROPOSAL_STATUS.APPLIED })]),
+      mkTaggedResult([]),
+    );
+    await applyProposal(sql, input());
+    const fallback = writes()[0]!.values.find(
+      (value): value is { actorName: unknown } =>
+        typeof value === 'object' && value !== null && 'actorName' in value,
+    );
+    expect(fallback!.actorName).toBe(ACTOR_EMAIL);
+  });
+
   it('applyProposal on an applied proposal returns the stored receipt and executes nothing', async () => {
     const receipt = {
       version: 1,
@@ -218,7 +266,16 @@ describe('applyProposal', () => {
     expect(result).toEqual({
       kind: 'applied',
       repeated: true,
-      proposal: expect.objectContaining({ id: PROPOSAL, status: PROPOSAL_STATUS.APPLIED, receipt }),
+      // THE STORED RECEIPT HAS NO `actorName`, deliberately: it is a Receipt
+      // written before that field existed, and it must still parse. The reader
+      // defaults it to `null` rather than throwing — a `.strict()` schema that
+      // required the new key would crash the card for exactly the owners who
+      // already applied something (S5).
+      proposal: expect.objectContaining({
+        id: PROPOSAL,
+        status: PROPOSAL_STATUS.APPLIED,
+        receipt: { ...receipt, actorName: null },
+      }),
     });
     // Nothing executed and nothing was written: three statements, no writer.
     expect(mockUpdateVoice).not.toHaveBeenCalled();

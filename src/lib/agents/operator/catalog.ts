@@ -86,7 +86,12 @@ function defineProposable<T extends Record<string, unknown>>(spec: {
   summary: string;
   inputSchema: z.ZodType<T>;
   describe: (input: T) => string;
-  apply: (voice: VoiceConfig, input: T) => VoiceConfig;
+  /**
+   * The ONE spelling of what this operation changes. `preview` derives the
+   * `after` state from it rather than taking a second `apply` function: an
+   * operation that wrote its field twice — once for the card, once for the
+   * writer — could show the owner a preview the executor does not honour.
+   */
   writerFields: (input: T) => Partial<VoiceConfig>;
 }): ProposableOperation {
   return {
@@ -104,9 +109,11 @@ function defineProposable<T extends Record<string, unknown>>(spec: {
       return spec.describe(input as T);
     },
     // before/after are the FULL effective voice state of the target location,
-    // never only the named field (spec §4 "full effective state").
+    // never only the named field (spec §4 "full effective state") — the full
+    // state with THIS operation's own fields laid over it, so the card's
+    // `after` is the writer's own change by construction.
     preview(voice, input) {
-      return { before: voice, after: spec.apply(voice, input as T) };
+      return { before: voice, after: { ...voice, ...spec.writerFields(input as T) } };
     },
     // Same `as T` erasure undoing as `describe`: unreachable without a
     // successful `parseInput`, which every caller runs first.
@@ -159,7 +166,6 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     summary: 'Set the reply tone',
     inputSchema: ToneInput,
     describe: (input) => `Set the reply tone to "${input.tone}"`,
-    apply: (voice, input) => ({ ...voice, tone: input.tone }),
     writerFields: (input) => ({ tone: input.tone }),
   }),
   set_products_services: defineProposable({
@@ -170,7 +176,6 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     describe: (input) => input.productsServices === null
       ? 'Clear the products and services the replies may mention'
       : 'Update the products and services the replies may mention',
-    apply: (voice, input) => ({ ...voice, productsServices: input.productsServices }),
     writerFields: (input) => ({ productsServices: input.productsServices }),
   }),
   set_avoid_facts: defineProposable({
@@ -179,7 +184,6 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     summary: 'Set what to keep out of every reply',
     inputSchema: AvoidFactsInput,
     describe: (input) => `Keep ${input.avoidFacts.length} thing(s) out of every reply`,
-    apply: (voice, input) => ({ ...voice, avoidFacts: input.avoidFacts }),
     writerFields: (input) => ({ avoidFacts: input.avoidFacts }),
   }),
   set_highlight_facts: defineProposable({
@@ -188,7 +192,6 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     summary: 'Set what to highlight when a reply fits',
     inputSchema: HighlightFactsInput,
     describe: (input) => `Highlight ${input.highlightFacts.length} thing(s) when a reply fits`,
-    apply: (voice, input) => ({ ...voice, highlightFacts: input.highlightFacts }),
     writerFields: (input) => ({ highlightFacts: input.highlightFacts }),
   }),
   record_unsupported_request: {

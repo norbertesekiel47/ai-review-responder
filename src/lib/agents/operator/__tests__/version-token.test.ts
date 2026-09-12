@@ -75,20 +75,41 @@ describe('voice version token', () => {
 });
 
 describe('voice version token invariants', () => {
+  /**
+   * BOTH fields draw from a SMALL constant set, and that is the whole point of
+   * the generator. `fc.string()` for `updatedAt` made a collision on that field
+   * vanishingly unlikely, so the property only ever generated pairs that
+   * differed in the timestamp — and an implementation that compared the
+   * timestamp ALONE (dropping the `businessId` half) passed every run. Three
+   * timestamps and two business ids give six combinations, so the
+   * different-businessId/same-updatedAt pair the invariant turns on is
+   * generated many times over.
+   */
   const token = fc.record({
     businessId: fc.constantFrom(BUSINESS, OTHER_BUSINESS),
-    updatedAt: fc.string({ minLength: 1, maxLength: 40 }),
+    updatedAt: fc.constantFrom(
+      '2026-09-12 10:00:00.123456+00',
+      '2026-09-12 10:00:00.123457+00',
+      '2026-09-12 11:30:00+00',
+    ),
   });
 
   it('invariants: equal version tokens are exactly those with equal businessId and equal updatedAt text', () => {
+    // Every combination the generator can draw must be seen, including the two
+    // that kill a one-field comparison: same businessId / different updatedAt,
+    // and DIFFERENT businessId / same updatedAt.
+    const seen = new Set<string>();
     fc.assert(
       fc.property(token, token, (a, b) => {
+        seen.add(`${a.businessId === b.businessId}:${a.updatedAt === b.updatedAt}`);
         const expected = a.businessId === b.businessId && a.updatedAt === b.updatedAt;
         expect(versionTokensEqual(a, b)).toBe(expected);
         // Symmetric, and reflexive on a fresh copy.
         expect(versionTokensEqual(b, a)).toBe(expected);
         expect(versionTokensEqual(a, { ...a })).toBe(true);
       }),
+      { numRuns: 200 },
     );
+    expect([...seen].sort()).toEqual(['false:false', 'false:true', 'true:false', 'true:true']);
   });
 });

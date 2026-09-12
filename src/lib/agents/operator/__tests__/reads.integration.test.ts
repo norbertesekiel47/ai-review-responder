@@ -33,9 +33,10 @@ import {
   getConversationForOwner,
   getTurnForOwner,
   TRANSCRIPT_TURN_LIMIT,
+  type OwnerConversationResult,
   type OwnerConversationView,
 } from '../reads';
-import { PROPOSAL_STATUS, TURN_STATUS } from '../schema';
+import { asConnectionStatus, PROPOSAL_STATUS, TURN_STATUS } from '../schema';
 import { createTurn, type CreateTurnResult } from '../turns';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
@@ -63,16 +64,27 @@ function createdOrThrow(result: CreateTurnResult): { conversationId: string; tur
 }
 
 /**
+ * `getConversationForOwner` answers a RESULT KIND in Run B (S7): `view`,
+ * `not_found`, or `location_not_found` for a `?locationId=` that is not an
+ * active location of the account. These cases assert on a view, so the
+ * narrowing is an assertion — any other kind is a real failure and reads as one.
+ */
+function viewOrThrow(result: OwnerConversationResult): OwnerConversationView {
+  expect(result.kind).toBe('view');
+  if (result.kind !== 'view') throw new Error(`expected a view, got ${result.kind}`);
+  return result.view;
+}
+
+/**
  * `OwnerConversationView.conversation` became nullable in Run B: a first-time
  * owner with no conversation row gets `{ conversation: null, … }` rather than
  * a 404 (RB-09). These cases all assert on a conversation that EXISTS, so the
  * narrowing is an assertion, not a cast — a null here is a real failure and
  * should read as one.
  */
-function conversationOrThrow(view: OwnerConversationView | null): { id: string; lastTurnAt: string | null } {
-  expect(view).not.toBeNull();
-  expect(view!.conversation).not.toBeNull();
-  return view!.conversation!;
+function conversationOrThrow(view: OwnerConversationView): { id: string; lastTurnAt: string | null } {
+  expect(view.conversation).not.toBeNull();
+  return view.conversation!;
 }
 
 function baseTurnInput(overrides: Partial<Parameters<typeof createTurn>[1]> = {}) {
@@ -113,7 +125,12 @@ async function seedProposal(
     turnId: string;
     accountId: string;
     actorUserId: string;
-    locationId: string | null;
+    /**
+     * NOT nullable, and the **Version token** below is why: a voice Proposal
+     * always names a location (P8), and `ProposalRow.preparedVersionToken` is
+     * a `VoiceVersionToken` whose `businessId` the reader validates as a uuid.
+     */
+    locationId: string;
     operation: string;
     inputJson: Record<string, unknown>;
     rationale: string;
@@ -332,25 +349,25 @@ describeWithDb(
 
       // No `?id`: each owner gets their OWN most recent conversation, even
       // though both are in the same account and the sibling's is newer.
-      const forFirst = await getConversationForOwner(db, {
+      const forFirst = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId, actorUserId: tenant.userId,
-      });
+      }));
       expect(conversationOrThrow(forFirst).id).toBe(mine.conversationId);
-      expect(forFirst!.turns.map((t) => t.id)).toEqual([mine.turnId]);
+      expect(forFirst.turns.map((t) => t.id)).toEqual([mine.turnId]);
 
-      const forSecond = await getConversationForOwner(db, {
+      const forSecond = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId, actorUserId: secondUserId,
-      });
+      }));
       expect(conversationOrThrow(forSecond).id).toBe(sibling.conversationId);
 
       // An EXPLICIT id is account-scoped, not actor-scoped: one owner may open
       // a colleague's conversation by id, and neither may open another
       // account's.
-      const explicit = await getConversationForOwner(db, {
+      const explicit = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         conversationId: sibling.conversationId,
-      });
+      }));
       expect(conversationOrThrow(explicit).id).toBe(sibling.conversationId);
 
       const theirs = createdOrThrow(await createTurn(db, {
@@ -365,18 +382,20 @@ describeWithDb(
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         conversationId: theirs.conversationId,
-      })).toBeNull();
+      })).toEqual({ kind: 'not_found' });
 
       // The summary is a real panel once a turn exists, scoped to that turn's
-      // location.
-      expect(forFirst!.summary).not.toBeNull();
-      expect(forFirst!.summary!.recent.reportingPeriodDays).toBe(7);
+      // location — and it SAYS which location, so the panel does not have to
+      // guess from the browser's selector (C3).
+      expect(forFirst.summary).not.toBeNull();
+      expect(forFirst.summary!.locationId).toBe(locationId);
+      expect(forFirst.summary!.recent.reportingPeriodDays).toBe(7);
       // EQUALITY against the inherited default, not `> 0`: a range-shaped proxy
       // passes for every value the projection could possibly produce, including
       // the account default read where the location's own row was meant to win.
-      expect(forFirst!.summary!.rules.vetoWindowMinutes).toBe(DEFAULT_VETO_WINDOW_MINUTES);
-      expect(forFirst!.summary!.rules.dailyCap).toBe(DEFAULT_DAILY_AUTO_POST_CAP);
-      expect(forFirst!.summary!.rules.threshold).toBeNull();
+      expect(forFirst.summary!.rules.vetoWindowMinutes).toBe(DEFAULT_VETO_WINDOW_MINUTES);
+      expect(forFirst.summary!.rules.dailyCap).toBe(DEFAULT_DAILY_AUTO_POST_CAP);
+      expect(forFirst.summary!.rules.threshold).toBeNull();
     });
 
     it('getConversationForOwner reports the location override and its dials, per location', async () => {
@@ -393,17 +412,19 @@ describeWithDb(
         locationId: secondLocationId, text: 'How does the Cafe post?',
       })));
       await completeTurn(overridden.turnId, tenant.accountId, 'Here are the Cafe rules.');
-      const withOverride = await getConversationForOwner(db, {
+      const withOverride = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         conversationId: overridden.conversationId,
-      });
-      expect(withOverride!.summary!.rules.locationOverrideExists).toBe(true);
+      }));
+      expect(withOverride.summary!.rules.locationOverrideExists).toBe(true);
+      // The panel's own scope follows the latest turn, not the primary location.
+      expect(withOverride.summary!.locationId).toBe(secondLocationId);
       // The location's OWN dials, read from the seeded row — not the account
       // default, and not a range.
-      expect(withOverride!.summary!.rules.vetoWindowMinutes).toBe(30);
-      expect(withOverride!.summary!.rules.dailyCap).toBe(7);
-      expect(withOverride!.summary!.rules.threshold).toBe(5);
+      expect(withOverride.summary!.rules.vetoWindowMinutes).toBe(30);
+      expect(withOverride.summary!.rules.dailyCap).toBe(7);
+      expect(withOverride.summary!.rules.threshold).toBe(5);
 
       // The OTHER location of the SAME account has no row: false, and every dial
       // inherited from the account default.
@@ -411,15 +432,16 @@ describeWithDb(
         text: 'And the Salon?',
       })));
       await completeTurn(plain.turnId, tenant.accountId, 'Here are the Salon rules.');
-      const withoutOverride = await getConversationForOwner(db, {
+      const withoutOverride = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         conversationId: plain.conversationId,
-      });
-      expect(withoutOverride!.summary!.rules.locationOverrideExists).toBe(false);
-      expect(withoutOverride!.summary!.rules.vetoWindowMinutes).toBe(DEFAULT_VETO_WINDOW_MINUTES);
-      expect(withoutOverride!.summary!.rules.dailyCap).toBe(DEFAULT_DAILY_AUTO_POST_CAP);
-      expect(withoutOverride!.summary!.rules.threshold).toBeNull();
+      }));
+      expect(withoutOverride.summary!.rules.locationOverrideExists).toBe(false);
+      expect(withoutOverride.summary!.locationId).toBe(locationId);
+      expect(withoutOverride.summary!.rules.vetoWindowMinutes).toBe(DEFAULT_VETO_WINDOW_MINUTES);
+      expect(withoutOverride.summary!.rules.dailyCap).toBe(DEFAULT_DAILY_AUTO_POST_CAP);
+      expect(withoutOverride.summary!.rules.threshold).toBeNull();
     });
 
     it('getConversationForOwner carries each turn its own stored proposals, and none of another account\'s', async () => {
@@ -483,12 +505,12 @@ describeWithDb(
         rationale: 'Another tenant entirely.',
       });
 
-      const view = await getConversationForOwner(db, {
+      const view = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         conversationId,
-      });
-      const [turnOne, turnTwo, turnThree] = view!.turns;
+      }));
+      const [turnOne, turnTwo, turnThree] = view.turns;
 
       // Keyed BY TURN, in the read's own order, by id / operation / status.
       expect(turnOne!.proposals.map((p) => ({ id: p.id, operation: p.operation, status: p.status })))
@@ -510,8 +532,8 @@ describeWithDb(
       expect(turnTwo!.proposals[0]!.describe).toBe('Highlight 1 thing(s) when a reply fits');
 
       // The foreign row reached NEITHER the transcript nor the pending panel.
-      expect(JSON.stringify(view!.turns)).not.toContain('not mine');
-      expect(view!.summary!.pendingProposals.map((p) => p.id))
+      expect(JSON.stringify(view.turns)).not.toContain('not mine');
+      expect(view.summary!.pendingProposals.map((p) => p.id))
         .toEqual([toneId, highlightId]);
 
       // And the stored segments still name exactly the ids the cards carry, so
@@ -535,14 +557,13 @@ describeWithDb(
         VALUES (${conversationId}::uuid, ${tenant.accountId}::uuid, ${tenant.userId}::uuid)
       `;
 
-      const view = await getConversationForOwner(db, {
+      const view = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         conversationId,
-      });
-      expect(view).not.toBeNull();
-      expect(view!.turns).toEqual([]);
-      expect(view!.summary).toBeNull();
+      }));
+      expect(view.turns).toEqual([]);
+      expect(view.summary).toBeNull();
     });
 
     it('getConversationForOwner bounds the transcript to the most recent turns', async () => {
@@ -555,21 +576,21 @@ describeWithDb(
         await completeTurn(created.turnId, tenant.accountId, `Reply ${i}.`);
       }
 
-      const view = await getConversationForOwner(db, {
+      const view = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         conversationId,
-      });
+      }));
 
       // Bounded, MOST RECENT, and still chronological: an unbounded read gets
       // slower for the rest of the conversation's life, and a bound taken from
       // the wrong end would show the owner the start of a conversation they are
       // in the middle of.
-      expect(view!.turns).toHaveLength(TRANSCRIPT_TURN_LIMIT);
-      expect(view!.turns[0]!.sequence).toBe(total - TRANSCRIPT_TURN_LIMIT + 1);
-      expect(view!.turns[view!.turns.length - 1]!.sequence).toBe(total);
-      expect(view!.turns[view!.turns.length - 1]!.ownerText).toBe(`Message ${total}.`);
-      const sequences = view!.turns.map((t) => t.sequence);
+      expect(view.turns).toHaveLength(TRANSCRIPT_TURN_LIMIT);
+      expect(view.turns[0]!.sequence).toBe(total - TRANSCRIPT_TURN_LIMIT + 1);
+      expect(view.turns[view.turns.length - 1]!.sequence).toBe(total);
+      expect(view.turns[view.turns.length - 1]!.ownerText).toBe(`Message ${total}.`);
+      const sequences = view.turns.map((t) => t.sequence);
       expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
     });
 
@@ -583,23 +604,23 @@ describeWithDb(
       `;
       expect(conversations!.count).toBe(0);
 
-      const view = await getConversationForOwner(db, {
+      const view = viewOrThrow(await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         locationId,
-      });
+      }));
 
-      // 200-shaped, not null: the route renders this as a 200 with an empty
+      // 200-shaped, not a 404: the route renders this as a 200 with an empty
       // transcript, which is what puts the panel on screen before the owner
       // has said anything.
-      expect(view).not.toBeNull();
-      expect(view!.conversation).toBeNull();
-      expect(view!.turns).toEqual([]);
-      expect(view!.summary).not.toBeNull();
+      expect(view.conversation).toBeNull();
+      expect(view.turns).toEqual([]);
+      expect(view.summary).not.toBeNull();
 
-      const summary = view!.summary!;
+      const summary = view.summary!;
       // The summary is scoped to the location the BROWSER selected, not to a
-      // turn that does not exist.
+      // turn that does not exist — and it names it (C3).
+      expect(summary.locationId).toBe(locationId);
       expect(summary.facts).not.toBeNull();
       expect(summary.recent.reportingPeriodDays).toBe(RECENT_COMPLETED_DAYS);
       expect(typeof summary.asOf).toBe('string');
@@ -609,21 +630,209 @@ describeWithDb(
       // No conversation means no pending proposals, and no query for them.
       expect(summary.pendingProposals).toEqual([]);
 
-      // A location that is NOT this account's is still null overall, which the
-      // route renders as 404 — the empty view is not a way to probe.
+      // A location that is NOT this account's answers `location_not_found`,
+      // which the route renders as its own 404 — the empty view is not a way
+      // to probe for another tenant's ids.
       const foreign = await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
         locationId: otherLocationId,
       });
-      expect(foreign).toBeNull();
+      expect(foreign).toEqual({ kind: 'location_not_found' });
 
-      // And WITHOUT a location there is nothing to scope to: still null.
+      // And WITHOUT a location there is nothing to scope to: `not_found`, the
+      // 404 Run A already answered.
       const bare = await getConversationForOwner(db, {
         accountId: tenant.accountId,
         actorUserId: tenant.userId,
       });
-      expect(bare).toBeNull();
+      expect(bare).toEqual({ kind: 'not_found' });
+    });
+
+    it('an unusable ?locationId= answers location_not_found in both branches', async () => {
+      // RT-08 / S7. The `archived_at IS NULL` half of the membership predicate
+      // is pinned here, not only by the SQL text: an ARCHIVED location of MY
+      // OWN account passes every other clause, so a predicate that lost the
+      // archival check would answer a scoped summary for a location the owner
+      // has retired.
+      await db`
+        UPDATE businesses SET archived_at = NOW()
+        WHERE id = ${secondLocationId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      try {
+        // BRANCH 1: no conversation row at all.
+        expect(await getConversationForOwner(db, {
+          accountId: tenant.accountId,
+          actorUserId: tenant.userId,
+          locationId: secondLocationId,
+        })).toEqual({ kind: 'location_not_found' });
+
+        // BRANCH 2: a conversation row EXISTS but has no turns. Before S7 this
+        // branch answered 200 with `summary: null` while branch 1 answered a
+        // 404 — one fact, two answers, and the screen could say nothing in
+        // either case.
+        const conversationId = randomUUID();
+        await db`
+          INSERT INTO agent_conversations (id, account_id, created_by_user_id)
+          VALUES (${conversationId}::uuid, ${tenant.accountId}::uuid, ${tenant.userId}::uuid)
+        `;
+        expect(await getConversationForOwner(db, {
+          accountId: tenant.accountId,
+          actorUserId: tenant.userId,
+          conversationId,
+          locationId: secondLocationId,
+        })).toEqual({ kind: 'location_not_found' });
+
+        // An ACTIVE location on the same call shape is still a view, so the
+        // refusal is the archival predicate and not the branch itself.
+        const ok = viewOrThrow(await getConversationForOwner(db, {
+          accountId: tenant.accountId,
+          actorUserId: tenant.userId,
+          conversationId,
+          locationId,
+        }));
+        expect(ok.summary!.locationId).toBe(locationId);
+      } finally {
+        await db`
+          UPDATE businesses SET archived_at = NULL
+          WHERE id = ${secondLocationId}::uuid AND account_id = ${tenant.accountId}::uuid
+        `;
+      }
+    });
+
+    it('each turn carries its own unsupported requests and no other turn\'s', async () => {
+      // RT-06. `agent_unsupported_requests` rows are DURABLE and batched by
+      // `turn_id = ANY(...)`, so a read keyed by the wrong turn, an always-empty
+      // one, and one that drops its `account_id` predicate all fail here.
+      const conversationId = randomUUID();
+      const first = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'Post to Instagram for me.',
+      })));
+      await completeTurn(first.turnId, tenant.accountId, 'I cannot do that yet.');
+      const second = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'And warmer replies.',
+      })));
+      await completeTurn(second.turnId, tenant.accountId, 'Here is a plan.');
+
+      const unsupportedId = randomUUID();
+      await db`
+        INSERT INTO agent_unsupported_requests (id, account_id, turn_id, request, context)
+        VALUES (
+          ${unsupportedId}::uuid, ${tenant.accountId}::uuid, ${first.turnId}::uuid,
+          'Post to Instagram', 'The owner asked for another network.'
+        )
+      `;
+      // A row naming MY turn under ANOTHER account's id. The FK graph permits
+      // it (no composite key), which is why the batched read carries its own
+      // `account_id` predicate.
+      await db`
+        INSERT INTO agent_unsupported_requests (id, account_id, turn_id, request, context)
+        VALUES (
+          ${randomUUID()}::uuid, ${other.accountId}::uuid, ${first.turnId}::uuid,
+          'Not mine', 'Another tenant entirely.'
+        )
+      `;
+
+      const view = viewOrThrow(await getConversationForOwner(db, {
+        accountId: tenant.accountId,
+        actorUserId: tenant.userId,
+        conversationId,
+      }));
+      const [turnOne, turnTwo] = view.turns;
+      expect(turnOne!.unsupported).toEqual([
+        { id: unsupportedId, request: 'Post to Instagram', context: 'The owner asked for another network.' },
+      ]);
+      // The OTHER turn gets `[]`, never the neighbour's list — and never
+      // `undefined`, which the client maps unconditionally.
+      expect(turnTwo!.unsupported).toEqual([]);
+      expect(JSON.stringify(view.turns)).not.toContain('Not mine');
+
+      // And the single-turn read agrees with the transcript's batched one.
+      const polled = await getTurnForOwner(db, {
+        turnId: first.turnId, accountId: tenant.accountId,
+      });
+      expect(polled!.unsupported.map((u) => u.id)).toEqual([unsupportedId]);
+    });
+
+    it('the summary reports the latest zernio connection for the location, account-scoped', async () => {
+      // RT-07. Disconnected rows are KEPT for audit (migration 026's
+      // soft-delete model), so "the latest row" is the only thing that means
+      // "the current state" — a read that filtered on status, or ordered the
+      // other way, would tell an owner whose connection just broke that Google
+      // is fine.
+      await db`
+        INSERT INTO zernio_connections (
+          business_id, zernio_profile_id, zernio_account_id, zernio_location_id,
+          status, connected_at, created_at
+        ) VALUES (
+          ${locationId}::uuid, 'prof-1', 'acct-1', 'loc-1',
+          'active', NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days'
+        )
+      `;
+      await db`
+        INSERT INTO zernio_connections (
+          business_id, zernio_profile_id, zernio_account_id, zernio_location_id,
+          status, disconnected_at, disconnect_reason, created_at
+        ) VALUES (
+          ${locationId}::uuid, 'prof-1', 'acct-1', 'loc-1',
+          'disconnected', NOW(), 'webhook_event', NOW()
+        )
+      `;
+      // The NEIGHBOUR's location is connected and must not leak: the read is
+      // account-scoped through `businesses`, which is the only tenant proof
+      // `zernio_connections` has (it carries no `account_id` of its own).
+      await db`
+        INSERT INTO zernio_connections (
+          business_id, zernio_profile_id, zernio_account_id, zernio_location_id,
+          status, connected_at, created_at
+        ) VALUES (
+          ${otherLocationId}::uuid, 'prof-2', 'acct-2', 'loc-2',
+          'active', NOW(), NOW()
+        )
+      `;
+
+      try {
+        const turn = createdOrThrow(await createTurn(db, baseTurnInput()));
+        await completeTurn(turn.turnId, tenant.accountId, 'Here you go.');
+        const view = viewOrThrow(await getConversationForOwner(db, {
+          accountId: tenant.accountId,
+          actorUserId: tenant.userId,
+          conversationId: turn.conversationId,
+        }));
+        // LATEST WINS, and it is the disconnected one.
+        expect(view.summary!.connectionStatus).toBe('disconnected');
+
+        // Reading the SAME location under the neighbour's account id sees
+        // nothing at all — the join, not the `business_id`, is what scopes it.
+        expect(await getConversationForOwner(db, {
+          accountId: other.accountId,
+          actorUserId: other.userId,
+          locationId,
+        })).toEqual({ kind: 'location_not_found' });
+      } finally {
+        await db`DELETE FROM zernio_connections WHERE business_id IN (${locationId}::uuid, ${otherLocationId}::uuid)`;
+      }
+    });
+
+    it('a zernio status outside the migration 026 vocabulary is refused, not widened', async () => {
+      // RT-07's third half. The throw CANNOT be reached through the database:
+      // `zernio_connections_status_check` rejects the row before the read ever
+      // sees it, and dropping the constraint would be run-time DDL, which a
+      // live-DB suite may not execute (.claude/rules/live-db-tests.md). So both
+      // halves of the guard are asserted: the CHECK that makes it unreachable,
+      // and the narrowing that refuses the value if it ever is.
+      await expect(db`
+        INSERT INTO zernio_connections (
+          business_id, zernio_profile_id, zernio_account_id, zernio_location_id, status
+        ) VALUES (
+          ${locationId}::uuid, 'prof-x', 'acct-x', 'loc-x', 'revoked'
+        )
+      `).rejects.toThrow(/check constraint/i);
+
+      expect(() => asConnectionStatus('revoked')).toThrow(/zernio_connections\.status/);
+      expect(asConnectionStatus('disconnected')).toBe('disconnected');
+      expect(asConnectionStatus('active')).toBe('active');
+      expect(asConnectionStatus('pending')).toBe('pending');
     });
   },
 );

@@ -14,7 +14,11 @@ import {
   type ProposalStatus,
   type Receipt,
 } from './schema';
-import { parseVersionToken, type VoiceVersionToken } from './version-token';
+import {
+  computeVoiceVersionToken,
+  parseVersionToken,
+  type VoiceVersionToken,
+} from './version-token';
 
 type Db = postgres.Sql | postgres.TransactionSql;
 type Tx = postgres.TransactionSql;
@@ -33,7 +37,14 @@ export interface ProposalRow {
   after: Record<string, unknown>;
   rationale: string;
   labelKind: LabelKind;
-  preparedVersionToken: Record<string, unknown>;
+  /**
+   * The **Version token** this row is stamped with, as the TYPE the reader
+   * parses back out (`parseVersionToken`). A `Record<string, unknown>` here
+   * let the producer write any object at all — including one the reader's
+   * `.strict()` schema refuses — and the mismatch would only surface on the
+   * Apply that reads the row back.
+   */
+  preparedVersionToken: VoiceVersionToken;
   requiresConfirmation: boolean;
   status: ProposalStatus;
   // No `describe` field, deliberately: the INSERT below does not write one, and
@@ -82,7 +93,13 @@ export function buildProposalRows(
       after: { ...after },
       rationale: proposal.rationale,
       labelKind: proposal.operation.labelKind,
-      preparedVersionToken: { businessId: turn.locationId, updatedAt: voice.updatedAt },
+      // Through the helper, never a fourth literal `{ businessId, updatedAt }`:
+      // this is the token Apply compares against, and the module that owns its
+      // shape is the one that should build it.
+      preparedVersionToken: computeVoiceVersionToken({
+        businessId: turn.locationId,
+        updatedAt: voice.updatedAt,
+      }),
       requiresConfirmation: false,
       status: PROPOSAL_STATUS.PENDING,
     };
@@ -200,6 +217,26 @@ export interface ProposalView {
   failureReason: string | null;
 }
 
+/**
+ * The projection every `agent_proposals` read shares — the exact column set
+ * `StoredRow` names and `mapStored` consumes.
+ *
+ * A nested tagged template, composed by postgres.js into the outer query the
+ * same way `importConsentStateSql` and `dateFilter` are
+ * (`src/lib/reviews/import-consent.ts:202`, `src/lib/admin/cost-report-service.ts:110`).
+ * It carries no value, so there is no bind parameter to reorder. Five copies of
+ * a fifteen-column list is five places to forget `receipt` in — and a read that
+ * silently omits a column returns `undefined` through a mapper that expects it.
+ *
+ * The WHERE clauses stay at each call site, deliberately: the `account_id`
+ * predicate is the tenant proof `ci:tenant-scope` reads, and it must be visible
+ * in the statement it guards.
+ */
+function proposalColumns(db: Db) {
+  return db`turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
+            input, before, after, prepared_version_token, receipt, applied_at, failure_reason`;
+}
+
 function mapStored(row: StoredRow): ProposalView {
   const input = parseJsonbObject(row.input, 'agent_proposals.input');
   const operation = proposableOperation(row.operation);
@@ -238,8 +275,7 @@ export async function listProposalsForTurn(
   input: { turnId: string; accountId: string },
 ): Promise<ProposalView[]> {
   const rows = await db<StoredRow[]>`
-    SELECT turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
-           input, before, after, prepared_version_token, receipt, applied_at, failure_reason
+    SELECT ${proposalColumns(db)}
     FROM agent_proposals
     WHERE turn_id = ${input.turnId}::uuid
       AND account_id = ${input.accountId}::uuid
@@ -264,8 +300,7 @@ export async function listProposalsForTurns(
   if (input.turnIds.length === 0) return byTurn;
 
   const rows = await db<StoredRow[]>`
-    SELECT turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
-           input, before, after, prepared_version_token, receipt, applied_at, failure_reason
+    SELECT ${proposalColumns(db)}
     FROM agent_proposals
     WHERE turn_id = ANY(${input.turnIds as string[]}::uuid[])
       AND account_id = ${input.accountId}::uuid
@@ -284,8 +319,7 @@ export async function listPendingProposals(
   input: { conversationId: string; accountId: string },
 ): Promise<ProposalView[]> {
   const rows = await db<StoredRow[]>`
-    SELECT turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
-           input, before, after, prepared_version_token, receipt, applied_at, failure_reason
+    SELECT ${proposalColumns(db)}
     FROM agent_proposals
     WHERE conversation_id = ${input.conversationId}::uuid
       AND account_id = ${input.accountId}::uuid
@@ -386,8 +420,7 @@ export async function readProposalForAccount(
   input: { proposalId: string; accountId: string },
 ): Promise<ProposalView | null> {
   const [row] = await db<StoredRow[]>`
-    SELECT turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
-           input, before, after, prepared_version_token, receipt, applied_at, failure_reason
+    SELECT ${proposalColumns(db)}
     FROM agent_proposals
     WHERE id = ${input.proposalId}::uuid
       AND account_id = ${input.accountId}::uuid
@@ -406,8 +439,7 @@ export async function lockProposalForAccount(
   input: { proposalId: string; accountId: string },
 ): Promise<ProposalView | null> {
   const [row] = await tx<StoredRow[]>`
-    SELECT turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
-           input, before, after, prepared_version_token, receipt, applied_at, failure_reason
+    SELECT ${proposalColumns(tx)}
     FROM agent_proposals
     WHERE id = ${input.proposalId}::uuid
       AND account_id = ${input.accountId}::uuid

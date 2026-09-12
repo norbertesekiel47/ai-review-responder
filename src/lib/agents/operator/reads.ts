@@ -30,7 +30,13 @@ import {
   type UnsupportedView,
 } from './proposals';
 import { renderSegments, type RenderedSegment } from './render';
-import { asTurnStatus, parseReplySegments, type TurnStatus } from './schema';
+import {
+  asConnectionStatus,
+  asTurnStatus,
+  parseReplySegments,
+  type ConnectionStatus,
+  type TurnStatus,
+} from './schema';
 
 type Sql = postgres.Sql;
 
@@ -135,6 +141,16 @@ export interface OwnerConversationTurn {
 
 /** The live summary panel. Null when there is no turn to scope its reads to. */
 export interface OwnerConversationSummary {
+  /**
+   * The location EVERY number below is scoped to — the latest turn's, or the
+   * `?locationId=` the browser passed on an empty conversation.
+   *
+   * The panel says "this location" and its Connect call to action links out of
+   * the screen, so a summary that carried no location identity made the panel
+   * guess (the browser's current selector, which may have moved since the
+   * latest turn) and dropped the scope on the way to /dashboard/connect.
+   */
+  locationId: string;
   pending: { pendingCount: number; draftsWaiting: number };
   recent: { posted7d: number; reportingPeriodDays: number };
   rules: RuleSummary & { locationOverrideExists: boolean };
@@ -150,7 +166,7 @@ export interface OwnerConversationSummary {
    * conversation is not a posting action, and refusing to talk because Google
    * is disconnected would block the very conversation that explains it.
    */
-  connectionStatus: 'pending' | 'active' | 'disconnected' | null;
+  connectionStatus: ConnectionStatus | null;
   asOf: string;
 }
 
@@ -176,6 +192,22 @@ export interface OwnerConversationView {
 }
 
 /**
+ * What the transcript read can answer. THREE outcomes, not two, because a
+ * `?locationId=` that is not an active location of the account is a different
+ * fact from "no such conversation" and the owner is owed a different sentence.
+ *
+ * Before this split the unusable location produced `null` (→ 404
+ * `conversation_not_found`) when the owner had no conversation and a 200 with
+ * `summary: null` when they had one — two answers to one question, and the
+ * screen could say nothing in either case (S7). The route maps
+ * `location_not_found` to its own 404 code in BOTH branches.
+ */
+export type OwnerConversationResult =
+  | { kind: 'view'; view: OwnerConversationView }
+  | { kind: 'not_found' }
+  | { kind: 'location_not_found' };
+
+/**
  * The transcript plus the summary-panel reads.
  *
  * Without `conversationId`, returns the actor's most recent conversation for
@@ -194,13 +226,13 @@ export async function getConversationForOwner(
     /**
      * D2. Used ONLY when the conversation has no turns yet: the panel has no
      * turn to scope to, but the browser knows which location is selected. An
-     * id that is not an active member of the account scopes nothing and the
-     * summary stays `null` — additive to Run A's rule, never a replacement for
-     * the latest-turn scoping, which still wins whenever a turn exists.
+     * id that is not an active member of the account is `location_not_found`
+     * in EITHER branch (S7) — additive to Run A's rule, never a replacement
+     * for the latest-turn scoping, which still wins whenever a turn exists.
      */
     locationId?: string;
   },
-): Promise<OwnerConversationView | null> {
+): Promise<OwnerConversationResult> {
   const [conversation] = input.conversationId
     ? await sql<{ id: string; last_turn_at: Date | string | null }[]>`
         SELECT id, last_turn_at
@@ -217,22 +249,27 @@ export async function getConversationForOwner(
         LIMIT 1
       `;
   if (!conversation) {
-    // A caller that named a SPECIFIC conversation and missed still gets null,
-    // which the route renders as 404. Unchanged.
-    if (input.conversationId !== undefined) return null;
+    // A caller that named a SPECIFIC conversation and missed still gets
+    // `not_found`, which the route renders as 404. Unchanged.
+    if (input.conversationId !== undefined) return { kind: 'not_found' };
     // A caller that named a LOCATION and has no conversation yet gets the
     // empty view with a scoped summary (RB-09).
-    if (input.locationId === undefined) return null;
+    if (input.locationId === undefined) return { kind: 'not_found' };
     const firstLocationId = await activeLocationId(sql, input.accountId, input.locationId);
-    if (firstLocationId === null) return null;
+    // The SAME answer this id gets on the branch below, where a conversation
+    // exists: an unusable location is one fact with one outcome (S7).
+    if (firstLocationId === null) return { kind: 'location_not_found' };
     return {
-      conversation: null,
-      turns: [],
-      summary: await readSummary(sql, {
-        accountId: input.accountId,
-        conversationId: null,
-        locationId: firstLocationId,
-      }),
+      kind: 'view',
+      view: {
+        conversation: null,
+        turns: [],
+        summary: await readSummary(sql, {
+          accountId: input.accountId,
+          conversationId: null,
+          locationId: firstLocationId,
+        }),
+      },
     };
   }
 
@@ -295,29 +332,27 @@ export async function getConversationForOwner(
   // scoped to it — the alternative is a panel of account-scoped zeros for an
   // id that belongs to nobody, which reads as "nothing to report" rather than
   // "not your location".
-  const summaryLocationId = latest
-    ? latest.location_id
-    : input.locationId === undefined
-      ? null
-      : await activeLocationId(sql, input.accountId, input.locationId);
-
-  if (summaryLocationId === null) {
-    return {
-      conversation: { id: conversation.id, lastTurnAt: nullableIso(conversation.last_turn_at) },
-      turns,
-      summary: null,
-    };
+  let summaryLocationId: string | null = latest?.location_id ?? null;
+  if (latest === undefined && input.locationId !== undefined) {
+    summaryLocationId = await activeLocationId(sql, input.accountId, input.locationId);
+    // An unusable id is refused OUTRIGHT here rather than degraded to a null
+    // summary: a 200 whose panel is silently missing is indistinguishable from
+    // an account with nothing to report (S7).
+    if (summaryLocationId === null) return { kind: 'location_not_found' };
   }
 
-  return {
+  const view: OwnerConversationView = {
     conversation: { id: conversation.id, lastTurnAt: nullableIso(conversation.last_turn_at) },
     turns,
-    summary: await readSummary(sql, {
+    // Still `null` when there is no turn AND no caller-supplied location:
+    // nothing to scope the panel's location-shaped reads to (Run A's rule).
+    summary: summaryLocationId === null ? null : await readSummary(sql, {
       accountId: input.accountId,
       conversationId: conversation.id,
       locationId: summaryLocationId,
     }),
   };
+  return { kind: 'view', view };
 }
 
 /**
@@ -373,6 +408,7 @@ async function readSummary(
   const rules = projectOperatingRules(settings, input.locationId);
 
   return {
+    locationId: input.locationId,
     pending: {
       pendingCount: pendingByLocation.get(input.locationId) ?? 0,
       draftsWaiting,
@@ -424,7 +460,7 @@ async function activeLocationId(
 async function readConnectionStatus(
   sql: Sql,
   input: { accountId: string; locationId: string },
-): Promise<'pending' | 'active' | 'disconnected' | null> {
+): Promise<ConnectionStatus | null> {
   const [row] = await sql<{ status: string }[]>`
     SELECT zc.status
     FROM zernio_connections zc
@@ -434,11 +470,29 @@ async function readConnectionStatus(
     ORDER BY zc.created_at DESC
     LIMIT 1
   `;
-  if (!row) return null;
-  if (row.status === 'pending' || row.status === 'active' || row.status === 'disconnected') {
-    return row.status;
-  }
-  // migration 026's CHECK admits exactly those three, so anything else is a
-  // row this codebase did not write.
-  throw new Error('agents/operator: zernio_connections.status holds a value no writer produces');
+  // migration 026's CHECK admits exactly three values, so `asConnectionStatus`
+  // throwing means a row this codebase did not write.
+  return row ? asConnectionStatus(row.status) : null;
+}
+
+/**
+ * The account's subscription status, for the ONE entitlement question the
+ * conversation route asks: may this account read customer KPI data at all?
+ *
+ * The route owns the ANSWER — it calls `subscriptionAllowsDashboardRead`, the
+ * same predicate `/api/dashboard` gates on — and this is only the read that
+ * feeds it, here rather than in the route because a composition root
+ * orchestrates and does not write SQL. `null` for an account row that does not
+ * exist, which no caller past the owner gate can produce.
+ */
+export async function readSummaryEntitlement(
+  sql: Sql,
+  accountId: string,
+): Promise<string | null> {
+  const [row] = await sql<{ subscription_status: string }[]>`
+    SELECT subscription_status
+    FROM accounts
+    WHERE id = ${accountId}::uuid
+  `;
+  return row?.subscription_status ?? null;
 }

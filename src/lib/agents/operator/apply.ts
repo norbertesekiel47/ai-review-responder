@@ -166,8 +166,13 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
     if (proposal.status !== PROPOSAL_STATUS.PENDING) {
       return { kind: 'not_pending', proposal, status: proposal.status };
     }
-    // Reachable only for a non-pending row that fell through the pre-transaction
-    // guard; a pending row with a stale contract was already answered above.
+    // UNREACHABLE, and kept anyway. The row is `pending` by the two branches
+    // above, and a PENDING row with a stale contract was already answered by
+    // the pre-transaction guard, so `contractCurrent` is necessarily true here.
+    // What this branch is really for is `operation === null`: it is the
+    // NARROWING that lets step 5 call `operation.parseInput` / `.writerFields`
+    // without a non-null assertion, and a refusal is the right answer if the
+    // impossible ever happens.
     if (!contractCurrent || operation === null) {
       return rejected(tx, input, PROPOSAL_FAILURE_REASON.CONTRACT_CHANGED);
     }
@@ -177,8 +182,12 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
     //    account may have entered offboarding. Same three checks
     //    `reauthorizeTurn` makes (src/lib/agents/operator/authorize.ts:21-58),
     //    run against `tx` so they see the locked state.
-    const [actor] = await tx<{ id: string }[]>`
-      SELECT id
+    // `name` and `email` ride along on the read the gate already makes: the
+    // Receipt records WHO applied this in words the owner recognises, and a
+    // second query for it would be a second chance to disagree with the gate
+    // about which row the actor is.
+    const [actor] = await tx<{ id: string; name: string | null; email: string | null }[]>`
+      SELECT id, name, email
       FROM users
       WHERE id = ${input.actorUserId}::uuid
         AND account_id = ${input.accountId}::uuid
@@ -302,6 +311,10 @@ export async function applyProposal(sql: Sql, input: ApplyProposalInput): Promis
       remainingBlocked: [],
       appliedAt,
       actorUserId: input.actorUserId,
+      // The name the card shows. `email` is the fallback for an owner row with
+      // no name yet; `null` only if the row has neither, and the card then
+      // falls back to its own wording rather than printing a uuid.
+      actorName: actor.name ?? actor.email ?? null,
       // VERBATIM. A missing turn row cannot happen (the FK is NOT NULL), but an
       // empty string is a safer fallback than a throw that would roll back a
       // committed-to-be voice write over a cosmetic field.

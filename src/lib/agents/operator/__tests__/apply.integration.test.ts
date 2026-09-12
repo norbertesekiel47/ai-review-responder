@@ -284,6 +284,9 @@ describeWithDb(
       expect(receipt!.affects).toBe('future_drafts');
       expect(receipt!.remainingBlocked).toEqual([]);
       expect(receipt!.actorUserId).toBe(tenant.userId);
+      // …and WHO in words (S5): the card renders this, never the uuid. Read
+      // from the same `users` row the gate checked, inside the transaction.
+      expect(receipt!.actorName).toBe('Operator Apply Owner');
       expect(receipt!.turnId).toBe(turn.turnId);
       // VERBATIM owner text (spec §6.5), read from the turn, not from the card.
       expect(receipt!.ownerText).toBe('Make my replies warmer.');
@@ -318,6 +321,24 @@ describeWithDb(
         targetLocationId: secondLocationId,
         tone: 'playful',
       });
+      // An ALREADY-APPLIED proposal on THIS location (RT-03). The sweep's
+      // `status = 'pending'` predicate is the only thing keeping it out of the
+      // UPDATE, and without that predicate this row would be restamped
+      // `stale` / `version_mismatch` — rewriting a terminal outcome, and
+      // contradicting the Receipt it still carries.
+      const appliedSibling = await seedProposal({
+        conversationId: turn.conversationId,
+        turnId: turn.turnId,
+        targetLocationId: locationId,
+        tone: 'brisk',
+      });
+      await db`
+        UPDATE agent_proposals
+        SET status = ${PROPOSAL_STATUS.APPLIED}, applied_at = NOW(),
+            decided_by_user_id = ${tenant.userId}::uuid
+        WHERE id = ${appliedSibling.proposalId}::uuid
+          AND account_id = ${tenant.accountId}::uuid
+      `;
 
       const result = await applyProposal(db, {
         proposalId: first.proposalId,
@@ -347,6 +368,66 @@ describeWithDb(
         accountId: tenant.accountId,
       });
       expect(appliedRow!.status).toBe(PROPOSAL_STATUS.APPLIED);
+
+      // …and neither is the sibling that was ALREADY applied on this same
+      // location: terminal stays terminal, with no failure reason invented
+      // for it (RT-03).
+      const priorApplied = await readProposalForAccount(db, {
+        proposalId: appliedSibling.proposalId,
+        accountId: tenant.accountId,
+      });
+      expect(priorApplied!.status).toBe(PROPOSAL_STATUS.APPLIED);
+      expect(priorApplied!.failureReason).toBeNull();
+      expect(priorApplied!.appliedAt).not.toBeNull();
+    });
+
+    it('applyProposal rejects a pending proposal whose location was archived after preparation', async () => {
+      // RT-04 / RT-08. The `archived_at IS NULL` clause in the businesses lock
+      // was pinned only by the SQL TEXT of a unit test; this is the live proof
+      // that an archived location refuses the Apply and writes nothing to the
+      // voice columns.
+      const turn = await seedTurn(locationId, 'Make my replies warmer.');
+      const { proposalId, token } = await seedProposal({
+        conversationId: turn.conversationId,
+        turnId: turn.turnId,
+        targetLocationId: locationId,
+        tone: 'warm and brief',
+      });
+
+      await db`
+        UPDATE businesses SET archived_at = NOW()
+        WHERE id = ${locationId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      try {
+        const result = await applyProposal(db, {
+          proposalId,
+          accountId: tenant.accountId,
+          actorUserId: tenant.userId,
+          expectedVersionToken: token,
+        });
+
+        expect(result).toMatchObject({
+          kind: 'rejected',
+          reason: PROPOSAL_FAILURE_REASON.LOCATION_NOT_FOUND,
+        });
+        if (result.kind !== 'rejected') throw new Error('unreachable');
+        expect(result.proposal.status).toBe(PROPOSAL_STATUS.REJECTED);
+        expect(result.proposal.receipt).toBeNull();
+        expect(result.proposal.appliedAt).toBeNull();
+      } finally {
+        await db`
+          UPDATE businesses SET archived_at = NULL
+          WHERE id = ${locationId}::uuid AND account_id = ${tenant.accountId}::uuid
+        `;
+      }
+
+      // NO VOICE WRITE — asserted after the un-archive, so the read is not
+      // itself filtered out by the archival it is testing.
+      expect(await readTone(locationId)).toBeNull();
+      // The refusal COMMITTED as a terminal state, so the card says why.
+      const stored = await readProposalForAccount(db, { proposalId, accountId: tenant.accountId });
+      expect(stored!.status).toBe(PROPOSAL_STATUS.REJECTED);
+      expect(stored!.failureReason).toBe(PROPOSAL_FAILURE_REASON.LOCATION_NOT_FOUND);
     });
 
     it('applyProposal receipt after equals the committed voice state and flags a difference from the stored after', async () => {

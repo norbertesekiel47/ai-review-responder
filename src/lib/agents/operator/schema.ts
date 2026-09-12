@@ -46,6 +46,30 @@ export function asProposalStatus(value: string): ProposalStatus {
 }
 
 /**
+ * The summary panel's connection vocabulary — migration 026's
+ * `zernio_connections.status` CHECK, spelled once on the read side.
+ *
+ * A third narrowing beside the two above rather than an inline `if` chain in
+ * `reads.ts`: the CHECK makes the throw unreachable through the database, so
+ * the only way to prove the branch refuses an out-of-vocabulary value is to
+ * call it directly, which an unexported chain does not allow.
+ */
+export const CONNECTION_STATUS = {
+  PENDING: 'pending',
+  ACTIVE: 'active',
+  DISCONNECTED: 'disconnected',
+} as const;
+export type ConnectionStatus = (typeof CONNECTION_STATUS)[keyof typeof CONNECTION_STATUS];
+
+export function asConnectionStatus(value: string): ConnectionStatus {
+  const members: readonly string[] = Object.values(CONNECTION_STATUS);
+  if (!members.includes(value)) {
+    throw new Error('agents/operator: zernio_connections.status holds a value no writer produces');
+  }
+  return value as ConnectionStatus;
+}
+
+/**
  * Every reason a turn can carry in `failure_reason`. User-safe by
  * construction: each is a token the screen maps to its own wording, never a
  * provider message and never owner text.
@@ -361,6 +385,18 @@ export const ReceiptSchema = z.object({
   remainingBlocked: z.array(z.string()),
   appliedAt: z.string().min(1),
   actorUserId: z.uuid(),
+  /**
+   * WHO the owner reads on the card: `users.name`, or the account email when
+   * the name is null. Server-written under the same lock as `actorUserId`,
+   * frozen at the Apply — a later rename must not rewrite history.
+   *
+   * OPTIONAL ON READ, defaulted to `null`. Receipts written before this field
+   * existed carry fifteen keys, and a `.strict()` schema that required the
+   * sixteenth would throw on every one of them — crashing the card for the
+   * exact owners who already applied something. The WRITER always supplies it;
+   * the default is for the rows that predate it.
+   */
+  actorName: z.string().nullable().default(null),
   /** The VERBATIM `owner_text` of the turn that produced the Proposal (§6.5). */
   ownerText: z.string(),
   /** The turn id, as the correlation id (§6.5). */
