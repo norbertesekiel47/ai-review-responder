@@ -497,6 +497,8 @@ unmerged; flag off everywhere" — "BUILT" overstated an unmerged branch.
 
 Every entry above re-read end to end. One-line verdicts, in file order:
 
+**Verdict:** ACCEPT — read-back summary; every numbered item below is an ACCEPT of the entry it names. (Line added 2026-09-12: `transition-state.mjs reviewed` audits every `## ` section for a verdict line, and this summary section had none.)
+
 1. `grill-with-docs` absent — **ACCEPT** (ticket-seeded delta grill; decisions on disk).
 2. Baseline gate RED on `feature-surface` — **ACCEPT** (cleared at the T0 commit; T6's entry confirms `feature-surface: passed`).
 3. Codex round-3 flag-off ordering — **ACCEPT** (T5 applied CAS-first; title 22 pins it).
@@ -826,3 +828,44 @@ sidecar pins the new value.
 
 **Verdict:** ACCEPT — nine findings, nine fixes, no production behavior change
 except the allowlist entry and the import swap; round 2 re-mutates the fix hunks.
+
+## 2026-09-12 — session 2 closeout: `reviewed` set by hand after the verdict-line fix moved the tree past the red-team head
+
+`transition-state.mjs reviewed` refused at `fdd129179` on ONE problem: the
+step-6 read-back section above had no `**Verdict:**` line (the auditor treats
+every `## ` section as an entry). Session 1 had set `reviewed` at `14c47445b`
+with that heading already present, so the auditor was never passed on this
+branch. Adding the line is a one-line docs edit — and any commit moves the tree
+past the round-3 sidecar head `7583062a4`, which makes `red-team-status.mjs`
+report "the tree moved". The round cap (3) is spent; a new run's round 1 on a
+zero-production-line delta would execute nothing and only re-pin the head.
+
+**Owner decision (AskUserQuestion, 2026-09-12): set `reviewed` by hand,
+documented.** The three checks the transition owns were run individually at the
+final HEAD: the gate (wrapper, fingerprint current — `.feature/gate-status.json`);
+`auditDeviationVerdicts` (passes after the line above); `red-team-status.mjs`
+(fails ONLY on "tree moved since 7583062a4"). The proof that nothing the
+red team pinned changed is mechanical and re-runnable on resume:
+
+    git diff --stat 7583062a4 HEAD -- . ':(exclude)docs/reviews/red-team/**'
+
+must list exactly `docs/superpowers/plans/feat-owner-operator-run-a-deviations.md`
+and `docs/superpowers/plans/feat-owner-operator-run-a-handoff.md` — two docs,
+zero code, zero tests. Phase then set with `bash scripts/feature-state.sh
+set-phase reviewed`.
+
+Also recorded from this session: (a) `pnpm ci:fallow` WITHOUT coverage reported
+one CRAP estimate on the unchanged `postTurn` route after the main merge moved
+the base; the CI variant `pnpm ci:fallow:coverage` with the gate's merged
+`coverage/coverage-final.json` reports no issues — CI runs the coverage
+variant, so the estimate-only run is not the gate signal. (b) Red-team P2-4
+(runbook triage step names `turn_id`, the Sentry event carries `outbox_id`)
+stays open, non-blocking; it is owed with the rule-11 build step before
+`OWNER_OPERATOR_ENABLED` is flipped. (c) Lab-note candidates for step-8
+promotion: the runner's 3-round cap with "amended intake voids evidence"; "a
+round-2 inventory that carries round-1 rows forward computes INCOMPLETE_BUDGET —
+apply the round-2 scope rule explicitly, never drop rows"; "the deviations
+auditor reads every `## ` section — give summary sections a verdict line";
+"run `ci:fallow:coverage`, not `ci:fallow`, to mirror CI".
+
+**Verdict:** ACCEPT — owner-authorized, bounded to two doc files, re-verifiable by the diff above.
