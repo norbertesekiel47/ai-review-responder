@@ -92,9 +92,8 @@ beforeEach(() => {
   sqlLog.length = 0;
   seedAccount('active');
   requireAdminMock.mockResolvedValue({ ok: true, admin: { id: 'admin-1' } });
-  // The six routes are wrapped in withSameOrigin(), which compares the request
-  // Origin against NEXT_PUBLIC_APP_URL and 403s when it is unset. The plan's
-  // harness omitted it; the frozen route suites all set it. Deviation recorded.
+  // Keep the shared server-config fixture stable. Ordinary Admin channel routes
+  // now require bearer authentication and no longer use the same-origin wrapper.
   process.env.NEXT_PUBLIC_APP_URL = 'http://localhost';
   process.env.MOCK_EXTERNAL_APIS = 'true';
   process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
