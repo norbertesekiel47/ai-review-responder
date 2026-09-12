@@ -295,64 +295,73 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 23** — last reset to 0 by the
-**2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
-`docs/reviews/PATHFINDER-2026-08-26/`.
+**Merges since last architecture pass: 0** — reset by the **2026-09-12 pass**
+(entry at the bottom of this file). Full artifacts:
+`docs/reviews/PATHFINDER-2026-09-12/`.
 
-> **⚠️ THE THRESHOLD IS CROSSED (19 ≥ 5). An architecture pass is due.** Nobody
-> may start one automatically — it is the owner's call, and this line is the
-> reminder the rule asks for.
+> ## The counting rule is STILL under repair — do NOT hand-count this file
 >
-> **The number moved 3 → 9 on 2026-09-01, and six of those merges were never
-> recorded here.** Every one of them already had a row in the bottom table, so
-> the LOSS was in the bullet list and the headline alone — which is reason 1 of
-> the four the H7 note lists, observed live. The six were recovered
-> MECHANICALLY rather than by reading this file, because the H7 note is right
-> that it cannot be hand-counted: each merge commit between #1009's merge
-> (`dbc66c61`) and HEAD was replayed and classified by whether
-> `git show --name-only` names a non-test file under `src/`, `worker/` or
-> `supabase/`. That predicate is this file's own counting rule, applied by
-> `git` instead of by attention. Re-derive it the same way; do not trust
-> this paragraph's arithmetic on its own.
-
-> ## The counting rule is under repair — do NOT hand-count this file until H7 lands
+> The 2026-09-12 pass measured the prior window at **83** against a stated
+> **21** — a 177-merge window, the largest yet, and the **seventh consecutive
+> wrong counter**. H7 (filed 2026-08-26) did not land; the error grew from 4
+> to **62** in seventeen days.
 >
-> The 2026-08-26 pass measured the prior window at **12** against a stated 8,
-> and established that this file **cannot be counted reliably as structured
-> today**. Four reasons, all measured:
+> All four reasons the 2026-08-26 pass measured still hold at HEAD:
 >
 > 1. **Two accepted locations** — the bullet list and the bottom table.
 > 2. **No stable key.** Entries appear under PR number, issue number, branch
->    name, or bare prose. `rg '#962'` and `rg '#954'` both returned **0** for
->    merges that counted.
+>    name, or bare prose.
 > 3. **The audit's trigger is WIDER than the counting rule.** `ci:merge-ledger`
 >    fires on production **OR GOVERNANCE** files; the rule counts production
->    **only**. #957, #960 and #961 were each *required* by CI to add a line and
->    each must **not** increment. They sit in the bottom table beside merges
->    that do count, unmarked. **PR #980 is the newest example** — governance
->    only, correctly left a row, correctly counts zero.
+>    **only**. **17 merges in the 2026-09-12 window** were each *required* by
+>    CI to add a line and must *not* increment. They sit in the bottom table
+>    beside counting merges, unmarked.
 > 4. **"Lines added" is not a unit** — it ranged 1 to 36 per merge.
 >
-> **The instruction that stood here — "resolve it by COUNTING THE LINES BELOW …
-> the lines are the only source that cannot drift" — is UNSOUND and has been
-> deleted.** The lines drift relative to the rule by construction, for reason 3.
+> **This file predicted its own failure twice inside that window**, which is
+> the strongest evidence yet that the defect is structural rather than one of
+> discipline: the 2026-09-01 note below ("*recovered MECHANICALLY rather than
+> by reading this file*") and the 2026-09-03 bullet ("*The count lags reality
+> — #1069, #1071, #1073, #1074, #1075, #1097, #1098 and #1099 all merged with
+> production changes and no entry… reconciling them is the next architecture
+> pass's job*"). **The reconciliation was 62, not 8.** The bullet list stopped
+> being maintained entirely after 2026-09-04 — the last **39** counted merges
+> (#1140 → #1270) have no bullet at all, including the whole Admin split wave
+> and Owner Operator Run A.
 >
-> **The fix (handoff H7):** one owner — the bottom table — keyed by **merge
-> SHA**, with a `counts` boolean set by `isProductionFile`
-> (`scripts/ci/merge-ledger-audit.ts:87`), a classifier the audit already
-> computes on every run and discards. Then the counter is a query, not a
-> judgement.
+> **One refinement the 2026-09-12 window adds:** only **3 of 83** counting
+> merges had a comment-only production diff. **80 of 83 changed executable
+> code.** The file rule over-counts by **3.6%** — cheap. Keep the file rule.
 >
-> **Correcting the record:** the 2026-08-24 pass reported this counter correct
-> for the first time in five passes and credited `ci:merge-ledger`. That audit's
-> own header (`merge-ledger-audit.ts:39-43`) explicitly declines to own the
-> number. **The audit works exactly as designed; the counter was never in its
-> scope.** Six passes, six wrong counts, is the expected output of the current
+> **The fix is unchanged (H2, formerly H7):** one owner — the bottom table —
+> keyed by **merge SHA**, with a `counts` boolean set by `isProductionFile`
+> (`scripts/ci/merge-ledger-audit.ts:96`). `classifyDiff` (`:111-117`) already
+> computes it on every run and discards it. Then the counter is a `grep -c`,
+> and the governance-only rows classify themselves.
+> `docs/reviews/PATHFINDER-2026-09-12/04-handoff-prompts.md` H2.
+>
+> **The record, unchanged and worth keeping:** the 2026-08-24 pass reported
+> this counter correct for the first time in five passes and credited
+> `ci:merge-ledger`. That audit's own header
+> (`merge-ledger-audit.ts:38-43`) explicitly declines to own the number.
+> **The audit works exactly as designed; the counter was never in its scope.**
+> Seven passes, six wrong counts, is the expected output of the current
 > design — not a discipline failure.
 
-Prior passes: `PATHFINDER-2026-08-24/`, `-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
+Prior passes: `PATHFINDER-2026-08-26/`, `-08-24/`, `-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
-Merges since the 2026-08-26 pass:
+Merges since the 2026-09-12 pass:
+
+_(none yet)_
+
+---
+
+Merges since the 2026-08-26 pass — **CLOSED by the 2026-09-12 pass.** Retained
+verbatim as record; these are the 21 bullets that stood against a measured
+**83**, and they stop at 2026-09-04 — the last 39 counted merges (#1140 →
+#1270) left no bullet at all. The full 83-row classified table, plus the 17
+governance-only and 77 docs/test-only merges, is in
+`docs/reviews/PATHFINDER-2026-09-12/SCOPE.md`.
 
 - **PR #1276** — Owner Operator T8: the staging flip and its first live turn (2026-09-13, squash `099409ae2`; the line was written pre-merge by the branch). `OWNER_OPERATOR_ENABLED` is ON in staging (both lanes) and off in production; Sentry rule 11 exists in both projects. Production files: `prompt.ts`, `catalog.ts` (the `inputShape` field on every proposable), `constants.ts` (comment only). The first live Operator turn on staging failed `model_output_invalid` on BOTH pinned providers, because nothing declared the output shape to the model — the LLM seam sends no JSON schema to a provider and validates with zod only after the completion arrives, and prompt `2026-09-11.2` said "the declared schema" without declaring one. Fix: `prompt.ts` spells `OperatorModelOutputSchema` in the system prompt (version `2026-09-13.1`) and `catalog.ts` gives every proposable an `inputShape` projected as `allowedOperations[].input`, so the prompt carries no second list of ids; `prompt.test.ts` pins every key and segment type read FROM the schema. Plus red-team RT-B8's discriminating case and the rule-11 docs. Sentry rule 11 built in both projects; `OWNER_OPERATOR_ENABLED=true` on staging (both lanes), production off. **What the next pass should look at:** the seam declares NO structured-output contract to any provider — the triage, judge and solicitation tasks survive on trivial schemas; a per-task JSON-schema hand-off (OpenAI `response_format`, Anthropic tool input) would make the shape a provider guarantee instead of a prompt promise. No migration, no new dependency. The counter is the next pass's business.
 - **PR #1273** — Owner Operator v1 Run B: Apply, Decline, receipts, the Operator screen (2026-09-13, squash `34857b73b`; the pre-merge ledger line below was written by the branch itself under surface amendment #2). No migration, no env var, no flag flip, no new dependency. **New single owners:** `src/app/api/operator/gate.ts` (the one operator mutation gate, order flag → same-origin → writable owner → impersonation → uuid; born from CI's fallow duplication gate reversing a standards REJECT) and `src/lib/admin/impersonation/cookie.ts` (`hasImpersonationCookie`, pass H1-B). **Allowlists moved:** `/api/operator` joined `isProtectedOwnerApiRoute` (H1-A); the PgBouncer JSONB parse-site allowlist 23 → 25. **Deleted concept:** the dashboard-DTO reuse for the summary panel (H1-D, refuted). **What the next pass should look at:** the five client hooks beside one page (`useOperatorConversation`, `useTurnPoll`, `useProposalWrites`, `useTurnSubmission`, `useOperatorUrl`) — a decomposition forced by fallow's hook-count complexity score rather than by a seam; the OutboxPoller's two Run A open items (spec §14 CA1 stranded turn, CA4 predecessor-wait clock) now that a screen polls them; `declineProposal` living in the row module (standards F7, rejected as "no new file"); red-team RT-B8 (the second-message refetch is unmeasured). The first executor on the Owner Operator. `src/lib/agents/operator/apply.ts` (lock-before-check Apply transaction: `businesses` row FOR UPDATE, then the proposal; three-way text **Version token** compare; the operation's own fields through the shared voice writer; the **Receipt** written in the same transaction; sibling pending Proposals marked stale) and `version-token.ts` (one owner for the token shape, its JSONB parse site and its equality); `declineProposal`; `POST /api/operator/proposals/:id/{apply,decline}` behind flag-first 404, same-origin, writable owner, impersonation 409 and uuid-or-404; `/api/operator` joins `isProtectedOwnerApiRoute` (pass H1-A); one `hasImpersonationCookie` in `impersonation/cookie.ts` replaces two byte-identical copies (H1-B); the conversation read gains `?locationId=`, a nullable conversation (empty view), `connectionStatus` and per-turn `unsupported`. The Operator screen at `/dashboard/operator` (Console/Harbor; server page `notFound()` when the flag is off; URL-state polling with an independent 4-minute deadline; cards rendered from stored rows; Refresh plan; six-tab mobile bar gated by `operatorEnabled`). No migration, no flag flip, no new dependency; nothing posts. Plan hardened over three Codex rounds (11 + 7 + 1 findings, all accepted); two surface amendments (the page path, and this file for the ledger line). The counter is the next pass's business.
@@ -1970,3 +1979,4 @@ in the workflow as a required precondition. Two further findings:
 | 2026-09-08 | feat/1182-admin-reset — `scripts/revoke-admin.ts`, the **admin revoke**: the #1182 reset removes every admin's access as a BAN on the Supabase Auth identity, never a row deletion, and `--restore` is the exact reversal | `scripts/revoke-admin.ts` (new) · `scripts/mint-admin.ts` (two helpers exported, no behaviour change) · `scripts/ci/__tests__/revoke-admin.test.ts` + `…integration.test.ts` (new) · `docs/runbooks/mint-admin.md` § Revoking and restoring an admin · `.claude/reference/env-vars.md` (`MFA_ENFORCEMENT_ENABLED` staging flip) | **No migration, no route, no `src/proxy.ts`, no new env var, no new dependency.** Four things a later pass should not re-derive. (a) **A revoke can never be a delete**: `users` rows are FK targets (`businesses.onboarded_by`, `impersonation_sessions.actor_user_id` NOT NULL, `admin_audit_log.actor_user_id` NOT NULL, the `014`/`034` actor columns), so the only Postgres write in the whole script is the audit INSERT — the live-DB suite asserts `to_jsonb(users)` is identical before and after a revoke+restore, role included. (b) **The ticket asked for `account_audit_log` via `writeAccountAuditLog` and the schema forbids it**: that table's `account_id` is NOT NULL and an admin's is NULL, which is verbatim why migration 117 exists. `admin_revoked`/`admin_restored` go to `admin_audit_log` with the same `bootstrap_self_actor` shape `admin_minted` uses, because a full reset may leave no other admin to name as actor. (c) **Idempotency reads `auth.users.banned_until`, not the Auth admin API's user payload** — GoTrue OMITS `banned_until` from that JSON when it is null (probed against staging 2026-09-08: the key is simply absent), so absence there cannot be distinguished from a version that does not serialize it. The column read carries the `to_regclass` guard `probeAuthIdentity` established, because the test databases provision schema `auth` with no `auth.users`. (d) **Ordering is Auth-then-audit and deliberately NOT wrapped in `sql.begin`**: one Postgres write not paired with a Postgres state change gains nothing from a transaction but the appearance of atomicity across a boundary Postgres does not span. An audit row written first would claim a revocation that may never happen; a ban whose audit row failed is real, reported, and repairable — and is NOT rolled back, because restoring a login to tidy a ledger is the worse outcome. The residual is stated rather than hidden in both the script and the runbook: an access token minted before the ban stays valid until it expires (JWT expiry, 1h default), because a ban blocks sign-in and refresh, not an issued JWT. Counter: the pass decides. |
 | 2026-09-10 | feat/landing-selected-cleanup — the owner-selected landing design (problem, fleet, agents, five jobs, watchdogs, owner controls, Working Atlas roadmap) ships as plain sections: `LandingExperience` composes all nine directly and the `story` slot is gone; variant overrides and `final.css` refinements fold into base rules; the superseded original middle sections and their helpers (`staged`, `carousel`, `agent-flip-card`, `future-route`) are deleted | `src/components/sections/landing/**` (seven section folders, `section-scopes.css`, `brand-clip.tsx`) · `public/{fleet,jobs,tiers}/` · `src/components/auth/auth-island/auth-island.css` · `src/__tests__/focus-visible-marketing.test.ts` · landing DESIGN.md/measurements.md · `docs/brand-asset-library/collections/2026-09-final/` | **UI only.** No worker, `src/lib`, migration, dependency or flag. Production-build pixel comparison at eight viewports (360–1800px): all 128 scroll slices identical before/after. The `design-*` comparison routes and exploration folders never reached `main`. Counter unchanged until merged. |
 | 2026-09-11 | fix/1212-1221-1223-admin-closeout — the Admin API's caught 500 gets an alert path: `internalError` (`src/lib/auth/admin-mfa-gate.ts`) reports through the existing `reportCaughtError` seam (tag `endpoint:admin-mfa-gate`, `label` in context) instead of a bare `console.error`; the 500 is caught by design so `onRequestError` never saw it (#1212, red-team RT2 on #1183). Plus two doc follow-ups (#1221 env-vars row, #1223 evidence citation) | `src/lib/auth/admin-mfa-gate.ts` (one call swapped, no wire change) · its test (two pins) · `docs/runbooks/beta-launch-alerting.md` (Sentry rule row) | No new module, migration, dependency, flag, or writer; Node runtime only (the proxy imports `admin-transport`, not the gate). The merge counter is unchanged until this branch merges. |
+| 2026-09-12 | **83 counted merges ≥ 5 threshold across a 177-merge window after `40e79e6a8`** — 8.4× the prior window. Themes: the Admin split + ten-page legacy retirement (#1213–#1268, 24 merges); the Refusal ledger (#1008–#1129, 13); the Console/Harbor redesign + the 223-file UX remediation (#987–#1138, 16); the marketing rebalance + the 66-file copy sweep (#1140–#1233, 10); offboarding/billing (#1070–#1151, 5); **Owner Operator v1 Run A (#1270)**; the agent-context split (#1135); outbox/perf/worker-health (#1069–#1175, 8). Migrations **115–120**. The counter itself read **21** | Pathfinder pass, **windowed** (owner's call): **9 features charted, 635 nodes**, every node `file:line`-cited — F1 Owner Operator Run A (119), F2 Admin transport seam (73), F3 legacy retirement + Admin API contract (31), F4 Refusal ledger (67), F5 Console/Harbor (80), F6 marketing rebalance (68), F7 offboarding purge (87), F8 outbox/perf/health (56), F9 Review QR (54). #1135 recorded as no-chart: 30 production files, **4 changed code lines**. Artifacts `docs/reviews/PATHFINDER-2026-09-12/00-09` | **Headline: the counter is wrong for the SEVENTH consecutive pass, by 62 — and this file predicted it twice inside its own window** (the 2026-09-01 note, and the 2026-09-03 bullet's *"eight unrecorded merges… reconciling them is the next architecture pass's job"* — the reconciliation was 62). The bullet list stopped being maintained after 2026-09-04; the last **39** counted merges have no bullet. Refinement: only **3 of 83** counting merges were comment-only, so the file rule over-counts by **3.6%** — keep it. **`ci:merge-ledger` did exactly what it is built to do on all 100 triggering merges and no merge was blocked; the number was never in its scope** (`merge-ledger-audit.ts:38-43`). **PRIORITY FINDING for Owner Operator Run B, which starts now:** `/api/operator` is **absent from `isProtectedOwnerApiRoute`** (`src/lib/shared/protected-routes.ts:47-59`), so proxy branch 6's AAL2 gate never runs for an Operator route — **LATENT on two grounds** (flag unset; `getAalGate` short-circuits when `mfaEnforcementEnabled()` is false) and the routes are **not** unguarded (`withSameOrigin` + `requireWritableOwner` give role, `account_id`, writable-subscription and the offboarding gate) — **the missing piece is MFA only, and Run B's two POST routes change the same rows `PATCH /api/settings/voice` changes from behind that bar.** Also for Run B: `patchAutoApprovalSettingsInTransaction` exists in **four spec references and zero code** (`settings.ts:199` is narrowed to `Sql` and opens its own `sql.begin`; the transaction-aware pieces are module-private) — **Run B is blocked**; `hasImpersonationCookie` is duplicated byte-for-byte at `operator/turns/route.ts:97` and `settings/auto-approval/route.ts:116` and Run B would make it four. **The intake's "reuse the dashboard payload" premise is REFUTED field by field** — posted count and location list are **absent**, rating band is **shaped wrong** (all reviews, not pending drafts); Run A already reuses the *granular helpers* and that is correct. **This log's own "six domain terminals emit logs only" is misleading as compressed** — all six write the turn row AND complete the outbox row in one tx; the claim holds only for the alerting channel, and the true write-nothing exit is the lease-lost branch (`AgentTurnWorker.ts:367-372`). **Only LIVE behavioural divergence in the pass:** two private copies of `isRetryableStripeError` **shadow the #1126 owner by the same identifier** (`teardown-stripe.ts:121`, `AccountOffboardingReactivationResetPoller.ts:175` vs `stripe-retry-policy.ts:61`), both missing its socket-code branch, both on routinely-reached paths. **`boundedErrorClass` 5→4 CONFIRMED**, and the three private copies are byte-identical to each other and weaker than the export. **`worker/index.ts` 1,006 / `job-outbox-helpers.ts` 1,027 CONFIRMED**; 16 production files exceed 800 lines. **Standing obligations: 0 of 6 landed, 1 partial** — and the mechanism is now a controlled experiment (08-18's issue-numbered H1–H7 = #890–#896, 3 of 3 landed; 08-24's and 08-26's prose handoffs, 0 of 6 across two windows). The sharpest instance: `table-disposition.ts` **was edited on 2026-09-12 by #1270** and `owner_leads` still was not added — nobody erred, the requirement lived only in a review document. **This pass therefore files its own issues.** The notice family stayed at 6 members but the **claim contract grew 2 → 5** (`delivery.ts:84/113/143/194/278`, no shared helper) and both 08-24 bugs persist — `worker/jobs/auto-post-notice/` has **zero** bounce handling while its own email template names the flag. **`businesses ⋈ accounts` grew 33 → 48 sites / 46 files**, nothing extracted. **First pass where a production root SHRANK** — `src/app/` net **−3,750 lines**, 66 files deleted. Seven stale prose claims measured, incl. **CLAUDE.md:47's "18 of 32 topics" (actually 37)**. **Two `docs/directory/*.md` pages sit at EXACTLY the 3,000-word cap** with `ci:directory-map` requiring rows — no warning band. **Migrations 115–120 verified in lockstep by introspecting BOTH databases** (26 fingerprint rows, all byte-identical). Gates **22/22 green** (audit count 21→22, `ci:admin-contract` added); `pnpm test` **not run**. fallow: health **77 B**, duplication **1.3%**, maintainability 92.1, 489 large functions, 161 high-complexity (the worst six are in `scripts/`, not production). 17 handoffs H1–H10 with a ready-to-run `gh issue create` block. |
