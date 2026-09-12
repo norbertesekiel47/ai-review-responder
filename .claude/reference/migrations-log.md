@@ -2844,9 +2844,15 @@ Revisit triggers:
   and inspects the migration SQL text instead.
 
 - **120** — Owner Operator Run A tables (`agent_conversations`, `agent_turns`,
-  `agent_proposals`, `agent_unsupported_requests`). **LOCAL-ONLY** — applied
-  only to the rebuildable local test container; the marker comes off in the
-  promotion change, never before.
+  `agent_proposals`, `agent_unsupported_requests`). **Applied to staging
+  Supabase (`kubdiqdhqbhwmqfditeg`) 2026-09-12 and to production
+  (`udeyaqnvpojbwgoaxwdg`) 2026-09-12 ≈10:58Z at the promotion of #1270**,
+  byte-identical SQL, one transaction, verified by introspection on both: the
+  four relations, `relrowsecurity` true / `relforcerowsecurity` false, 0
+  policies, `has_table_privilege` false for `anon` and `authenticated`, both
+  named uniques plus the five CHECKs with `pg_get_constraintdef` identical
+  across the two projects, three indexes. Neither Supabase ledger carries a row
+  (raw SQL, as for every 0xx migration).
   **New tables only**; touches no existing table and adds NO `job_outbox`
   index. Deny-all RLS (zero policies) plus `REVOKE ALL … FROM anon,
   authenticated` on all four, one `COMMENT ON TABLE` each, three indexes, two

@@ -8,6 +8,9 @@
 
 _None yet — the Summary bullet is the current rule; see History for the dated evidence._
 
+### [2026-09-12] Red-team round-2 inventory scope rule — CLEAR is a scope claim (#1270)
+A verification round that carries round-1 `skipped-budget` rows forward computes `INCOMPLETE_BUDGET` even with zero open findings, and a 30-run cap over a 200+-row inventory can never clear it. The rule, decided with the owner and applied by the verifier: rows outside the round's scope (the fix hunks and their direct callers) become `excluded` with the reason "outside round-N scope by skill rule; never executed in any round of this run — not evidence of coverage" on EVERY row; rows inside scope stay `skipped-budget` and block. Never drop rows to reach CLEAR, and say in `findings.md` that CLEAR is a scope claim, not a coverage claim. Story: history/2026-09.md § 2026-09-12.
+
 ## History
 
 - history/2026-08-08.md § "[2026-08-08] #679 — a fix for an untested-guard finding reproduces the defect unless the fix is itself mutation-pinned"
