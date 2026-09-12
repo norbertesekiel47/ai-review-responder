@@ -33,9 +33,9 @@ Building the Admin app starter (ADR 0030):
 
 - (a) a relative `/api/admin/...` fetch inside the exported kit is BROKEN in the Admin app and is an auth problem, not a `basePath` problem — it goes through the **Admin app fetch seam**, which owns the base URL and the bearer. (b) AAL is session-bound: never point the Admin app's MFA challenge at this app's origin — it raises THIS session and leaves the Admin app at `aal1` forever. (c) The exported Admin app's `AdminEnrollmentWidget` + `enrollment-contract.ts` are MOBILE-CHANNEL enrollment, not MFA; `useMfaEnrollment` was deliberately not exported (#1167).
 
-Retiring a Legacy admin portal page (ADR 0031):
+Retiring a Legacy admin portal page (ADR 0031) — COMPLETE 2026-09-11 (#1203, PR #1266):
 
-- (a) a test that names an `/admin/<page>` path is not automatically a pin — only the ones that `readFileSync` the file break on deletion (`console-admin-palette`, `page-chrome`, `runbook-empty-polish`, `runbook-import-consent`, `no-yellow-star-colors`); `admin-aal2-audit.test.ts` and `db-imports-audit.test.ts:103` pass a path STRING plus synthetic text and stay green, so do NOT touch them per page. Deleting the sibling ROUTE is different: `admin-gate-mocks.test.ts` `readFileSync`s the nine folded read suites by name (#1184) and goes red on a missing one — drop its row with the route. (b) `ci:directory-map` scans `worker/` + `src/lib/` only, so a stale `docs/directory/app-admin.md` row fails nothing — drop it by hand. (c) prune `src/components/admin/nav-config.ts` AND the page's `NON_NAV_PAGES` entry if it has one (`/admin/businesses/new` does) — `nav-config.test.ts`'s nav-versus-filesystem block walks `src/app/admin` and fails on a stale href or a stale exclusion, so this is a hard pin the gate reports, not a 404 that ships.
+- (a) `src/app/admin/**` holds only the ADR 0029 D5 survivors (impersonation, login/forgot/reset, layout/providers/error/loading) — do not add a page there; new admin UI lands in `RepWorth/admin-app`. (b) Ordinary `/api/admin/**` is bearer-only (`resolveAdminApiIdentity`); only `/api/admin/impersonation/**` keeps the cookie + `withSameOrigin` path — never widen that carve-out. (c) If a survivor is ever deleted, the only test that pins files by `readFileSync` today is `console-admin-palette`; a test that merely names an `/admin/<path>` string is not a pin.
 
 ## Rules
 
