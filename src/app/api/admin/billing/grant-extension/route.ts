@@ -139,5 +139,3 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     { headers: NO_STORE },
   );
 }
-
-// CSRF by construction: same-origin enforced at the export, not inside the gate.

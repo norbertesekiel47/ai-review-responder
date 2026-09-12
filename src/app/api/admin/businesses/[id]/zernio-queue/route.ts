@@ -167,5 +167,3 @@ async function dismiss(businessId: string, responseId: string, adminId: string):
     });
   });
 }
-
-// CSRF by construction: same-origin enforced at the export, not inside the gate.

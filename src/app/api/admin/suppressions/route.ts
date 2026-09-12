@@ -23,7 +23,7 @@ const EntrySchema = z.strictObject({
   note: z.string().trim().min(1).max(1_000),
 });
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export const POST = async function recordEntry(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
 
@@ -52,6 +52,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     return internalError('[api/admin/suppressions] entry failed:', error);
   }
-}
-
-// CSRF by construction: same-origin enforced at the export, not inside the gate.
+};

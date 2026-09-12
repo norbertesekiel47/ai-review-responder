@@ -80,5 +80,3 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return internalError('[api/admin/suppressions/lookup] failed:', error);
   }
 }
-
-// CSRF by construction: same-origin enforced at the export, not inside the gate.

@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 // POST /api/admin/businesses/[id]/resend-invite — re-send the owner invite
 //
 // Guard stack copied from createBusiness (src/app/api/admin/businesses/route.ts):
-// requireAdminWithAal2 first, same-origin at the export. Orchestration only
+// requireAdminWithAal2 first, bearer credentials required. Orchestration only
 // (invariant #12) — every eligibility rule, provider call and failure decision
 // lives in src/lib/onboarding/resend-invite.ts.
 // ---------------------------------------------------------------------------
