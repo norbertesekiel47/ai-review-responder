@@ -120,8 +120,10 @@ write it. The row is a one-line addition and must land before the branch's CI
 gate goes green — the plan assigns it to no task, and the same gap will hit every
 task in this run that creates a file under `worker/` or `src/lib/`.
 
-**Verdict:** RE-PLAN (small) — the run needs one owner for the `docs/directory`
-rows of all of Run A's new `src/lib/**` and `worker/**` files.
+**Verdict:** RE-PLAN (small) — **STILL OPEN, assigned to T8.** The coordinator
+extended T2's lease for the two blockers below but explicitly not for this row,
+so `ci:directory-map` stays red until T8 lands it. T4 reports the same failure
+for the six `src/lib/agents/operator/*.ts` files, so T8 owns one sweep, not two.
 
 ## 2026-09-11 — T2's GET change staleness-fails the tenant-scope allowlist
 
@@ -133,11 +135,15 @@ with `businesses: unused tenant scope allowlist entry` — the snippet no longer
 matches the source. The fix is to re-spell that one `sqlSnippet` with
 `highlight_facts` between `avoid_facts` and `sample_responses`; the entry's
 category and reason are unchanged, and the query is no less scoped than before.
-`scripts/ci/tenant-scope-allowlist.ts` is **outside T2's edit lease**, so T2 did
-not write it.
+**RESOLVED in T2** — the coordinator extended the lease to
+`scripts/ci/tenant-scope-allowlist.ts`. The entry's `sqlSnippet` now carries
+`highlight_facts` between `avoid_facts` and `sample_responses`, matching the
+edited SQL; category and reason are untouched. `ALLOWLIST_BASELINE` did **not**
+move — the entry was re-spelled, not added, and `pnpm ci:tenant-scope` reports
+`passed — entries: 379 (baseline: 379)`. (T4's entry below records this same
+failure as pre-existing; it was T2's, and it is now closed.)
 
-**Verdict:** RE-PLAN (small) — same follow-up as the `docs/directory` row: one
-owner for T2's out-of-lease audit fixtures.
+**Verdict:** ACCEPT — fixture re-spelled to match its source; no baseline change.
 
 ## 2026-09-11 — T2 breaks the PRE-EXISTING voice route suite, which is outside T2's lease
 
@@ -160,14 +166,35 @@ column map, the location-ownership `SELECT`, and the `UPDATE`'s bound
 
 The behaviour those tests pin is preserved — it moved into
 `src/lib/responses/voice-settings.ts` and is asserted by the new writer suite
-(title 5) and the new route suite (title 6). What is needed is to re-point that
-file's PUT section at `sql.begin` + the mocked writer, the way title 6's suite
-does. The file is **outside T2's edit lease**, so T2 did not touch it and
-committed with the suite red.
+(title 5) and the new route suite (title 6).
 
-**Verdict:** RE-PLAN (small) — assign
-`src/app/api/settings/voice/__tests__/route.test.ts` to a follow-up with the
-lease to edit it; the branch gate stays red until then.
+**RESOLVED in T2** (coordinator amendment #1 put the file in T2's surface). The
+suite's PUT section now mocks `@/lib/db/server`'s `sql.begin` and
+`@/lib/responses/voice-settings`'s `updateVoiceConfig` and asserts at that seam;
+all five GET cases are untouched. **No case was deleted** — each of the 8 keeps
+its verbatim title, and every behaviour it covered is still asserted:
+
+- `updates tone …` now also pins one `sql.begin`, one writer call with
+  `{ accountId, locationId, fields }`, and that the route issues no statements
+  of its own on the PUT path.
+- `returns 404 …` drives the writer's `{ ok: false, reason: 'location_not_found' }`
+  (the ownership check is now the writer's locking `SELECT`) and asserts the body.
+- `binds account_id as a parameterized value in the UPDATE WHERE clause (not
+  interpolated)` keeps its title and asserts the route's half of that guarantee
+  — the account scope crosses as a structured value and the route assembles no
+  SQL text to interpolate into. The bound-parameter form itself is asserted
+  against the REAL writer in `voice-settings.test.ts` (lock and UPDATE values
+  both `[LOCATION, ACCOUNT]`); a comment in the case points there.
+- the `maps schema field %s → column %s` table asserts both halves — the route
+  forwards the camel field untouched, and the real (un-mocked)
+  `VOICE_FIELD_TO_COLUMN` maps it to the expected column. A `highlightFacts →
+  highlight_facts` row was added, making the table the full five-field map.
+
+Three cases were ADDED for branches the extraction newly exposes at this seam:
+`no_fields` → 400, a throwing writer → 500, and (inside the existing past-due
+case) that neither `sql.begin` nor the writer runs when the gate refuses.
+
+**Verdict:** ACCEPT — re-pointed, not weakened; 21 tests in the file, all green.
 
 ## 2026-09-11 — T3's `render.test.ts` fixture says `threshold: 'manual'`, a value `RuleSummary` cannot hold
 

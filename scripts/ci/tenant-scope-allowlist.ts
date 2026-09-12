@@ -676,7 +676,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/settings/voice/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT id, name, display_label, tone, products_services, avoid_facts, sample_responses, is_primary FROM businesses WHERE id = ANY(${locationIds}::uuid[]) AND archived_at IS NULL ORDER BY is_primary DESC, created_at ASC",
+    sqlSnippet: "SELECT id, name, display_label, tone, products_services, avoid_facts, highlight_facts, sample_responses, is_primary FROM businesses WHERE id = ANY(${locationIds}::uuid[]) AND archived_at IS NULL ORDER BY is_primary DESC, created_at ASC",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
   },

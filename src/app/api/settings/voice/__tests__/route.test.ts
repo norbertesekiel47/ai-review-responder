@@ -3,25 +3,39 @@ import { NextRequest } from 'next/server';
 
 // ── Hoisted shared state ────────────────────────────────────────────
 //
-// The route builds its UPDATE with the Postgres.js dynamic-column helper:
-//   sql`UPDATE businesses SET ${sql(updates)}, updated_at = NOW() WHERE ...`
-// The mock sql mirrors the real dispatch: a tagged-template call routes to
-// mockSqlQuery(strings, ...values); a helper call (the column-value object
-// from sql(updates)) returns a { __helper } marker that shows up among the
-// bound values — so tests assert bound values + the updates object instead of
-// assembled SQL strings. (Same dialect as the settings route test.)
+// GET still reads through the route's own `sql`: the mock mirrors the real
+// dispatch — a tagged-template call routes to mockSqlQuery(strings, ...values);
+// a helper call (a column-value object) returns a { __helper } marker among the
+// bound values, so tests assert bound values instead of assembled SQL strings.
+//
+// PUT no longer builds SQL here. It opens one `sql.begin` and hands the work to
+// `updateVoiceConfig` (src/lib/responses/voice-settings.ts), so the PUT cases
+// assert at that seam: which collaborator is called, with what, and how each
+// result maps to a status. The SQL-level guarantees those cases used to pin —
+// the `FOR UPDATE` lock, the account-scoped WHERE, and `account_id` bound as a
+// parameter rather than interpolated — are asserted against the real writer in
+// src/lib/responses/__tests__/voice-settings.test.ts.
 
 const {
   mockRequireRole,
   mockSqlQuery,
+  mockSqlBegin,
   mockGetLocationsForAccount,
   mockAssertWritableSubscriptionForAccount,
-} = vi.hoisted(() => ({
-  mockRequireRole: vi.fn(),
-  mockSqlQuery: vi.fn(),
-  mockGetLocationsForAccount: vi.fn(),
-  mockAssertWritableSubscriptionForAccount: vi.fn(),
-}));
+  mockUpdateVoiceConfig,
+} = vi.hoisted(() => {
+  // The transaction handle the route forwards to the writer. The writer is
+  // mocked here, so the double only has to be identifiable.
+  const tx = { __tx: true };
+  return {
+    mockRequireRole: vi.fn(),
+    mockSqlQuery: vi.fn(),
+    mockSqlBegin: vi.fn(async (callback: (t: typeof tx) => Promise<unknown>) => callback(tx)),
+    mockGetLocationsForAccount: vi.fn(),
+    mockAssertWritableSubscriptionForAccount: vi.fn(),
+    mockUpdateVoiceConfig: vi.fn(),
+  };
+});
 
 function isTemplate(arg: unknown): arg is TemplateStringsArray {
   return Array.isArray(arg) && Object.prototype.hasOwnProperty.call(arg, 'raw');
@@ -48,13 +62,20 @@ vi.mock('@/lib/db/auth', () => {
 // ── Mock DB ─────────────────────────────────────────────────────────
 
 vi.mock('@/lib/db/server', () => {
-  const sql = (...args: unknown[]) => {
-    if (isTemplate(args[0])) {
-      return mockSqlQuery(args[0], ...args.slice(1));
-    }
-    // sql(updates) dynamic-column helper → opaque marker
-    return { __helper: args[0] };
-  };
+  // Tagged-template calls (the GET reads) route to mockSqlQuery; sql.begin
+  // (the PUT transaction) stays on mockSqlBegin.
+  const sql = Object.assign(
+    (...args: unknown[]) => {
+      if (isTemplate(args[0])) {
+        return mockSqlQuery(args[0], ...args.slice(1));
+      }
+      // sql(updates) dynamic-column helper → opaque marker
+      return { __helper: args[0] };
+    },
+    {
+      begin: (...args: unknown[]) => mockSqlBegin(...(args as Parameters<typeof mockSqlBegin>)),
+    },
+  );
   return { sql };
 });
 
@@ -69,9 +90,19 @@ vi.mock('@/lib/shared/writable-subscription', () => ({
   assertWritableSubscriptionForAccount: (...args: unknown[]) => mockAssertWritableSubscriptionForAccount(...args),
 }));
 
+// ── Mock the shared voice writer ────────────────────────────────────
+//
+// Only `updateVoiceConfig` is replaced; VOICE_FIELD_TO_COLUMN stays real, so
+// the field → column table below still asserts the one live map.
+vi.mock('@/lib/responses/voice-settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/responses/voice-settings')>()),
+  updateVoiceConfig: (...args: unknown[]) => mockUpdateVoiceConfig(...args),
+}));
+
 // Import AFTER mocks
 import { GET, PUT } from '../route';
 import { AuthError } from '@/lib/db/auth';
+import { VOICE_FIELD_TO_COLUMN } from '@/lib/responses/voice-settings';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -109,18 +140,11 @@ function makePutRequest(body: unknown): NextRequest {
   });
 }
 
-// Returns the UPDATE template call (and its bound args), or undefined.
-function updateCall(): unknown[] | undefined {
-  return mockSqlQuery.mock.calls.find(
-    (c) => isTemplate(c[0]) && (c[0] as unknown as string[]).join(' ').includes('UPDATE businesses'),
-  ) as unknown[] | undefined;
-}
-
-function updatesMarkerOf(call: unknown[] | undefined): Record<string, unknown> | undefined {
-  const marker = call?.find(
-    (a) => a !== null && typeof a === 'object' && '__helper' in (a as object),
-  ) as { __helper: Record<string, unknown> } | undefined;
-  return marker?.__helper;
+// The single input the route hands the shared writer, or undefined when the
+// request never reached it.
+function writerInput(): { accountId: string; locationId: string; fields: Record<string, unknown> } | undefined {
+  const call = mockUpdateVoiceConfig.mock.calls[0];
+  return call?.[1] as { accountId: string; locationId: string; fields: Record<string, unknown> } | undefined;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -234,30 +258,57 @@ describe('PUT /api/settings/voice', () => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
     mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
+    mockUpdateVoiceConfig.mockResolvedValue({ ok: true, updatedAt: '2026-09-11T10:00:00.000Z' });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
   it('updates tone for a specific location', async () => {
-    mockSqlQuery
-      .mockResolvedValueOnce([{ id: LOCATION_ID_1 }]) // location-validation SELECT
-      .mockResolvedValueOnce({ count: 1 });           // UPDATE
-
     const res = await PUT(makePutRequest({
       locationId: LOCATION_ID_1,
       tone: 'warm, friendly',
     }));
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
+
+    // One transaction, one writer call, carrying the owner's account scope.
+    expect(mockSqlBegin).toHaveBeenCalledTimes(1);
+    expect(mockUpdateVoiceConfig).toHaveBeenCalledTimes(1);
+    expect(writerInput()).toEqual({
+      accountId: ACCOUNT_ID,
+      locationId: LOCATION_ID_1,
+      fields: { tone: 'warm, friendly' },
+    });
+    // The route itself issues no statements on the PUT path any more.
+    expect(mockSqlQuery).not.toHaveBeenCalled();
   });
 
   it('returns 404 when location not found or not accessible', async () => {
-    mockSqlQuery.mockResolvedValueOnce([]); // SELECT finds nothing
+    // The ownership check is the writer's locking SELECT; a location outside
+    // the account (or archived) comes back as location_not_found.
+    mockUpdateVoiceConfig.mockResolvedValue({ ok: false, reason: 'location_not_found' });
 
     const res = await PUT(makePutRequest({
       locationId: '99999999-0000-4000-8000-000000000001',
       tone: 'warm',
     }));
     expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Location not found or not accessible' });
+  });
+
+  it('returns 400 when the writer reports no fields to update', async () => {
+    mockUpdateVoiceConfig.mockResolvedValue({ ok: false, reason: 'no_fields' });
+
+    const res = await PUT(makePutRequest({ locationId: LOCATION_ID_1, tone: 'warm' }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'No fields to update' });
+  });
+
+  it('returns 500 when the writer transaction throws', async () => {
+    mockUpdateVoiceConfig.mockRejectedValue(new Error('deadlock detected'));
+
+    const res = await PUT(makePutRequest({ locationId: LOCATION_ID_1, tone: 'warm' }));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to update voice config' });
   });
 
   it('returns 400 when no voice fields provided', async () => {
@@ -285,6 +336,9 @@ describe('PUT /api/settings/voice', () => {
     expect(await res.json()).toEqual({ error: 'past_due_read_only' });
     expect(mockAssertWritableSubscriptionForAccount).toHaveBeenCalledWith(ACCOUNT_ID, expect.anything());
     expect(mockSqlQuery).not.toHaveBeenCalled();
+    // The gate runs before the transaction opens, so nothing is written.
+    expect(mockSqlBegin).not.toHaveBeenCalled();
+    expect(mockUpdateVoiceConfig).not.toHaveBeenCalled();
   });
 
   it('validates avoidFacts max length (500 chars)', async () => {
@@ -304,19 +358,15 @@ describe('PUT /api/settings/voice', () => {
   });
 
   it('binds account_id as a parameterized value in the UPDATE WHERE clause (not interpolated)', async () => {
-    mockSqlQuery
-      .mockResolvedValueOnce([{ id: LOCATION_ID_1 }])
-      .mockResolvedValueOnce({ count: 1 });
-
     await PUT(makePutRequest({ locationId: LOCATION_ID_1, tone: 'professional' }));
 
-    const call = updateCall();
-    expect(call).toBeDefined();
-    const templateText = (call![0] as unknown as string[]).join(' ');
-    expect(templateText).toContain('account_id');     // column is referenced in SQL
-    expect(templateText).not.toContain(ACCOUNT_ID);    // value is NOT interpolated into SQL text
-    const boundValues = call!.slice(1).filter((a) => typeof a === 'string');
-    expect(boundValues).toContain(ACCOUNT_ID);         // value IS passed as a bound parameter
+    // The route hands the account scope to the writer as a structured value and
+    // assembles no SQL of its own, so there is no text for it to interpolate
+    // into. That the writer then binds it as a parameter — in the locking
+    // SELECT and in the UPDATE WHERE — is asserted against the real
+    // implementation in src/lib/responses/__tests__/voice-settings.test.ts.
+    expect(writerInput()?.accountId).toBe(ACCOUNT_ID);
+    expect(mockSqlQuery).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -324,14 +374,14 @@ describe('PUT /api/settings/voice', () => {
     ['productsServices', 'products_services', 'Coffee'],
     ['productsServices', 'products_services', null],
     ['avoidFacts', 'avoid_facts', ['no refunds']],
+    ['highlightFacts', 'highlight_facts', ['award-winning espresso']],
     ['sampleResponses', 'sample_responses', ['Thanks!']],
   ] as const)('maps schema field %s → column %s', async (field, column, value) => {
-    mockSqlQuery
-      .mockResolvedValueOnce([{ id: LOCATION_ID_1 }])
-      .mockResolvedValueOnce({ count: 1 });
-
     await PUT(makePutRequest({ locationId: LOCATION_ID_1, [field]: value }));
 
-    expect(updatesMarkerOf(updateCall())).toEqual({ [column]: value });
+    // Two halves of the same guarantee: the route forwards the camel field
+    // untouched, and the writer's one live map turns it into this column.
+    expect(writerInput()?.fields).toEqual({ [field]: value });
+    expect(VOICE_FIELD_TO_COLUMN[field]).toBe(column);
   });
 });
