@@ -91,6 +91,7 @@
   "allowed_edit_surface": [
     "supabase/migrations/120_owner_operator.sql",
     "src/lib/agents/operator/*.ts",
+    "src/lib/agents/read.ts",
     "src/lib/agents/operator/__tests__/*.ts",
     "src/lib/responses/voice-settings.ts",
     "src/lib/responses/__tests__/voice-settings.test.ts",

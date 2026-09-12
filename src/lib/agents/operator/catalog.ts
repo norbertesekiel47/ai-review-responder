@@ -8,17 +8,21 @@ import { z } from 'zod';
 import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { VOICE_FIELD_LIMITS, type VoiceConfig } from '@/lib/responses/voice-settings';
 
-export const CATALOG_OPERATION_IDS = [
-  'read_operating_rules',
-  'read_pending_work',
-  'read_recent_completed',
-  'set_tone',
-  'set_products_services',
-  'set_avoid_facts',
-  'set_highlight_facts',
-  'record_unsupported_request',
-] as const;
-export type CatalogOperationId = (typeof CATALOG_OPERATION_IDS)[number];
+/**
+ * Every v1 operation id. A TYPE, not a runtime array: nothing iterates the
+ * catalog by id — the registry below is the one enumerable list, and the model
+ * only ever sees the snapshot's `allowedOperations` slice of it. An `as const`
+ * array here was a second, wider list with no consumer.
+ */
+export type CatalogOperationId =
+  | 'read_operating_rules'
+  | 'read_pending_work'
+  | 'read_recent_completed'
+  | 'set_tone'
+  | 'set_products_services'
+  | 'set_avoid_facts'
+  | 'set_highlight_facts'
+  | 'record_unsupported_request';
 
 export type LabelKind = 'rule' | 'fact';
 

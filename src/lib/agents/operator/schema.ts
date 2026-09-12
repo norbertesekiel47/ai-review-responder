@@ -97,7 +97,7 @@ const ScopeCheckSegmentSchema = z.object({
   locationId: z.uuid(),
 }).strict();
 
-export const SegmentSchema = z.discriminatedUnion('type', [
+const SegmentSchema = z.discriminatedUnion('type', [
   TextSegmentSchema,
   StatusRefSegmentSchema,
   ProposalRefSegmentSchema,
@@ -174,7 +174,7 @@ const ProposalSegmentSchema = z.object({
  * none of `server_notice`, `status` or `proposal`, so a model cannot forge a
  * server statement, a count, or a reference to a proposal it did not return.
  */
-export const StoredSegmentSchema = z.discriminatedUnion('type', [
+const StoredSegmentSchema = z.discriminatedUnion('type', [
   TextSegmentSchema,
   ProposalSegmentSchema,
   QuestionSegmentSchema,
@@ -184,7 +184,7 @@ export const StoredSegmentSchema = z.discriminatedUnion('type', [
 ]);
 export type StoredSegment = z.infer<typeof StoredSegmentSchema>;
 
-export const ProposedOperationSchema = z.object({
+const ProposedOperationSchema = z.object({
   operation: z.string().trim().min(1).max(60),
   scope: z.object({
     accountId: z.uuid(),
@@ -195,13 +195,11 @@ export const ProposedOperationSchema = z.object({
   input: z.record(z.string(), z.unknown()),
   rationale: z.string().trim().min(1).max(500),
 }).strict();
-export type ProposedOperation = z.infer<typeof ProposedOperationSchema>;
 
-export const UnsupportedRequestSchema = z.object({
+const UnsupportedRequestSchema = z.object({
   request: z.string().trim().min(1).max(500),
   context: z.string().trim().max(1000),
 }).strict();
-export type UnsupportedRequest = z.infer<typeof UnsupportedRequestSchema>;
 
 export const OperatorModelOutputSchema = z.object({
   segments: z.array(SegmentSchema).min(1).max(12),
@@ -217,14 +215,11 @@ export type ModelOutput = z.infer<typeof OperatorModelOutputSchema>;
 // (`agent_turns.reply`, `agent_proposals.input|before|after`); they are listed
 // in the lab-notes allowlist. Guard `typeof x === 'string'`, then narrow and
 // throw — never widen to `any`.
-
-export function parseJsonbObject(value: unknown, column: string): Record<string, unknown> {
-  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
-  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`agents/operator: expected ${column} to contain a JSON object`);
-  }
-  return parsed as Record<string, unknown>;
-}
+//
+// The object parser is the agents surface's single one, owned by `read.ts` and
+// re-exported here so the Operator sites keep importing it from their own
+// module. It was a byte-identical copy until the fallow duplication gate said so.
+export { parseJsonbObject } from '../read';
 
 /**
  * `agent_turns.reply` is an ordered segment ARRAY, so it needs its own parser

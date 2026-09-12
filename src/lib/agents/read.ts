@@ -209,10 +209,20 @@ function nullableIso(value: Date | string | null): string | null {
   return value == null ? null : iso(value);
 }
 
-function parseJsonbObject(value: unknown, column: string): Record<string, unknown> {
+/**
+ * The ONE JSONB-object parse site for the agents surface (this file's run-spine
+ * reads and, re-exported from `operator/schema.ts`, the Owner Operator tables).
+ * Postgres.js behind PgBouncer can hand a JSONB column back as a string: guard
+ * `typeof x === 'string'`, then narrow and throw — never widen to `any`.
+ *
+ * The message prefix is generic because `column` is already fully qualified
+ * (`agent_runs.error`, `agent_proposals.before`), which names the site better
+ * than a module label would.
+ */
+export function parseJsonbObject(value: unknown, column: string): Record<string, unknown> {
   const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
   if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`agents/read: expected ${column} to contain a JSON object`);
+    throw new Error(`agents: expected ${column} to contain a JSON object`);
   }
   return parsed as Record<string, unknown>;
 }

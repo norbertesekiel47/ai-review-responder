@@ -713,3 +713,71 @@ citation fix; the single production edit is R7's `RETURNING` clause:
 behavior, and both mutants are now killed; R8 is rejected on the same reasoning
 as its round-1 twin; R9 and the three maintainability lows are deferred to
 owners that already exist (spec §14, Run B) rather than to nobody.
+
+## 2026-09-12 — the fallow gate (PR #1270): four findings, all cleared behavior-preservingly
+
+`fallow` (`pnpm ci:fallow:coverage`, new-findings-only vs `origin/main`) was the
+only red check on the PR. Four findings, no production defect among them — each
+is a shape the gate can see and a reviewer would not.
+
+- **Complexity, `render.ts:127 validateModelOutput` (CRITICAL — 25 cyclomatic,
+  40 cognitive).** One function carried four unrelated rule families over one
+  segment loop. Split into four per-concern passes in the same file —
+  `validateTextSegments`, `validateRefSegments`, `validateScopeCheck`,
+  `validateProposals` — plus `validateProposalScope`, which keeps the proposal
+  pass itself under the threshold. Every rule and every reason string is
+  byte-for-byte what it was; the public function concatenates the four reason
+  lists and returns the parsed proposals `validateProposals` carried forward.
+  **One deliberate departure from the finding's wording:** `validateProposals`
+  returns `{ reasons, proposals }` rather than a bare `string[]`, because it is
+  the pass that also does the catalog lookup and `parseInput` exactly once —
+  making it return only reasons would reintroduce the second lookup the
+  `ParsedProposal` seam exists to remove. The other four return `string[]`.
+  The only observable change is reason ORDER when an output breaks rules in
+  more than one family: now grouped by concern rather than interleaved by
+  segment. Nothing reads the order — `render.test.ts` asserts through
+  `reasons.join(' ')` and the retry prompt quotes the set. `STATUS_METRICS` is
+  now a module-level `Set` rather than one built per call.
+- **Complexity, `AgentTurnWorker.ts:40 handleAgentTurn` (20 cognitive, 273
+  lines).** Extracted four in-file helpers named for the step comments —
+  `settleClaimMiss`, `waitOrFailOnPredecessor`, `generateAndAssemble`,
+  `handleTurnError` — so the handler is the flag check, the claim, and four
+  calls. No new file, no changed call order, no changed log line or fenced
+  transition. The outbox handle became one `OutboxHandle` object spread at each
+  site, which is why the `{ outboxId, outboxAttempt }` pairs read as
+  `...outbox` now. `AgentTurnWorker.test.ts` and
+  `turn-worker.integration.test.ts` pass unchanged.
+- **Dead code: 7 unused exports, 3 unused types.** `export` dropped (symbols
+  kept, all still used inside their own file) on `SegmentSchema`,
+  `StoredSegmentSchema`, `ProposedOperationSchema`, `UnsupportedRequestSchema`
+  (schema.ts), `OWNER_OPERATOR_SYSTEM_PROMPT` (prompt.ts),
+  `PASTED_REVIEW_SEGMENT` (render.ts) and the `VoiceField` type
+  (voice-settings.ts). Three symbols had NO consumer at all and were deleted:
+  the `ProposedOperation` and `UnsupportedRequest` type aliases, and
+  `CATALOG_OPERATION_IDS` — the last became the literal union
+  `CatalogOperationId` it only ever fed, which also settles the
+  second-wider-list hazard prompt.ts already warns about in a comment. No
+  suppressions were added.
+- **Duplication: `schema.ts:221-226` vs `read.ts:212-217` (`parseJsonbObject`).**
+  Byte-identical copies. `read.ts` now exports the one parser and `schema.ts`
+  re-exports it, so `proposals.ts` and the live suites keep importing it from
+  their own module. The message prefix went from the per-module `agents/read:` /
+  `agents/operator:` to a plain `agents:` — the `column` argument is already
+  fully qualified (`agent_runs.error`, `agent_proposals.before`), so it names
+  the site better than a module label did, and nothing asserts the string.
+  Lab-note `postgres.md` "PgBouncer JSONB parse-site allowlist" updated: it had
+  said "both parsers in `operator/schema.ts`", which is now false. The site
+  COUNT and every listed site are unchanged.
+
+**Surface amendment #4:** `src/lib/agents/read.ts` added to
+`allowed_edit_surface` in the intake. The duplication finding names both files
+by line; clearing it from inside `operator/` alone is impossible, and the
+alternative (a third copy, or a suppression) is what the gate exists to stop.
+The change to that file is one `export` keyword, one error-message prefix and a
+doc comment.
+
+**Verdict:** ACCEPT — four gate findings, four behavior-preserving fixes, no
+suppression and no widened scope. `pnpm ci:fallow` reports 0 dead code, 0
+complexity, 0 duplication across 91 changed files; the operator, agent-turn,
+voice-settings and agents suites pass 116/116 with the live DB attached;
+typecheck, `ci:directory-map` and `ci:db-imports` pass.

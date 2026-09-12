@@ -15,7 +15,7 @@ import {
 
 export const REVIEW_TEXT_REMOVED_MARKER = '[review text removed]';
 
-export const PASTED_REVIEW_SEGMENT =
+const PASTED_REVIEW_SEGMENT =
   'I do not read review text here. Open it in the Reviews list to draft a reply.';
 
 // ── Pasted-review scrub ───────────────────────────────────────────────────
@@ -116,42 +116,63 @@ export type ValidationResult =
   | { ok: true; output: ModelOutput; proposals: ParsedProposal[] }
   | { ok: false; reasons: string[] };
 
-/**
- * Semantic validation over an ALREADY shape-valid output (the zod schema ran
- * at the seam). Every rejection reason is a short token the retry prompt can
- * quote back; none of them carries owner text or provider output.
- *
- * On success it returns the PARSED proposals alongside the output, so the
- * catalog lookup and `parseInput` happen exactly once on the path.
- */
-export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): ValidationResult {
-  const reasons: string[] = [];
-  const metrics = new Set<string>(STATUS_METRICS);
+/** One proposal exactly as the model returned it, before the catalog sees it. */
+type ProposedOperation = ModelOutput['proposals'][number];
 
-  for (const segment of output.segments) {
-    // BOTH prose members. A `question` is model prose exactly as a `text` is —
-    // "You have 3 reviews waiting, shall I…?" invents a count just as surely,
-    // and reaches the owner in the same sentence position.
-    if (segment.type === 'text' || segment.type === 'question') {
-      if (INVENTED_COUNT_PATTERN.test(segment.text)) {
-        reasons.push(`a ${segment.type} segment states a count next to a metric word; use a status_ref instead`);
-      }
-      if (COMPLETION_CLAIM_PATTERN.test(segment.text)) {
-        reasons.push(`a ${segment.type} segment claims a completion; nothing is applied until the owner clicks`);
-      }
+/** Built once: the validator only ever asks whether a metric name is a member. */
+const STATUS_METRIC_SET: ReadonlySet<string> = new Set<string>(STATUS_METRICS);
+
+/**
+ * The prose rules, over BOTH prose members. A `question` is model prose exactly
+ * as a `text` is — "You have 3 reviews waiting, shall I…?" invents a count just
+ * as surely, and reaches the owner in the same sentence position.
+ */
+function validateTextSegments(segments: readonly Segment[]): string[] {
+  const reasons: string[] = [];
+  for (const segment of segments) {
+    if (segment.type !== 'text' && segment.type !== 'question') continue;
+    if (INVENTED_COUNT_PATTERN.test(segment.text)) {
+      reasons.push(`a ${segment.type} segment states a count next to a metric word; use a status_ref instead`);
     }
-    if (segment.type === 'status_ref' && !metrics.has(segment.metric)) {
+    if (COMPLETION_CLAIM_PATTERN.test(segment.text)) {
+      reasons.push(`a ${segment.type} segment claims a completion; nothing is applied until the owner clicks`);
+    }
+  }
+  return reasons;
+}
+
+/**
+ * The two REFERENCE members: a `status_ref` may only name a snapshot metric,
+ * and a `proposal_ref` may only point inside the proposals the same output
+ * returned — an index past the end would materialize to nothing.
+ */
+function validateRefSegments(output: ModelOutput): string[] {
+  const reasons: string[] = [];
+  for (const segment of output.segments) {
+    if (segment.type === 'status_ref' && !STATUS_METRIC_SET.has(segment.metric)) {
       reasons.push(`status_ref names a metric outside the snapshot: ${segment.metric}`);
     }
     if (segment.type === 'proposal_ref' && segment.index >= output.proposals.length) {
       reasons.push('proposal_ref points at a proposal index that was not returned');
     }
-    if (segment.type === 'scope_check') {
-      if (segment.locationId === snapshot.locationId) {
-        reasons.push('scope_check names the location this turn is already prepared for');
-      } else if (!snapshot.locations.some((l) => l.id === segment.locationId)) {
-        reasons.push('scope_check names a location outside this account');
-      }
+  }
+  return reasons;
+}
+
+/**
+ * The scope_check rules, per segment and then across the whole output. A
+ * scope_check says "you named ANOTHER location" — so naming this turn's own
+ * location, or one outside the account, is incoherent, and so is emitting one
+ * alongside a proposal for the very location the turn is already prepared for.
+ */
+function validateScopeCheck(output: ModelOutput, snapshot: Snapshot): string[] {
+  const reasons: string[] = [];
+  for (const segment of output.segments) {
+    if (segment.type !== 'scope_check') continue;
+    if (segment.locationId === snapshot.locationId) {
+      reasons.push('scope_check names the location this turn is already prepared for');
+    } else if (!snapshot.locations.some((l) => l.id === segment.locationId)) {
+      reasons.push('scope_check names a location outside this account');
     }
   }
 
@@ -162,7 +183,44 @@ export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): Va
   if (hasScopeCheck && targetsStoredLocation) {
     reasons.push('a scope_check and a proposal for the stored location cannot coexist');
   }
+  return reasons;
+}
 
+/** One proposal's scope: the right account, and the stored location or the account default. */
+function validateProposalScope(
+  proposal: ProposedOperation,
+  operation: ProposableOperation,
+  snapshot: Snapshot,
+): string[] {
+  const reasons: string[] = [];
+  if (proposal.scope.accountId !== snapshot.accountId) {
+    reasons.push('proposal scope names another account');
+  }
+  // Scope is the stored location, or the account default (no locationId).
+  if (proposal.scope.locationId !== undefined && proposal.scope.locationId !== snapshot.locationId) {
+    reasons.push('proposal scope is neither the stored location nor the account default');
+  }
+  // A location-scoped operation with NO locationId would otherwise store a
+  // NULL target and read back as an account-default proposal it is not. Every
+  // Run A operation is `scopeRule: 'location'`, so this is the common case,
+  // not an edge one.
+  if (operation.scopeRule === 'location' && proposal.scope.locationId === undefined) {
+    reasons.push(`proposal scope must name the stored location for ${proposal.operation}`);
+  }
+  return reasons;
+}
+
+/**
+ * The proposal rules. Unlike its three siblings this one also CARRIES WORK
+ * FORWARD: the catalog lookup and `parseInput` happen here, once, and the
+ * accepted proposals travel out with the reasons so the row builder never
+ * repeats either.
+ */
+function validateProposals(
+  output: ModelOutput,
+  snapshot: Snapshot,
+): { reasons: string[]; proposals: ParsedProposal[] } {
+  const reasons: string[] = [];
   const parsedProposals: ParsedProposal[] = [];
   for (const proposal of output.proposals) {
     const operation = proposableOperation(proposal.operation);
@@ -173,20 +231,7 @@ export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): Va
     if (!snapshot.allowedOperations.some((op) => op.id === operation.id)) {
       reasons.push(`proposal names an operation this account may not use: ${proposal.operation}`);
     }
-    if (proposal.scope.accountId !== snapshot.accountId) {
-      reasons.push('proposal scope names another account');
-    }
-    // Scope is the stored location, or the account default (no locationId).
-    if (proposal.scope.locationId !== undefined && proposal.scope.locationId !== snapshot.locationId) {
-      reasons.push('proposal scope is neither the stored location nor the account default');
-    }
-    // A location-scoped operation with NO locationId would otherwise store a
-    // NULL target and read back as an account-default proposal it is not. Every
-    // Run A operation is `scopeRule: 'location'`, so this is the common case,
-    // not an edge one.
-    if (operation.scopeRule === 'location' && proposal.scope.locationId === undefined) {
-      reasons.push(`proposal scope must name the stored location for ${proposal.operation}`);
-    }
+    reasons.push(...validateProposalScope(proposal, operation, snapshot));
     const parsed = operation.parseInput(proposal.input);
     if (!parsed.ok) {
       reasons.push(`proposal input is outside the domain for ${proposal.operation}`);
@@ -201,9 +246,32 @@ export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): Va
       rationale: proposal.rationale,
     });
   }
+  return { reasons, proposals: parsedProposals };
+}
+
+/**
+ * Semantic validation over an ALREADY shape-valid output (the zod schema ran
+ * at the seam). Every rejection reason is a short token the retry prompt can
+ * quote back; none of them carries owner text or provider output.
+ *
+ * Four independent passes, one per concern, whose reasons are concatenated:
+ * every rule runs on every output, so the retry prompt sees ALL of what is
+ * wrong rather than the first thing that was.
+ *
+ * On success it returns the PARSED proposals alongside the output, so the
+ * catalog lookup and `parseInput` happen exactly once on the path.
+ */
+export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): ValidationResult {
+  const proposalCheck = validateProposals(output, snapshot);
+  const reasons = [
+    ...validateTextSegments(output.segments),
+    ...validateRefSegments(output),
+    ...validateScopeCheck(output, snapshot),
+    ...proposalCheck.reasons,
+  ];
 
   return reasons.length === 0
-    ? { ok: true, output, proposals: parsedProposals }
+    ? { ok: true, output, proposals: proposalCheck.proposals }
     : { ok: false, reasons };
 }
 

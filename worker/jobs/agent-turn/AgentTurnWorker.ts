@@ -7,7 +7,7 @@ import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { generateOperatorReply } from '@/lib/agents/operator/model-call';
 import { buildProposalRows, type UnsupportedRow } from '@/lib/agents/operator/proposals';
 import { materializeReply, scrubPastedReview } from '@/lib/agents/operator/render';
-import { TURN_FAILURE_REASON } from '@/lib/agents/operator/schema';
+import { TURN_FAILURE_REASON, type StoredSegment } from '@/lib/agents/operator/schema';
 import {
   claimTurn,
   completeTurnFenced,
@@ -17,6 +17,7 @@ import {
   loadPredecessor,
   readTerminalTurn,
   releaseTurnClaim,
+  type ClaimedTurn,
 } from '@/lib/agents/operator/turns';
 import { readVoiceConfig } from '@/lib/responses/voice-settings';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -37,9 +38,286 @@ function isBudgetDecision(err: unknown): boolean {
   return err instanceof Error && BUDGET_DECISION_ERROR_NAMES.includes(err.name);
 }
 
+type WorkerLogger = ReturnType<typeof createWorkerLogger>;
+
+/**
+ * This dispatch's claim on the outbox row, threaded through every step so a
+ * fenced transition and the row it settles always move together.
+ */
+interface OutboxHandle {
+  outboxId: string;
+  outboxAttempt: number | undefined;
+}
+
+/** Everything the fenced completion stores, assembled while the lease is held. */
+interface AssembledTurn {
+  segments: StoredSegment[];
+  proposals: ReturnType<typeof buildProposalRows>;
+  unsupported: UnsupportedRow[];
+  /** Model attempts spent, for the completion log line only. */
+  attempts: number;
+}
+
+/**
+ * The claim missed. Two very different reasons, and they need opposite handling.
+ *
+ * A live lease held elsewhere: exit without touching the outbox row, which
+ * belongs to the holder.
+ *
+ * A turn that is ALREADY TERMINAL: the attempt that finished it completed a
+ * DIFFERENT outbox attempt than this dispatch carries, so this row is still
+ * `dispatched` and nothing else will ever move it. Left alone the watchdog
+ * re-pends it forever against a turn that is finished. Complete it here.
+ */
+async function settleClaimMiss(
+  sql: Sql,
+  payload: AgentTurnPayload,
+  outbox: OutboxHandle,
+  logger: WorkerLogger,
+): Promise<void> {
+  const terminal = await readTerminalTurn(sql, {
+    turnId: payload.turn_id,
+    accountId: payload.account_id,
+  });
+  if (terminal) {
+    logger.log('agent_turn already terminal, completing outbox', {
+      turn_id: payload.turn_id,
+      turn_status: terminal.status,
+    });
+    await markOutboxCompletedIfOwned(sql, outbox.outboxId, outbox.outboxAttempt);
+    return;
+  }
+  logger.log('agent_turn claim not acquired', { turn_id: payload.turn_id });
+}
+
+/**
+ * Step 2: the predecessor gate. Returns true when the turn has been FAILED and
+ * the handler must stop; throws `DelayedError` when this turn must wait its
+ * turn; returns false to proceed.
+ */
+async function waitOrFailOnPredecessor(
+  sql: Sql,
+  job: Job<AgentTurnPayload>,
+  claimed: ClaimedTurn,
+  outbox: OutboxHandle,
+  logger: WorkerLogger,
+): Promise<boolean> {
+  const predecessor = claimed.sequence <= 1
+    ? null
+    : await loadPredecessor(sql, {
+      conversationId: claimed.conversationId,
+      accountId: claimed.accountId,
+      sequence: claimed.sequence,
+    });
+  if (!predecessor || isTerminalTurnStatus(predecessor.status)) return false;
+
+  if (predecessor.ageSeconds > AGENT_TURN_PREDECESSOR_STALL_SECONDS) {
+    await failTurnFenced(sql, {
+      turnId: claimed.turnId,
+      accountId: claimed.accountId,
+      attemptToken: claimed.attemptToken,
+      reason: TURN_FAILURE_REASON.PREDECESSOR_STALLED,
+      ...outbox,
+    });
+    logger.warn('agent_turn predecessor stalled', {
+      turn_id: claimed.turnId,
+      predecessor_age_seconds: predecessor.ageSeconds,
+    });
+    return true;
+  }
+  // Give the claim back and DELAY rather than throw: moveToDelayed +
+  // DelayedError re-schedules the same job without consuming an attempt,
+  // so a conversation with a slow first turn never exhausts its retry
+  // budget waiting in line.
+  await releaseTurnClaim(sql, {
+    turnId: claimed.turnId,
+    accountId: claimed.accountId,
+    attemptToken: claimed.attemptToken,
+  });
+  logger.log('agent_turn waiting on predecessor', {
+    turn_id: claimed.turnId,
+    sequence: claimed.sequence,
+  });
+  await job.moveToDelayed(Date.now() + AGENT_TURN_PREDECESSOR_WAIT_MS, job.token);
+  throw new DelayedError();
+}
+
+/**
+ * Steps 3–7: authorize again, scrub, snapshot, model, validate, map to rows.
+ * Returns null when the turn has been FAILED (every such exit is fenced and
+ * settles the outbox row itself) and the handler must stop.
+ */
+async function generateAndAssemble(
+  sql: Sql,
+  claimed: ClaimedTurn,
+  outbox: OutboxHandle,
+  logger: WorkerLogger,
+): Promise<AssembledTurn | null> {
+  const authorized = await reauthorizeTurn(sql, {
+    accountId: claimed.accountId,
+    actorUserId: claimed.actorUserId,
+    locationId: claimed.locationId,
+  });
+  if (!authorized.ok) {
+    await failTurnFenced(sql, {
+      turnId: claimed.turnId,
+      accountId: claimed.accountId,
+      attemptToken: claimed.attemptToken,
+      reason: authorized.reason === 'account_offboarding'
+        ? TURN_FAILURE_REASON.ACCOUNT_OFFBOARDING
+        : TURN_FAILURE_REASON.UNAUTHORIZED,
+      ...outbox,
+    });
+    logger.warn('agent_turn reauthorization failed', {
+      turn_id: claimed.turnId,
+      reason: authorized.reason,
+    });
+    return null;
+  }
+
+  const scrubbed = scrubPastedReview(claimed.ownerText);
+  const snapshot = await buildSnapshot(sql, {
+    accountId: claimed.accountId,
+    locationId: claimed.locationId,
+    locationName: authorized.locationName,
+    conversationId: claimed.conversationId,
+    sequence: claimed.sequence,
+    subscriptionTier: authorized.subscriptionTier,
+  });
+
+  const generated = await generateOperatorReply(sql, {
+    accountId: claimed.accountId,
+    locationId: claimed.locationId,
+    subscriptionTier: authorized.subscriptionTier,
+    snapshot,
+    ownerText: scrubbed.text,
+    turnId: claimed.turnId,
+  });
+  if (!generated.ok) {
+    await failTurnFenced(sql, {
+      turnId: claimed.turnId,
+      accountId: claimed.accountId,
+      attemptToken: claimed.attemptToken,
+      reason: TURN_FAILURE_REASON.MODEL_OUTPUT_INVALID,
+      ...outbox,
+    });
+    logger.warn('agent_turn model output invalid', {
+      turn_id: claimed.turnId,
+      attempts: generated.attempts,
+    });
+    return null;
+  }
+
+  const voice = await readVoiceConfig(sql, {
+    accountId: claimed.accountId,
+    locationId: claimed.locationId,
+  });
+  if (!voice) {
+    // The location vanished between step 3 and here — archived, or moved to
+    // another account. That is an AUTHORIZATION change, not a mapping
+    // detail: every proposal is prepared against this row's voice state and
+    // its `updated_at` **Version token**, so there is nothing honest to
+    // store. Failing here is what keeps the turn from completing with a
+    // reply whose cards were all silently dropped.
+    await failTurnFenced(sql, {
+      turnId: claimed.turnId,
+      accountId: claimed.accountId,
+      attemptToken: claimed.attemptToken,
+      reason: TURN_FAILURE_REASON.UNAUTHORIZED,
+      ...outbox,
+    });
+    logger.warn('agent_turn location voice row vanished after authorization', {
+      turn_id: claimed.turnId,
+    });
+    return null;
+  }
+
+  const proposals = buildProposalRows(
+    {
+      conversationId: claimed.conversationId,
+      turnId: claimed.turnId,
+      accountId: claimed.accountId,
+      actorUserId: claimed.actorUserId,
+      locationId: claimed.locationId,
+    },
+    // The VALIDATOR's parsed proposals: the catalog lookup and the input
+    // parse already happened there, once.
+    generated.proposals,
+    voice,
+  );
+  const unsupported: UnsupportedRow[] = generated.output.unsupported.map((u) => ({
+    id: uuidv7(),
+    accountId: claimed.accountId,
+    turnId: claimed.turnId,
+    request: u.request,
+    context: u.context,
+  }));
+  // The stored reply, materialized in one place (`materializeReply`, render.ts):
+  // `status_ref` → a frozen `status`, `proposal_ref` → a stored `proposal` id,
+  // and the scrub notice prepended. Index-aligned with `generated.proposals`
+  // by construction — the validator returned them in the model's own order
+  // and `buildProposalRows` maps one-to-one over that array.
+  const segments = materializeReply({
+    segments: generated.output.segments,
+    metrics: snapshot.metrics,
+    proposalIds: proposals.map((row) => row.id),
+    scrubbed: scrubbed.scrubbed,
+  });
+
+  return { segments, proposals, unsupported, attempts: generated.attempts };
+}
+
+/**
+ * The turn's error policy, in one place. Returns only for a decision that is
+ * terminal on purpose; everything else rethrows for the BullMQ ladder.
+ */
+async function handleTurnError(
+  sql: Sql,
+  error: unknown,
+  claimed: ClaimedTurn,
+  outbox: OutboxHandle,
+  logger: WorkerLogger,
+): Promise<void> {
+  if (error instanceof DelayedError) throw error;
+  if (isBudgetDecision(error)) {
+    // Terminal per the cost-guard contract: one account's exhausted budget is
+    // not a systemic failure and must not burn the retry ladder.
+    await failTurnFenced(sql, {
+      turnId: claimed.turnId,
+      accountId: claimed.accountId,
+      attemptToken: claimed.attemptToken,
+      reason: TURN_FAILURE_REASON.BUDGET_EXCEEDED,
+      ...outbox,
+    });
+    logger.warn('agent_turn budget exceeded', { turn_id: claimed.turnId });
+    return;
+  }
+  // Transient (TransientLLMError, CostInfraUnavailableError, transient
+  // Postgres): rethrow for the BullMQ ladder — but RELEASE THE CLAIM FIRST,
+  // fenced on this attempt's token.
+  //
+  // Without the release the retry lands ~5 s later, inside the 180 s lease,
+  // and `claimTurn` returns null. The handler would then complete the job
+  // having done nothing, and the turn would sit `running` until the lease
+  // expired and the watchdog re-pended the row — minutes of nothing for a
+  // blip the BullMQ ladder was already retrying.
+  //
+  // The release is fenced, so an attempt that has since lost its lease
+  // releases nothing. A CRASHED process cannot run this at all; that case
+  // still relies on lease expiry plus the watchdog, which is what those two
+  // mechanisms are for.
+  await releaseTurnClaim(sql, {
+    turnId: claimed.turnId,
+    accountId: claimed.accountId,
+    attemptToken: claimed.attemptToken,
+  });
+  throw error;
+}
+
 export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Promise<void> {
   const logger = createWorkerLogger('[AgentTurnWorker]', job.data.correlation_id);
   const { outboxId, attempt: outboxAttempt } = extractOutboxHandle(job.data, job.id!);
+  const outbox: OutboxHandle = { outboxId, outboxAttempt };
 
   // Kill switch first: a disabled Operator never loads tenant context.
   if (!ownerOperatorEnabled()) {
@@ -51,213 +329,40 @@ export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Pro
       turnId: job.data.turn_id,
       accountId: job.data.account_id,
       reason: TURN_FAILURE_REASON.OPERATOR_DISABLED,
-      outboxId,
-      outboxAttempt,
+      ...outbox,
     });
     return;
   }
 
+  // ── Step 1: claim ────────────────────────────────────────────────────────
   const claimed = await claimTurn(sql, {
     turnId: job.data.turn_id,
     accountId: job.data.account_id,
     leaseSeconds: AGENT_TURN_LEASE_SECONDS,
   });
   if (!claimed) {
-    // Two very different reasons the claim missed, and they need opposite
-    // handling.
-    //
-    // A live lease held elsewhere: exit without touching the outbox row, which
-    // belongs to the holder.
-    //
-    // A turn that is ALREADY TERMINAL: the attempt that finished it completed a
-    // DIFFERENT outbox attempt than this dispatch carries, so this row is still
-    // `dispatched` and nothing else will ever move it. Left alone the watchdog
-    // re-pends it forever against a turn that is finished. Complete it here.
-    const terminal = await readTerminalTurn(sql, {
-      turnId: job.data.turn_id,
-      accountId: job.data.account_id,
-    });
-    if (terminal) {
-      logger.log('agent_turn already terminal, completing outbox', {
-        turn_id: job.data.turn_id,
-        turn_status: terminal.status,
-      });
-      await markOutboxCompletedIfOwned(sql, outboxId, outboxAttempt);
-      return;
-    }
-    logger.log('agent_turn claim not acquired', { turn_id: job.data.turn_id });
+    await settleClaimMiss(sql, job.data, outbox, logger);
     return;
   }
 
   try {
     // ── Step 2: predecessor ────────────────────────────────────────────────
-    const predecessor = claimed.sequence <= 1
-      ? null
-      : await loadPredecessor(sql, {
-        conversationId: claimed.conversationId,
-        accountId: claimed.accountId,
-        sequence: claimed.sequence,
-      });
-    if (predecessor && !isTerminalTurnStatus(predecessor.status)) {
-      if (predecessor.ageSeconds > AGENT_TURN_PREDECESSOR_STALL_SECONDS) {
-        await failTurnFenced(sql, {
-          turnId: claimed.turnId,
-          accountId: claimed.accountId,
-          attemptToken: claimed.attemptToken,
-          reason: TURN_FAILURE_REASON.PREDECESSOR_STALLED,
-          outboxId,
-          outboxAttempt,
-        });
-        logger.warn('agent_turn predecessor stalled', {
-          turn_id: claimed.turnId,
-          predecessor_age_seconds: predecessor.ageSeconds,
-        });
-        return;
-      }
-      // Give the claim back and DELAY rather than throw: moveToDelayed +
-      // DelayedError re-schedules the same job without consuming an attempt,
-      // so a conversation with a slow first turn never exhausts its retry
-      // budget waiting in line.
-      await releaseTurnClaim(sql, {
-        turnId: claimed.turnId,
-        accountId: claimed.accountId,
-        attemptToken: claimed.attemptToken,
-      });
-      logger.log('agent_turn waiting on predecessor', {
-        turn_id: claimed.turnId,
-        sequence: claimed.sequence,
-      });
-      await job.moveToDelayed(Date.now() + AGENT_TURN_PREDECESSOR_WAIT_MS, job.token);
-      throw new DelayedError();
-    }
+    if (await waitOrFailOnPredecessor(sql, job, claimed, outbox, logger)) return;
 
-    // ── Step 3: authorize again ────────────────────────────────────────────
-    const authorized = await reauthorizeTurn(sql, {
-      accountId: claimed.accountId,
-      actorUserId: claimed.actorUserId,
-      locationId: claimed.locationId,
-    });
-    if (!authorized.ok) {
-      await failTurnFenced(sql, {
-        turnId: claimed.turnId,
-        accountId: claimed.accountId,
-        attemptToken: claimed.attemptToken,
-        reason: authorized.reason === 'account_offboarding'
-          ? TURN_FAILURE_REASON.ACCOUNT_OFFBOARDING
-          : TURN_FAILURE_REASON.UNAUTHORIZED,
-        outboxId,
-        outboxAttempt,
-      });
-      logger.warn('agent_turn reauthorization failed', {
-        turn_id: claimed.turnId,
-        reason: authorized.reason,
-      });
-      return;
-    }
+    // ── Steps 3–7: authorize, scrub, snapshot, model, validate, map to rows ─
+    const assembled = await generateAndAssemble(sql, claimed, outbox, logger);
+    if (!assembled) return;
 
-    // ── Steps 4–6: scrub, snapshot, model, validate ────────────────────────
-    const scrubbed = scrubPastedReview(claimed.ownerText);
-    const snapshot = await buildSnapshot(sql, {
-      accountId: claimed.accountId,
-      locationId: claimed.locationId,
-      locationName: authorized.locationName,
-      conversationId: claimed.conversationId,
-      sequence: claimed.sequence,
-      subscriptionTier: authorized.subscriptionTier,
-    });
-
-    const generated = await generateOperatorReply(sql, {
-      accountId: claimed.accountId,
-      locationId: claimed.locationId,
-      subscriptionTier: authorized.subscriptionTier,
-      snapshot,
-      ownerText: scrubbed.text,
-      turnId: claimed.turnId,
-    });
-    if (!generated.ok) {
-      await failTurnFenced(sql, {
-        turnId: claimed.turnId,
-        accountId: claimed.accountId,
-        attemptToken: claimed.attemptToken,
-        reason: TURN_FAILURE_REASON.MODEL_OUTPUT_INVALID,
-        outboxId,
-        outboxAttempt,
-      });
-      logger.warn('agent_turn model output invalid', {
-        turn_id: claimed.turnId,
-        attempts: generated.attempts,
-      });
-      return;
-    }
-
-    // ── Step 7: map to rows, then fenced completion ────────────────────────
-    const voice = await readVoiceConfig(sql, {
-      accountId: claimed.accountId,
-      locationId: claimed.locationId,
-    });
-    if (!voice) {
-      // The location vanished between step 3 and here — archived, or moved to
-      // another account. That is an AUTHORIZATION change, not a mapping
-      // detail: every proposal is prepared against this row's voice state and
-      // its `updated_at` **Version token**, so there is nothing honest to
-      // store. Failing here is what keeps the turn from completing with a
-      // reply whose cards were all silently dropped.
-      await failTurnFenced(sql, {
-        turnId: claimed.turnId,
-        accountId: claimed.accountId,
-        attemptToken: claimed.attemptToken,
-        reason: TURN_FAILURE_REASON.UNAUTHORIZED,
-        outboxId,
-        outboxAttempt,
-      });
-      logger.warn('agent_turn location voice row vanished after authorization', {
-        turn_id: claimed.turnId,
-      });
-      return;
-    }
-
-    const proposals = buildProposalRows(
-      {
-        conversationId: claimed.conversationId,
-        turnId: claimed.turnId,
-        accountId: claimed.accountId,
-        actorUserId: claimed.actorUserId,
-        locationId: claimed.locationId,
-      },
-      // The VALIDATOR's parsed proposals: the catalog lookup and the input
-      // parse already happened there, once.
-      generated.proposals,
-      voice,
-    );
-    const unsupported: UnsupportedRow[] = generated.output.unsupported.map((u) => ({
-      id: uuidv7(),
-      accountId: claimed.accountId,
-      turnId: claimed.turnId,
-      request: u.request,
-      context: u.context,
-    }));
-    // The stored reply, materialized in one place (`materializeReply`, render.ts):
-    // `status_ref` → a frozen `status`, `proposal_ref` → a stored `proposal` id,
-    // and the scrub notice prepended. Index-aligned with `generated.proposals`
-    // by construction — the validator returned them in the model's own order
-    // and `buildProposalRows` maps one-to-one over that array.
-    const storedSegments = materializeReply({
-      segments: generated.output.segments,
-      metrics: snapshot.metrics,
-      proposalIds: proposals.map((row) => row.id),
-      scrubbed: scrubbed.scrubbed,
-    });
-
+    // ── Step 7: fenced completion ──────────────────────────────────────────
     const { fenced } = await completeTurnFenced(sql, {
       turnId: claimed.turnId,
       accountId: claimed.accountId,
       conversationId: claimed.conversationId,
       attemptToken: claimed.attemptToken,
-      segments: storedSegments,
-      proposals,
-      unsupported,
-      outboxId,
-      outboxAttempt,
+      segments: assembled.segments,
+      proposals: assembled.proposals,
+      unsupported: assembled.unsupported,
+      ...outbox,
     });
     if (!fenced) {
       // The lease was lost while the model ran. Discard and exit: the owning
@@ -268,46 +373,12 @@ export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Pro
 
     logger.log('agent_turn completed', {
       turn_id: claimed.turnId,
-      proposal_count: proposals.length,
-      unsupported_count: unsupported.length,
-      attempts: generated.attempts,
+      proposal_count: assembled.proposals.length,
+      unsupported_count: assembled.unsupported.length,
+      attempts: assembled.attempts,
     });
   } catch (error) {
-    if (error instanceof DelayedError) throw error;
-    if (isBudgetDecision(error)) {
-      // Terminal per the cost-guard contract: one account's exhausted budget is
-      // not a systemic failure and must not burn the retry ladder.
-      await failTurnFenced(sql, {
-        turnId: claimed.turnId,
-        accountId: claimed.accountId,
-        attemptToken: claimed.attemptToken,
-        reason: TURN_FAILURE_REASON.BUDGET_EXCEEDED,
-        outboxId,
-        outboxAttempt,
-      });
-      logger.warn('agent_turn budget exceeded', { turn_id: claimed.turnId });
-      return;
-    }
-    // Transient (TransientLLMError, CostInfraUnavailableError, transient
-    // Postgres): rethrow for the BullMQ ladder — but RELEASE THE CLAIM FIRST,
-    // fenced on this attempt's token.
-    //
-    // Without the release the retry lands ~5 s later, inside the 180 s lease,
-    // and `claimTurn` returns null. The handler would then complete the job
-    // having done nothing, and the turn would sit `running` until the lease
-    // expired and the watchdog re-pended the row — minutes of nothing for a
-    // blip the BullMQ ladder was already retrying.
-    //
-    // The release is fenced, so an attempt that has since lost its lease
-    // releases nothing. A CRASHED process cannot run this at all; that case
-    // still relies on lease expiry plus the watchdog, which is what those two
-    // mechanisms are for.
-    await releaseTurnClaim(sql, {
-      turnId: claimed.turnId,
-      accountId: claimed.accountId,
-      attemptToken: claimed.attemptToken,
-    });
-    throw error;
+    await handleTurnError(sql, error, claimed, outbox, logger);
   }
 }
 

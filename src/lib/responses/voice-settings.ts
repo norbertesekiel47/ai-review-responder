@@ -34,7 +34,7 @@ export const VOICE_FIELD_TO_COLUMN = {
   sampleResponses: 'sample_responses',
 } as const;
 
-export type VoiceField = keyof typeof VOICE_FIELD_TO_COLUMN;
+type VoiceField = keyof typeof VOICE_FIELD_TO_COLUMN;
 
 /**
  * The ONE definition of each voice field's domain, owned beside the writer.
