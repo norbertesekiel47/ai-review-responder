@@ -6,11 +6,11 @@ import { AdminPage } from '../AdminPage';
 describe('AdminPage', () => {
   it('renders group, title, description, actions, and children', () => {
     render(
-      <AdminPage group="Safety" title="Report" description="Report details" actions={<button>Export</button>}>
+      <AdminPage group="Growth" title="Report" description="Report details" actions={<button>Export</button>}>
         <div>page body</div>
       </AdminPage>,
     );
-    expect(screen.getByText('Safety')).toBeInTheDocument();
+    expect(screen.getByText('Growth')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Report' })).toBeInTheDocument();
     expect(screen.getByText('Report details')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
@@ -50,7 +50,6 @@ describe('AdminPage', () => {
   });
 
   it.each([
-    ['Safety', '/admin/suppressions'],
     ['Growth', '/admin/demos'],
   ] as const)('links the %s group to %s', (group, href) => {
     render(

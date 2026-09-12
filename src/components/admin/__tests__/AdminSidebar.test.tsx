@@ -41,7 +41,7 @@ describe('AdminSidebar', () => {
     pushMock.mockClear();
     refreshMock.mockClear();
     signOutMock.mockReset().mockResolvedValue({ error: null });
-    mockUsePathname.mockReturnValue('/admin/suppressions');
+    mockUsePathname.mockReturnValue('/admin/demos');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ flaggedOpen: 3, failedJobs: 1 }), { status: 200 }),
     ));
@@ -76,7 +76,7 @@ describe('AdminSidebar', () => {
     mockUsePathname.mockReturnValue('/admin/locations/csv-import/preview');
     renderSidebar();
     expect(screen.getByRole('link', { name: /Locations import/ })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /Suppressions/ })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: /Demos/ })).not.toHaveAttribute('aria-current');
   });
 
   it('Escape closes the mobile drawer, restoring body scroll and trigger focus', async () => {
@@ -112,7 +112,7 @@ describe('AdminSidebar footer (X7)', () => {
     pushMock.mockClear();
     refreshMock.mockClear();
     signOutMock.mockReset().mockResolvedValue({ error: null });
-    mockUsePathname.mockReturnValue('/admin/suppressions');
+    mockUsePathname.mockReturnValue('/admin/demos');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ flaggedOpen: 0, failedJobs: 0 }), { status: 200 }),
     ));
@@ -136,7 +136,7 @@ describe('AdminSidebar footer (X7)', () => {
     expect(screen.getByRole('complementary')).toHaveTextContent('Step-up not verified');
     expect(screen.getByRole('link', { name: 'Verify' })).toHaveAttribute(
       'href',
-      '/mfa/challenge?next=%2Fadmin%2Fsuppressions',
+      '/mfa/challenge?next=%2Fadmin%2Fdemos',
     );
   });
 
