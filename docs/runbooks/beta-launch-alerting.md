@@ -322,6 +322,26 @@ email shares the Resend provider with the product.
   deliberately, until production says what to tune them to, so they are absent
   from §5's table by design rather than by omission.
 
+- [ ] **Owner Operator `agent_turn` retry exhaustion routed to Discord (Run A,
+  red-team P1-3)** — issues tagged `subsystem:worker_job` **and**
+  `queue:agent_turn`, emitted by `reportJobFailure` in
+  `worker/job-failure-sink.ts` (`captureException`, level `error` by default,
+  grouped by Sentry's exception fingerprint; `topic` is a tag too and equals
+  `agent_turn`). One event means one owner's Operator message ran out of BullMQ
+  retries and the turn ended `failure_reason = exhausted` through
+  `worker/jobs/agent-turn/failed-hook.ts`, so the owner never receives a reply:
+  page on **every event**, Discord channel through the integration (click-path
+  row 11). The companion signal — a `job_outbox` row for topic `agent_turn` that
+  lands `failed`, by dispatch exhaustion or by the watchdog terminalising a
+  long-`dispatched` row — is `outbox_failed:agent_turn` from
+  `checkFailedOutboxByTopic` and rides **rule 1**; the topic joined that CLOSED
+  allowlist in Run A (red-team P1-2 — the same omission class as #628). NOT
+  covered, by design and recorded in the Owner Operator spec §14: the six domain
+  terminal reasons (`operator_disabled` through `budget_exceeded`) complete the
+  job normally and emit structured logs only, and the watchdog's re-pend of a
+  stuck `dispatched` row is a topic-aggregated log line. `OWNER_OPERATOR_ENABLED`
+  is off in production until go-live, so this rule pages nothing before then.
+
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 
 > **CONFIG-1 (billing reconcile drift routing) — verified 2026-06-24.**
@@ -383,6 +403,7 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
 | 9 | `stripe-out-of-order-ack → discord` **BUILT 2026-09-04, rule `3946648`** | `feature` equals `stripe_subscription_out_of_order` **AND** the issue has happened at least **4** times | **every event**, throttled to 1/hour | any |
 | 10 | Admin home configuration failure → Discord **REQUIRED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE** | Source Next.js project; exception type Error and message equal to the constant below, scoped to the affected deployment environment | **every event**, action throttle 60 minutes per issue | error |
+| 11 | `agent-turn-exhausted → discord` (Owner Operator Run A, red-team P1-3) **REQUIRED BEFORE `OWNER_OPERATOR_ENABLED` GOES ON; NOT CONFIGURED BY THIS CHANGE** | `subsystem` equals `worker_job` **AND** `queue` equals `agent_turn` | **every event** | `error` (the `captureException` default) |
 
 **Rule 10 — Admin home configuration failure (#1192).** The emitted identity is
 Error with the exact message:

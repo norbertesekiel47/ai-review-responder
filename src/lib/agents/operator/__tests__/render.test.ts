@@ -258,6 +258,53 @@ describe('operator output validator', () => {
 
     expect(validateModelOutput(output({ proposals: [toneProposal] }), snapshot).ok).toBe(true);
   });
+
+  it('validator rejects a catalog operation the snapshot does not allow this account to use', () => {
+    // `set_highlight_facts` IS a registered proposable operation with a valid
+    // input here, so it clears the outside-the-catalog branch above and reaches
+    // the allowedOperations gate — which the fixture snapshot closes to
+    // set_tone / set_avoid_facts / read_pending_work. Run A's
+    // `modelVisibleOperations` still returns the whole catalog, so this is the
+    // forward guard for Run B's tier-gated operations.
+    const result = validateModelOutput(
+      output({
+        proposals: [{
+          operation: 'set_highlight_facts',
+          scope: { accountId: ACCOUNT, locationId: LOCATION },
+          input: { highlightFacts: ['we are dog friendly'] },
+          rationale: 'You asked me to mention it.',
+        }],
+      }),
+      snapshot,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reasons.join(' ')).toContain('may not use');
+    expect(result.ok === false && result.reasons.join(' ')).toContain('set_highlight_facts');
+
+    // The SAME proposal passes once the snapshot allows it, so the rejection is
+    // the gate and not the input shape.
+    const allowed = validateModelOutput(
+      output({
+        proposals: [{
+          operation: 'set_highlight_facts',
+          scope: { accountId: ACCOUNT, locationId: LOCATION },
+          input: { highlightFacts: ['we are dog friendly'] },
+          rationale: 'You asked me to mention it.',
+        }],
+      }),
+      {
+        ...snapshot,
+        allowedOperations: [
+          ...snapshot.allowedOperations,
+          {
+            id: 'set_highlight_facts', kind: 'proposable', labelKind: 'fact',
+            describe: 'Set what to highlight when a reply fits',
+          },
+        ],
+      },
+    );
+    expect(allowed.ok).toBe(true);
+  });
 });
 
 describe('reply materialization', () => {

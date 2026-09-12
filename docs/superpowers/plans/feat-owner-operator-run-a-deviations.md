@@ -781,3 +781,48 @@ suppression and no widened scope. `pnpm ci:fallow` reports 0 dead code, 0
 complexity, 0 duplication across 91 changed files; the operator, agent-turn,
 voice-settings and agents suites pass 116/116 with the live DB attached;
 typecheck, `ci:directory-map` and `ci:db-imports` pass.
+
+## 2026-09-12 — fresh red-team round 1 at `5b223e33f`: OPEN_P0; surface amendment #5
+
+The closed three-round run (preserved under `…-b83a4f-rounds1-3/`) was voided by
+the fallow refactor (`15bc4a4aa`) and by intake amendments #3/#4. Before the
+fresh pass the branch took `origin/main` (`10c9444a9`, docs-only, one commit) by
+merge — owner decision via `AskUserQuestion`: PR #1270 reported `BEHIND`, so the
+update was owed at merge time regardless, and taking it BEFORE the pass costs one
+gate run instead of a second adversarial pass. The fresh round 1 ran at
+`5b223e33f` with fork `10c9444a9`: 30/30 mutation runs, every validator rule at
+its post-refactor home and every handler step helper KILLED, one survivor.
+
+Findings, all nine verified by the orchestrator against HEAD and ACCEPTED:
+
+- **P0-1** `claimTurn`'s lease predicate survives deletion — the written-state
+  fence is asserted, the spend guard is not. Fix: call-count oracle on the
+  racy turn plus a direct `claimTurn` lease case.
+- **P1-1** validator `allowedOperations` gate reached by no test. Fix: one case.
+- **P1-7** `handleTurnError` budget-decision terminal branch untested. Fix: one
+  live case (`budget_exceeded`, no retry).
+- **P1-5** spec §14 line 638 said all six terminal paths `logger.warn` — false
+  (`operator_disabled` logs info; a lost lease resolves nothing). This is the
+  closed run's R11, accepted-risk there because no further commit was planned;
+  the branch now takes commits, so it is FIXED in the spec instead.
+- **P1-6** `postgres.md` parse-site allowlist named `turns.ts`; the two calls
+  live in `reads.ts` since `eb21f55c2`. Fixed.
+- **P1-2 / P1-3 / P1-4** the `agent_turn` alert path was broken on both halves:
+  the topic was absent from `checkFailedOutboxByTopic`'s CLOSED allowlist (the
+  #628 class its own comment names), the job-failure-sink signal for
+  `queue:agent_turn` had no runbook rule row, and the intake's "stuck dispatched
+  row is the orphaned-lease signal" named a signal with no destination.
+- **P2-1** fifth private `boundedErrorClass`, unhardened. Fix: import the shared
+  hardened export.
+
+**Surface amendment #5:** `worker/background/pollers/health-alert/checks.ts`,
+its unit test, and `docs/runbooks/beta-launch-alerting.md` added to
+`allowed_edit_surface`. Owner chose "amend surface #5 and fix now" over
+accepted-risk-deferred-to-go-live via `AskUserQuestion` on 2026-09-12. Recorded
+mechanically with `--reason`. The edits are one allowlist entry plus one
+regression test modeled on the #628 case, and one rule row (§1 bullet +
+click-path row 11). The intake SHA-256 moved to `43b0b7ef…`; the round-2
+sidecar pins the new value.
+
+**Verdict:** ACCEPT — nine findings, nine fixes, no production behavior change
+except the allowlist entry and the import swap; round 2 re-mutates the fix hunks.

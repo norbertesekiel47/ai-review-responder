@@ -5,6 +5,7 @@ import { failTurnIfNonTerminal } from '@/lib/agents/operator/turns';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { AgentTurnPayload } from '@/lib/shared/worker-types';
+import { boundedErrorClass } from '../solicitation-batch/failed-hook-shared';
 
 const logger = createWorkerLogger('[AgentTurnWorker.failed]');
 
@@ -21,10 +22,6 @@ function isExhausted(job: Job<AgentTurnPayload>): boolean {
     ? job.opts.attempts
     : 1;
   return job.attemptsMade >= maxAttempts;
-}
-
-function boundedErrorClass(err: unknown): string {
-  return err instanceof Error && err.name ? err.name.slice(0, 100) : 'UnknownError';
 }
 
 export async function handleAgentTurnFailed(

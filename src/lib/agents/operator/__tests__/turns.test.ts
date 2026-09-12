@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('uuid', () => ({ v7: vi.fn(() => 'generated-uuid') }));
 
-import { createTurn } from '../turns';
+import { claimTurn, createTurn } from '../turns';
 
 interface RecordedCall {
   text: string;
@@ -35,6 +35,9 @@ function makeRecordingSql(calls: RecordedCall[], nextSequence: number) {
   });
   return sql;
 }
+
+/** The claim's lease, in the units `claimTurn` binds it in. */
+const LEASE_SECONDS = 180;
 
 const INPUT = {
   accountId: '00000000-0000-7000-8000-00000000ac01',
@@ -105,5 +108,30 @@ describe('operator turns', () => {
     for (const call of tenantScoped) {
       expect(call.text).toContain('account_id');
     }
+  });
+
+  it('claimTurn binds the lease predicate that makes the Turn claim exclusive', async () => {
+    const calls: RecordedCall[] = [];
+    const sql = makeRecordingSql(calls, 1) as never;
+
+    await claimTurn(sql, {
+      turnId: '00000000-0000-7000-8000-000000000011',
+      accountId: INPUT.accountId,
+      leaseSeconds: LEASE_SECONDS,
+    });
+
+    const claim = calls.find((call) => call.text.includes('UPDATE agent_turns'));
+    expect(claim).toBeDefined();
+    // **Turn claim** — the UPDATE one dispatch wins, bounded by a 180 s lease.
+    // **Fenced completion** (the terminal UPDATE fenced on `attempt_token`) is a
+    // SEPARATE guard: it stops a stale attempt from WRITING, and only this
+    // predicate stops a second attempt from SPENDING a second cost-guarded
+    // model call. The live proof is turn-worker.integration.test.ts; this is the
+    // cheap text oracle that the arm is still in the statement at all.
+    expect(claim!.text).toContain('claimed_at IS NULL');
+    expect(claim!.text).toContain("INTERVAL '1 second'");
+    expect(claim!.values).toContain(LEASE_SECONDS);
+    // Invariant #9: the claim is account-scoped, never turn-id alone.
+    expect(claim!.values).toContain(INPUT.accountId);
   });
 });

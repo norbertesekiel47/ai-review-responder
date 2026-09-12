@@ -54,6 +54,7 @@ import {
 import type { AgentTurnPayload } from '@/lib/shared/worker-types';
 import type { AccountOffboardingPurgeRow } from '../../../../../worker/jobs/account-offboarding/purge-stages';
 import { handleAgentTurn } from '../../../../../worker/jobs/agent-turn/AgentTurnWorker';
+import { AGENT_TURN_LEASE_SECONDS } from '../../../../../worker/jobs/agent-turn/constants';
 import { REVIEW_TEXT_REMOVED_MARKER } from '../render';
 import {
   PROPOSAL_STATUS,
@@ -63,7 +64,7 @@ import {
   TURN_FAILURE_REASON,
   TURN_STATUS,
 } from '../schema';
-import { createTurn, type CreateTurnResult } from '../turns';
+import { claimTurn, createTurn, type CreateTurnResult } from '../turns';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 let db: postgres.Sql;
@@ -462,10 +463,24 @@ describeWithDb(
       const racy = createdOrThrow(await createTurn(db, baseTurnInput()));
       const racyPayload = await payloadFor(racy, 1);
       await markDispatched(db, racyPayload.outbox_id, 1);
+      const llmCallsBefore = runLlmTask.mock.calls.length;
+      const billedCallsBefore = recordApiCost.mock.calls.length;
       await Promise.all([
         handleAgentTurn(db, jobFor({ ...racyPayload, outbox_attempt: 1 })),
         handleAgentTurn(db, jobFor({ ...racyPayload, outbox_attempt: 1 })),
       ]);
+      // THE SPEND HALF. **Turn claim** (the UPDATE one dispatch wins, bounded by
+      // a 180 s lease) and **Fenced completion** (the terminal UPDATE fenced on
+      // `attempt_token`) are two SEPARATE guards: the fence stops a stale
+      // attempt from WRITING, and only the lease stops a second attempt from
+      // SPENDING a second cost-guarded model call. Every end-state assertion
+      // below is satisfied by the fence alone, so the lease needs its own
+      // oracle — exactly one model call and exactly one billed cost for the
+      // racy turn. Asserted on the mock call counts rather than on `api_costs`
+      // rows: `recordApiCost` is replaced by the hoisted mock above
+      // (`vi.mock('@/lib/costs/audit', …)`), so this suite writes no such row.
+      expect(runLlmTask.mock.calls.length - llmCallsBefore).toBe(1);
+      expect(recordApiCost.mock.calls.length - billedCallsBefore).toBe(1);
       expect((await readTurn(racy.turnId)).status).toBe(TURN_STATUS.COMPLETED);
       const racyProposals = await db<{ id: string }[]>`
         SELECT id FROM agent_proposals
@@ -473,6 +488,53 @@ describeWithDb(
       `;
       expect(racyProposals).toHaveLength(1);
       expect((await readOutbox(racyPayload.outbox_id)).status).toBe('completed');
+    });
+
+    it('claimTurn turns a second dispatch away inside the lease and lets one in after it expires', async () => {
+      const created = createdOrThrow(await createTurn(db, baseTurnInput()));
+
+      // **Turn claim**: the UPDATE one dispatch wins, bounded by a 180 s lease.
+      const first = await claimTurn(db, {
+        turnId: created.turnId,
+        accountId: tenant.accountId,
+        leaseSeconds: AGENT_TURN_LEASE_SECONDS,
+      });
+      expect(first).not.toBeNull();
+      expect(first!.attempt).toBe(1);
+      const claimed = await readTurn(created.turnId);
+      expect(claimed.status).toBe(TURN_STATUS.RUNNING);
+      expect(claimed.attempt_token).toBe(first!.attemptToken);
+
+      // A second dispatch INSIDE the live lease gets nothing, so it never
+      // reaches the cost-guarded model call. **Fenced completion** (the terminal
+      // UPDATE fenced on `attempt_token`) is a separate guard that would stop
+      // this attempt's WRITE; only the lease predicate stops its SPEND.
+      const second = await claimTurn(db, {
+        turnId: created.turnId,
+        accountId: tenant.accountId,
+        leaseSeconds: AGENT_TURN_LEASE_SECONDS,
+      });
+      expect(second).toBeNull();
+      const afterSecond = await readTurn(created.turnId);
+      expect(afterSecond.attempt).toBe(1);
+      expect(afterSecond.attempt_token).toBe(first!.attemptToken);
+
+      // Past the lease, the watchdog's re-dispatch takes the row over: a new
+      // attempt number and a NEW token, which is what retires the old one.
+      await db`
+        UPDATE agent_turns
+        SET claimed_at = NOW() - make_interval(secs => ${AGENT_TURN_LEASE_SECONDS + 1})
+        WHERE id = ${created.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+      const third = await claimTurn(db, {
+        turnId: created.turnId,
+        accountId: tenant.accountId,
+        leaseSeconds: AGENT_TURN_LEASE_SECONDS,
+      });
+      expect(third).not.toBeNull();
+      expect(third!.attempt).toBe(2);
+      expect(third!.attemptToken).not.toBe(first!.attemptToken);
+      expect((await readTurn(created.turnId)).attempt_token).toBe(third!.attemptToken);
     });
 
     it('worker releases its claim on a transient failure so the retry re-claims and completes', async () => {
@@ -501,6 +563,30 @@ describeWithDb(
       await handleAgentTurn(db, jobFor(payload, { attemptsMade: 1 }));
       expect((await readTurn(created.turnId)).status).toBe(TURN_STATUS.COMPLETED);
       expect((await readOutbox(payload.outbox_id)).status).toBe('completed');
+    });
+
+    it('worker fails the turn budget_exceeded terminally instead of burning the retry ladder', async () => {
+      const { CostLimitExceededError } = await import('@/lib/costs/tracker');
+      runLlmTask.mockRejectedValueOnce(new CostLimitExceededError(locationId));
+      const created = createdOrThrow(await createTurn(db, baseTurnInput()));
+      const payload = await payloadFor(created, 1);
+      await markDispatched(db, payload.outbox_id, 1);
+      const job = jobFor(payload);
+
+      // TERMINAL BY DECISION, per the cost-guard contract: one account's
+      // exhausted budget is not a systemic failure, so `handleAgentTurn`
+      // RESOLVES rather than rethrowing for the BullMQ ladder. Without this
+      // branch the error would fall through to `exhausted` five attempts later
+      // and the reason the spec promises to distinguish would be lost.
+      await expect(handleAgentTurn(db, job)).resolves.toBeUndefined();
+
+      const turn = await readTurn(created.turnId);
+      expect(turn.status).toBe(TURN_STATUS.FAILED);
+      expect(turn.failure_reason).toBe(TURN_FAILURE_REASON.BUDGET_EXCEEDED);
+      // The decision is settled in one transaction with the outbox row, so
+      // nothing is left for the watchdog to reclaim.
+      expect((await readOutbox(payload.outbox_id)).status).toBe('completed');
+      expect(job.moveToDelayed).not.toHaveBeenCalled();
     });
 
     it('worker fenced completion discards an attempt whose lease was lost', async () => {
