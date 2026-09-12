@@ -333,3 +333,48 @@ under `worker/jobs/agent-turn/`) join T2/T3/T4's in the same T8 sweep.
 
 **Verdict:** ACCEPT — the binding decision resolves the one contradiction; the
 other three are compile/lint adaptations with no contract change.
+
+## 2026-09-11 — T6: `rules.vetoWindowMinutes` cannot be `VetoWindowMinutes` and null at once, plus the flagged `'manual'` fixture
+
+**(a) The type contradiction, resolved by widening one field.** T6 Step 3
+declares `OwnerConversationView.summary.rules.vetoWindowMinutes` as
+`VetoWindowMinutes`, which is `z.union([z.literal(15), z.literal(30)])`
+(`src/lib/auto-approval/types.ts:41`) with no null member — and then the
+no-turns branch of `getConversationForOwner`, six lines below in the same
+snippet, returns `vetoWindowMinutes: null`. As written the module does not
+compile. T6 widened the FIELD to `VetoWindowMinutes | null` rather than
+inventing a value for the empty branch: with no turns there is no location to
+scope a rule read to, and null there means "no rules to report" — the same
+reading the sibling `threshold: null` and `facts: null` already carry in that
+branch. A one-line comment in the declaration says so. Nothing changes on the
+populated path, where the value still comes from
+`locationSettings?.effective.vetoWindowMinutes ?? settings.accountDefault.…`
+and is always 15 or 30.
+
+**(b) The `'manual'` fixture the T3 entry pre-flagged.** T6's conversation-suite
+snippet builds its summary fixture with `rules.threshold: 'manual'` — the same
+spelling the T3 entry above flagged at `feat-owner-operator-run-a-plan.md:5530`
+as needing "the same one-word fix". T6 made it `null`, with a comment in the
+case. The mock is untyped so `'manual'` would have compiled, which is precisely
+why it had to be fixed by hand: a fixture asserting a value the domain cannot
+hold teaches the next reader the wrong union. No assertion reads
+`summary.rules.threshold`, so no behaviour moved.
+
+**(c) Two smaller things, neither a contract change.** T6's edit lease allowed
+`proposals.ts` "only if the plan's T6 step adds a list read there" — it does
+not: `listProposalsForTurn`, `listPendingProposals` and `listUnsupportedForTurn`
+all landed in T5, so the file is untouched. And both route suites gained a
+flag-off case inside their existing verbatim title (the turn suite's was already
+in the plan; the conversation suite's was added to match), asserting the 404 and
+that `requireRole` was never called — which is what "before auth" means for a
+gate that runs ahead of it.
+
+`ci:feature-surface` was RED until this task's commit: its two
+`allowed_edit_surface` entries for the new route files matched nothing while the
+files were untracked (#867, the same pre-implementation state the baseline entry
+above records). It is green at the commit. `ci:env-registry` and
+`ci:directory-map` remain RED for T8's rows — `docs/directory` now also owes no
+new row for T6, which creates no file under `worker/` or `src/lib/`.
+
+**Verdict:** ACCEPT — one widened field resolves the compile contradiction; the
+fixture fix was pre-authorised by the T3 entry.
