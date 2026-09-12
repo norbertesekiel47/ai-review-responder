@@ -30,14 +30,20 @@ describe('voice writer', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('voice writer updates highlight_facts under a businesses row lock and rejects a location outside the account', async () => {
-    const ok = makeTx([[{ id: LOCATION }], [{ updated_at: new Date('2026-09-11T10:00:00.000Z') }]]);
+    const ok = makeTx([[{ id: LOCATION }], [{ updated_at: '2026-09-11 10:00:00.123456+00' }]]);
     const result = await updateVoiceConfig(ok.tx as never, {
       accountId: ACCOUNT,
       locationId: LOCATION,
       fields: { highlightFacts: ['award-winning espresso'], tone: 'warm' },
     });
 
-    expect(result).toEqual({ ok: true, updatedAt: '2026-09-11T10:00:00.000Z' });
+    // The WRITER's **Version token** is the READ's spelling, byte for byte:
+    // `updated_at::text`, returned verbatim, microseconds and all. Run B's
+    // Apply compares the two text-to-text, so a `new Date(...).toISOString()`
+    // on this path truncates `.123456` to `.123Z` and makes the writer's token
+    // and the reader's token for ONE UNCHANGED ROW disagree by format. That
+    // fails here rather than silently in Apply.
+    expect(result).toEqual({ ok: true, updatedAt: '2026-09-11 10:00:00.123456+00' });
     // 1. the lock comes first, and it is account-scoped and active-only.
     expect(ok.calls[0]!.text).toContain('FOR UPDATE');
     expect(ok.calls[0]!.text).toContain('FROM businesses');
@@ -50,6 +56,7 @@ describe('voice writer', () => {
       tone: 'warm',
     });
     expect(ok.calls[1]!.values.slice(1)).toEqual([LOCATION, ACCOUNT]);
+    expect(ok.calls[1]!.text).toContain('RETURNING updated_at::text');
 
     // A location outside the account never reaches the UPDATE.
     const foreign = makeTx([[]]);

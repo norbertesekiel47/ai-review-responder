@@ -624,3 +624,92 @@ thing, not a departure from intent):
 or registry design; the two documented-only items are recorded in spec §14 as
 Run B work; the three adaptations carry the accepted findings' intent without
 widening them.
+
+## 2026-09-11 — review round 2: two P0 oracle gaps accepted, one deferred to go-live alerting
+
+Round 2 was the VERIFICATION wave over round 1's fix commit `eb21f55c2`: a
+fresh spec-and-correctness agent, a fresh standards agent, and a red-team round
+scoped to the fix hunks. All five round-1 P0 mutants are now KILLED, SC1–SC7
+and CA2/CA3 are ADDRESSED, and SM1–SM7/SM9–SM12/SM15 are ADDRESSED. Round 2
+raised ten new findings; eight were accepted and applied in this commit
+(R1–R7, R10), and the remainder are recorded here.
+
+1. **Codex adversarial round 2 did not run.** `codex exec resume` refused the
+   companion's thread (`thread/resume: no rollout found for 01a09406…`): the
+   session is not resumable on this machine, and the plan-phase thread id in
+   the handoff is therefore dead for the rest of the run. Its two round-1 code
+   findings (CA2, CA3) were verified ADDRESSED by the spec axis instead, and
+   its other three were documented or rejected in round 1, so no finding lost
+   its adjudicator. Recorded rather than retried: a cold Codex round would
+   review the fix hunks without round 1's context, which is a different review,
+   not the one that was owed.
+2. **R8 (P2, absence-of-token proxies in the new render tests) — REJECTED,
+   recorded.** Same class as round-1 RT12 and rejected on the same grounds: the
+   `not.toContain` assertions sit BESIDE positive assertions on the same
+   render, so an empty or collapsed output fails the positive half first. An
+   absence assertion alone would be the finding; an absence assertion paired
+   with the presence it is the complement of is not.
+3. **R9 (P2, terminal paths emit `logger.warn` only, no Sentry rule row) —
+   DEFERRED to the go-live alerting adjudication.** Real, and uniform across
+   all six terminal paths in `AgentTurnWorker` rather than particular to the
+   one this run added — five of them pre-date the fix. Escalating the new line
+   alone would open a front on unchanged code and would leave the lane's
+   alerting decided in six places. Recorded as one spec §14 item at ship, to be
+   taken with the rest of Run A's alerting before the pilot.
+4. **spec-r2 low #2 (`summary.facts.updatedAt` serializes as Postgres text) —
+   DOCUMENTED, no change.** That spelling IS the **Version token**: `updated_at::text`
+   end to end, because postgres.js decodes `timestamptz` into a JS `Date` and
+   silently truncates the microseconds Postgres stores, so a token built from a
+   round-tripped `Date` compares EQUAL to a row written up to a microsecond
+   later. Run B's Apply compares text to text. The DTO comment says so, and
+   R7 below extends the same spelling to the writer, which was the one site
+   still disagreeing by format.
+5. **standards-r2 maintainability lows (3) — DEFERRED to Run B.** `render.ts`
+   gained a fourth concern; the ten-column proposal `SELECT` is spelled three
+   times in `proposals.ts`; the `UnsupportedRow` map is left in the worker
+   handler. All three are readability, none is a defect, and Run B reworks both
+   files anyway — `render.ts` for Apply cards and `proposals.ts` for the
+   proposal lifecycle. Doing them now would rewrite code Run B rewrites again.
+
+**Applied in this commit (R1–R7, R10)** — every one is a test-oracle or
+citation fix; the single production edit is R7's `RETURNING` clause:
+
+- **R1 (P0)** `listProposalsForTurns` was fake-covered: an always-empty Map
+  survived both consumers. `reads.integration` now seeds three turns (two with
+  stored proposals, one without) and asserts `turns[].proposals` by id,
+  operation and status, the catalog-recomputed `describe`, and `[]` on the turn
+  that proposed nothing; `snapshot.integration` asserts `proposalSummaries`
+  carries each operation's catalog sentence. Both kill the empty-Map mutant,
+  verified by applying it and reverting.
+- **R2 (P0) + R4 (P1)** `locationOverrideExists` had no non-mocked oracle and
+  the only rules assertion was `vetoWindowMinutes > 0`. Both live suites now
+  seed an `auto_approval_policies` override on ONE of the account's two
+  locations and assert `true` there and `false` on the other, with equality
+  against the seeded dials (30 / 7 / threshold 5) and against the inherited
+  defaults. The forced-`true` mutant is killed in both.
+- **R3 (P1)** the `if (!voice)` terminal branch now has a unit case: claim,
+  reauthorize, snapshot and generate all succeed, `readVoiceConfig` returns
+  null, and the assertions are `failTurnFenced` writing `unauthorized` fenced
+  on the attempt token, the outbox CAS in the SAME transaction, and no
+  `agent_proposals` write at all. `@/lib/agents/operator/turns` is mocked
+  PARTIALLY (only `claimTurn`), so the real `failTurnFenced` is what the
+  statements come from.
+- **R5 (P1)** `context.test.ts`'s closed list is closed again: the fixture now
+  returns one historical turn, so the batched proposal read issues its
+  statement and the count is 5, with the `turn_id = ANY` read's account and
+  turn-id bindings asserted.
+- **R6 (P1)** the plan's two remaining `voice/route.ts:23` citations (the same
+  table round 1's F10 corrected) now name the symbol — the `GET` handler —
+  rather than a line the fix itself moved.
+- **R7 (P1)** `updateVoiceConfig` returns `RETURNING updated_at::text`, the
+  read's spelling, so the two **Version token** producers agree byte for byte.
+  The writer's unit test asserts the `.123456` fixture survives verbatim and
+  the route test asserts the PUT response passes it through unformatted.
+- **R10 (P2)** `asTurnStatus` / `asProposalStatus` throw branches have a case,
+  including the cross-vocabulary arms (a legal proposal status is not a legal
+  turn status).
+
+**Verdict:** ACCEPT — the two P0s were oracle gaps, not defects in shipped
+behavior, and both mutants are now killed; R8 is rejected on the same reasoning
+as its round-1 twin; R9 and the three maintainability lows are deferred to
+owners that already exist (spec §14, Run B) rather than to nobody.

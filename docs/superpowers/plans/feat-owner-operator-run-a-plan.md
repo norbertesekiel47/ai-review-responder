@@ -68,8 +68,8 @@ Each decision is final. Evidence lines are resolved against the worktree HEAD at
 | `worker/jobs/agent-turn/failed-hook.ts` | `handleAgentTurnFailed(sql, job, err)` — one transaction: outbox fence first, turn transition only if this dispatch still owns the row | new | `worker/jobs/judge/failed-hook.ts:59` |
 | `worker/index.ts` | worker registration, `failed` hook, `assertSummedLlmWorkerSlots` entry, `workersByQueue` entry | deepen | `worker/index.ts:286`, `worker/index.ts:413`, `worker/index.ts:505` |
 | `src/app/api/operator/turns/route.ts` | `POST` (orchestration only) | new | `src/app/api/settings/voice/route.ts` → `putVoiceConfig` and its `withSameOrigin()` export |
-| `src/app/api/operator/turns/[id]/route.ts` | `GET` | new | `src/app/api/settings/voice/route.ts:23` |
-| `src/app/api/operator/conversation/route.ts` | `GET` | new | `src/app/api/settings/voice/route.ts:23` |
+| `src/app/api/operator/turns/[id]/route.ts` | `GET` | new | the `GET` handler in `src/app/api/settings/voice/route.ts` |
+| `src/app/api/operator/conversation/route.ts` | `GET` | new | the `GET` handler in `src/app/api/settings/voice/route.ts` |
 | `supabase/migrations/120_owner_operator.sql` | the four tables | new | `supabase/migrations/116_refusal_events.sql:67`, `supabase/migrations/118_poller_heartbeats.sql:81` |
 | offboarding chain | `TABLE_DISPOSITIONS` ×4, `verificationQuery` arms ×4, `runContentPurgeStage` DELETEs ×4, `TENANT_TABLES` + `TENANT_SCOPE_COLUMNS` ×4, rls-inventory rows ×4 | deepen | `src/lib/account-offboarding/table-disposition.ts:334`, `src/lib/account-offboarding/purge-verification.ts:630`, `worker/jobs/account-offboarding/purge-stages.ts:452`, `scripts/ci/tenant-tables.ts:106`, `scripts/ci/tenant-tables.ts:178`, `docs/security/rls-inventory.md:55` |
 | tests helper | `MIGRATION_120_OWNER_OPERATOR: SchemaRequirement` | deepen | `src/lib/shared/__tests__/helpers/schema-ready.ts:177` |

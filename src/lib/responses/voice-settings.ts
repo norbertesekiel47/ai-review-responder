@@ -62,10 +62,6 @@ type VoiceRow = {
   updated_at: string;
 };
 
-function iso(value: Date | string): string {
-  return new Date(value).toISOString();
-}
-
 /**
  * Reads one active location's voice config plus the `updated_at` that becomes
  * the voice-scope **Version token**. Returns null when the location is not an
@@ -140,13 +136,21 @@ export async function updateVoiceConfig(
 
   // Postgres.js parameterizes both the identifiers and the values through the
   // dynamic-column helper — no string interpolation.
-  const [row] = await tx<{ updated_at: Date | string }[]>`
+  //
+  // `updated_at::text`, THE SAME SPELLING `readVoiceConfig` uses, and returned
+  // verbatim for the same reason: this value is the voice-scope **Version
+  // token**, and Run B's Apply compares it TEXT TO TEXT against the read's.
+  // A `new Date(...).toISOString()` here would truncate the microseconds
+  // Postgres stores, so the writer's token and the reader's token for one
+  // unchanged row would differ by format — every freshly written proposal
+  // reading as stale, or a stale one as fresh.
+  const [row] = await tx<{ updated_at: string }[]>`
     UPDATE businesses
     SET ${tx(updates)}, updated_at = NOW()
     WHERE id = ${input.locationId}::uuid
       AND account_id = ${input.accountId}::uuid
-    RETURNING updated_at
+    RETURNING updated_at::text AS updated_at
   `;
   if (!row) return { ok: false, reason: 'location_not_found' };
-  return { ok: true, updatedAt: iso(row.updated_at) };
+  return { ok: true, updatedAt: row.updated_at };
 }

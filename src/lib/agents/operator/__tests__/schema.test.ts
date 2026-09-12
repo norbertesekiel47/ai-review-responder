@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { OperatorModelOutputSchema } from '../schema';
+import {
+  asProposalStatus,
+  asTurnStatus,
+  OperatorModelOutputSchema,
+  PROPOSAL_STATUS,
+  TURN_STATUS,
+} from '../schema';
 
 const ACCOUNT = '00000000-0000-7000-8000-00000000ac01';
 const LOCATION = '00000000-0000-7000-8000-00000000b101';
@@ -67,5 +73,26 @@ describe('operator model output schema', () => {
       ...MINIMAL,
       segments: [{ type: 'status', metric: 'pending_count', value: 3, reportingPeriodDays: 7, asOf: '2026-09-11T10:00:00.000Z' }],
     }).success).toBe(false);
+  });
+
+  it('status narrowings throw on a value no writer produces', () => {
+    // Both columns carry a CHECK constraint (migration 120), so a value outside
+    // the vocabulary means the row was written by something that is not this
+    // codebase. A THROW, not a silent widening back to `string` — the reads
+    // that call these hand their result straight to the owner's screen.
+    for (const status of Object.values(TURN_STATUS)) {
+      expect(asTurnStatus(status)).toBe(status);
+    }
+    for (const status of Object.values(PROPOSAL_STATUS)) {
+      expect(asProposalStatus(status)).toBe(status);
+    }
+
+    expect(() => asTurnStatus('archived')).toThrow(/agent_turns\.status/);
+    expect(() => asTurnStatus('')).toThrow();
+    // Each narrowing owns ITS OWN vocabulary: a legal PROPOSAL status is not a
+    // legal turn status, and vice versa.
+    expect(() => asTurnStatus(PROPOSAL_STATUS.SUPERSEDED)).toThrow(/agent_turns\.status/);
+    expect(() => asProposalStatus('archived')).toThrow(/agent_proposals\.status/);
+    expect(() => asProposalStatus(TURN_STATUS.ACCEPTED)).toThrow(/agent_proposals\.status/);
   });
 });

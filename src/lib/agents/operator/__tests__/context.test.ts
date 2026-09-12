@@ -1,7 +1,7 @@
 import type postgres from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
+const { mockSql, sqlCalls, sqlReturnQueue, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../../worker/__tests__/helpers/mock-sql');
   return { ...createMockSql() };
 });
@@ -33,6 +33,7 @@ import { buildSnapshot } from '../context';
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const LOCATION = '22222222-2222-4222-8222-222222222222';
 const CONVERSATION = '33333333-3333-4333-8333-333333333333';
+const HISTORICAL_TURN = '44444444-4444-4444-8444-444444444444';
 
 describe('operator context snapshot', () => {
   beforeEach(() => {
@@ -56,6 +57,22 @@ describe('operator context snapshot', () => {
   });
 
   it('buildSnapshot scopes every read to the stored account and location', async () => {
+    // ONE historical turn, so the BATCHED proposal read actually issues its
+    // statement: `listProposalsForTurns` returns early on an empty id list, and
+    // a zero-turn fixture therefore hides the fifth read from the closed list
+    // below entirely. The queue is positional — star bands, posted_7d, recent
+    // turns, then the two proposal reads.
+    sqlReturnQueue.push(
+      [],
+      [],
+      [{
+        id: HISTORICAL_TURN,
+        sequence: 1,
+        owner_text: 'Warmer, please.',
+        reply: [{ type: 'text', text: 'Done.' }],
+      }],
+    );
+
     await buildSnapshot(mockSql as unknown as postgres.Sql, {
       accountId: ACCOUNT,
       locationId: LOCATION,
@@ -65,13 +82,23 @@ describe('operator context snapshot', () => {
       subscriptionTier: SubscriptionTier.COPILOT,
     });
 
-    // Four statements: star bands, posted_7d, recent turns, pending proposals.
-    // Not a count for its own sake — a fifth, unscoped read is exactly the
-    // regression this asserts against, so the list has to be closed.
-    expect(sqlCalls).toHaveLength(4);
+    // Five statements: star bands, posted_7d, recent turns, the BATCHED
+    // per-turn proposal read, pending proposals. Not a count for its own sake —
+    // a sixth, unscoped read is exactly the regression this asserts against, so
+    // the list has to be closed, and it only closes over the batched read when
+    // the fixture gives it a turn to batch.
+    expect(sqlCalls).toHaveLength(5);
     for (const call of sqlCalls) {
       expect(call.values, call.text).toContain(ACCOUNT);
     }
+
+    // The batched read is keyed by the TURN IDS the history read returned, and
+    // carries the account beside them — one `turn_id = ANY(...)` statement, not
+    // one query per turn.
+    const batched = sqlCalls.filter((call) => call.text.includes('turn_id = ANY'));
+    expect(batched).toHaveLength(1);
+    expect(batched[0]!.values).toContainEqual([HISTORICAL_TURN]);
+    expect(batched[0]!.values).toContain(ACCOUNT);
 
     // The per-location read binds the LOCATION too: the star-band query is
     // grouped per location and narrowed in JS, but posted_7d is not.

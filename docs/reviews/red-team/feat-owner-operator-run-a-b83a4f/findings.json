@@ -383,7 +383,14 @@
       "arbiter_reasoning": "asTurnStatus and asProposalStatus were added so a driver-supplied bare string cannot widen back to `string`; the docblock is explicit that a value outside the vocabulary 'means the row was written by something that is not this codebase — a throw, not a silent widening'. The happy path is exercised (reads.integration asserts own.status === TURN_STATUS.ACCEPTED), but nothing asserts the throw, and mapStored's asProposalStatus call (proposals.ts:195) is reached in no non-mocked test at all. P2 rather than P1: these are defensive narrowings over a CHECK-constrained column, so the untested branch is unreachable in a healthy database — but it is the branch the functions exist for, and a one-line unit test in schema.test.ts closes it."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "auth-round-3-2026-09-11",
+      "date": "2026-09-11",
+      "finding_ids": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R10"],
+      "text": "Owner (Norbert) authorizes a third round: \"Authorize red-team round 3\" — selected via AskUserQuestion on 2026-09-11 after round 2 closed OPEN_P0 with R1/R2 (oracle gaps) and R3–R7 (P1) open. Round 3 is scoped to the fix hunks for R1–R7 and R10."
+    }
+  ],
   "counts": {
     "inventory_total": 39,
     "killed": 13,

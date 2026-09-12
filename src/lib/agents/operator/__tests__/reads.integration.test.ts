@@ -8,6 +8,8 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { DEFAULT_DAILY_AUTO_POST_CAP, DEFAULT_VETO_WINDOW_MINUTES } from '@/lib/auto-approval/policy';
+import { POLICY_ACTION_POSTING, POLICY_PERSONA_REPLY } from '@/lib/auto-approval/types';
 import {
   acquireLiveDbLock,
   assertLocalTestDatabaseUrl,
@@ -25,8 +27,9 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { insertProposals, type ProposalRow } from '../proposals';
 import { getConversationForOwner, getTurnForOwner, TRANSCRIPT_TURN_LIMIT } from '../reads';
-import { TURN_STATUS } from '../schema';
+import { PROPOSAL_STATUS, TURN_STATUS } from '../schema';
 import { createTurn, type CreateTurnResult } from '../turns';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
@@ -36,6 +39,12 @@ let lock: LiveDbLock | undefined;
 /** Account A, its owner, and its location. */
 let tenant: TenantSeed;
 let locationId: string;
+/**
+ * A SECOND location in account A. The summary panel's `locationOverrideExists`
+ * is a per-location fact, so proving it needs one location WITH an
+ * `auto_approval_policies` override row and one WITHOUT.
+ */
+let secondLocationId: string;
 /** A SECOND owner user inside account A — the `created_by_user_id` scope. */
 let secondUserId: string;
 /** Account B: a whole other tenant, for the cross-account cases. */
@@ -70,11 +79,93 @@ async function completeTurn(turnId: string, accountId: string, text: string): Pr
   `;
 }
 
+/**
+ * One stored **Proposal** for a turn, written through the production writer.
+ *
+ * ONE ROW PER TRANSACTION, deliberately: `created_at` defaults to `NOW()`,
+ * which is the TRANSACTION's start time, so a batch written inside one `begin`
+ * shares a timestamp and the read's `ORDER BY created_at ASC` would be free to
+ * return them in either order. Separate transactions give the read a real
+ * ordering to be asserted against.
+ */
+async function seedProposal(
+  input: {
+    conversationId: string;
+    turnId: string;
+    accountId: string;
+    actorUserId: string;
+    locationId: string | null;
+    operation: string;
+    inputJson: Record<string, unknown>;
+    rationale: string;
+  },
+): Promise<string> {
+  const row: ProposalRow = {
+    id: randomUUID(),
+    conversationId: input.conversationId,
+    turnId: input.turnId,
+    accountId: input.accountId,
+    actorUserId: input.actorUserId,
+    locationId: input.locationId,
+    operation: input.operation,
+    contractVersion: 1,
+    input: input.inputJson,
+    before: { tone: null },
+    after: { tone: null },
+    rationale: input.rationale,
+    labelKind: 'fact',
+    preparedVersionToken: { businessId: input.locationId, updatedAt: '2026-09-11 10:00:00.123456+00' },
+    requiresConfirmation: false,
+    status: PROPOSAL_STATUS.PENDING,
+  };
+  await db.begin(async (tx) => { await insertProposals(tx, [row]); });
+  return row.id;
+}
+
+/** Completes a turn whose stored reply NAMES the proposals seeded for it. */
+async function completeTurnWithProposals(
+  turnId: string,
+  accountId: string,
+  text: string,
+  proposalIds: readonly string[],
+): Promise<void> {
+  const segments = [
+    { type: 'text', text },
+    ...proposalIds.map((proposalId) => ({ type: 'proposal', proposalId })),
+  ];
+  await db`
+    UPDATE agent_turns
+    SET status = ${TURN_STATUS.COMPLETED},
+        reply = ${db.json(segments as never)},
+        completed_at = NOW()
+    WHERE id = ${turnId}::uuid AND account_id = ${accountId}::uuid
+  `;
+}
+
+/** A location-scoped Reply/posting override row — the `locationOverrideExists` fact. */
+async function seedLocationOverride(
+  accountId: string,
+  overrideLocationId: string,
+  values: { minStar: number; vetoWindowMinutes: number; dailyCap: number },
+): Promise<void> {
+  await db`
+    INSERT INTO auto_approval_policies (
+      id, account_id, location_id, persona, action_class,
+      auto_approve_min_star, veto_window_minutes, daily_auto_post_cap
+    ) VALUES (
+      ${randomUUID()}::uuid, ${accountId}::uuid, ${overrideLocationId}::uuid,
+      ${POLICY_PERSONA_REPLY}, ${POLICY_ACTION_POSTING},
+      ${values.minStar}, ${values.vetoWindowMinutes}, ${values.dailyCap}
+    )
+  `;
+}
+
 async function deleteOperatorRows(accountId: string): Promise<void> {
   await db`DELETE FROM agent_unsupported_requests WHERE account_id = ${accountId}::uuid`;
   await db`DELETE FROM agent_proposals WHERE account_id = ${accountId}::uuid`;
   await db`DELETE FROM agent_turns WHERE account_id = ${accountId}::uuid`;
   await db`DELETE FROM agent_conversations WHERE account_id = ${accountId}::uuid`;
+  await db`DELETE FROM auto_approval_policies WHERE account_id = ${accountId}::uuid`;
 }
 
 describeWithDb(
@@ -96,6 +187,9 @@ describeWithDb(
         accountDisplayName: 'Operator Reads Account',
       });
       locationId = (await seedLocation(db, tenant.accountId, { name: 'Salon' })).businessId;
+      secondLocationId = (await seedLocation(db, tenant.accountId, {
+        name: 'Cafe', isPrimary: false,
+      })).businessId;
       // A SECOND owner in the SAME account. The no-id conversation read is
       // scoped by `created_by_user_id`, so two owners of one account must not
       // land in each other's transcript.
@@ -258,7 +352,156 @@ describeWithDb(
       // location.
       expect(forFirst!.summary).not.toBeNull();
       expect(forFirst!.summary!.recent.reportingPeriodDays).toBe(7);
-      expect(forFirst!.summary!.rules.vetoWindowMinutes).toBeGreaterThan(0);
+      // EQUALITY against the inherited default, not `> 0`: a range-shaped proxy
+      // passes for every value the projection could possibly produce, including
+      // the account default read where the location's own row was meant to win.
+      expect(forFirst!.summary!.rules.vetoWindowMinutes).toBe(DEFAULT_VETO_WINDOW_MINUTES);
+      expect(forFirst!.summary!.rules.dailyCap).toBe(DEFAULT_DAILY_AUTO_POST_CAP);
+      expect(forFirst!.summary!.rules.threshold).toBeNull();
+    });
+
+    it('getConversationForOwner reports the location override and its dials, per location', async () => {
+      // ONE location of the two has its own Reply/posting row. The panel is
+      // scoped to the MOST RECENT turn's location, so the same account answers
+      // differently depending on which location the owner is looking at — which
+      // is the whole fact `locationOverrideExists` carries (spec §4: a dial-only
+      // change on a location with no row CREATES one, and the card must say so).
+      await seedLocationOverride(tenant.accountId, secondLocationId, {
+        minStar: 5, vetoWindowMinutes: 30, dailyCap: 7,
+      });
+
+      const overridden = createdOrThrow(await createTurn(db, baseTurnInput({
+        locationId: secondLocationId, text: 'How does the Cafe post?',
+      })));
+      await completeTurn(overridden.turnId, tenant.accountId, 'Here are the Cafe rules.');
+      const withOverride = await getConversationForOwner(db, {
+        accountId: tenant.accountId,
+        actorUserId: tenant.userId,
+        conversationId: overridden.conversationId,
+      });
+      expect(withOverride!.summary!.rules.locationOverrideExists).toBe(true);
+      // The location's OWN dials, read from the seeded row — not the account
+      // default, and not a range.
+      expect(withOverride!.summary!.rules.vetoWindowMinutes).toBe(30);
+      expect(withOverride!.summary!.rules.dailyCap).toBe(7);
+      expect(withOverride!.summary!.rules.threshold).toBe(5);
+
+      // The OTHER location of the SAME account has no row: false, and every dial
+      // inherited from the account default.
+      const plain = createdOrThrow(await createTurn(db, baseTurnInput({
+        text: 'And the Salon?',
+      })));
+      await completeTurn(plain.turnId, tenant.accountId, 'Here are the Salon rules.');
+      const withoutOverride = await getConversationForOwner(db, {
+        accountId: tenant.accountId,
+        actorUserId: tenant.userId,
+        conversationId: plain.conversationId,
+      });
+      expect(withoutOverride!.summary!.rules.locationOverrideExists).toBe(false);
+      expect(withoutOverride!.summary!.rules.vetoWindowMinutes).toBe(DEFAULT_VETO_WINDOW_MINUTES);
+      expect(withoutOverride!.summary!.rules.dailyCap).toBe(DEFAULT_DAILY_AUTO_POST_CAP);
+      expect(withoutOverride!.summary!.rules.threshold).toBeNull();
+    });
+
+    it('getConversationForOwner carries each turn its own stored proposals, and none of another account\'s', async () => {
+      // A stored `proposal` segment carries only an ID, so the CARDS it names
+      // have to travel with the transcript. Three turns: two with proposals and
+      // one without, so an always-empty batched read, a read keyed by the wrong
+      // turn, and a read that drops its account predicate all fail here.
+      const conversationId = randomUUID();
+      const first = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'Warmer, and stop mentioning parking.',
+      })));
+      const toneId = await seedProposal({
+        conversationId, turnId: first.turnId, accountId: tenant.accountId,
+        actorUserId: tenant.userId, locationId,
+        operation: 'set_tone', inputJson: { tone: 'warm and brief' },
+        rationale: 'You asked for shorter replies.',
+      });
+      const avoidId = await seedProposal({
+        conversationId, turnId: first.turnId, accountId: tenant.accountId,
+        actorUserId: tenant.userId, locationId,
+        operation: 'set_avoid_facts', inputJson: { avoidFacts: ['parking', 'wait times'] },
+        rationale: 'You asked to keep parking out of replies.',
+      });
+      await completeTurnWithProposals(
+        first.turnId, tenant.accountId, 'Two cards below.', [toneId, avoidId],
+      );
+      // Superseded AFTER insertion: `insertProposals` writes `pending` for
+      // every row, so a status read back as anything else can only have come
+      // from the stored column — not from a constant in the mapper.
+      await db`
+        UPDATE agent_proposals SET status = ${PROPOSAL_STATUS.SUPERSEDED}
+        WHERE id = ${avoidId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+
+      const second = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'Mention the espresso.',
+      })));
+      const highlightId = await seedProposal({
+        conversationId, turnId: second.turnId, accountId: tenant.accountId,
+        actorUserId: tenant.userId, locationId,
+        operation: 'set_highlight_facts', inputJson: { highlightFacts: ['award-winning espresso'] },
+        rationale: 'You asked to mention the espresso.',
+      });
+      await completeTurnWithProposals(
+        second.turnId, tenant.accountId, 'One card below.', [highlightId],
+      );
+
+      const third = createdOrThrow(await createTurn(db, baseTurnInput({
+        conversationId, text: 'How many are waiting?',
+      })));
+      await completeTurn(third.turnId, tenant.accountId, 'Nothing to propose.');
+
+      // A row that names MY turn but carries ANOTHER account's id. The FK graph
+      // permits it (there is no composite (turn_id, account_id) key), which is
+      // exactly why the batched read carries its own `account_id` predicate —
+      // without it this row lands in my transcript.
+      await seedProposal({
+        conversationId, turnId: first.turnId, accountId: other.accountId,
+        actorUserId: other.userId, locationId: otherLocationId,
+        operation: 'set_tone', inputJson: { tone: 'not mine' },
+        rationale: 'Another tenant entirely.',
+      });
+
+      const view = await getConversationForOwner(db, {
+        accountId: tenant.accountId,
+        actorUserId: tenant.userId,
+        conversationId,
+      });
+      const [turnOne, turnTwo, turnThree] = view!.turns;
+
+      // Keyed BY TURN, in the read's own order, by id / operation / status.
+      expect(turnOne!.proposals.map((p) => ({ id: p.id, operation: p.operation, status: p.status })))
+        .toEqual([
+          { id: toneId, operation: 'set_tone', status: PROPOSAL_STATUS.PENDING },
+          { id: avoidId, operation: 'set_avoid_facts', status: PROPOSAL_STATUS.SUPERSEDED },
+        ]);
+      expect(turnTwo!.proposals.map((p) => ({ id: p.id, operation: p.operation, status: p.status })))
+        .toEqual([
+          { id: highlightId, operation: 'set_highlight_facts', status: PROPOSAL_STATUS.PENDING },
+        ]);
+      // A turn that proposed nothing gets an empty list, NOT the previous turn's.
+      expect(turnThree!.proposals).toEqual([]);
+
+      // The card's words come from the CATALOG at read time, keyed by the
+      // stored operation — never from a stored string.
+      expect(turnOne!.proposals[0]!.describe).toBe('Set the reply tone to "warm and brief"');
+      expect(turnOne!.proposals[1]!.describe).toBe('Keep 2 thing(s) out of every reply');
+      expect(turnTwo!.proposals[0]!.describe).toBe('Highlight 1 thing(s) when a reply fits');
+
+      // The foreign row reached NEITHER the transcript nor the pending panel.
+      expect(JSON.stringify(view!.turns)).not.toContain('not mine');
+      expect(view!.summary!.pendingProposals.map((p) => p.id))
+        .toEqual([toneId, highlightId]);
+
+      // And the stored segments still name exactly the ids the cards carry, so
+      // the transcript can pair a sentence with its card.
+      const named = turnOne!.segments
+        .filter((segment): segment is { type: 'proposal'; proposalId: string } =>
+          segment.type === 'proposal')
+        .map((segment) => segment.proposalId);
+      expect(named).toEqual([toneId, avoidId]);
     });
 
     it('getConversationForOwner returns a null summary for a conversation with no turns', async () => {

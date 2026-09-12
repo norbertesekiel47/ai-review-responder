@@ -269,7 +269,9 @@ describe('PUT /api/settings/voice', () => {
     vi.clearAllMocks();
     mockRequireRole.mockResolvedValue(ownerUser());
     mockAssertWritableSubscriptionForAccount.mockResolvedValue({ ok: true });
-    mockUpdateVoiceConfig.mockResolvedValue({ ok: true, updatedAt: '2026-09-11T10:00:00.000Z' });
+    mockUpdateVoiceConfig.mockResolvedValue({
+      ok: true, updatedAt: '2026-09-11 10:00:00.123456+00',
+    });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   });
 
@@ -279,7 +281,12 @@ describe('PUT /api/settings/voice', () => {
       tone: 'warm, friendly',
     }));
     expect(res.status).toBe(200);
-    expect((await res.json()).success).toBe(true);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    // The writer's **Version token** reaches the caller VERBATIM — the route
+    // does not re-format it into an ISO string, which would truncate the
+    // microseconds the token exists to carry.
+    expect(body.updatedAt).toBe('2026-09-11 10:00:00.123456+00');
 
     // One transaction, one writer call, carrying the owner's account scope.
     expect(mockSqlBegin).toHaveBeenCalledTimes(1);

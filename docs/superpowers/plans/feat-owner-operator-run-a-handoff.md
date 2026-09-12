@@ -15,8 +15,10 @@ Everything a resumed session needs is on disk. Read in this order; never re-read
 ## Where the run is
 
 - Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-owner-operator-run-a`, branch `feat/owner-operator-run-a`, base `f747cb7b6` (origin/main).
-- Phase: `plan_approved`. Plan rounds used: 3 of 3 (round 1 cold, rounds 2–3 resumed thread `01a0937a-9cf7-7352-9e1f-72bf9fc86368`).
-- Gate: baseline green on every row except `feature-surface` (files not created yet — accepted deviation).
+- Phase: **`reviewed`, pending round 3.** Review rounds used: **2 of 3**. Round 1 (three axes + red team) landed its fixes at `eb21f55c2`; round 2 was the verification wave over that commit and raised ten findings, eight of which are applied in the round-2 fix commit (R1–R7, R10) — see the deviations file's round-2 entry for the rejected (R8), the deferred (R9, three standards lows) and the documented (spec-r2 low #2).
+- **Red-team round 3 is AUTHORIZED by the owner**, recorded in the sidecar `docs/reviews/red-team/feat-owner-operator-run-a-b83a4f/findings.json` as `auth-round-3-2026-09-11`. It is scoped to the R1–R7/R10 fix hunks; `round-start` reads the authorization from the sidecar, not from this file.
+- Gate: **GREEN at the round-2 fix commit.** Re-derive it at current HEAD before quoting it — evidence produced before a subagent returned or a rebase landed is stale.
+- **The Codex thread id is dead.** `codex exec resume` refuses `01a0937a-9cf7-7352-9e1f-72bf9fc86368` (`thread/resume: no rollout found`); the plan-review ledger keeps it for provenance only. Any further Codex round on this branch starts cold.
 - Model routing (owner instruction): the orchestrator (Fable) reviews every artifact; every subagent that WRITES (code, tests, docs) is dispatched with `model: "opus"`.
 
 ## Execution order (step 4)

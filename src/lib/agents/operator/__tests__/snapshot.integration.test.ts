@@ -7,6 +7,8 @@ import postgres from 'postgres';
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { DEFAULT_DAILY_AUTO_POST_CAP, DEFAULT_VETO_WINDOW_MINUTES } from '@/lib/auto-approval/policy';
+import { POLICY_ACTION_POSTING, POLICY_PERSONA_REPLY } from '@/lib/auto-approval/types';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   acquireLiveDbLock,
@@ -27,7 +29,8 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { buildSnapshot } from '../context';
 import { buildOperatorPrompt } from '../prompt';
-import { TURN_STATUS } from '../schema';
+import { insertProposals, type ProposalRow } from '../proposals';
+import { PROPOSAL_STATUS, TURN_STATUS } from '../schema';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 let db: postgres.Sql;
@@ -71,6 +74,67 @@ async function seedReview(
   return { reviewId, responseId };
 }
 
+/**
+ * One stored **Proposal**, written through the production writer.
+ *
+ * ONE ROW PER TRANSACTION: `created_at` defaults to `NOW()`, the TRANSACTION's
+ * start time, so rows written inside a single `begin` share a timestamp and the
+ * read's `ORDER BY created_at ASC` would be free to return them in either
+ * order.
+ */
+async function seedProposal(input: {
+  conversationId: string;
+  turnId: string;
+  locationId: string;
+  operation: string;
+  inputJson: Record<string, unknown>;
+  rationale: string;
+}): Promise<string> {
+  const row: ProposalRow = {
+    id: randomUUID(),
+    conversationId: input.conversationId,
+    turnId: input.turnId,
+    accountId: tenant.accountId,
+    actorUserId: tenant.userId,
+    locationId: input.locationId,
+    operation: input.operation,
+    contractVersion: 1,
+    input: input.inputJson,
+    before: { tone: null },
+    after: { tone: null },
+    rationale: input.rationale,
+    labelKind: 'fact',
+    preparedVersionToken: { businessId: input.locationId, updatedAt: '2026-09-11 10:00:00.123456+00' },
+    requiresConfirmation: false,
+    status: PROPOSAL_STATUS.PENDING,
+  };
+  await db.begin(async (tx) => { await insertProposals(tx, [row]); });
+  return row.id;
+}
+
+/** A completed historical turn, inserted without running the worker. */
+async function seedCompletedTurn(input: {
+  conversationId: string;
+  sequence: number;
+  ownerText: string;
+  replyText: string;
+}): Promise<string> {
+  const turnId = randomUUID();
+  await db`
+    INSERT INTO agent_turns (
+      id, conversation_id, account_id, actor_user_id, location_id,
+      client_turn_key, sequence, owner_text, status, reply, completed_at
+    )
+    VALUES (
+      ${turnId}::uuid, ${input.conversationId}::uuid, ${tenant.accountId}::uuid,
+      ${tenant.userId}::uuid, ${locationId}::uuid, ${randomUUID()}::uuid,
+      ${input.sequence}, ${input.ownerText}, ${TURN_STATUS.COMPLETED},
+      ${db.json([{ type: 'text', text: input.replyText }])}, NOW()
+    )
+  `;
+  return turnId;
+}
+
 const seedPending = (businessId: string, starRating: number | null) =>
   seedReview(businessId, starRating, REVIEW_STATUS.PENDING_APPROVAL);
 const seedPosted = (businessId: string, starRating: number | null) =>
@@ -108,6 +172,7 @@ describeWithDb(
       await db`DELETE FROM agent_proposals WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_turns WHERE account_id = ${tenant.accountId}::uuid`;
       await db`DELETE FROM agent_conversations WHERE account_id = ${tenant.accountId}::uuid`;
+      await db`DELETE FROM auto_approval_policies WHERE account_id = ${tenant.accountId}::uuid`;
       await db`
         UPDATE businesses SET sample_responses = NULL
         WHERE account_id = ${tenant.accountId}::uuid
@@ -221,6 +286,118 @@ describeWithDb(
       // The snapshot excludes the TEXT, not the review: the counts are there.
       expect(snapshot.metrics.starBands.total).toBe(3);
       expect(snapshot.metrics.pendingCount).toBe(3);
+    });
+
+    it('snapshot summarises each historical turn\'s own proposals from the catalog', async () => {
+      // `proposalSummaries` is what tells the model it ALREADY proposed
+      // something — without it the model re-proposes the same card every turn.
+      // Two turns, two operations, one turn with nothing: an always-empty
+      // batched read and a read keyed by the wrong turn both fail here.
+      const conversationId = randomUUID();
+      await db`
+        INSERT INTO agent_conversations (id, account_id, created_by_user_id)
+        VALUES (${conversationId}::uuid, ${tenant.accountId}::uuid, ${tenant.userId}::uuid)
+      `;
+      const withCards = await seedCompletedTurn({
+        conversationId, sequence: 1,
+        ownerText: 'Warmer, and mention the espresso.',
+        replyText: 'Two cards below.',
+      });
+      const toneId = await seedProposal({
+        conversationId, turnId: withCards, locationId,
+        operation: 'set_tone', inputJson: { tone: 'warm and brief' },
+        rationale: 'You asked for shorter replies.',
+      });
+      const highlightId = await seedProposal({
+        conversationId, turnId: withCards, locationId,
+        operation: 'set_highlight_facts', inputJson: { highlightFacts: ['award-winning espresso'] },
+        rationale: 'You asked to mention the espresso.',
+      });
+      await seedCompletedTurn({
+        conversationId, sequence: 2,
+        ownerText: 'How many are waiting?',
+        replyText: 'Two replies are waiting.',
+      });
+
+      const snapshot = await buildSnapshot(db, {
+        accountId: tenant.accountId,
+        locationId,
+        locationName: 'Salon',
+        conversationId,
+        sequence: 3,
+        subscriptionTier: SubscriptionTier.COPILOT,
+      });
+
+      expect(snapshot.turns.map((turn) => turn.sequence)).toEqual([1, 2]);
+      // The CATALOG's own words, keyed by the STORED operation — a summary can
+      // therefore never carry anything the catalog would not print, and a
+      // different operation produces a different sentence.
+      expect(snapshot.turns[0]!.proposalSummaries).toEqual([
+        'Set the reply tone to "warm and brief"',
+        'Highlight 1 thing(s) when a reply fits',
+      ]);
+      // The turn that proposed nothing summarises nothing — not its neighbour's.
+      expect(snapshot.turns[1]!.proposalSummaries).toEqual([]);
+      // Both are still PENDING, so they are also the live cards the model may
+      // name — same rows, reached by the other read.
+      expect(snapshot.pendingProposals.map((p) => ({ id: p.id, operation: p.operation })))
+        .toEqual([
+          { id: toneId, operation: 'set_tone' },
+          { id: highlightId, operation: 'set_highlight_facts' },
+        ]);
+      // The summary is the card's words, never the stored input JSONB.
+      expect(JSON.stringify(snapshot.turns)).not.toContain('award-winning espresso');
+    });
+
+    it('snapshot operating rules report the location override and its dials', async () => {
+      // `locationOverrideExists` is ROW EXISTENCE, a distinct fact from
+      // inheritance: the account has two locations and only one has a
+      // Reply/posting row, so the same account answers differently per
+      // location.
+      await db`
+        INSERT INTO auto_approval_policies (
+          id, account_id, location_id, persona, action_class,
+          auto_approve_min_star, veto_window_minutes, daily_auto_post_cap
+        ) VALUES (
+          ${randomUUID()}::uuid, ${tenant.accountId}::uuid, ${secondLocationId}::uuid,
+          ${POLICY_PERSONA_REPLY}, ${POLICY_ACTION_POSTING}, 5, 30, 7
+        )
+      `;
+
+      const overridden = await buildSnapshot(db, {
+        accountId: tenant.accountId,
+        locationId: secondLocationId,
+        locationName: 'Cafe',
+        conversationId: randomUUID(),
+        sequence: 1,
+        subscriptionTier: SubscriptionTier.COPILOT,
+      });
+      expect(overridden.operatingRules.locationOverrideExists).toBe(true);
+      // The LOCATION reads `effective`, and here that is its own row.
+      expect(overridden.operatingRules.location)
+        .toEqual({ threshold: 5, vetoWindowMinutes: 30, dailyCap: 7 });
+      // The ACCOUNT scope is a separate projection and still the platform default.
+      expect(overridden.operatingRules.account).toEqual({
+        threshold: null,
+        vetoWindowMinutes: DEFAULT_VETO_WINDOW_MINUTES,
+        dailyCap: DEFAULT_DAILY_AUTO_POST_CAP,
+      });
+
+      const plain = await buildSnapshot(db, {
+        accountId: tenant.accountId,
+        locationId,
+        locationName: 'Salon',
+        conversationId: randomUUID(),
+        sequence: 1,
+        subscriptionTier: SubscriptionTier.COPILOT,
+      });
+      expect(plain.operatingRules.locationOverrideExists).toBe(false);
+      // A location with NO row still has operating rules, inherited — not nulls.
+      expect(plain.operatingRules.location).toEqual({
+        threshold: null,
+        vetoWindowMinutes: DEFAULT_VETO_WINDOW_MINUTES,
+        dailyCap: DEFAULT_DAILY_AUTO_POST_CAP,
+      });
     });
 
     it('snapshot star bands equal a hand count per location and exclude held drafts', async () => {
