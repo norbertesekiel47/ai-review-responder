@@ -413,7 +413,7 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
 | 9 | `stripe-out-of-order-ack → discord` **BUILT 2026-09-04, rule `3946648`** | `feature` equals `stripe_subscription_out_of_order` **AND** the issue has happened at least **4** times | **every event**, throttled to 1/hour | any |
 | 10 | Admin home configuration failure → Discord **REQUIRED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE** | Source Next.js project; exception type Error and message equal to the constant below, scoped to the affected deployment environment | **every event**, action throttle 60 minutes per issue | error |
-| 11 | `agent-turn-exhausted → discord` (Owner Operator, red-team P1-3) **BUILT 2026-09-12, staging rule `<staging-rule-id>`, production rule `<prod-rule-id>`** | `subsystem` equals `worker_job` **AND** `queue` equals `agent_turn` | **every event** | `error` (the `captureException` default) |
+| 11 | `agent-turn-exhausted → discord` (Owner Operator, red-team P1-3) **REQUIRED BEFORE `OWNER_OPERATOR_ENABLED` GOES ON; NOT BUILT AS OF 2026-09-12** — Run B's build attempt was refused by the Sentry API (`You do not have permission`: the org token in the env has no `alerts:write` scope; the Sentry MCP can only read rules). The build happens with a scoped token, staging first, then production, and this cell gets both rule ids in the rule-9 form; the T8 staging flip gates on it | `subsystem` equals `worker_job` **AND** `queue` equals `agent_turn` | **every event** | `error` (the `captureException` default) |
 
 **Rule 10 — Admin home configuration failure (#1192).** The emitted identity is
 Error with the exact message:
