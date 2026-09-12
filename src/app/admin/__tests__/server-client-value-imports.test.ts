@@ -16,7 +16,7 @@
 // 2026-08-10 and took out seven admin pages with "Admin page failed to load",
 // each having imported `PAGE_SIZE` from its sibling `*Client.tsx`.
 //
-// The cure is a server-safe owner module (src/app/admin/page-sizes.ts). Only the
+// The cure is a server-safe owner module without a client directive. Only the
 // server-importing-from-client direction is a problem; client components may
 // freely import from server-safe modules.
 
@@ -107,7 +107,7 @@ describe('admin server pages never import a VALUE from a client component module
         violations,
         `${rel} imports non-component value(s) from a client module: ` +
           `${violations.join(', ')}. Move them to a server-safe module ` +
-          `(see src/app/admin/page-sizes.ts) — the bundler hands the server a stub, not the value.`,
+          `without a client directive — the bundler hands the server a stub, not the value.`,
       ).toEqual([]);
     });
   }

@@ -102,7 +102,12 @@ const ADMIN_SOURCES = SCANNED_ROOTS.flatMap(sourceFiles)
 
 describe('no admin file formats dates or numbers against the runtime locale/zone', () => {
   it('finds the admin tree to scan', () => {
-    expect(ADMIN_SOURCES.length).toBeGreaterThan(20);
+    expect(ADMIN_SOURCES).toEqual(expect.arrayContaining([
+      'src/app/admin/impersonate/[sessionId]/view/page.tsx',
+      'src/components/admin/AdminIdentity.tsx',
+      'src/components/admin/ImpersonationBanner.tsx',
+      'src/components/admin/ui/AdminPage.tsx',
+    ]));
   });
 
   it.each(ADMIN_SOURCES)('%s calls no toLocale* helper', (file) => {

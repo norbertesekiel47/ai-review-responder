@@ -6,8 +6,8 @@
 //
 //   - the BASE QUERY — `businesses` × `accounts` × non-superseded `responses`
 //     with the pending-approval / pending-reconnect counts and the windowed
-//     response aggregates (today spelled identically in overview-service.ts and
-//     businesses-list-service.ts, which is the duplication §5.2 removes). It is
+//     response aggregates (formerly duplicated by overview-service.ts and
+//     businesses-list-service.ts before the §5.2 extraction). It is
 //     PAGE-FIRST: the `businesses` × `accounts` candidate set is ordered and
 //     LIMIT/OFFSET'd in a CTE BEFORE `responses` is joined, so the response
 //     aggregate runs over the page's businesses only — never over every
@@ -19,23 +19,22 @@
 //   - the CONDITIONAL COUNT — the unfiltered total, queried only when a page
 //     was requested; unpaginated callers already hold every row.
 //
-// Overview calls it unpaginated and ranks the result in TypeScript (the churn
-// model is TS, not SQL — §5.1); Businesses calls it with a page. One owner, so
-// the two pages cannot disagree on how a business is counted, scored or labelled.
+// The Overview service calls it unpaginated and ranks in TypeScript (the churn
+// model is TS, not SQL — §5.1); the Businesses API calls it with a page. The
+// separate Admin app consumes both through the API.
 //
 // It is ALSO the owner of the churn DERIVATION for the third admin surface, the
-// business DETAIL page: `churnMetricsQuery` and `churnScoreFromMetrics` are
+// business DETAIL API: `churnMetricsQuery` and `churnScoreFromMetrics` are
 // exported for src/lib/admin/business-detail/*, which spelled both a second time
-// until the 2026-08-15 Pathfinder pass (§A2). The detail page reads ONE id, so
+// until the 2026-08-15 Pathfinder pass (§A2). The detail service reads ONE id, so
 // it calls the same query with a one-element array rather than a query of its
 // own — the two CTEs were verified semantically identical before merging (the
 // multi-id form's GROUP BY + LEFT JOIN + COALESCE produces exactly the row the
 // single-id form's CROSS JOIN over ungrouped aggregates produced). Presentation
-// of the resulting level has its own single owner,
-// src/components/admin/ui/HealthBadge.tsx.
+// of the resulting level now belongs to HealthBadge in the separate Admin app.
 //
 // Born-injected: `sql` is a parameter, not an import (invariant #15). The
-// composition roots (the two routes and the two server pages) supply the
+// API composition roots supply the
 // singleton, so this module never imports @/lib/db/server.
 //
 // Strictly SEQUENTIAL per #773 — rows query → (paginated only) COUNT → metrics,
@@ -114,7 +113,7 @@ export interface BusinessSummary {
   lastActivity: string | null;
   /**
    * `ChurnScore` by reference, not a structural restatement of it: the level
-   * union is `src/lib/shared/churn-score.ts`'s to change, and HealthBadge keys
+   * union is `src/lib/shared/churn-score.ts`'s to change; the Admin app's HealthBadge keys
    * its style/label maps on the same type so a new level is a compile error in
    * the UI rather than an unstyled pill.
    */
