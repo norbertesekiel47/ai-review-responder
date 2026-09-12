@@ -85,5 +85,63 @@ describe('GET /api/operator/conversation', () => {
 });
 
 describe('GET /api/operator/conversation — location scoping', () => {
-  it.todo('GET conversation scopes the summary to ?locationId= when the conversation has no turns');
+  const LOCATION = '00000000-0000-7000-8000-00000000b101';
+
+  // ITS OWN SETUP. The file's existing `beforeEach` is scoped to the first
+  // `describe`, so without this block `mockRequireRole` returns `undefined`,
+  // the route answers 401, and every assertion below fails for the wrong
+  // reason.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.OWNER_OPERATOR_ENABLED = 'true';
+    mockRequireRole.mockResolvedValue({ id: 'user-1', role: 'owner', accountId: ACCOUNT });
+  });
+
+  it('GET conversation scopes the summary to ?locationId= when the conversation has no turns', async () => {
+    mockGetConversationForOwner.mockResolvedValue({
+      conversation: { id: '00000000-0000-7000-8000-00000000c001', lastTurnAt: null },
+      turns: [],
+      summary: {
+        pending: { pendingCount: 2, draftsWaiting: 2 },
+        recent: { posted7d: 9, reportingPeriodDays: 7 },
+        rules: { threshold: null, vetoWindowMinutes: 15, dailyCap: 5, locationOverrideExists: false },
+        facts: null,
+        pendingProposals: [],
+        connectionStatus: 'active',
+        asOf: '2026-09-12T10:00:00.000Z',
+      },
+    });
+
+    const response = await GET(new NextRequest(
+      `https://app.repworth.test/api/operator/conversation?locationId=${LOCATION}`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mockGetConversationForOwner).toHaveBeenCalledTimes(1);
+    // The module gets the location; the ROUTE does not resolve it, decide what
+    // it means, or fall back to one.
+    expect(mockGetConversationForOwner.mock.calls[0]![1]).toMatchObject({ locationId: LOCATION });
+
+    // A malformed value is a 404, matching this route's own `?id` rule — never
+    // a 400 that distinguishes "badly shaped" from "not yours".
+    mockGetConversationForOwner.mockClear();
+    const malformed = await GET(new NextRequest(
+      'https://app.repworth.test/api/operator/conversation?locationId=not-a-uuid',
+    ));
+    expect(malformed.status).toBe(404);
+    expect(await malformed.json()).toEqual({ error: 'location_not_found' });
+    expect(mockGetConversationForOwner).not.toHaveBeenCalled();
+
+    // Absent: the module is called with no locationId at all, which is Run A's
+    // behaviour unchanged (the summary is scoped to the latest turn, or null).
+    mockGetConversationForOwner.mockClear();
+    mockGetConversationForOwner.mockResolvedValue({
+      conversation: { id: '00000000-0000-7000-8000-00000000c001', lastTurnAt: null },
+      turns: [],
+      summary: null,
+    });
+    const bare = await GET(new NextRequest('https://app.repworth.test/api/operator/conversation'));
+    expect(bare.status).toBe(200);
+    expect(mockGetConversationForOwner.mock.calls[0]![1]).toMatchObject({ locationId: undefined });
+  });
 });

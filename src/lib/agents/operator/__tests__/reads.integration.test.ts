@@ -27,8 +27,14 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { RECENT_COMPLETED_DAYS } from '../context';
 import { insertProposals, type ProposalRow } from '../proposals';
-import { getConversationForOwner, getTurnForOwner, TRANSCRIPT_TURN_LIMIT } from '../reads';
+import {
+  getConversationForOwner,
+  getTurnForOwner,
+  TRANSCRIPT_TURN_LIMIT,
+  type OwnerConversationView,
+} from '../reads';
 import { PROPOSAL_STATUS, TURN_STATUS } from '../schema';
 import { createTurn, type CreateTurnResult } from '../turns';
 
@@ -54,6 +60,19 @@ let otherLocationId: string;
 function createdOrThrow(result: CreateTurnResult): { conversationId: string; turnId: string } {
   if (result.kind !== 'created') throw new Error(`expected a created turn, got ${result.kind}`);
   return { conversationId: result.conversationId, turnId: result.turnId };
+}
+
+/**
+ * `OwnerConversationView.conversation` became nullable in Run B: a first-time
+ * owner with no conversation row gets `{ conversation: null, … }` rather than
+ * a 404 (RB-09). These cases all assert on a conversation that EXISTS, so the
+ * narrowing is an assertion, not a cast — a null here is a real failure and
+ * should read as one.
+ */
+function conversationOrThrow(view: OwnerConversationView | null): { id: string; lastTurnAt: string | null } {
+  expect(view).not.toBeNull();
+  expect(view!.conversation).not.toBeNull();
+  return view!.conversation!;
 }
 
 function baseTurnInput(overrides: Partial<Parameters<typeof createTurn>[1]> = {}) {
@@ -316,13 +335,13 @@ describeWithDb(
       const forFirst = await getConversationForOwner(db, {
         accountId: tenant.accountId, actorUserId: tenant.userId,
       });
-      expect(forFirst!.conversation.id).toBe(mine.conversationId);
+      expect(conversationOrThrow(forFirst).id).toBe(mine.conversationId);
       expect(forFirst!.turns.map((t) => t.id)).toEqual([mine.turnId]);
 
       const forSecond = await getConversationForOwner(db, {
         accountId: tenant.accountId, actorUserId: secondUserId,
       });
-      expect(forSecond!.conversation.id).toBe(sibling.conversationId);
+      expect(conversationOrThrow(forSecond).id).toBe(sibling.conversationId);
 
       // An EXPLICIT id is account-scoped, not actor-scoped: one owner may open
       // a colleague's conversation by id, and neither may open another
@@ -332,7 +351,7 @@ describeWithDb(
         actorUserId: tenant.userId,
         conversationId: sibling.conversationId,
       });
-      expect(explicit!.conversation.id).toBe(sibling.conversationId);
+      expect(conversationOrThrow(explicit).id).toBe(sibling.conversationId);
 
       const theirs = createdOrThrow(await createTurn(db, {
         accountId: other.accountId,
@@ -554,7 +573,57 @@ describeWithDb(
       expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
     });
 
-    // Round-1 addition (RB-09), converted by T2.
-    it.todo('first-time owner receives a scoped summary and connection CTA before sending');
+    it('first-time owner receives a scoped summary and connection CTA before sending', async () => {
+      // NO conversation row exists — the normal state before the owner's first
+      // message, because `createTurn` creates the conversation together with
+      // the first turn and nothing creates an empty one.
+      const [conversations] = await db<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count FROM agent_conversations
+        WHERE account_id = ${tenant.accountId}::uuid
+      `;
+      expect(conversations!.count).toBe(0);
+
+      const view = await getConversationForOwner(db, {
+        accountId: tenant.accountId,
+        actorUserId: tenant.userId,
+        locationId,
+      });
+
+      // 200-shaped, not null: the route renders this as a 200 with an empty
+      // transcript, which is what puts the panel on screen before the owner
+      // has said anything.
+      expect(view).not.toBeNull();
+      expect(view!.conversation).toBeNull();
+      expect(view!.turns).toEqual([]);
+      expect(view!.summary).not.toBeNull();
+
+      const summary = view!.summary!;
+      // The summary is scoped to the location the BROWSER selected, not to a
+      // turn that does not exist.
+      expect(summary.facts).not.toBeNull();
+      expect(summary.recent.reportingPeriodDays).toBe(RECENT_COMPLETED_DAYS);
+      expect(typeof summary.asOf).toBe('string');
+      // A location that has never been connected reports `null`, and the panel
+      // shows the connect call to action for anything that is not `active`.
+      expect(summary.connectionStatus).toBeNull();
+      // No conversation means no pending proposals, and no query for them.
+      expect(summary.pendingProposals).toEqual([]);
+
+      // A location that is NOT this account's is still null overall, which the
+      // route renders as 404 — the empty view is not a way to probe.
+      const foreign = await getConversationForOwner(db, {
+        accountId: tenant.accountId,
+        actorUserId: tenant.userId,
+        locationId: otherLocationId,
+      });
+      expect(foreign).toBeNull();
+
+      // And WITHOUT a location there is nothing to scope to: still null.
+      const bare = await getConversationForOwner(db, {
+        accountId: tenant.accountId,
+        actorUserId: tenant.userId,
+      });
+      expect(bare).toBeNull();
+    });
   },
 );

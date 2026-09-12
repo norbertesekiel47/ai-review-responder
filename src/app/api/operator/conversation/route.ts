@@ -32,6 +32,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return errorResponse('conversation_not_found', 404);
   }
 
+  // D2. Optional and ADDITIVE: the module uses it only when the conversation
+  // has no turns yet. A malformed value is the same 404 a foreign one gets, for
+  // the same reason `?id` is — the shape of the id tells the caller nothing.
+  const rawLocationId = request.nextUrl.searchParams.get('locationId');
+  if (rawLocationId !== null && !z.uuid().safeParse(rawLocationId).success) {
+    return errorResponse('location_not_found', 404);
+  }
+
   try {
     // `summary` is null on a conversation with no turns yet — see
     // `OwnerConversationView`; the panel has no location to scope its reads to
@@ -40,7 +48,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       accountId: owner.accountId,
       actorUserId: owner.user.id,
       conversationId: rawId ?? undefined,
+      locationId: rawLocationId ?? undefined,
     });
+    // A first-time owner is NOT a 404 (RB-09): the module answers a view whose
+    // `conversation` is null, which falls through to the 200 below with an
+    // empty transcript and a scoped summary. Only a `?id=` that matched
+    // nothing, or a `?locationId=` that is not an active location of the
+    // account, reaches this guard.
     if (!view) return errorResponse('conversation_not_found', 404);
     return jsonResponse(view);
   } catch (error) {

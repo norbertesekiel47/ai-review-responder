@@ -449,3 +449,68 @@ export async function markSiblingProposalsStale(
       AND id <> ${input.excludeProposalId}::uuid
   `;
 }
+
+export type DeclineResult =
+  | { kind: 'rejected'; proposal: ProposalView; repeated: boolean }
+  | { kind: 'not_pending'; proposal: ProposalView; status: ProposalStatus }
+  | { kind: 'not_found' };
+
+/**
+ * "Not now" (spec §6.3): the owner declined. THE ACTOR IS THE WHOLE RECORD —
+ * `status='rejected'` and `decided_by_user_id`, with `failure_reason` left
+ * NULL (D5). There is deliberately no reason field on the button: a stored
+ * `owner_declined` token would make a human decision indistinguishable from a
+ * server refusal in every read that counts non-NULL reasons, and the intake
+ * puts a Decline reason out of scope.
+ *
+ * IDEMPOTENT. A second click, a double-submit or a retried POST finds a row
+ * that is already `rejected` WITH NO REASON — the signature of an owner
+ * decline — and returns it unchanged with `repeated: true`. A row rejected by
+ * the SERVER carries a reason and is therefore not this; it answers
+ * `not_pending`, so the card says "the plan was refused" rather than "you
+ * declined it".
+ *
+ * Inside `sql.begin` with the row locked (`lockProposalForAccount`, the same
+ * locked read Apply uses), so the status read and the write cannot be
+ * separated by a concurrent Apply. No `businesses` lock: nothing outside
+ * `agent_proposals` changes.
+ */
+export async function declineProposal(
+  sql: postgres.Sql,
+  input: { proposalId: string; accountId: string; actorUserId: string },
+): Promise<DeclineResult> {
+  return sql.begin(async (tx): Promise<DeclineResult> => {
+    const proposal = await lockProposalForAccount(tx, {
+      proposalId: input.proposalId,
+      accountId: input.accountId,
+    });
+    if (!proposal) return { kind: 'not_found' };
+
+    if (
+      proposal.status === PROPOSAL_STATUS.REJECTED &&
+      proposal.failureReason === null
+    ) {
+      return { kind: 'rejected', proposal, repeated: true };
+    }
+    if (proposal.status !== PROPOSAL_STATUS.PENDING) {
+      return { kind: 'not_pending', proposal, status: proposal.status };
+    }
+
+    await tx`
+      UPDATE agent_proposals
+      SET status = ${PROPOSAL_STATUS.REJECTED},
+          decided_by_user_id = ${input.actorUserId}::uuid,
+          failure_reason = NULL,
+          updated_at = NOW()
+      WHERE id = ${input.proposalId}::uuid
+        AND account_id = ${input.accountId}::uuid
+    `;
+
+    const declined = await readProposalForAccount(tx, {
+      proposalId: input.proposalId,
+      accountId: input.accountId,
+    });
+    if (!declined) throw new Error('agents/operator: declined proposal vanished in its own transaction');
+    return { kind: 'rejected', proposal: declined, repeated: false };
+  });
+}

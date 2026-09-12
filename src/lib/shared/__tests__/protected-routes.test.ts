@@ -169,7 +169,27 @@ describe('protected API route roles', () => {
     expect(isProtectedOwnerApiRoute('/api/account/offboarding/confirm')).toBe(true);
   });
 
-  it.todo('isProtectedOwnerApiRoute returns true for /api/operator, /api/operator/turns, /api/operator/conversation and both proposal routes');
+  it('isProtectedOwnerApiRoute returns true for /api/operator, /api/operator/turns, /api/operator/conversation and both proposal routes', () => {
+    // Architecture pass 2026-09-12, H1-A. Proxy branch 6 (src/proxy.ts:349-364)
+    // is the only place getAalGate() runs for an API route, and it keys off
+    // THIS predicate. Without the arm, an owner under MFA enforcement answers a
+    // 403 on /api/settings and a 200 on /api/operator — while both change the
+    // same `businesses` voice columns. ONE allowlist entry, no fourth branch.
+    expect(isProtectedOwnerApiRoute('/api/operator')).toBe(true);
+    expect(isProtectedOwnerApiRoute('/api/operator/turns')).toBe(true);
+    expect(isProtectedOwnerApiRoute('/api/operator/turns/0199a0f0-0000-7000-8000-000000000001')).toBe(true);
+    expect(isProtectedOwnerApiRoute('/api/operator/conversation')).toBe(true);
+    expect(isProtectedOwnerApiRoute('/api/operator/proposals/0199a0f0-0000-7000-8000-000000000002/apply')).toBe(true);
+    expect(isProtectedOwnerApiRoute('/api/operator/proposals/0199a0f0-0000-7000-8000-000000000002/decline')).toBe(true);
+    // Normalization still applies — the gate must not be casing-bypassable.
+    expect(isProtectedOwnerApiRoute('/API/Operator/Turns')).toBe(true);
+    expect(isProtectedOwnerApiRoute('/api/operator/')).toBe(true);
+    // And it must not swallow a neighbouring prefix.
+    expect(isProtectedOwnerApiRoute('/api/operators')).toBe(false);
+    // isProtectedRoute picks it up through isProtectedAppApiRoute, which is
+    // what actually admits the request to the branch chain.
+    expect(isProtectedRoute('/api/operator/turns')).toBe(true);
+  });
 });
 
 describe('isAdminApiRoute', () => {
