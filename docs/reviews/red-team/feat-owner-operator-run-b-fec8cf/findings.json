@@ -655,7 +655,15 @@
       "reason": "Duty-4 sibling search inside the fix hunk. The fix added `unauthorized` and `account_offboarding` to ROUTE_ERROR_WORDING (lines 174-175) with strings identical to PROPOSAL_FAILURE_WORDING's own entries (lines 145-146): 'Your account can no longer make this change. Nothing was applied.' and 'This account is closing, so changes are not accepted. Nothing was applied.'. The file already has the in-module idiom for exactly this — PROPOSAL_STALE and NOT_AVAILABLE are named constants both maps reference — and the fix's own new header says what lives here is \"what more than one renderer has to agree on\". Two renderers now have to agree on these two sentences and nothing makes them. Mutation evidence that the duplication is real and load-bearing: N10, which deleted BOTH copies of `unauthorized`, and N10b, which deleted only the ROUTE_ERROR_WORDING copy, both killed the same test. Scope searched: every key of PROPOSAL_FAILURE_WORDING against every key of ROUTE_ERROR_WORDING and TURN_FAILURE_WORDING. Result: three duplicate sentences — `unauthorized` and `account_offboarding` (added by this fix) and `contract_changed` (pre-existing, lines 144 and 177, out of scope for round 2 and named only so the next pass does not report it as new). Remedy: hoist the two new ones to named constants the way PROPOSAL_STALE already is. No owner-visible defect today."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "AUTH-1",
+      "date": "2026-09-12",
+      "finding_ids": ["RT-11", "RT-12", "RT-13", "RT-15", "RT-16", "RT-17"],
+      "granted_by": "owner (AskUserQuestion, /feature step 7.5)",
+      "text": "Fix all six, authorize a scoped round 3 — Four small tests + one constant + a handoff rewording, then a third red-team round scoped to those hunks. Your authorization is recorded verbatim in the sidecar (the runner refuses round 3 without it)."
+    }
+  ],
   "counts": {
     "inventory_total": 69,
     "killed": 19,
