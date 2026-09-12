@@ -105,9 +105,67 @@ root handed down after the plan was written.
 
 Also, R4 is declared non-`async`: the plan marks it `async` and it contains no `await`.
 
+- **Verdict (root, step-6 read-back):** ACCEPT — all four are test-fixture or labelling corrections the plan's own snippets contradicted; no locked behaviour moved. The T3 section's seven entries were re-read by the root at the same time: ACCEPT (the client's local wire types are an HTTP-consumer choice the standards axis may still want folded once T2's exports are stable; noted for the wave, not a re-plan). One process note on T3: the agent reported that a single early bulk edit to `MobileTabBar.test.tsx` went through a Python script rather than the editor tools, with the result verified by grep and every later write through Read/Edit/Write. The file is inside the lease and the diff was reviewed; recorded here because the working rules forbid bash writes to repo files. Verdict: ACCEPT, no re-plan.
+
 ## Surface amendment #2 — 2026-09-12, after T6 (root)
 
 - **What:** `.claude/reference/arch-review-log.md` joins the surface; the root adds ONE ledger bullet for this branch under "Merges since the 2026-08-26 pass".
 - **Why:** `pnpm ci:merge-ledger` (the lint job and the lefthook pre-push gate) fails any PR that changes production files without a line in that file — this branch changes 26. Run A carried the same file for the same reason. The counter number is not touched (the audit says so itself; the 2026-09-12 pass on PR #1272 owns it). If #1272 merges first, the bullet is re-homed under "Merges since the 2026-09-12 pass" at rebase time.
 - **Counted:** `feature-state.sh incr-amendment --reason …` (#2 — the reason is recorded in `.feature/state.json`).
 - **Verdict:** ACCEPT
+
+## T7 — 2026-09-12
+
+1. **The two signed-in flows cannot run on the auth harness's BASE tier, and the plan's
+   Step 3 expectation is wrong about that.** Step 3 says the three tests pass locally
+   with `E2E_SUPABASE_URL`, `E2E_SUPABASE_SERVICE_KEY` and `TEST_DATABASE_POOL_URL`
+   exported. They do not, unless the last one names the SAME Postgres as the first:
+   `src/proxy.ts` `readSelf()` resolves the owner's `role`/`account_id` through
+   supabase-js/PostgREST, and `/api/auth/callback` resolves the role the same way
+   (`src/lib/shared/auth-flow.ts:55-66`) — both read the Auth project's own database,
+   while the harness seeds the owner through Postgres.js into whatever
+   `TEST_DATABASE_POOL_URL` names. Split across two databases, the callback logs
+   `PGRST116` and **every** `/dashboard/*` request bounces to `/login?from=…`. Verified
+   by direct probe, twice, before anything else was attempted. The runbook frames this
+   as a four-spec deep-tier caveat; it is in fact a property of every owner PAGE. The
+   spec now carries that rule as a comment above its `test.skip`.
+2. **The evidence run used a throwaway LOCAL Supabase stack, not the staging deep tier.**
+   The deep tier's answer to (1) is to point `TEST_DATABASE_POOL_URL` at the staging
+   Postgres, i.e. to seed and delete rows in a shared database; that was declined. What
+   ran instead: `supabase start` in a scratch directory, its Postgres provisioned to
+   migrations head by `scripts/test-db-setup.sh`, Auth + PostgREST + Postgres therefore
+   one coherent local database. Two repairs were needed after the bootstrap, both local
+   and both recorded in `evidence.md`: it stubs `auth.uid()` to NULL (restored to the
+   real definition, or RLS refuses the PostgREST read) and `DROP SCHEMA public CASCADE`
+   takes Supabase's default privileges for `anon`/`authenticated`/`service_role` with it
+   (re-granted). Nothing shared was written; a residue check against staging Auth and
+   the docker test DB afterwards found **0** rows either side.
+3. **`getByText('Applied')` → `getByText('Applied', { exact: true })` in title 39.** The
+   plan's snippet resolves to three nodes — the card's state line plus the Receipt's
+   `Applied at` and `Applied by` labels, which T4's own deviation #3 introduced — and
+   Playwright's strict mode refuses the assertion.
+4. **`.first()` on the stale sentence in title 40.** `PROPOSAL_STALE` renders twice by
+   design after a refused Apply: once as the card's state line, once as the refusal
+   notice beside the buttons. Two nodes, same strict-mode refusal.
+5. **Title 40 waits for "Preparing your plan" before standing in for the worker.** The
+   plan's snippet calls `completeTurnWithProposal` straight after the Send click, which
+   races the POST's transaction: the first run failed with the helper's own
+   `no accepted turn — did the UI send one?`. The wait is the same line title 39 already
+   has, and it is the honest signal (the notice renders only once the response carried a
+   turn id back).
+6. **The seed helper names `rows[0]` in a guarded const rather than asserting `rows[0]!`
+   twice.** Same behaviour under `noUncheckedIndexedAccess`, no non-null assertion.
+7. **The evidence capture script is a `tsx` script importing the harness and
+   `e2e/helpers/operator-seed.ts`, not the plan's `/tmp/operator-evidence.mjs`.** The
+   plan's shape wants four `*_CONV` ids substituted by hand and a saved `storageState`;
+   driving the harness directly with ONE throwaway owner per state is fewer moving parts
+   and keeps each transcript clean (a shared owner puts the previous state's cards in
+   the next state's screenshot). Same nine states, both widths, 18 PNGs. The script stays
+   in the scratchpad, uncommitted, as the plan requires.
+8. **Environment set by shell export, not `.env.local`, and `pnpm dev` rather than
+   `pnpm dev:all`.** Step 4 says to put `OWNER_OPERATOR_ENABLED=true` in `.env.local`;
+   the root's brief says never in a committed file. No worker was started because none
+   is used — the worker's half is the seed helper's, by design.
+9. **`evidence.md` is new and was not in the plan's file list.** The root's brief requires
+   it (one row per PNG, width, state, and the stored-row assertion behind it); it is
+   inside T7's lease.
