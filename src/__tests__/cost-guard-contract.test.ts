@@ -34,6 +34,12 @@ const CALLER_ALLOWLIST = new Set([
   // (SOLICITATION_ASK_ESTIMATE_CENTS=1) and withConcurrency:false; the reserve
   // precedes every LLM call.
   'src/lib/solicitation/ask-generation.ts',
+  // Owner Operator tenant (Run A) — generateOperatorReply wraps every
+  // runLlmTask attempt in withCostGuard with withConcurrency:false and
+  // log-and-return-value finalization; the reserve precedes each call and a
+  // schema-invalid completion (LLMStructuredOutputError) is handled INSIDE the
+  // guarded closure so its billed attempts finalize instead of releasing.
+  'src/lib/agents/operator/model-call.ts',
   // Optional WS6 live judge eval — deliberately bypasses tenant accounting in
   // the key-gated external harness; tests/llm-eval/live-runner.ts marks the
   // call site as the sanctioned demo/eval exception from llm/types.ts.

@@ -95,6 +95,7 @@
     "src/lib/responses/voice-settings.ts",
     "src/lib/responses/__tests__/voice-settings.test.ts",
     "src/lib/responses/__tests__/model-pinning.test.ts",
+    "src/__tests__/cost-guard-contract.test.ts",
     "src/app/api/settings/voice/route.ts",
     "src/app/api/settings/__tests__/voice-route.test.ts",
     "src/app/api/settings/voice/__tests__/route.test.ts",

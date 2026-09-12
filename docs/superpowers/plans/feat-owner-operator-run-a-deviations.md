@@ -515,3 +515,26 @@ Every entry above re-read end to end. One-line verdicts, in file order:
 16. T8 three departures — **ACCEPT** with the status-line correction above.
 
 No RE-PLAN remains. No entry invalidates a locked intake decision.
+
+## 2026-09-11 — first full review gate at d2cbf1459: two RED rows, neither a production defect (orchestrator)
+
+1. `test` — `src/__tests__/cost-guard-contract.test.ts` "every runLlmTask call
+   site is in the reviewed-caller allowlist": the new tenant
+   `src/lib/agents/operator/model-call.ts` was not on `CALLER_ALLOWLIST`. The
+   test's own instruction is to add the reviewed caller there. That file is
+   outside the intake surface → **surface amendment #3** (counted with
+   `--reason`; one test-file entry, the caller is already guarded reserve-first
+   inside `withCostGuard`). Entry added with the guard-shape comment.
+2. `test` — `src/lib/config/__tests__/server.test.ts` "getResendConfig throws
+   when RESEND_API_KEY is missing": a gate-run environment leak, not code. The
+   orchestrator sourced `.env.local` into the gate process to hand the live-DB
+   rows `TEST_DATABASE_POOL_URL`, which also exported `RESEND_API_KEY`. The gate
+   resolves the DB URL itself (`resolveTestDatabaseUrl` falls back to
+   `.env.local` on disk — lab-notes/live-db-test-suites.md), so the re-run
+   sources nothing.
+3. `merge-ledger` — the audit requires the `arch-review-log.md` line at PR time,
+   not at step 8; the line is written now (counter untouched — "the pass
+   decides").
+
+**Verdict:** ACCEPT — one allowlist entry, one gate-invocation correction, one
+ledger line; no contract change.
