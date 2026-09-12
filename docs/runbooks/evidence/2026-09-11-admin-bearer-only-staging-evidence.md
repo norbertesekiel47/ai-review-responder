@@ -46,6 +46,16 @@ Execution contract: [.agents/skills/runbook/SKILL.md](../../../.agents/skills/ru
 - **Gate A/B PASS:** [run 34633995382, attempt 3](https://github.com/RepWorth/admin-app/actions/runs/34633995382/attempts/3), job `103481124867`. Gate A completed 02:15:35Z; Gate B's live staging handshake completed 02:16:34Z; generated-route cleanup succeeded 02:16:35Z. This covers continued bearer access and the ADR 0025 D9 retry-on-`mfa_required` loop. The CI commit `4af120ee928258a970ca18cbfb21979c0af94330` and deployed Admin main `44452f060f78c691cc81188b6bbd05a6d3be82c1` have the same Git tree, `d5145a84eb21e70c6eafb3362beebee1c1f5efdf`.
 - **Single red-team measurement pass:** root finalizer at 02:21Z confirmed all 30 recorded process groups empty, zero outstanding mutated files, one dotenv file restored, journal closed, and empty `git status --porcelain`. [Report](../../reviews/red-team/codex-1203-admin-bearer-only-018e02/findings.md): 14 mutations killed, 1,531 current candidates unmeasured, four retired-wrapper cases excluded; zero P0/P1 findings. Status remains `INCOMPLETE_BUDGET`, with no second round or reset. The single P2 stale channel-test comment is corrected after the report commit; its original report provenance is preserved.
 
+## In-app browser continuation — 2026-09-12T03:26–03:31Z
+
+- The owner explicitly selected the in-app browser after Computer Use failed and the separate Chrome DevTools login received a pre-authentication 403. Browser connection succeeded. Both deployed staging SHAs were rechecked at 03:17:59Z and remained the pinned candidate/target above.
+- The owner signed in through the source login with `from=/admin/impersonate`. The source MFA challenge completed and returned to `/admin/impersonate`, which displayed `Step-up verified (AAL2)`. No credentials or MFA values are retained in this evidence.
+- Submitted the surviving form with deliberately invalid UUID strings for both IDs. The live API returned the displayed error `Invalid UUID`; the page did not navigate. The unchanged handler validates the body after the canonical cookie/AAL2 gate and same-origin wrapper, before any owner lookup or session write. This demonstrates same-origin cookie authentication and validation without creating an impersonation session.
+- Sanitized form-only screenshots: [1440px](../../../e2e/evidence/admin-bearer-only-1203/impersonation-cookie-1440.png), [390px](../../../e2e/evidence/admin-bearer-only-1203/impersonation-cookie-390.png). Header identity is excluded by cropping; the form layout and validation error remain visible at both widths.
+- Direct browser-controller navigation to `/api/admin/overview` failed with `net::ERR_BLOCKED_BY_CLIENT` and left a blank tab. The owner subsequently opened the URL manually in the same signed-in in-app browser and reported exact `{"error":"Unauthorized"}`. This closes ordinary cookie-only refusal as owner-observed browser evidence; no controller screenshot or independent HTTP-status capture is claimed for that navigation.
+- The owner completed the remaining manual browser probe in the same Chrome session: a credentialed `POST /api/admin/impersonation/start` with `Content-Type: text/plain` and deliberately malformed JSON body `{` returned `400 {"error":"invalid_body"}` from the source origin. Repeating that request from `https://admin.staging.repworth.net` returned **POST 403 Forbidden**, verified in Network → Headers; Console also reported the expected missing `Access-Control-Allow-Credentials` CORS error. The actual POST status, not the Console error alone, closes cross-origin CSRF refusal. The same-origin control demonstrates a valid session reaching body validation. Neither request can reach a session write. These are owner-reported live browser results, not Computer Use captures.
+- The temporary blank tab was closed, viewport override reset, and synthetic form inputs cleared by reloading the surviving page. The owner's normal signed-in staging session is left available for their continuation; no account, factor, impersonation session, or environment fixture was created.
+
 ## Teardown ledger
 
 | Item | Prior state / identifier | Required cleanup | Status |
@@ -58,16 +68,14 @@ Execution contract: [.agents/skills/runbook/SKILL.md](../../../.agents/skills/ru
 ## Deviations
 
 - D-1 (2026-09-12T01:56Z): Initial local validation exposed stale cookie-route expectations, unused imports and a documentation word-cap breach; corrected before staging. The contract generator does not follow a plain identifier alias after removing a wrapper, so ordinary routes now use direct exported functions. Generated schema changes contain source-line citations only, with request/response shapes unchanged.
-- D-2 (2026-09-12T01:56Z): Computer Use is unavailable. The owner acceptance of browser gaps for #1253 does not apply to this ticket. The separate #1203 live-cookie checks remain open until demonstrated or explicitly accepted.
+- D-2 (2026-09-12T01:56Z): Computer Use was unavailable. The owner explicitly switched to the in-app browser and then supplied manual browser results for the controller's unsupported API-navigation and cross-origin checks. All named #1203 browser paths are now demonstrated; no #1253 waiver or new browser-gap acceptance is used.
 
 - D-3 (2026-09-12T02:07Z): Standards review found that removing the proxy's token syntax refusal let absent/malformed credentials reach the channel runners' feature/environment checks. The proxy now uses the existing bearer parser to refuse these requests with no-store 401 before any route work. Valid-shaped bearers still reach the canonical verification gate, with no cookie fallback. New regressions cover disabled/missing-environment channel states.
 
 ## Unproven paths
 
-- Live ordinary Admin API refusal with a valid source Admin cookie and no bearer.
-- Live permanent impersonation-cookie acceptance with same-origin CSRF still enforced.
-- Candidate-specific live browser journey; no Computer Use evidence claimed.
+None. Ordinary cookie-only refusal, source MFA continuation, same-origin impersonation cookie authentication/body validation, cross-origin CSRF refusal, and continued Admin app bearer access are covered by the separately attributed evidence above.
 
 ## Verdict
 
-PENDING — candidate deployment, public checks and Gate A/B passed. Live source-cookie and impersonation-cookie browser proof remain open; the owner's Computer plugin reply is not gap acceptance. Fresh PR CI and post-merge staging realignment also remain. No staging PASS or completion claimed.
+Acceptance checks PASS, with zero unproven paths. Candidate deployment, public checks, Gate A/B, the in-app browser journey and the owner's manual cookie/CSRF results all meet their expectations. The single red-team report remains honestly `INCOMPLETE_BUDGET`, with no open P0/P1 and its P2 comment corrected. Overall campaign closure is PENDING only final evidence CI and the post-merge staging-ref teardown; the resolution record will carry the merge SHA and verified realignment.
