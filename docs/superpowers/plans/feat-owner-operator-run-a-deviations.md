@@ -396,6 +396,67 @@ review.
 
 **Verdict:** ACCEPT — forced by a word cap, not by scope.
 
+## 2026-09-11 — T7: five of the plan's live-DB fixtures do not match the live schema, and one assertion does not compile
+
+Six drifts, all adapted rather than argued with — the schema and the landed
+types win, exactly as the brief says.
+
+**(a) Four INSERT fixtures contradict the live tables.** `reviews` has no
+`source` column (it is `provider`, defaulted `'google'`) and carries three NOT
+NULL provider identifiers the plan's snippet omits — `provider_review_id`,
+`provider_review_name`, `provider_location_name` — with `unique_provider_review`
+on `(provider, provider_review_name)`, so the name is minted per row.
+`responses.original_draft_text` is NOT NULL and absent from the plan's seed.
+`flagged_responses` requires `account_id`, `review_id` and a `source` inside
+`flagged_responses_source_check` ('local_regex' here), none of which the plan's
+INSERT supplies. T7 added exactly those columns and changed nothing about what
+each case asserts; the hand-counted star bands in title 32 are unchanged.
+
+**(b) The two casts the plan pre-authorised are not needed.**
+`VerifyAccountOffboardingPurgeInput`
+(`src/lib/account-offboarding/purge-verification.ts:9`) requires only
+`accountId` + `offboardingId`, and `AccountOffboardingPurgeRow`
+(`worker/jobs/account-offboarding/purge-stages.ts:30`) carries five columns the
+plan's literal omits (`location_ids`, `stripe_step`, `zernio_accounts_step`,
+`zernio_profiles_step`, `location_archival_step`). Both are spelled in full and
+typed, so the purge case carries no `as never`.
+
+**(c) Title 23's `status_ref` assertion is a compile error, not a test.**
+`stored.some((segment) => segment.type === 'status_ref')` does not typecheck:
+`StoredSegment` has no `status_ref` member, which is the type-level form of the
+very guarantee the line was reaching for (TS2367). The runtime half is asserted
+instead, against the RAW `agent_turns.reply` value —
+`expect(JSON.stringify(turn.reply)).not.toContain('status_ref')` — with a
+comment recording that the stronger half is free and structural.
+
+**(d) `secondLocationId` is seeded but unused in the worker suite.** The plan's
+harness seeds a second location for `turn-worker.integration.test.ts` and no
+case reads it, which fails `no-unused-vars`. T7 dropped it from that suite
+rather than inventing a title for it; the snapshot suite seeds and uses its own
+(title 32's account aggregate needs it).
+
+**(e) `context.test.ts`'s seam todo needs three collaborator mocks.** Driving
+`getAutoApprovalSettings` / `getLocationsForAccount` / `readVoiceConfig` through
+the recording `sql` double would test THEIR null-handling against an empty
+return queue, not `buildSnapshot`'s scoping. They are mocked at the seam and
+their own account scoping is asserted through the arguments they were called
+with; the four statements `buildSnapshot` owns are asserted to bind the account
+id, the list is closed at four, and the two conversation-scoped reads are
+asserted to carry the account beside the conversation.
+
+**(f) `insertProposals` tags FOUR JSONB columns, not three.** `input`, `before`,
+`after` AND `prepared_version_token` all cross through `tx.json`
+(`src/lib/agents/operator/proposals.ts`), so the double-encode assertion counts
+`rows.length * 4`.
+
+Fixture bite verified by mutation, not by a green run alone: changing title 23's
+`markDispatched(db, outboxId, 2)` to `3` turns the terminal-redispatch arm red
+(`expected 'dispatched' to be 'completed'`), which is the CAS the whole harness
+exists to make real.
+
+**Verdict:** ACCEPT — schema and landed types over the plan's snippets; no
+title lost, no assertion weakened.
+
 ## 2026-09-11 — T8: three small departures from the task text
 
 **(a) No pointer sentence on the two donor directory pages.** The orchestrator's
