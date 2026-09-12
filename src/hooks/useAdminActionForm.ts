@@ -14,7 +14,8 @@
 // ---------------------------------------------------------------------------
 //
 // X7 records the blocker as `success: boolean` vs `message: string | null`.
-// Measured across all five, the success channel is FOUR different things:
+// At extraction, the five original consumers used FOUR success shapes (the
+// legacy pages have since moved to the Admin app):
 //
 //   ManualRankingSection    success: boolean            ("Ranking saved")
 //   PastDueExtensionPanel   message: string | null      (a formatted deadline)
@@ -43,10 +44,9 @@
 // config object per surface, which is the knobbed-helper shape this repo
 // rejects — and it would put five unrelated copy decisions in one file.
 //
-// The SECOND error channel stays in the surface. `CsvImportClient` carries
-// `validationErrors: ClientCsvValidationError[]` beside its form error. That is
-// one surface's affordance, not a shared concern, and it stays local state
-// there rather than becoming a field four surfaces never set.
+// The SECOND error channel stays in the surface. The original CSV client kept
+// per-row validation errors beside its form error. Such surface-specific errors
+// remain local state rather than becoming fields unrelated forms never set.
 //
 // ---------------------------------------------------------------------------
 // The order the transitions run in

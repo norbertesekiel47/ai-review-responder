@@ -87,7 +87,7 @@ describe('useAdminActionForm — the two outcome channels', () => {
   });
 
   it('carries a whole OBJECT when that is what the success means', () => {
-    // CsvImportClient's success is a report, not a sentence. Flattening every
+    // A report-shaped success must keep its structure. Flattening every
     // success to `string | null` is the cheap unification this hook refuses.
     const { result } = renderHook(() =>
       useAdminActionForm<Fields, { created: number; failedCount: number }>(INITIAL),

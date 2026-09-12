@@ -30,8 +30,6 @@ const SWEPT_FILES = [
   // find them.
   'src/app/admin/error.tsx',
   'src/app/admin/loading.tsx',
-  'src/app/admin/locations/csv-import/CsvImportClient.tsx',
-  'src/app/admin/locations/csv-import/page.tsx',
   'src/app/admin/demos/DemosClient.tsx',
   'src/app/admin/impersonate/page.tsx',
   'src/app/admin/impersonate/ImpersonationStartClient.tsx',
