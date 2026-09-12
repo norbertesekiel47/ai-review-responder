@@ -6,13 +6,11 @@
 // there is nothing to parse and nothing a caller could send that this route
 // would honour.
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
-import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { declineProposal } from '@/lib/agents/operator/proposals';
-import { hasImpersonationCookie } from '@/lib/admin/impersonation/cookie';
-import { errorResponse, jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { requireOperatorProposalWriter } from '@/app/api/operator/gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,17 +18,9 @@ async function postDecline(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  if (!ownerOperatorEnabled()) return errorResponse('operator_disabled', 404);
-
-  const owner = await requireWritableOwner(sql, request);
-  if (!owner.ok) return owner.response;
-
-  if (hasImpersonationCookie(request)) {
-    return errorResponse('impersonation_not_allowed', 409);
-  }
-
-  const { id } = await context.params;
-  if (!z.uuid().safeParse(id).success) return errorResponse('proposal_not_found', 404);
+  const gate = await requireOperatorProposalWriter(sql, request, context);
+  if (!gate.ok) return gate.response;
+  const { owner, proposalId: id } = gate;
 
   try {
     const result = await declineProposal(sql, {

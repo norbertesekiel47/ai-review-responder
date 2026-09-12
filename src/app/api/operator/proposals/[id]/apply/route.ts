@@ -3,24 +3,21 @@
 // LLM seam, the cost guard or the worker queue registry. Invariant #15: it
 // imports the `sql` singleton and passes it down; the module never does.
 //
-// Gate ORDER matters and is the same as POST /api/operator/turns:
+// Gate ORDER matters and is shared with the other two Operator writes —
+// `requireOperatorWriter` (`src/app/api/operator/gate.ts`) owns it:
 //   withSameOrigin (the wrapper, outside the handler)
-//     → flag         — off means the surface does not exist
-//     → writable owner
-//     → impersonation — an admin may LOOK, never act
-//     → id + body parse
+//     → requireOperatorProposalWriter (flag → writable owner → impersonation
+//       → the proposal id, or 404)
+//     → body parse
 //     → one module call
-// Every check is revalidated INSIDE `applyProposal`'s transaction with the
-// rows locked; these are the cheap refusals, not the authority.
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { applyProposal } from '@/lib/agents/operator/apply';
-import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { VoiceVersionTokenSchema } from '@/lib/agents/operator/version-token';
-import { hasImpersonationCookie } from '@/lib/admin/impersonation/cookie';
-import { errorResponse, jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import { requireOperatorProposalWriter } from '@/app/api/operator/gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,19 +36,9 @@ async function postApply(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  if (!ownerOperatorEnabled()) return errorResponse('operator_disabled', 404);
-
-  const owner = await requireWritableOwner(sql, request);
-  if (!owner.ok) return owner.response;
-
-  if (hasImpersonationCookie(request)) {
-    return errorResponse('impersonation_not_allowed', 409);
-  }
-
-  const { id } = await context.params;
-  // A malformed id is a 404, not a 400: it is the same answer another
-  // account's proposal gets, so the shape of the id tells the caller nothing.
-  if (!z.uuid().safeParse(id).success) return errorResponse('proposal_not_found', 404);
+  const gate = await requireOperatorProposalWriter(sql, request, context);
+  if (!gate.ok) return gate.response;
+  const { owner, proposalId: id } = gate;
 
   let body: unknown;
   try {
