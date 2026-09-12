@@ -1,8 +1,6 @@
-export interface AdminNavItem {
+interface AdminNavItem {
   readonly href: string;
   readonly label: string;
-  /** Which nav-counts field renders as a badge on this item. */
-  readonly badge?: 'flaggedOpen' | 'failedJobs';
 }
 
 interface AdminNavGroup {
@@ -10,7 +8,7 @@ interface AdminNavGroup {
   readonly items: readonly AdminNavItem[];
 }
 
-/** Grouped admin IA (spec §2). Every admin page must appear exactly once. */
+/** Breadcrumb roots for the permanent support pages; each non-auth root appears once. */
 export const ADMIN_NAV_GROUPS = [
   {
     label: 'Growth',
@@ -22,5 +20,5 @@ export const ADMIN_NAV_GROUPS = [
 
 export type AdminNavGroupLabel = (typeof ADMIN_NAV_GROUPS)[number]['label'];
 
-/** Auth pages render outside the shell — the sidebar hides itself here. */
+/** Auth pages render outside the legacy identity shell. */
 export const ADMIN_AUTH_ROUTES = ['/admin/login', '/admin/forgot-password', '/admin/reset-password'];

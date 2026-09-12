@@ -3,7 +3,7 @@ import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib
 import { verifyImpersonationSession } from '@/lib/admin/impersonation/cookie';
 import { loadActiveImpersonationSession } from '@/lib/admin/impersonation/session';
 
-/** Who is signed in to the console, for the sidebar footer (X7). */
+/** Who is signed in to the legacy support shell, for its identity header (X7). */
 export interface AdminShellIdentity {
   email: string | null;
   /** True when the current session is already stepped up (AAL2). */

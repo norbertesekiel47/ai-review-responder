@@ -23,8 +23,8 @@ import { getBusinessSummaries, type BusinessSummary } from './business-summary';
 /**
  * Admin Overview — at-risk list cap (spec §5.1).
  *
- * Spec §5.1 places this "alongside the existing page sizes in
- * src/app/admin/page-sizes.ts", but `src/lib/**` may not import `@/app/**`
+ * Spec §5.1 originally placed this alongside the legacy page sizes, but
+ * `src/lib/**` may not import `@/app/**`
  * (eslint `APP_LEAF_IMPORT_BAN`: "route leaves are terminal"), and the cap is
  * applied HERE — this module is its only consumer, so it is also its only
  * declaration. See the deviations log for the full reasoning:

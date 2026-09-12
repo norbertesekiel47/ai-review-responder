@@ -1,10 +1,9 @@
 import { TableSkeleton } from '@/components/admin/ui/states';
 
-// Streaming fallback for admin list pages while a segment loads. Uses the
-// shared TableSkeleton (spec §3) so every per-page loading.tsx renders the
-// same skeleton rather than a bespoke one.
+// Streaming fallback for the surviving support pages while a segment loads.
+// Keeps the shared TableSkeleton used by the legacy shell.
 //
-// This renders INSIDE AdminShellFrame's `flex min-h-screen bg-gray-50` main
+// This renders INSIDE AdminShellFrame's main
 // column, so it owns neither the viewport height nor the page background — it
 // only stands in for an <AdminPage> body, and therefore mirrors AdminPage's own
 // measure (`mx-auto max-w-7xl px-4 py-6 sm:px-6`) so the skeleton lands where

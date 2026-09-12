@@ -1,15 +1,13 @@
 ## `src/app/`
 
-### `admin/` — Sales partner or admin role required
+### `admin/` — Legacy auth and impersonation
 
-The console migration (spec `docs/superpowers/specs/2026-07-30-admin-console-redesign-design.md`)
-landed the same shape on every page: `page.tsx` is a **server component** —
-`requireAdminPage(sql, {from, aal2?})` gate → read via the owning
-`src/lib/admin/*` service → `<AdminPage>` chrome → client island seeded with
-that read as react-query `initialData`. Phase 3 finished the set and moved
-`<AdminPage>` out of the five Phase 2 clients onto their server pages, so page
-chrome renders in the RSC payload rather than behind a loading state. `PAGE_SIZE`
-is declared once, in the client, and imported by the server page.
+After #1193, five pages remain: the three bare auth pages and the two
+server-gated impersonation pages. The layout supplies identity and the live
+session banner to a minimal header with one plain Open Admin app link.
+Other admin pages live in `RepWorth/admin-app` and read through the bearer
+fetch seam. The shared `AdminPage`, table, states and format primitives remain
+for impersonation; `nav-counts` remains an API consumed by the separate app.
 
 > **`ci:admin-aal2` — the AAL2 gate audit** (moved here from the CLAUDE.md
 > channel-routes row on 2026-08-16). It is an **AST** audit: it resolves each
@@ -33,19 +31,18 @@ is declared once, in the client, and imported by the server page.
 
 | Path | What it does |
 |------|--------------|
-| `layout.tsx` | Wraps everything in `AdminProviders` + `AdminShellFrame` (sidebar shell). |
 | `providers.tsx` | React context providers wrapping the admin layout. |
 | `loading.tsx` | Segment streaming fallback: title skeleton + shared `TableSkeleton`, at `AdminPage`'s measure. Owns no viewport height or background — the shell does. |
 | `error.tsx` | Segment error boundary: reports to Sentry, focuses its heading, offers Try again / Back to support access. Rendered as a card inside the shell's main column, palette-matched to the shared `ErrorState`. |
 | `login/page.tsx` | Admin login (never gated by `SELF_SERVE_SIGNUP_ENABLED`). Supplies the trusted `ADMIN_APP_URL` default; renders outside the shell (`ADMIN_AUTH_ROUTES`). |
 | `forgot-password/page.tsx` | Admin forgot-password. Outside the shell. |
 | `reset-password/page.tsx` | Admin reset-password. Outside the shell. |
-| `api/admin/suppressions/_guard.ts` | **(#645)** `parseJsonBody(request, schema, schemaError?)` — the JSON-body read + `safeParse` the three admin suppressions routes share, returning a discriminated `ParsedBody`. `schemaError` defaults to zod's first issue; `lookup` passes `opaqueBodyError` so a rejection never describes a body whose only field IS the recipient address (§9.5). Deliberately does **NOT** wrap the AAL2 gate: `ci:admin-aal2` is a file-level text scan, so hiding `requireAdminWithAal2` behind a wrapper made three gated routes read as ungated — "is this admin mutation MFA-gated?" must stay answerable by grepping the route. |
+| `api/admin/suppressions/_guard.ts` | **(#645)** `parseJsonBody(request, schema, schemaError?)` — the JSON-body read + `safeParse` the three admin suppressions routes share, returning a discriminated `ParsedBody`. `schemaError` defaults to zod's first issue; `lookup` passes `opaqueBodyError` so a rejection never describes a body whose only field IS the recipient address (§9.5). Deliberately does **NOT** wrap the AAL2 gate: the `ci:admin-aal2` AST audit must reach the canonical gate from each exported mutation handler; body validation earns no authentication credit. |
 | `impersonate/page.tsx` | **(Wave 2 / Phase 3)** Server component: gate + `<AdminPage group="Growth" title="Impersonation">`. |
 | `impersonate/ImpersonationStartClient.tsx` | Client form that posts account/user/ticket/reason to `/api/admin/impersonation/start` and follows the returned view URL. |
 | `impersonate/[sessionId]/view/page.tsx` | **(Wave 2 / Phase 3)** Admin-owned read-only impersonation shell on `<AdminPage>`. Keeps its bespoke gate — `resolveImpersonationViewSession` has four distinct redirect/notFound outcomes that `requireAdminPage` cannot express. Does not mount owner routes. |
 | `impersonate/[sessionId]/view/ImpersonationLocationsTable.tsx` | **(Phase 3)** The account's locations as a `DataTable` (Name / Location ID / State); no `rowHref` — nothing is navigable inside a read-only session. |
-| `layout.tsx` | Server layout: reads `loadAdminShellContext` (identity + live view-as session, display only, never redirects) and supplies it plus the trusted Admin home URL to `AdminShellFrame`. |
+| `layout.tsx` | Server layout: wraps children in `AdminProviders`, reads `loadAdminShellContext` (identity + live view-as session, display only, never redirects) and supplies it plus the trusted Admin home URL to `AdminShellFrame`. |
 
 ---
 
