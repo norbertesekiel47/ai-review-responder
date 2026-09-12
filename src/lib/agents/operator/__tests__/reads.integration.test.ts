@@ -553,5 +553,8 @@ describeWithDb(
       const sequences = view!.turns.map((t) => t.sequence);
       expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
     });
+
+    // Round-1 addition (RB-09), converted by T2.
+    it.todo('first-time owner receives a scoped summary and connection CTA before sending');
   },
 );

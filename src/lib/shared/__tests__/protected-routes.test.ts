@@ -168,6 +168,8 @@ describe('protected API route roles', () => {
     expect(isProtectedRoute('/api/account/offboarding/keep-my-data')).toBe(false);
     expect(isProtectedOwnerApiRoute('/api/account/offboarding/confirm')).toBe(true);
   });
+
+  it.todo('isProtectedOwnerApiRoute returns true for /api/operator, /api/operator/turns, /api/operator/conversation and both proposal routes');
 });
 
 describe('isAdminApiRoute', () => {

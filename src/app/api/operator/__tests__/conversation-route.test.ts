@@ -83,3 +83,7 @@ describe('GET /api/operator/conversation', () => {
     expect(mockRequireRole).not.toHaveBeenCalled();
   });
 });
+
+describe('GET /api/operator/conversation — location scoping', () => {
+  it.todo('GET conversation scopes the summary to ?locationId= when the conversation has no turns');
+});

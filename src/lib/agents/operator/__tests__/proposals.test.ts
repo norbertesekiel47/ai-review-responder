@@ -123,3 +123,12 @@ describe('operator proposals', () => {
     expect(sqlCalls).toHaveLength(0);
   });
 });
+
+describe('declineProposal', () => {
+  it.todo('declineProposal sets status rejected and decided_by_user_id with no reason and is idempotent');
+  it.todo('declineProposal answers proposal_not_pending for an applied proposal');
+});
+
+describe('proposal view', () => {
+  it.todo('proposal view carries receipt, prepared version token, applied_at and failure_reason');
+});
