@@ -194,3 +194,21 @@ PR #1273's first CI run failed two non-required-but-expected checks that the loc
    inside T7's lease.
 
 - **Verdict (root, step-6 read-back):** ACCEPT for all nine. #1 is a real finding about the auth harness — the base tier (staging Auth + local docker DB) cannot sign an owner into ANY `/dashboard/*` page because `readSelf()` and the auth callback resolve the `users` row through PostgREST against the Auth project's own database; the runbook frames it as a four-spec caveat and it is a property of every owner page. Promote to the lab notes at step 8 (candidate: `.claude/reference/lab-notes/` e2e topic, plus a line in `docs/runbooks/e2e-local-setup.md` — outside this run's surface). #2 (a throwaway local Supabase stack instead of writing into shared staging state) is the right call and stays the documented way to capture signed-in evidence. #3–#6 are strict-mode and typing corrections; #7–#9 are the root's own brief overriding the plan's literal shape. The root viewed `receipt-1440.png` and `proposal-card-390.png`: both are the built screen with the stored values on it. One observation for the review wave, not a re-plan: the Receipt renders `actorUserId` and the turn id as raw uuids on an owner-facing card (spec §6.5 names both fields; wording is the wave's call).
+
+## Fresh red-team run over the CI-fix commits — 2026-09-12, session 2 (root)
+
+- **Mechanics (owner-authorized, verbatim "Yes, do both steps and run it (Recommended)"):** the closed CLEAR run moved to `docs/reviews/red-team/feat-owner-operator-run-b-fec8cf-rounds1-3/` (`351249234`); the journal rotated to `.feature/red-team-journal-run1.json`; round 1 opened over `git diff ef9b3a7ca..79f695d53 -- src` (14 files). The checker's `authorizations` schema admits only records that resolve finding ids, so the opening authorization is prose in `findings.md`, not an `AUTH-*` row.
+- **Round 1 (`e0a1b368f`):** 83 inventory rows, 30 of 30 runs (2 lost to operator error, both candidates re-measured), 20 killed, 1 survived P0, 3 oracle-inconclusive, 34 skipped-budget, 25 excluded. Status `OPEN_P0`.
+- **Triage (root; every finding re-read against `e0a1b368f`):**
+
+| # | Sev | Finding | Verdict |
+|---|---|---|---|
+| RT-B2 | P0 | `buildReceipt`'s `before` swapped for `afterActual` survives — the only assertion on a server-built Receipt's `before` is `not.toHaveProperty('updatedAt')` | **ACCEPT** — the integration case pins `before` to the state the card showed (glossary: Receipt) |
+| RT-B1 | P1 | `requireOperatorProposalWriter` has no direct test; no case combines a malformed id with a flag-off or impersonated session, so hoisting the uuid check above the gate survives | **ACCEPT** — two `gate.test.ts` cases: flag off + malformed id → `operator_disabled`; impersonation + malformed id → 409 |
+| RT-B3 | P1 | `withPatchedProposal` (the card repaint from the returned row) is executed by no test — `useProposalWrites.test.tsx` mocks `patchProposal` | **ACCEPT** — one `OperatorClient` case clicks a card action against a routed response carrying the row and asserts the state line changed |
+| RT-B4 | P1 | The handoff's gate citation names a SHA and a fingerprint that match no artifact | **ACCEPT** — corrected to `3082da75f`, mode `full`, `a2f7363f…` (root, docs) |
+| RT-B5 | P2 | The card-write suite hardcodes a sentence `79f695d53` un-exported | **ACCEPT** — asserts through `routeErrorSentence(null)` |
+| RT-B6 | P2 | `useTurnSubmission` returns an unmemoized object while both sibling hooks `useMemo` | **ACCEPT** — `useMemo`, exhaustive deps |
+
+- **Oracle row with no finding — B1-27:** `applyLoadedView`'s `turnId` from the ref vs the render capture (`useOperatorConversation.ts:320`) cannot be distinguished by any case; the only window is an in-flight read across `finishTurn`, which nothing exercises. Sibling of the closed run's accepted-risk RT-12 (that one is the explicit abort; this is the read). Not a known defect. Goes to the owner with the round-2 close, together with whatever skipped-budget rows round 2 cannot execute inside its 30 runs — the same scope-claim shape as AUTH-3.
+- **Verdict:** ACCEPT all six; fix wave by one Opus fixer inside a five-file lease (four tests + the `useMemo`); the root owns RT-B4. Then fast gate → round 2 scoped to the fix hunks plus the skipped rows → review gate → checker.
