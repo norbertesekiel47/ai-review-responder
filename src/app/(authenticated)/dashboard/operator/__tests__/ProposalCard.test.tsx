@@ -2,7 +2,7 @@
 // The card contracts (spec §3.3). Every assertion reads from a stored-row
 // fixture, never from prose, and never from the browser's location selector.
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import { ProposalCard } from '../ProposalCard';
@@ -163,7 +163,14 @@ describe('ProposalCard', () => {
     // read while rendering. The change is named in PLAIN WORDS — the same
     // describer the heading carries, never the catalog id — and the actor is a
     // PERSON, never the uuid the row stores.
-    expect(screen.getAllByText(DESCRIBE)).toHaveLength(2);
+    //
+    // SCOPED TO THE RECEIPT'S OWN RECORD, not counted across the document. A
+    // document-wide count of two passes when the heading renders the sentence
+    // twice and the Receipt renders it not at all, and breaks on any layout
+    // that legitimately repeats it — neither of which is the claim. The claim
+    // is that THIS row, the one labelled `Change`, carries the describer.
+    const facts = screen.getByText('Applied at').closest('dl')!;
+    expect(within(facts).getByText('Change').nextElementSibling!.textContent).toBe(DESCRIBE);
     expect(screen.queryByText('set_tone')).not.toBeInTheDocument();
     expect(screen.getByText('Ada Owner')).toBeInTheDocument();
     expect(screen.queryByText(ACTOR)).not.toBeInTheDocument();

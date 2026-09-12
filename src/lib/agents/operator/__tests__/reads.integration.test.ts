@@ -21,6 +21,7 @@ import {
   assertSchemaReady,
   MIGRATION_120_OWNER_OPERATOR,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   cleanupTenantAccount,
   seedLocation,
@@ -32,6 +33,7 @@ import { insertProposals, type ProposalRow } from '../proposals';
 import {
   getConversationForOwner,
   getTurnForOwner,
+  readSummaryEntitlement,
   TRANSCRIPT_TURN_LIMIT,
   type OwnerConversationResult,
   type OwnerConversationView,
@@ -811,6 +813,61 @@ describeWithDb(
         })).toEqual({ kind: 'location_not_found' });
       } finally {
         await db`DELETE FROM zernio_connections WHERE business_id IN (${locationId}::uuid, ${otherLocationId}::uuid)`;
+      }
+    });
+
+    it("readSummaryEntitlement returns the account's subscription status and null for an unknown account", async () => {
+      // THE GATE IN FRONT OF CUSTOMER KPI DATA. The conversation route decides
+      // with `subscriptionAllowsDashboardRead`; this read is what feeds it —
+      // the column, the table and the `WHERE id =` predicate. Its only importer
+      // mocks it, so nothing but a live row proves it reads the NAMED account's
+      // status rather than, say, the first account in the table.
+      const before = {
+        tenant: (await db<{ subscription_status: string }[]>`
+          SELECT subscription_status FROM accounts WHERE id = ${tenant.accountId}::uuid
+        `)[0]!.subscription_status,
+        other: (await db<{ subscription_status: string }[]>`
+          SELECT subscription_status FROM accounts WHERE id = ${other.accountId}::uuid
+        `)[0]!.subscription_status,
+      };
+      try {
+        // TWO ACCOUNTS, TWO DIFFERENT STATUSES, so a read that ignored its
+        // argument could not answer both correctly.
+        await db`
+          UPDATE accounts SET subscription_status = ${SubscriptionStatus.PAST_DUE}
+          WHERE id = ${tenant.accountId}::uuid
+        `;
+        await db`
+          UPDATE accounts SET subscription_status = ${SubscriptionStatus.CANCELLED}
+          WHERE id = ${other.accountId}::uuid
+        `;
+
+        expect(await readSummaryEntitlement(db, tenant.accountId))
+          .toBe(SubscriptionStatus.PAST_DUE);
+        expect(await readSummaryEntitlement(db, other.accountId))
+          .toBe(SubscriptionStatus.CANCELLED);
+
+        // The stored value is READ, not inferred: the same id answers the new
+        // status after it changes.
+        await db`
+          UPDATE accounts SET subscription_status = ${SubscriptionStatus.ACTIVE}
+          WHERE id = ${tenant.accountId}::uuid
+        `;
+        expect(await readSummaryEntitlement(db, tenant.accountId))
+          .toBe(SubscriptionStatus.ACTIVE);
+
+        // AN ACCOUNT ROW THAT DOES NOT EXIST answers `null`, which the route
+        // reads as a refusal rather than as an empty entitlement.
+        expect(await readSummaryEntitlement(db, randomUUID())).toBeNull();
+      } finally {
+        await db`
+          UPDATE accounts SET subscription_status = ${before.tenant}
+          WHERE id = ${tenant.accountId}::uuid
+        `;
+        await db`
+          UPDATE accounts SET subscription_status = ${before.other}
+          WHERE id = ${other.accountId}::uuid
+        `;
       }
     });
 

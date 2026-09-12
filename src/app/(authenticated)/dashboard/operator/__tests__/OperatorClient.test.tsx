@@ -48,6 +48,7 @@ vi.mock('@/contexts/LocationContext', () => ({
 
 import { OperatorClient } from '../OperatorClient';
 import {
+  APPLY,
   LOCATION_UNAVAILABLE,
   PREPARING,
   RETRY_SEND,
@@ -61,6 +62,8 @@ const CAFE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const CONVERSATION = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const TURN = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const PROPOSAL = '99999999-9999-4999-8999-999999999999';
+/** A second proposal on the same turn that no `proposal` segment names (RB-06). */
+const UNREFERENCED_PROPOSAL = '88888888-8888-4888-8888-888888888888';
 
 /** A first-time owner: RB-09's empty view, so no identity is adopted. */
 const EMPTY_CONVERSATION = { conversation: null, turns: [], summary: null };
@@ -505,11 +508,23 @@ describe('OperatorClient', () => {
       preparedVersionToken: { businessId: SALON, updatedAt: '2026-09-12 09:00:00.111111+00' },
       receipt: null, appliedAt: null, failureReason: null,
     };
+    // A SECOND proposal that NO segment references. The turn's cards are two
+    // sided: one is placed by its `proposal` segment, the other has nowhere to
+    // be placed and is appended after the segments rather than being lost
+    // (RB-06). Without a second row the de-duplication that keeps the placed
+    // card from being appended a second time is never exercised.
+    const unreferenced = {
+      ...proposal,
+      id: UNREFERENCED_PROPOSAL,
+      operation: 'set_avoid_facts',
+      describe: 'Keep 1 thing(s) out of every reply',
+      input: { avoidFacts: ['the old menu'] },
+    };
     const fetchMock = routeFetch([
       [/^GET .*\/api\/operator\/conversation/, () => ({
         status: 200,
         body: conversationWith([storedTurn({
-          proposals: [proposal],
+          proposals: [proposal, unreferenced],
           segments: [
             { type: 'text', text: 'Here is where things stand.' },
             // FROZEN at completion — a value, a period and an instant.
@@ -543,14 +558,25 @@ describe('OperatorClient', () => {
     expect(setScopeMock).toHaveBeenCalledWith(CAFE);
 
     // ORDER: the card sits where its `proposal` segment referenced it —
-    // after the scope check and BEFORE the question.
+    // after the scope check and BEFORE the question — and the card no segment
+    // named comes AFTER every segment rather than vanishing (RB-06).
     const article = screen.getByText('Make my replies warmer.').closest('article')!;
     const texts = Array.from(article.querySelectorAll('p, section'))
       .map((node) => node.textContent ?? '');
     const cardAt = texts.findIndex((t) => t.includes('Set the reply tone'));
     const questionAt = texts.findIndex((t) => t.includes('Shall I keep 4 and 5 stars'));
+    const appendedAt = texts.findIndex((t) => t.includes('Keep 1 thing(s) out of every reply'));
     expect(cardAt).toBeGreaterThan(-1);
     expect(cardAt).toBeLessThan(questionAt);
+    expect(appendedAt).toBeGreaterThan(questionAt);
+
+    // EXACTLY ONCE EACH, counted by the cards themselves. A placed card that is
+    // also appended renders a SECOND live Apply button for one plan, and every
+    // ordering assertion above reads the FIRST occurrence, so findIndex cannot
+    // see it. Each `ProposalCard` is one region named by its own headline.
+    expect(screen.getAllByRole('region', { name: proposal.describe })).toHaveLength(1);
+    expect(screen.getAllByRole('region', { name: unreferenced.describe })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: APPLY })).toHaveLength(2);
   });
 
   it('terminal failures and requested capabilities survive reload and subsequent turns', async () => {
@@ -702,6 +728,84 @@ describe('OperatorClient', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
     expect(pollsForB()).toBeGreaterThan(before);
     expect(screen.getByText(PREPARING)).toBeInTheDocument();
+  });
+
+  it('a successful submission aborts the conversation read that was already in flight', async () => {
+    // THE EPOCH GUARD IS THE SECOND LINE, NOT THE FIRST. It sits at
+    // `useOperatorConversation.ts:215`, BELOW the four early arms — `disabled`,
+    // `aborted`, `unreachable` and `error` — so a superseded read that is
+    // merely dropped late can still disable the screen, raise a notice or flip
+    // `locationUnavailable` on the strength of an answer about the world before
+    // the owner's submission. Abandoning the REQUEST is what stops it, and
+    // nothing in this suite observed that the request is abandoned at all.
+    const TURN_A = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const TURN_B = TURN;
+    const signals: AbortSignal[] = [];
+    const releases: Array<() => void> = [];
+    const conversationBody = conversationWith([
+      storedTurn({ id: TURN_A, status: 'running', ownerText: 'An older question.' }),
+    ]);
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes('/api/operator/conversation')) {
+        // The SIGNAL this read is carrying, kept so the abort can be read off
+        // it, and the answer held until the test releases it by hand.
+        if (init?.signal) signals.push(init.signal);
+        await new Promise<void>((resolve) => { releases.push(resolve); });
+        return { ok: true, status: 200, json: async () => conversationBody } as Response;
+      }
+      if (init?.method === 'POST') {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ conversationId: CONVERSATION, turnId: TURN_B }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => turnBody({ id: TURN_B, status: 'running' }) } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<OperatorClient />);
+    await waitFor(() => expect(signals).toHaveLength(1));
+    const onMount = signals[0]!;
+    expect(onMount.aborted).toBe(false);
+
+    // The owner sends while that read is still outstanding, and the POST is
+    // accepted.
+    await user.type(screen.getByRole('textbox', { name: /message/i }), 'A newer question.');
+    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    await waitFor(() => expect(postBodies(fetchMock as never)).toHaveLength(1));
+    await waitFor(() => {
+      expect(String(replaceMock.mock.calls.at(-1)![0])).toContain(`turnId=${TURN_B}`);
+    });
+
+    // THE ABORT. The superseded read is abandoned, so none of its early arms
+    // can ever run against the screen the submission just established.
+    expect(onMount.aborted).toBe(true);
+
+    // …and its late answer, which names the OLDER unfinished turn A, changes
+    // neither the turn nor the URL.
+    releases[0]!();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(String(replaceMock.mock.calls.at(-1)![0])).toContain(`turnId=${TURN_B}`);
+    expect(String(replaceMock.mock.calls.at(-1)![0])).not.toContain(TURN_A);
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u).includes(`/api/operator/turns/${TURN_A}`)),
+    ).toBe(false);
+    expect(screen.queryByText('An older question.')).not.toBeInTheDocument();
+
+    // AND "Start a new conversation" DOES THE SAME. The adopted transcript's
+    // own read is still outstanding; starting over must abandon it too, or the
+    // screen the owner just emptied refills from an answer about the
+    // conversation they left (RB-08).
+    await waitFor(() => expect(signals.length).toBeGreaterThan(1));
+    const afterAdopting = signals[signals.length - 1]!;
+    expect(afterAdopting.aborted).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_DEADLINE_TEST_MS); });
+    expect(await screen.findByText(/taking longer than it should/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: START_NEW_CONVERSATION }));
+    expect(afterAdopting.aborted).toBe(true);
   });
 
   // Round-1 addition RB-03, converted by T4 (it wires Refresh plan).

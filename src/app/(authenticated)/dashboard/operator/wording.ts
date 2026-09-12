@@ -139,11 +139,23 @@ export const AFFECTS_FUTURE_DRAFTS =
   'Future drafts only. Existing drafts and pending approvals are not rewritten.';
 export const CANNOT_DO_YET = 'RepWorth cannot do this yet. Nothing changed.';
 
+/**
+ * THE TWO "THE ACTOR MAY NO LONGER WRITE" SENTENCES, named because two maps
+ * have to agree on them: the stored `PROPOSAL_FAILURE_REASON` the card repaints
+ * from, and the 409 `apply/route.ts` returns for the same refusal. One refusal,
+ * one sentence — spelling them twice let the live answer and the stored record
+ * drift apart, which is the same reason `PROPOSAL_STALE` is a constant (F4).
+ */
+export const ACTOR_UNAUTHORIZED =
+  'Your account can no longer make this change. Nothing was applied.';
+export const ACCOUNT_OFFBOARDING =
+  'This account is closing, so changes are not accepted. Nothing was applied.';
+
 export const PROPOSAL_FAILURE_WORDING: Readonly<Record<string, string>> = {
   version_mismatch: PROPOSAL_STALE,
   contract_changed: 'RepWorth changed since this plan was prepared, so it must be prepared again. Nothing was applied.',
-  unauthorized: 'Your account can no longer make this change. Nothing was applied.',
-  account_offboarding: 'This account is closing, so changes are not accepted. Nothing was applied.',
+  unauthorized: ACTOR_UNAUTHORIZED,
+  account_offboarding: ACCOUNT_OFFBOARDING,
   location_not_found: 'That location is no longer active, so the plan cannot be applied.',
   write_failed: 'We could not save that change. Nothing was applied.',
 };
@@ -170,9 +182,11 @@ export const ROUTE_ERROR_WORDING: Readonly<Record<string, string>> = {
   impersonation_not_allowed: 'You are viewing this account as an admin, so you cannot apply changes.',
   // The two 409 reasons `apply/route.ts` returns when the ACTOR can no longer
   // write. Without them the card showed the generic "try again" fallback beside
-  // its own state line saying the change can never be made (S6).
-  unauthorized: 'Your account can no longer make this change. Nothing was applied.',
-  account_offboarding: 'This account is closing, so changes are not accepted. Nothing was applied.',
+  // its own state line saying the change can never be made (S6). The SAME
+  // constants the stored-reason map above reads, so the live refusal and the
+  // durable record cannot disagree.
+  unauthorized: ACTOR_UNAUTHORIZED,
+  account_offboarding: ACCOUNT_OFFBOARDING,
   proposal_not_found: 'That plan is no longer available.',
   proposal_not_pending: 'That plan has already been decided.',
   proposal_stale: PROPOSAL_STALE,
