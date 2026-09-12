@@ -5,290 +5,102 @@
   "branch": "feat/owner-operator-run-a",
   "fork_sha": "c5e94e6ca7e3c4187854a67129b1651a8f80566e",
   "merge_base_sha": "c5e94e6ca7e3c4187854a67129b1651a8f80566e",
-  "head_sha": "eb21f55c2bf6b61c836ede6fc113e1d2caae3e08",
+  "head_sha": "d21db9ecdf25fd124d8788acd07c5916271e3ad4",
   "intake_sha256": "86430051ff3276a792c58195a3ad4ac66fd7171bbba44b183afc47d2ead38a7f",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-12T06:27:12.399Z",
+  "round": 3,
+  "generated_at": "2026-09-12T07:15:07.239Z",
   "inventory": [
     {
-      "id": "r2-01",
-      "test": "reads.integration.test.ts › getTurnForOwner returns null for a turn id that belongs to another account",
-      "file": "src/lib/agents/operator/reads.ts:81",
-      "outcome": "killed",
-      "reason": "Round-1 F3 re-run at its new home. Dropped `AND account_id = ${input.accountId}::uuid` from getTurnForOwner's SELECT; the live-DB test now fails on the cross-account read. F3 KILLED."
-    },
-    {
-      "id": "r2-02",
-      "test": "reads.integration.test.ts › createTurn refuses a conversation id that already exists under another account and writes no turn",
-      "file": "src/lib/agents/operator/turns.ts:145",
-      "outcome": "killed",
-      "reason": "Round-1 F4 re-run. Dropped the account predicate from createTurn's conversation re-read under the lock; the test fails (result is no longer `conversation_not_found`). F4 KILLED."
-    },
-    {
-      "id": "r2-03",
-      "test": "turn-worker.integration.test.ts › createTurn stores owner_text byte-for-byte and treats a trimmed repeat as a conflict",
-      "file": "src/lib/agents/operator/turns.ts:54",
-      "outcome": "killed",
-      "reason": "Round-1 F2 re-run. Removed `&& existing.owner_text === input.text` from sameTurnPayload; the test now fails, so the repeat's fixed conversationId made the text arm load-bearing as claimed. F2 KILLED."
-    },
-    {
-      "id": "r2-04",
-      "test": "turn-worker.integration.test.ts › worker scrubs a pasted review out of the prompt and stores the notice as the first segment",
-      "file": "worker/jobs/agent-turn/AgentTurnWorker.ts:159",
-      "outcome": "killed",
-      "reason": "Round-1 F1 re-run. Replaced `scrubPastedReview(claimed.ownerText)` with a pass-through `{ text: raw, scrubbed: false }`; the new end-to-end test fails on the prompt envelope and on the stored notice. F1 KILLED."
-    },
-    {
-      "id": "r2-05",
-      "test": "turn-worker.integration.test.ts › worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
-      "file": "src/lib/agents/operator/proposals.ts:77",
-      "outcome": "killed",
-      "reason": "Round-1 F5 re-run at its new home (buildProposalRows). Swapped `before`/`after`; the claim-race case now fails on the seeded prior tone. F5 KILLED."
-    },
-    {
-      "id": "r2-06",
-      "test": "render.test.ts › materializeReply binds proposal ids by index and freezes every status_ref value",
-      "file": "src/lib/agents/operator/render.ts:284",
-      "outcome": "killed",
-      "reason": "materializeReply index binding: `input.proposalIds[segment.index]` -> `[0]`. Test fails on the two-proposal ordering."
-    },
-    {
-      "id": "r2-07",
-      "test": "render.test.ts › materializeReply prepends the scrub notice and drops a reference nothing backs",
-      "file": "src/lib/agents/operator/render.ts:269",
-      "outcome": "killed",
-      "reason": "Moved the scrub-notice push from before the segment loop to after it (prepend -> append). Test fails on `scrubbed[0]`."
-    },
-    {
-      "id": "r2-08",
-      "test": "render.test.ts › renderSegments passes a stored proposal id through and resolves no index",
-      "file": "src/lib/agents/operator/render.ts:355",
-      "outcome": "killed",
-      "reason": "Dropped the `case 'proposal'` passthrough in renderSegments. Test fails: the stored proposal segment no longer reaches the screen."
-    },
-    {
-      "id": "r2-09",
-      "test": "turn-worker.integration.test.ts › worker leaves two same-scope proposals from ONE turn both pending, and a later turn supersedes both",
-      "file": "src/lib/agents/operator/proposals.ts:156",
-      "outcome": "killed",
-      "reason": "Reverted the supersession predicate `AND turn_id <> ${input.turnId}` to `AND id <> ${replacement.proposalId}`. Test fails: one turn supersedes its own sibling."
-    },
-    {
-      "id": "r2-10",
-      "test": "reads.integration.test.ts › getConversationForOwner scopes the most-recent read to the actor and honours an explicit id",
+      "id": "r3-01",
+      "test": "reads.integration.test.ts > getConversationForOwner carries each turn its own stored proposals, and none of another account's",
       "file": "src/lib/agents/operator/proposals.ts:237",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "R1",
-      "reason": "listProposalsForTurns forced to return an always-empty map (early `return byTurn`). The test still PASSES; no test anywhere asserts the transcript proposals or the snapshot proposalSummaries this function feeds."
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation 1 - the round-2 P0 mutant, listProposalsForTurns forced to an always-empty Map (length >= 0 short-circuit): KILLED, the per-turn toEqual over id/operation/status fails. Mutation 2 - the batched read loses AND account_id = ... (proposals.ts:244): KILLED, the other account's row lands in turn one (expected [ ...(3) ] to deeply equal [ ...(2) ])."
     },
     {
-      "id": "r2-11",
-      "test": "reads.integration.test.ts › getConversationForOwner scopes the most-recent read to the actor and honours an explicit id",
+      "id": "r3-02",
+      "test": "snapshot.integration.test.ts > snapshot summarises each historical turn's own proposals from the catalog",
+      "file": "src/lib/agents/operator/proposals.ts:237",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation 1 - the same always-empty-Map mutant: KILLED (expected [] to deeply equal [ ...(2) ] on proposalSummaries), the exact pre-fix behaviour round 2 recorded. Mutation 2 - describe forced to the stored rationale instead of the catalog (proposals.ts:205): KILLED."
+    },
+    {
+      "id": "r3-03",
+      "test": "reads.integration.test.ts > getConversationForOwner reports the location override and its dials, per location",
       "file": "src/lib/agents/operator/context.ts:102",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "R2",
-      "reason": "projectOperatingRules `locationOverrideExists` forced to `true` on a fixture that has NO override row. The test still PASSES; its only rules assertion is `vetoWindowMinutes > 0`."
-    },
-    {
-      "id": "r2-12",
-      "test": "voice-settings.test.ts › voice writer updates highlight_facts under a businesses row lock and rejects a location outside the account",
-      "file": "src/lib/responses/voice-settings.ts:89",
       "outcome": "killed",
-      "reason": "Reverted the Version token to a JS `Date` round-trip: dropped `::text` from the SELECT and restored `iso(row.updated_at)`. Test fails on the microsecond fixture."
+      "reason": "Green baseline at HEAD. Mutation 1 - the round-2 P0 mutant, locationOverrideExists forced true: KILLED (expected true to be false on the location with no auto_approval_policies row). Mutation 2 - the location projection ignores its own effective dials and reports the account default (context.ts:97): KILLED (expected 15 to be 30)."
     },
     {
-      "id": "r2-13",
-      "test": "turns-route.test.ts › POST turns rejects an impersonating admin with 409 before any write",
-      "file": "src/app/api/operator/turns/route.ts:45",
+      "id": "r3-04",
+      "test": "snapshot.integration.test.ts > snapshot operating rules report the location override and its dials",
+      "file": "src/lib/agents/operator/context.ts:102",
       "outcome": "killed",
-      "reason": "Removed the impersonation guard entirely. Test fails on both halves (409 + `createTurn` not called)."
+      "reason": "Green baseline at HEAD. Mutation 1 - forced-true locationOverrideExists: KILLED. Mutation 2 - the location reads the account default instead of its effective dials: KILLED ({ threshold: null, ...(2) } to deeply equal { threshold: 5, ...(2) })."
     },
     {
-      "id": "r2-14",
-      "test": "failed-hook.test.ts › on exhaustion runs the outbox CAS FIRST and only then fails the turn, in one transaction",
-      "file": "worker/jobs/agent-turn/failed-hook.ts:55",
-      "outcome": "killed",
-      "reason": "Moved `failTurnIfNonTerminal` ahead of `markOutboxFailed` inside the one transaction. Test fails on the statement order, which is the documented contract."
-    },
-    {
-      "id": "r2-15",
-      "test": "failed-hook.test.ts › writes nothing until the retry ladder is exhausted",
-      "file": "worker/jobs/agent-turn/failed-hook.ts:23",
-      "outcome": "killed",
-      "reason": "isExhausted boundary `>=` -> `>`. Test fails on the `attempts` unset case, where the first failure must already be terminal."
-    },
-    {
-      "id": "r2-16",
-      "test": "(no covering test identified by reverse import search)",
+      "id": "r3-05",
+      "test": "AgentTurnWorker.test.ts > worker fails the turn unauthorized when the location voice row vanished after authorization",
       "file": "worker/jobs/agent-turn/AgentTurnWorker.ts:198",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "finding_id": "R3",
-      "reason": "The `if (!voice)` terminal branch added by this commit (failTurnFenced with reason `unauthorized` when the location voice row vanished after step 3) has no covering test: no live-DB case archives or moves the location between authorization and the voice read, and no unit suite drives handleAgentTurn past the claim. Nothing to mutate against."
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation 1 - the branch's failure reason swapped to model_output_invalid (AgentTurnWorker.ts:209): KILLED (expected [ 'failed', ...(5) ] to include 'unauthorized'). Mutation 2 - the branch disabled (if (!voice && false)): the test FAILS, but on TypeError: proposal.operation.preview is not a function raised inside buildProposalRows by the unit fixture's stub operation, not on an assertion; a type error is never a kill, so it is recorded as a non-resolving measurement. The row is resolved by mutation 1."
     },
     {
-      "id": "r2-17",
-      "test": "(no covering test identified by reverse import search)",
-      "file": "src/lib/agents/operator/proposals.ts:195",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "finding_id": "R10",
-      "reason": "mapStored's new `asProposalStatus(row.status)` throw path has no covering test. proposals.test.ts covers insertProposals/supersession, and the only assertion on a mapped ProposalView (`turn-get-route.test.ts:71`) runs behind a mocked `getTurnForOwner`."
+      "id": "r3-06",
+      "test": "context.test.ts > buildSnapshot scopes every read to the stored account and location",
+      "file": "src/lib/agents/operator/proposals.ts:244",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation - the batched proposal read loses its account_id predicate: KILLED by the closed list's account-scope loop, which now sees the fifth statement because the fixture seeds a historical turn. This is the regression class R5 said the guard had gone blind to."
     },
     {
-      "id": "r2-18",
-      "test": "(no covering test identified by reverse import search)",
+      "id": "r3-07",
+      "test": "voice-settings.test.ts > voice writer updates highlight_facts under a businesses row lock and rejects a location outside the account",
+      "file": "src/lib/responses/voice-settings.ts:152",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation - R7 reverted: RETURNING updated_at plus new Date(row.updated_at).toISOString(): KILLED, the .123456 fixture no longer survives verbatim and the RETURNING updated_at::text text assertion fails."
+    },
+    {
+      "id": "r3-08",
+      "test": "route.test.ts > PUT /api/settings/voice updates tone for a specific location",
+      "file": "src/app/api/settings/voice/route.ts:180",
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation - the route re-formats the writer's token (new Date(result.updatedAt).toISOString()): KILLED (expected '2026-09-11T10:00:00.123Z' to be '2026-09-11 10:00:00.123456+00'). The passthrough half of R7 is real."
+    },
+    {
+      "id": "r3-09",
+      "test": "schema.test.ts > status narrowings throw on a value no writer produces",
       "file": "src/lib/agents/operator/schema.ts:31",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "finding_id": "R10",
-      "reason": "asTurnStatus / asProposalStatus throw on a value outside the vocabulary. The happy path is exercised (reads.integration asserts `own.status`), but the throw branch — the whole reason the narrowing is a function rather than a cast — has no test in schema.test.ts or anywhere else."
+      "outcome": "killed",
+      "reason": "Green baseline at HEAD. Mutation - asTurnStatus widens silently instead of throwing: KILLED (expected [Function] to throw an error)."
     },
     {
-      "id": "r2-19",
-      "test": "render.test.ts › validator applies the count and completion patterns to question segments, not only text",
-      "file": "src/lib/agents/operator/render.ts:135",
-      "outcome": "skipped-budget"
+      "id": "r3-10",
+      "test": "reads.integration.test.ts > getConversationForOwner scopes the most-recent read to the actor and honours an explicit id",
+      "file": "src/lib/agents/operator/context.ts:97",
+      "outcome": "killed",
+      "reason": "The test whose vetoWindowMinutes > 0 proxy was R4. Green baseline at HEAD. Mutation - a wrong-but-POSITIVE veto window ((... ?? accountDefault) + 1), precisely what the old proxy admitted: KILLED (expected 16 to be 15)."
     },
     {
-      "id": "r2-20",
-      "test": "render.test.ts › validator returns the parsed proposals it already computed, in the model order",
-      "file": "src/lib/agents/operator/render.ts:197",
-      "outcome": "skipped-budget"
+      "id": "r3-11",
+      "test": "AgentTurnWorker.test.ts > worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "file": "worker/jobs/agent-turn/AgentTurnWorker.ts:45",
+      "outcome": "killed",
+      "reason": "Direction A: an untouched test whose file gained a partial module mock of @/lib/agents/operator/turns. Green baseline at HEAD. Mutation - the kill switch never fires (if (!ownerOperatorEnabled() && false)): KILLED (expected [ { ...(3) } ] to have a length of 2 but got 1). The mock did not neutralise the gate oracle; the stale rationale it leaves behind is finding R13."
     },
     {
-      "id": "r2-21",
-      "test": "render.test.ts › materializeReply binds proposal ids by index and freezes every status_ref value",
-      "file": "src/lib/agents/operator/render.ts:220",
-      "outcome": "skipped-budget",
-      "reason": "materializeStatus per-metric mapping. Two mutations were already spent on this test; the live claim-race case additionally asserts three distinct values (2/3/4) against their named metrics."
-    },
-    {
-      "id": "r2-22",
-      "test": "turn-worker.integration.test.ts › worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
-      "file": "src/lib/agents/operator/proposals.ts:81",
-      "outcome": "skipped-budget",
-      "reason": "preparedVersionToken = { businessId: turn.locationId, updatedAt: voice.updatedAt }. The claim-race case asserts both members against the row read back as text."
-    },
-    {
-      "id": "r2-23",
-      "test": "turn-worker.integration.test.ts › worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
-      "file": "src/lib/agents/operator/context.ts:249",
-      "outcome": "skipped-budget",
-      "reason": "readPosted7d's window now bound from RECENT_COMPLETED_DAYS instead of a literal INTERVAL '7 days' (round-1 F13)."
-    },
-    {
-      "id": "r2-24",
-      "test": "reads.integration.test.ts › getConversationForOwner bounds the transcript to the most recent turns",
-      "file": "src/lib/agents/operator/reads.ts:179",
-      "outcome": "skipped-budget",
-      "reason": "TRANSCRIPT_TURN_LIMIT, the DESC read and the reverse into chronological order."
-    },
-    {
-      "id": "r2-25",
-      "test": "reads.integration.test.ts › getConversationForOwner returns a null summary for a conversation with no turns",
-      "file": "src/lib/agents/operator/reads.ts:219",
-      "outcome": "skipped-budget",
-      "reason": "The `summary: null` branch replacing the zeroed summary."
-    },
-    {
-      "id": "r2-26",
-      "test": "voice/__tests__/route.test.ts › returns voice config for a specific location",
-      "file": "src/app/api/settings/voice/route.ts:44",
-      "outcome": "skipped-budget",
-      "reason": "The single-location GET now calls the shared readVoiceConfig and reads the display label separately."
-    },
-    {
-      "id": "r2-27",
-      "test": "voice/__tests__/route.test.ts › PUT suite (updates a location's voice config)",
-      "file": "src/app/api/settings/voice/route.ts:168",
-      "outcome": "skipped-budget",
-      "reason": "`owner.accountId` replacing `user.accountId!` in putVoiceConfig."
-    },
-    {
-      "id": "r2-28",
-      "test": "voice/__tests__/route.test.ts › returns voice config for a specific location",
-      "file": "src/lib/responses/voice-settings.ts:47",
-      "outcome": "skipped-budget",
-      "reason": "VOICE_FIELD_LIMITS as the single owner of each field domain; no direct unit test, exercised through both zod schemas."
-    },
-    {
-      "id": "r2-29",
-      "test": "catalog.test.ts (operation registry + parseInput domains)",
-      "file": "src/lib/agents/operator/catalog.ts:105",
-      "outcome": "skipped-budget",
-      "reason": "The catalog input schemas now read VOICE_FIELD_LIMITS."
-    },
-    {
-      "id": "r2-30",
-      "test": "model-call.test.ts (prompt envelope + retry)",
-      "file": "src/lib/agents/operator/prompt.ts:28",
-      "outcome": "skipped-budget",
-      "reason": "The system prompt now points at the snapshot’s allowedOperations instead of CATALOG_OPERATION_IDS; OWNER_OPERATOR_PROMPT_VERSION bumped to 2026-09-11.2."
-    },
-    {
-      "id": "r2-31",
-      "test": "model-call.test.ts (generateOperatorReply result shape)",
-      "file": "src/lib/agents/operator/model-call.ts:173",
-      "outcome": "skipped-budget",
-      "reason": "generateOperatorReply now returns the validator's parsed proposals alongside the output."
-    },
-    {
-      "id": "r2-32",
-      "test": "render.test.ts › materializeReply binds proposal ids by index and freezes every status_ref value",
-      "file": "src/lib/agents/operator/schema.ts:163",
-      "outcome": "skipped-budget",
-      "reason": "StoredSegmentSchema swaps ProposalRefSegmentSchema for ProposalSegmentSchema; the round-trip and the throw are asserted inside the materializeReply test."
-    },
-    {
-      "id": "r2-33",
-      "test": "reads.integration.test.ts › getTurnForOwner returns null for a turn id that belongs to another account",
-      "file": "src/lib/agents/operator/turns.ts:318",
-      "outcome": "skipped-budget",
-      "reason": "loadPredecessor / readTerminalTurn narrowed through asTurnStatus (happy path)."
-    },
-    {
-      "id": "r2-34",
-      "test": "turn-worker.integration.test.ts › worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
-      "file": "worker/jobs/agent-turn/AgentTurnWorker.ts:244",
-      "outcome": "skipped-budget",
-      "reason": "The worker now delegates materialization to materializeReply and row building to buildProposalRows."
-    },
-    {
-      "id": "r2-35",
-      "test": "AgentTurnWorker.test.ts › AgentTurnWorker flag gate",
-      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:88",
-      "outcome": "skipped-budget",
-      "reason": "Changed test: the vacuous `mockClaimTurn).not.toHaveBeenCalled()` (round-1 F9) was deleted and replaced by a comment pointing at the two-statement count. Reviewed statically; the replacement is sound."
-    },
-    {
-      "id": "r2-36",
-      "test": "context.test.ts › buildSnapshot scopes every read to the stored account and location",
-      "file": "src/lib/agents/operator/__tests__/context.test.ts:22",
-      "outcome": "skipped-budget",
-      "reason": "Changed test: the voice-settings mock became `importOriginal`-based so VOICE_FIELD_LIMITS survives. See finding R5 for the assertion this test no longer closes."
-    },
-    {
-      "id": "r2-37",
-      "test": "conversation-route.test.ts / turn-get-route.test.ts (mock path retargeted to ../reads)",
-      "file": "src/app/api/operator/__tests__/turn-get-route.test.ts:19",
-      "outcome": "skipped-budget",
-      "reason": "Changed tests: both route suites retargeted their vi.mock from '@/lib/agents/operator/turns' to '@/lib/agents/operator/reads'. Still mock-driven; the real predicates are now proven by reads.integration.test.ts (rows r2-01/r2-02)."
-    },
-    {
-      "id": "r2-38",
-      "test": "(no covering test identified by reverse import search)",
-      "file": "src/app/api/operator/conversation/route.ts:36",
+      "id": "r3-12",
+      "test": "route.test.ts > the other 15 cases under PUT /api/settings/voice",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts:269",
       "outcome": "excluded",
-      "reason": "Type-annotation and import-path hunks only (same for src/app/api/operator/turns/[id]/route.ts). No runtime behaviour to mutate; a type-only mutation is a compile error, never a kill."
+      "reason": "Reached by Direction A only through the changed beforeEach fixture, whose sole edit is the updatedAt string the mocked writer returns. None of these cases reads updatedAt; the one that does is r3-08. No changed production line is covered by them."
     },
     {
-      "id": "r2-39",
-      "test": "(no covering test identified by reverse import search)",
-      "file": "src/lib/agents/operator/authorize.ts:31",
+      "id": "r3-13",
+      "test": "the 19 skipped-budget candidates recorded in the round-2 inventory",
+      "file": "docs/reviews/red-team/feat-owner-operator-run-a-b83a4f/findings.json:1",
       "outcome": "excluded",
-      "reason": "Comment-only hunk (a citation lost its line number). Nothing executable changed."
+      "reason": "Outside round 3's authorized scope, which the owner limited to the round-2 fix hunks and their direct callers. They remain UNMEASURED on this branch; the round-2 record of them stands at commit 0bd085391 and in docs/reviews/feat-owner-operator-run-a/review-round-2.md. Recorded here so rewriting the sidecar in place does not erase the fact."
     }
   ],
   "findings": [
@@ -296,73 +108,81 @@
       "id": "R1",
       "severity": "P0",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "listProposalsForTurns is fake-covered: an always-empty map survives, so the transcript's proposal cards and the snapshot's proposalSummaries are asserted nowhere",
       "at": "src/lib/agents/operator/proposals.ts:237",
-      "arbiter_reasoning": "Not equivalent and not an unexecuted branch. getConversationForOwner calls listProposalsForTurns on every transcript read (reads.ts:199) with a non-empty turnIds list in this test, and context.ts readRecentTurns calls it again for the snapshot (context.ts:288). The mutant returns an empty Map before issuing the statement, so (a) every OwnerConversationTurn.proposals becomes [], which the module's own docblock (reads.ts:113-119) says cannot be substituted by summary.pendingProposals because that list is pending-only and a superseded card still belongs to the sentence that proposed it; a stored `proposal` segment carries only an id, so the card it names simply vanishes from the transcript; and (b) SnapshotTurn.proposalSummaries goes back to [] — which is EXACTLY the pre-fix behaviour this commit changed (the round-1 tree hard-coded `proposalSummaries: []`). Searched for an oracle and found none: `rg proposalSummaries src worker` returns only the two production sites and no test; `rg '\\.proposals\\b' across the operator and route test suites returns one hit, turn-get-route.test.ts:71, which runs behind `vi.mock('@/lib/agents/operator/reads')` and therefore asserts the route's passthrough of a fixture. reads.integration.test.ts exercises the function but asserts only conversation ids, turn ids, sequences and ownerText. The sibling singular read (listProposalsForTurn, reached through getTurnForOwner) is unasserted in exactly the same way."
+      "arbiter_reasoning": "Not equivalent and not an unexecuted branch. getConversationForOwner calls listProposalsForTurns on every transcript read (reads.ts:199) with a non-empty turnIds list in this test, and context.ts readRecentTurns calls it again for the snapshot (context.ts:288). The mutant returns an empty Map before issuing the statement, so (a) every OwnerConversationTurn.proposals becomes [], which the module's own docblock (reads.ts:113-119) says cannot be substituted by summary.pendingProposals because that list is pending-only and a superseded card still belongs to the sentence that proposed it; a stored `proposal` segment carries only an id, so the card it names simply vanishes from the transcript; and (b) SnapshotTurn.proposalSummaries goes back to [] — which is EXACTLY the pre-fix behaviour this commit changed (the round-1 tree hard-coded `proposalSummaries: []`). Searched for an oracle and found none: `rg proposalSummaries src worker` returns only the two production sites and no test; `rg '\\.proposals\\b' across the operator and route test suites returns one hit, turn-get-route.test.ts:71, which runs behind `vi.mock('@/lib/agents/operator/reads')` and therefore asserts the route's passthrough of a fixture. reads.integration.test.ts exercises the function but asserts only conversation ids, turn ids, sequences and ownerText. The sibling singular read (listProposalsForTurn, reached through getTurnForOwner) is unasserted in exactly the same way.",
+      "reason": "Round 3 re-ran the always-empty-Map mutant (proposals.ts:237, `length >= 0` short-circuit) against the two live-DB cases the fix added. KILLED in both: reads.integration.test.ts:406 fails on the per-turn `toEqual` over id/operation/status; snapshot.integration.test.ts:291 fails on `proposalSummaries` (expected [] to deeply equal [ ...(2) ]), which is exactly the pre-fix behaviour. A second mutation on each row also dies: dropping the batched read's `account_id` predicate (proposals.ts:244) is caught by the foreign-account row, and forcing `describe` to the stored rationale (proposals.ts:205) is caught by the catalog sentences."
     },
     {
       "id": "R2",
       "severity": "P0",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "projectOperatingRules' locationOverrideExists has no non-mocked oracle: forcing it to `true` on a location with no override row survives",
       "at": "src/lib/agents/operator/context.ts:102",
-      "arbiter_reasoning": "Not equivalent on this fixture and not an unexecuted branch. projectOperatingRules is the single owner of the inheritance projection introduced by this commit and runs on every call of both consumers — getConversationForOwner (reads.ts:257) and buildSnapshot (context.ts:356). The seeded tenant has no auto_approval_policies row for its location, so `override.exists` is false and the mutant reports the opposite. Per the function's own docblock, locationOverrideExists is row EXISTENCE and a distinct fact from inheritance: spec §4 says a dial-only change on a location with no row CREATES one, and the card must say so — so the mutant makes the owner-facing card, and the snapshot the model reasons from, state the reverse. Searched for an oracle: the only assertion on this field anywhere is conversation-route.test.ts:64, and that suite replaces '@/lib/agents/operator/reads' wholesale (line 19 of the retargeted mock), so the `false` it asserts is the fixture it set at line 47 — the same mock-driven shape round 1 flagged as F3/F4. The only live-DB assertion on the rules object is `vetoWindowMinutes > 0` (reads.integration.test.ts:261), which is why this survived; see finding R4."
+      "arbiter_reasoning": "Not equivalent on this fixture and not an unexecuted branch. projectOperatingRules is the single owner of the inheritance projection introduced by this commit and runs on every call of both consumers — getConversationForOwner (reads.ts:257) and buildSnapshot (context.ts:356). The seeded tenant has no auto_approval_policies row for its location, so `override.exists` is false and the mutant reports the opposite. Per the function's own docblock, locationOverrideExists is row EXISTENCE and a distinct fact from inheritance: spec §4 says a dial-only change on a location with no row CREATES one, and the card must say so — so the mutant makes the owner-facing card, and the snapshot the model reasons from, state the reverse. Searched for an oracle: the only assertion on this field anywhere is conversation-route.test.ts:64, and that suite replaces '@/lib/agents/operator/reads' wholesale (line 19 of the retargeted mock), so the `false` it asserts is the fixture it set at line 47 — the same mock-driven shape round 1 flagged as F3/F4. The only live-DB assertion on the rules object is `vetoWindowMinutes > 0` (reads.integration.test.ts:261), which is why this survived; see finding R4.",
+      "reason": "Round 3 re-ran the forced-`true` mutant (context.ts:102). KILLED in both live cases the fix added - reads.integration.test.ts:363 and snapshot.integration.test.ts:352 each fail `expected true to be false` on the location with no override row. A second mutation, the location projection ignoring its own effective dials and reporting the account default (context.ts:97), is also killed in both (expected 15 to be 30; { threshold: null } to deeply equal { threshold: 5 })."
     },
     {
       "id": "R3",
       "severity": "P1",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "The new `if (!voice)` terminal branch — the location's voice row vanishing after authorization — ships with zero covering tests",
       "at": "worker/jobs/agent-turn/AgentTurnWorker.ts:198",
-      "arbiter_reasoning": "A production hunk this commit adds, with no identified covering candidate by reverse import search: no live-DB case archives the location or moves it to another account between reauthorizeTurn (step 3) and readVoiceConfig, and the only unit suite over handleAgentTurn stops at the flag gate. The branch is not cosmetic — it writes a FENCED terminal failure (failTurnFenced with reason `unauthorized`) plus the outbox completion, so a mistake here either strands a turn or fails one that should have completed. Recorded as an uncovered change (inventory row r2-16, inconclusive/oracle), not a survivor: there was nothing to run."
+      "arbiter_reasoning": "A production hunk this commit adds, with no identified covering candidate by reverse import search: no live-DB case archives the location or moves it to another account between reauthorizeTurn (step 3) and readVoiceConfig, and the only unit suite over handleAgentTurn stops at the flag gate. The branch is not cosmetic — it writes a FENCED terminal failure (failTurnFenced with reason `unauthorized`) plus the outbox completion, so a mistake here either strands a turn or fails one that should have completed. Recorded as an uncovered change (inventory row r2-16, inconclusive/oracle), not a survivor: there was nothing to run.",
+      "reason": "The branch now has a unit case (AgentTurnWorker.test.ts:149). Mutating the branch's failure reason from `unauthorized` to `model_output_invalid` (AgentTurnWorker.ts:209) is KILLED (expected [ 'failed', ...(5) ] to include 'unauthorized'). A second mutation that disables the branch entirely (`if (!voice && false)`) also fails the test, but through a fixture-shaped TypeError inside buildProposalRows rather than an assertion, so it is recorded as a non-resolving measurement, not a second kill."
     },
     {
       "id": "R4",
       "severity": "P1",
       "duty": 2,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "Fragile assertion: `expect(summary.rules.vetoWindowMinutes).toBeGreaterThan(0)` is a range-shaped proxy for 'the panel reports this location's effective rules' — it is what let R2 survive",
       "at": "src/lib/agents/operator/__tests__/reads.integration.test.ts:261",
-      "arbiter_reasoning": "A positive-number check passes for the account default, for the location override, and for any wrong-but-positive value, over a fixture that has no override row at all — so the whole inheritance projection and its `locationOverrideExists` companion are unconstrained. Behavioural replacement: seed an auto_approval_policies row for the turn's location whose dials DIFFER from the account default, then assert equality — `summary.rules` deep-equals the location's effective threshold, vetoWindowMinutes and dailyCap, and `summary.rules.locationOverrideExists` is true; add a second location with no row and assert it inherits the account default with locationOverrideExists false. That kills R2's mutant and pins the documented 'effective, never override' rule at the same time."
+      "arbiter_reasoning": "A positive-number check passes for the account default, for the location override, and for any wrong-but-positive value, over a fixture that has no override row at all — so the whole inheritance projection and its `locationOverrideExists` companion are unconstrained. Behavioural replacement: seed an auto_approval_policies row for the turn's location whose dials DIFFER from the account default, then assert equality — `summary.rules` deep-equals the location's effective threshold, vetoWindowMinutes and dailyCap, and `summary.rules.locationOverrideExists` is true; add a second location with no row and assert it inherits the account default with locationOverrideExists false. That kills R2's mutant and pins the documented 'effective, never override' rule at the same time.",
+      "reason": "The `> 0` proxy is gone; reads.integration.test.ts:306 now asserts equality against DEFAULT_VETO_WINDOW_MINUTES / DEFAULT_DAILY_AUTO_POST_CAP / null. Round 3 mutated the projection to a wrong-but-POSITIVE veto window (`(... ?? accountDefault) + 1`, context.ts:97) - exactly what the old proxy admitted - and the case is KILLED (expected 16 to be 15)."
     },
     {
       "id": "R5",
       "severity": "P1",
       "duty": 2,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "context.test's closed-list guard no longer closes the list: buildSnapshot issues a fifth statement in production that this fixture can never see",
       "at": "src/lib/agents/operator/__tests__/context.test.ts:70",
-      "arbiter_reasoning": "`expect(sqlCalls).toHaveLength(4)` carries the comment 'Not a count for its own sake — a fifth, unscoped read is exactly the regression this asserts against, so the list has to be closed.' This commit adds exactly such a fifth read (listProposalsForTurns, context.ts:288). The mocked sql returns [] for the recent-turns query, so turnIds is empty and the new function short-circuits without issuing a statement — the count stays 4 and the guard is silently blind to the read it was written to catch. Behavioural replacement: have the mock return at least one recent-turn row so the batched proposals read is issued, raise the expected count to 5, and assert the new call carries the account id like the other four."
+      "arbiter_reasoning": "`expect(sqlCalls).toHaveLength(4)` carries the comment 'Not a count for its own sake — a fifth, unscoped read is exactly the regression this asserts against, so the list has to be closed.' This commit adds exactly such a fifth read (listProposalsForTurns, context.ts:288). The mocked sql returns [] for the recent-turns query, so turnIds is empty and the new function short-circuits without issuing a statement — the count stays 4 and the guard is silently blind to the read it was written to catch. Behavioural replacement: have the mock return at least one recent-turn row so the batched proposals read is issued, raise the expected count to 5, and assert the new call carries the account id like the other four.",
+      "reason": "context.test.ts:59 now seeds one historical turn so the batched read issues its statement, and asserts toHaveLength(5) plus the `turn_id = ANY` bindings. Round 3 proved the guard closes over the new read by dropping that read's `account_id` predicate (proposals.ts:244): the account-scope loop now FAILS on the fifth statement, which it could not see before the fix."
     },
     {
       "id": "R6",
       "severity": "P1",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "Stale citation, in the same table the round-1 fix corrected: the plan still cites src/app/api/settings/voice/route.ts:23 for both GET routes, and this commit moved line 23 off the GET handler",
       "at": "docs/superpowers/plans/feat-owner-operator-run-a-plan.md:71",
-      "arbiter_reasoning": "Re-resolved against HEAD eb21f55c2. At the round-1 head (7224424ef) line 23 of that file was `export async function GET(request: NextRequest)` — the pattern the two rows claim to follow. This commit widened the voice-settings import from one line to six, so at HEAD line 23 is `  VOICE_FIELD_LIMITS,`, an import member. Rows 71 and 72 of the 'Pattern to follow' table are therefore stale; row 70 of the same table is the one round-1 F10 fixed, by dropping the number rather than renumbering. A stale line number is P1, not P0 — the claim is misleading, not false in substance. Note that the repo's prevalidator reports PASS (93 citations, 0 unresolved) because it only checks that a cited line EXISTS; this was hand-checked, as the skill requires when the script cannot settle the question."
+      "arbiter_reasoning": "Re-resolved against HEAD eb21f55c2. At the round-1 head (7224424ef) line 23 of that file was `export async function GET(request: NextRequest)` — the pattern the two rows claim to follow. This commit widened the voice-settings import from one line to six, so at HEAD line 23 is `  VOICE_FIELD_LIMITS,`, an import member. Rows 71 and 72 of the 'Pattern to follow' table are therefore stale; row 70 of the same table is the one round-1 F10 fixed, by dropping the number rather than renumbering. A stale line number is P1, not P0 — the claim is misleading, not false in substance. Note that the repo's prevalidator reports PASS (93 citations, 0 unresolved) because it only checks that a cited line EXISTS; this was hand-checked, as the skill requires when the script cannot settle the question.",
+      "reason": "Re-resolved at head d21db9ecd: plan rows 71-72 now cite 'the GET handler in src/app/api/settings/voice/route.ts' instead of line 23, and that handler exists (route.ts:29, `export async function GET`). prevalidate-plan.py reports PASS, 92 citations, 0 unresolved."
     },
     {
       "id": "R7",
       "severity": "P1",
       "duty": 4,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "Missed sibling: the Version-token fix was applied to the reader only — updateVoiceConfig still returns `iso(row.updated_at)`, so the two spellings of the same token disagree by FORMAT",
       "at": "src/lib/responses/voice-settings.ts:151",
-      "arbiter_reasoning": "Sibling search over the fixed pattern ('a Version token built from a postgres.js Date round-trip'), scope src/lib + worker excluding tests, pattern `updated_at` filtered to token/text/iso uses. readVoiceConfig now returns raw `updated_at::text` (e.g. `2026-09-11 10:00:00.123456+00`) and its docblock states the contract as 'Text end-to-end: the token stores this string and Run B's Apply compares text to text'. Forty lines below, updateVoiceConfig's `RETURNING updated_at` is still decoded to a JS Date and re-encoded by `iso()` (e.g. `2026-09-11T10:00:00.123Z`). Both are typed `updatedAt: string` and both are the location's voice **Version token**. In Run A nothing compares them — the PUT route only echoes the value — so this is not a live defect and not a P0; but a Run B Apply that takes the writer's return as the new token compares two different formats and can never match, and the truncation the fix exists to prevent is still present on that half. Excluded from the search by design: `account_updated_at` in worker/jobs/notification/context.ts and worker/jobs/publisher/load-context.ts, which are display/context values and not comparison tokens. Zero other siblings found."
+      "arbiter_reasoning": "Sibling search over the fixed pattern ('a Version token built from a postgres.js Date round-trip'), scope src/lib + worker excluding tests, pattern `updated_at` filtered to token/text/iso uses. readVoiceConfig now returns raw `updated_at::text` (e.g. `2026-09-11 10:00:00.123456+00`) and its docblock states the contract as 'Text end-to-end: the token stores this string and Run B's Apply compares text to text'. Forty lines below, updateVoiceConfig's `RETURNING updated_at` is still decoded to a JS Date and re-encoded by `iso()` (e.g. `2026-09-11T10:00:00.123Z`). Both are typed `updatedAt: string` and both are the location's voice **Version token**. In Run A nothing compares them — the PUT route only echoes the value — so this is not a live defect and not a P0; but a Run B Apply that takes the writer's return as the new token compares two different formats and can never match, and the truncation the fix exists to prevent is still present on that half. Excluded from the search by design: `account_updated_at` in worker/jobs/notification/context.ts and worker/jobs/publisher/load-context.ts, which are display/context values and not comparison tokens. Zero other siblings found.",
+      "reason": "voice-settings.ts:152 is now `RETURNING updated_at::text AS updated_at` and :155 returns it verbatim; `iso()` is deleted from the module. Reverting to `RETURNING updated_at` + `new Date(...).toISOString()` is KILLED by voice-settings.test.ts:32, and re-formatting in the route (route.ts:180) is KILLED by route.test.ts:278 (expected '2026-09-11T10:00:00.123Z' to be '2026-09-11 10:00:00.123456+00'). Sibling re-search at head: `updated_at::text` is the only Version-token spelling left in src/lib + worker; the remaining `iso()` (src/lib/agents/read.ts:204) formats created_at/occurred_at display values on the run spine, not a comparison token."
     },
     {
       "id": "R8",
       "severity": "P2",
       "duty": 2,
-      "disposition": "open",
+      "disposition": "rejected",
       "title": "Absence-of-token proxies extended into the new tests: `not.toContain('status_ref')` / `not.toContain('proposal_ref')` over serialized JSON",
       "at": "src/lib/agents/operator/__tests__/render.test.ts:307",
-      "arbiter_reasoning": "Same shape as round-1 F12, now in two more places (render.test.ts and turn-worker.integration.test.ts:429-430): a substring check on JSON.stringify standing in for 'the stored union admits no unresolved reference'. Recorded as P2 rather than P1 because in both places it sits BESIDE a real oracle — an exact `toEqual` over the stored array, and a `parseReplySegments` round-trip that throws on the retired member — so it is belt-and-braces rather than the only assertion. The behavioural replacement is the one already present: keep the `toEqual` and the schema round-trip, drop the substring checks."
+      "arbiter_reasoning": "Same shape as round-1 F12, now in two more places (render.test.ts and turn-worker.integration.test.ts:429-430): a substring check on JSON.stringify standing in for 'the stored union admits no unresolved reference'. Recorded as P2 rather than P1 because in both places it sits BESIDE a real oracle — an exact `toEqual` over the stored array, and a `parseReplySegments` round-trip that throws on the retired member — so it is belt-and-braces rather than the only assertion. The behavioural replacement is the one already present: keep the `toEqual` and the schema round-trip, drop the substring checks.",
+      "reason": "REJECTED as recorded in round 2 - docs/reviews/feat-owner-operator-run-a/review-round-2.md (R8 row) and docs/superpowers/plans/feat-owner-operator-run-a-deviations.md:645: at src/lib/agents/operator/__tests__/render.test.ts:307 and turn-worker.integration.test.ts:429-430 each not.toContain sits beside the positive toEqual / parseReplySegments oracle over the same render, so a collapsed output fails the positive half first."
     },
     {
       "id": "R9",
@@ -371,41 +191,86 @@
       "disposition": "open",
       "title": "The new terminal failure path emits logger.warn only — no Sentry signal and no rule row in beta-launch-alerting.md",
       "at": "worker/jobs/agent-turn/AgentTurnWorker.ts:213",
-      "arbiter_reasoning": "Static comparison. The branch added at AgentTurnWorker.ts:198 is an operator-actionable TERMINAL failure (the turn dies `unauthorized` because a location disappeared mid-flight) and emits only `logger.warn('agent_turn location voice row vanished after authorization')`. `rg 'agent_turn|Owner Operator' docs/runbooks/beta-launch-alerting.md` returns no rule row for this subsystem, and `rg 'captureException|reportCaughtError|Sentry'` over worker/jobs/agent-turn + src/lib/agents/operator returns nothing. Held at P2, not P1: the five sibling terminal paths in the same handler (predecessor stalled, reauthorization failed, model output invalid, lease lost, budget exceeded) all pre-date this commit and all emit the same warn-only signal, so escalating the new line alone would be opening a front on unchanged code, which round 2 forbids. Recorded so the subsystem-wide alerting gap is adjudicated once, with Run A's go-live, rather than per line."
+      "arbiter_reasoning": "Static comparison. The branch added at AgentTurnWorker.ts:198 is an operator-actionable TERMINAL failure (the turn dies `unauthorized` because a location disappeared mid-flight) and emits only `logger.warn('agent_turn location voice row vanished after authorization')`. `rg 'agent_turn|Owner Operator' docs/runbooks/beta-launch-alerting.md` returns no rule row for this subsystem, and `rg 'captureException|reportCaughtError|Sentry'` over worker/jobs/agent-turn + src/lib/agents/operator returns nothing. Held at P2, not P1: the five sibling terminal paths in the same handler (predecessor stalled, reauthorization failed, model output invalid, lease lost, budget exceeded) all pre-date this commit and all emit the same warn-only signal, so escalating the new line alone would be opening a front on unchanged code, which round 2 forbids. Recorded so the subsystem-wide alerting gap is adjudicated once, with Run A's go-live, rather than per line.",
+      "reason": "DEFERRED, not fixed, per docs/reviews/feat-owner-operator-run-a/review-round-2.md (R9 row): one go-live alerting decision for the whole lane rather than per path. The round-2 fix commit records it at docs/roadmap/2026-09-11-owner-operator/README.md:638 as a spec 14 item at ship. Re-verified at head d21db9ecd: no captureException/Sentry call exists anywhere under worker/jobs/agent-turn or src/lib/agents/operator, and beta-launch-alerting.md still carries no rule row for the lane. Left open at P2 - which never blocks - so the gap stays visible until go-live. See R11 for an inaccuracy in that new README entry."
     },
     {
       "id": "R10",
       "severity": "P2",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "The new status narrowings throw on an out-of-vocabulary value, and that throw branch has no test",
       "at": "src/lib/agents/operator/schema.ts:31",
-      "arbiter_reasoning": "asTurnStatus and asProposalStatus were added so a driver-supplied bare string cannot widen back to `string`; the docblock is explicit that a value outside the vocabulary 'means the row was written by something that is not this codebase — a throw, not a silent widening'. The happy path is exercised (reads.integration asserts own.status === TURN_STATUS.ACCEPTED), but nothing asserts the throw, and mapStored's asProposalStatus call (proposals.ts:195) is reached in no non-mocked test at all. P2 rather than P1: these are defensive narrowings over a CHECK-constrained column, so the untested branch is unreachable in a healthy database — but it is the branch the functions exist for, and a one-line unit test in schema.test.ts closes it."
+      "arbiter_reasoning": "asTurnStatus and asProposalStatus were added so a driver-supplied bare string cannot widen back to `string`; the docblock is explicit that a value outside the vocabulary 'means the row was written by something that is not this codebase — a throw, not a silent widening'. The happy path is exercised (reads.integration asserts own.status === TURN_STATUS.ACCEPTED), but nothing asserts the throw, and mapStored's asProposalStatus call (proposals.ts:195) is reached in no non-mocked test at all. P2 rather than P1: these are defensive narrowings over a CHECK-constrained column, so the untested branch is unreachable in a healthy database — but it is the branch the functions exist for, and a one-line unit test in schema.test.ts closes it.",
+      "reason": "schema.test.ts:78 now covers both narrowers, including the cross-vocabulary arms. Removing the throw from `asTurnStatus` (schema.ts:31) so it widens silently is KILLED (expected [Function] to throw an error)."
+    },
+    {
+      "id": "R11",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "accepted-risk",
+      "authorization": "auth-r11-accepted-risk-2026-09-12",
+      "title": "The R9 go-live entry the round-2 fix added misstates two of the six terminal paths it enumerates: operator_disabled emits logger.log, not logger.warn, and the lost-lease path resolves nothing",
+      "at": "docs/roadmap/2026-09-11-owner-operator/README.md:638",
+      "arbiter_reasoning": "Re-resolved against head d21db9ecd. The sentence is a universal claim over an enumerated six: 'Every terminal path in AgentTurnWorker - operator_disabled, predecessor_stalled, unauthorized (both arms), model_output_invalid, budget_exceeded, and a lease lost before completion - resolves the turn and emits a logger.warn line.' Two counterexamples in the file it describes. (a) AgentTurnWorker.ts:46 emits logger.log('agent_turn flag-off skip') - info, not warn - before failTurnAndCompleteOutbox, so a warn-level rule built from this list would not see the very path the entry singles out as 'an orderly flag-off skip'. (b) AgentTurnWorker.ts:265 warns 'agent_turn lease lost before completion' and RETURNS without resolving anything: the code's own comment says the owning attempt completes the turn and the outbox row, so it is neither terminal for the turn nor a path to page on. P1, not P0: the conclusion the entry supports - no Sentry signal anywhere in the lane, no rule row in beta-launch-alerting.md, therefore ONE go-live decision - is true and was independently re-verified this pass; what is false is the per-path detail the rule would be built from. Replacement: say the paths resolve the turn and emit a structured warning EXCEPT the flag-off skip (info) and the lost-lease exit (which resolves nothing), or drop those two from the list."
+    },
+    {
+      "id": "R12",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Two more absence-of-substring proxies entered with the new oracles: JSON.stringify(...).not.toContain(...) over a transcript and a snapshot",
+      "at": "src/lib/agents/operator/__tests__/reads.integration.test.ts:494",
+      "arbiter_reasoning": "Same shape as R8, which round 2 REJECTED, so this is recorded at P2 rather than re-litigated as P1. reads.integration.test.ts:494 (not.toContain('not mine')) is belt-and-braces on R8's own terms - the per-turn toEqual at :476 already excludes the foreign row, and it is what actually killed the dropped-account-predicate mutant this pass. snapshot.integration.test.ts:349 (not.toContain('award-winning espresso')) is the weaker of the two: it is the ONLY assertion that the stored input JSONB never reaches the model, since the positive toEqual pins proposalSummaries alone and nothing closes the rest of the SnapshotTurn. Behavioural replacement: a closed toEqual over the whole SnapshotTurn object, which also closes it against a future field. Not escalated - the identical redaction idiom is the suite's established pattern at snapshot.integration.test.ts:254-280, which this commit did not touch."
+    },
+    {
+      "id": "R13",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "The new file-level partial mock of @/lib/agents/operator/turns falsifies the untouched flag-gate test's own comment and the rationale it records - measured, the test still kills a flag-gate regression",
+      "at": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:126",
+      "arbiter_reasoning": "The fix added vi.mock('@/lib/agents/operator/turns', ...) replacing claimTurn for the null-voice case. The untouched flag-gate test above it still says '@/lib/agents/operator/turns is not mocked in this file, so a not.toHaveBeenCalled() on a double the handler never reaches could only ever pass' - false at head - and rests on 'the two-statement count is what actually proves no claim was taken - a claim is its own UPDATE agent_turns', which a mocked claimTurn no longer guarantees. This is the Direction-A case the inventory exists for: a changed helper neutralising an untouched assertion. MEASURED rather than asserted - disabling the kill switch (if (!ownerOperatorEnabled() && false), AgentTurnWorker.ts:45) is still KILLED (expected [ { ...(3) } ] to have a length of 2 but got 1) - so no coverage was lost. P2: a false comment and a stale rationale, not a fake test. Fix: update the comment, and since claimTurn IS now a double, assert expect(mockClaimTurn).not.toHaveBeenCalled() - the assertion the comment says is impossible."
     }
   ],
   "authorizations": [
     {
+      "id": "auth-r11-accepted-risk-2026-09-12",
+      "date": "2026-09-12",
+      "finding_ids": ["R11"],
+      "text": "Owner (Norbert) selected \"Accept-risk R11, correct the wording at ship\" via AskUserQuestion on 2026-09-12 after round 3 closed OPEN_P1 at the round cap: R11 is a wording inaccuracy in the spec §14 go-live bullet (two of six enumerated terminal paths misdescribed); its conclusion was re-verified true. The two clauses are corrected in the step-8 PR-description commit, a docs-only change the PR shows."
+    },
+    {
       "id": "auth-round-3-2026-09-11",
       "date": "2026-09-11",
-      "finding_ids": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R10"],
+      "finding_ids": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5",
+        "R6",
+        "R7",
+        "R10"
+      ],
       "text": "Owner (Norbert) authorizes a third round: \"Authorize red-team round 3\" — selected via AskUserQuestion on 2026-09-11 after round 2 closed OPEN_P0 with R1/R2 (oracle gaps) and R3–R7 (P1) open. Round 3 is scoped to the fix hunks for R1–R7 and R10."
     }
   ],
   "counts": {
-    "inventory_total": 39,
-    "killed": 13,
-    "survived_confirmed_p0": 2,
+    "inventory_total": 13,
+    "killed": 11,
+    "survived_confirmed_p0": 0,
     "equivalent": 0,
-    "inconclusive": 3,
-    "skipped_budget": 19,
+    "inconclusive": 0,
+    "skipped_budget": 0,
     "excluded": 2,
-    "findings_total": 10,
-    "p0_open": 2,
-    "p1_open": 5,
+    "findings_total": 13,
+    "p0_open": 0,
+    "p1_open": 1,
     "p2_open": 3,
     "accepted_risk": 0,
-    "fixed": 0,
-    "rejected": 0
+    "fixed": 8,
+    "rejected": 1
   },
-  "status": "OPEN_P0"
+  "status": "OPEN_P1"
 }
