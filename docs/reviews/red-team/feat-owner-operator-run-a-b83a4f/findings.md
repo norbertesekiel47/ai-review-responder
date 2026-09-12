@@ -1,7 +1,11 @@
-# Red team — `feat/owner-operator-run-a`, round 2 (fix verification)
+# Red team — `feat/owner-operator-run-a`, round 3 (doc-only fix verification)
 
-> **This file supersedes round 1 IN PLACE.** Same run (`feature-feat-owner-operator-run-a-b83a4f`), same journal, round 2 opened by `mutation-runner.mjs round-start`
-> over a closed round-1 journal. Round 1 ran at head `5b223e33f19499534961bf2d60d8781a41af780f`; this pass runs at the fix commit.
+> **This file supersedes rounds 1 and 2 IN PLACE.** One run
+> (`feature-feat-owner-operator-run-a-b83a4f`), one journal, three rounds, each opened by
+> `mutation-runner.mjs round-start` over the previous round's closed journal. Round 1 ran at head
+> `5b223e33f19499534961bf2d60d8781a41af780f`, round 2 at `3a377f6562ce564051b7fd21bd751c9bd9be49ed`
+> (the round-1 fix), round 3 at `7583062a4ea206702bab339930a315fdd6875496` (the round-2 doc fix).
+> Round 3 is the owner-authorized third round; a fourth cannot open.
 
 | | |
 |---|---|
@@ -9,28 +13,28 @@
 | branch | `feat/owner-operator-run-a` |
 | fork | `10c9444a9832cae0e45854f1d19cb124bb2ee5e9` |
 | merge-base | `10c9444a9832cae0e45854f1d19cb124bb2ee5e9` |
-| head | `3a377f6562ce564051b7fd21bd751c9bd9be49ed` |
-| fix commit under verification | `3a377f6562ce564051b7fd21bd751c9bd9be49ed` |
+| head | `7583062a4ea206702bab339930a315fdd6875496` |
+| fix commit under verification | round 3: `7583062a4ea206702bab339930a315fdd6875496` (docs only) · round 2: `3a377f6562ce564051b7fd21bd751c9bd9be49ed` |
 | intake SHA-256 | `43b0b7ef5336f5081e6877cb6eaab8f6f8d138521332e8529df47d47cb43e89d` (after surface amendment #5) |
 | risk | `high` |
-| round | 2 |
-| generated | 2026-09-12T10:24:27Z |
-| mutation runs used | 15 of 30 (1 wasted on a mis-parameterised first launch — see Duty 1) |
+| round | 3 |
+| generated | 2026-09-12T10:33:53Z |
+| mutation runs used | round 3: **0** of 30 (doc-only fix — no production line changed, so there is nothing to mutate). Round 2 spent 15. |
 
 ## Verdict
 
-**Status: `CLEAR`.**
+**Status: `CLEAR`.** Three rounds, all of this run: round 1 found nine, round 2 verified all
+nine `fixed` and opened two P2s, round 3 verified both of those `fixed` and opened one new P2.
 
-Every one of round 1's nine findings is `fixed`, each on evidence produced in THIS pass: five
-hand-mutations killed the seven new or strengthened oracles, and every changed doc claim was
-re-resolved against head rather than re-read from round 1. No P0 and no P1 remains open.
+No P0 and no P1 has ever been left open. Round 3 was the owner-authorized third round
+(`auth-round-3-docs-2026-09-12`), scoped to the two doc hunks P2-2 and P2-3 live in.
 
-Two NEW findings were opened, both **P2** and both inside the fix hunks: wording defects in the two
-rewritten docs. Neither blocks, and the owner has authorized a third round to fix them (below).
+One NEW finding, **P2-4** (`open`), inside the round-3 hunk: the bullet's new triage step names a
+`turn_id` the Sentry event does not carry. P2 never blocks — and it cannot be verified by a further
+round, because the skill caps the loop at three and no fourth can open. It belongs with the runbook
+work already owed before `OWNER_OPERATOR_ENABLED` is flipped.
 
-The status is `CLEAR` only because the owner applied the round-2 scope rule to this run's 237
-unexecuted round-1 candidates. Read the next section before treating `CLEAR` as a coverage claim —
-it is not one.
+`CLEAR` remains a SCOPE claim, not a coverage claim — see the scope-rule section below.
 
 ## Round-2 scope rule and owner decisions
 
@@ -82,7 +86,54 @@ the wording defects live in — `docs/roadmap/2026-09-11-owner-operator/README.m
 `agent_turn` bullet in `docs/runbooks/beta-launch-alerting.md` §1 — after the orchestrator's fix
 commit.
 
-## Findings — round-2 disposition
+## Round 3 (doc-only)
+
+The owner authorized a third round for P2-2 and P2-3; `round-start` accepted it against the
+committed round-2 sidecar and opened round 3 with 30 runs available. **Zero were spent.**
+`git diff 3a377f656 7583062a4` touches no production file — only the two docs and the round-2
+sidecar commit `0cfee39e0` — so there is no changed production line to mutate, and spending runs on
+unchanged code is the forbidden front. Duties 3 and 5 were re-run STATIC, as instructed.
+
+**Every production coordinate was re-resolved at this HEAD rather than carried over from round 2.**
+The docs-only diff makes carrying them over tempting and it is exactly what the skill's "green CI is
+never proof that a document is true" rule warns against, so the greps were re-run.
+
+| claim in the round-3 text | resolved against HEAD | result |
+|---|---|---|
+| `TURN_FAILURE_REASON` has seven members | `schema.ts:52-60` — 7 exactly | TRUE |
+| six are domain terminals the worker writes | `AgentTurnWorker.ts:119`, `:167`, `:168`, `:201`, `:226`, `:289`, `:331` → 6 distinct reasons | TRUE |
+| the seventh, `exhausted`, is written by the failed-hook, not the worker | `failed-hook.ts:70`; no `EXHAUSTED` in `AgentTurnWorker.ts` | TRUE |
+| `account_offboarding` is the other outcome of the same reauthorization arm | the ternary at `:166-168`, one shared `logger.warn` at `:171` | TRUE |
+| five reasons `logger.warn`, `operator_disabled` `logger.log` | warn `:122`, `:171`, `:204`, `:229`, `:292`; log `:324` | TRUE |
+| lease-lost is NOT a terminal, emits `logger.warn`, resolves nothing | `:370` | TRUE |
+| none of the six calls Sentry | no `Sentry.`/`capture` in `AgentTurnWorker.ts` | TRUE |
+| watchdog = one count-only line `Watchdog recovered stale entries` with `recovered`/`failed`/`stale_dispatching`, no topic field, no Sentry | `OutboxPoller.ts:162-168`; no Sentry in `:101-170` | TRUE, **verbatim** |
+| `reportJobFailure` fires on every terminal `failed` event | `job-failure-sink.ts:64-66` — `isFailedEventTerminal` is the only gate | TRUE |
+| the failed-hook ends the turn `exhausted` only when its `markOutboxFailed` CAS owns the row | `failed-hook.ts:53-58`, `!owns` return `:59-63`, `EXHAUSTED` `:67-71` | TRUE |
+| allowlist entry still present | `health-alert/checks.ts:121` | TRUE |
+| sink tags still `subsystem:worker_job` + `queue:agent_turn` | `job-failure-sink.ts:74`, `worker/index.ts:574` | TRUE |
+| click-path row 11, all six facets | `beta-launch-alerting.md:412`, unchanged since round 2 | TRUE |
+| "Read `agent_turns.status` for the `turn_id`" | event carries `job_id`/`outbox_id`/`attempts_made` only (`job-failure-sink.ts:68-78`); `job_id` = `<outbox_id>_<attempt>` (`OutboxPoller.ts:301`) | **gap → P2-4** |
+
+`prevalidate-plan.py` was re-run over both review docs. Output is byte-identical to round 2 —
+neither doc was touched by the round-3 commit — and all three residual issues remain the same
+adjudicated false positives (a bare `voice/route.ts:23` shorthand resolved as a repo-root path;
+`43b0b7ef` is the intake SHA-256 prefix; `42bc6db1` is the round-1 gate fingerprint).
+
+**Two things accepted by inspection rather than filed**, recorded so the judgement is auditable:
+
+- The README says the six domain terminals are written "through a **fenced** status update". Five
+  use `failTurnFenced` (fenced on `attempt_token`); `operator_disabled` at `:328` uses
+  `failTurnAndCompleteOutbox`, which fences on the outbox-ownership CAS instead — the code's own
+  comment at `:325-327` says so. "Fenced" is true of both in the sense that matters (neither write
+  can land from a superseded dispatch) and the line never claims `attempt_token`. Not a false claim.
+- The runbook quotes the superseded log text as `agent_turn exhaustion for a superseded dispatch`.
+  The actual string is `'agent_turn exhaustion for a superseded dispatch, leaving the turn alone'`
+  (`failed-hook.ts:60`) — the quote is a PREFIX, not the full message. An operator grepping the
+  quoted text still finds the line, so the truncation costs nothing and misleads about nothing.
+  Flagged here rather than filed, since inventing a finding to look thorough is forbidden.
+
+## Findings — round-2 and round-3 disposition
 
 | id | sev | duty | at | round-2 disposition | kill / re-resolution evidence |
 |---|---|---|---|---|---|
@@ -95,8 +146,9 @@ commit.
 | `P1-5` | P1 | 3 | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **fixed** | static: `rg "logger\.(log|warn|error)\("` over `AgentTurnWorker.ts` — all seven per-path levels match the rewritten line |
 | `P1-6` | P1 | 3 | `.claude/reference/lab-notes/postgres.md:17` | **fixed** | static: `parseReplySegments` resolves to `context.ts:297`, `reads.ts:97`, `reads.ts:213` exactly as the corrected line says |
 | `P2-1` | P2 | 4 | `worker/jobs/agent-turn/failed-hook.ts:26-28` | **fixed** | M5 (`boundedErrorClass(err)` → constant, `failed-hook.ts:36`) → `expected [ …(2) ] to include 'agent_turn_exhausted:ProviderTimeout'` |
-| `P2-2` | P2 | 3 | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **open** | NEW — see below |
-| `P2-3` | P2 | 5 | `docs/runbooks/beta-launch-alerting.md:330-334` | **open** | NEW — see below |
+| `P2-2` | P2 | 3 | `docs/roadmap/2026-09-11-owner-operator/README.md:638` | **fixed** (round 3) | seven members partitioned 6 worker / 1 failed-hook, `account_offboarding` named, lease-lost excluded from the count; watchdog line verified verbatim at `OutboxPoller.ts:162-168` |
+| `P2-3` | P2 | 5 | `docs/runbooks/beta-launch-alerting.md:330-339` | **fixed** (round 3) | ownership split now stated: sink fires on every terminal event (`job-failure-sink.ts:64-66`), hook ends the turn `exhausted` only when its CAS owns the row (`failed-hook.ts:53-71`) |
+| `P2-4` | P2 | 5 | `docs/runbooks/beta-launch-alerting.md:337-338` | **open** | NEW (round 3) — the triage step names a `turn_id` the event does not carry; `extra` has `job_id`/`outbox_id`/`attempts_made` only |
 
 ### P0-1 — P0 (duty 1) — claimTurn's 180 s lease predicate can be deleted with the entire agent-turn suite still green
 
@@ -301,10 +353,10 @@ No facet contradicts the emitter, so no duty-5 P1. The one defect found here is 
 
 ## Inventory
 
-272 candidates. Rows carried from round 1 keep their round-1 outcome unless the
-fix commit changed what they measure; the four rows the fix changed were re-executed at this head,
-three new rows cover the fix's other new oracles, and 237 unexecuted rows were re-labelled
-`excluded` under the owner's scope decision above.
+274 candidates. Rows carried from round 1 keep their round-1 outcome unless a fix
+changed what they measure; four rows were re-executed at the round-2 head, three new rows cover that
+fix's other new oracles, 237 unexecuted rows were re-labelled `excluded` under the owner's scope
+decision, and round 3 added two `excluded` rows for its two doc hunks.
 
 | outcome | n |
 |---|---|
@@ -313,7 +365,7 @@ three new rows cover the fix's other new oracles, and 237 unexecuted rows were r
 | `equivalent` | 0 |
 | `inconclusive` | 0 |
 | `skipped-budget` | 0 |
-| `excluded` | 240 (3 by protocol rule — migrations, docs, Playwright; 237 by the round-2 scope rule) |
+| `excluded` | 242 (5 by protocol rule — migrations, docs, Playwright, plus round 3's two doc hunks; 237 by the round-2 scope rule) |
 
 Rows re-executed or added in round 2:
 
@@ -327,11 +379,18 @@ Rows re-executed or added in round 2:
 | `INV-271` | `killed` | claimTurn binds the lease predicate that makes the Turn claim exclusive |
 | `INV-272` | `killed` | health alerts include terminal agent_turn outbox failures |
 
-Round 1's 25 carried-forward `killed` rows were NOT re-executed. Their validity at this head rests
-on a property, not on trust: each targets a production line and a test body that the fix commit
-leaves byte-identical, and the only changes to the two test files they live in are ADDED cases plus
-ADDED assertions on one existing case — neither of which can weaken another test's kill. The full
-per-row evidence stays in `findings.json`.
+Rows added in round 3 (both `excluded` — documentation carries no executable behaviour, the same
+protocol rule as `INV-268`; verified under duties 3 and 5 instead):
+
+| id | outcome | file |
+|---|---|---|
+| `INV-274` | `excluded` | `docs/roadmap/2026-09-11-owner-operator/README.md:638` |
+| `INV-275` | `excluded` | `docs/runbooks/beta-launch-alerting.md:325-348` |
+
+Round 1's 25 carried-forward `killed` rows were NOT re-executed. Their validity rests on a property,
+not on trust: each targets a production line and a test body that neither fix commit touches, and
+round 3's diff contains no production change at all. The full per-row evidence stays in
+`findings.json`.
 
 ## Authorizations
 
@@ -341,14 +400,20 @@ Rendered from `findings.json`'s `authorizations` array, which is the authoritati
 
 > Owner (Norbert) selected "Fix now, third round" via AskUserQuestion on 2026-09-12 after round 2 closed with P2-2 and P2-3 open (wording defects in the two doc hunks the round-1 fix commit 3a377f656 introduced). A third round is authorized, scoped to those two doc hunks — docs/roadmap/2026-09-11-owner-operator/README.md line 638 and the agent_turn bullet in docs/runbooks/beta-launch-alerting.md §1 — after the orchestrator's fix commit.
 
-This authorization grants a third ROUND. It does not accept any risk: neither P2-2 nor P2-3 carries
-an `authorization` field, and both keep disposition `open`.
+This authorization granted a third ROUND and has now been CONSUMED — `round-start` validated it
+against the committed round-2 sidecar and opened round 3, which verified both findings `fixed`. It
+accepted no risk: neither P2-2 nor P2-3 ever carried an `authorization` field. No authorization
+covers P2-4, and none is needed — an open P2 does not block, and the checker requires authorization
+only for an open P1 on a high-risk run. A FOURTH round cannot be opened under any authorization.
 
 ## Restoration
 
-All five mutations were hand-restored with `git restore <named path>` immediately after their last
-measurement, each verified back to its journaled original blob OID. The orchestrator has since run
-`finalize`: all five journal entries read `restored`, the journal is closed, the dotenv swap is
-closed and `.env.local.red-team-backup` is gone. `git status --porcelain --untracked-files=no` shows
-only this run's two report artifacts, and all five mutation targets match HEAD
-`3a377f6562ce564051b7fd21bd751c9bd9be49ed`.
+**Round 3 mutated nothing** — zero runs, zero `mutate` calls, so there is nothing to restore. The
+journal for round 3 carries no mutation entries, and `git status --porcelain --untracked-files=no`
+shows only this run's two report artifacts against HEAD
+`7583062a4ea206702bab339930a315fdd6875496`. `finalize` is deliberately NOT run here; the
+orchestrator owns it.
+
+Round 2's five mutations were hand-restored during that round and then confirmed by the
+orchestrator's `finalize`: all five entries read `restored`, the dotenv swap is closed and
+`.env.local.red-team-backup` is gone.

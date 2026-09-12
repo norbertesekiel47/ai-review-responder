@@ -5,11 +5,11 @@
   "branch": "feat/owner-operator-run-a",
   "fork_sha": "10c9444a9832cae0e45854f1d19cb124bb2ee5e9",
   "merge_base_sha": "10c9444a9832cae0e45854f1d19cb124bb2ee5e9",
-  "head_sha": "3a377f6562ce564051b7fd21bd751c9bd9be49ed",
+  "head_sha": "7583062a4ea206702bab339930a315fdd6875496",
   "intake_sha256": "43b0b7ef5336f5081e6877cb6eaab8f6f8d138521332e8529df47d47cb43e89d",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-12T10:24:27Z",
+  "round": 3,
+  "generated_at": "2026-09-12T10:33:53Z",
   "inventory": [
     {
       "id": "INV-001",
@@ -1914,6 +1914,20 @@
       "file": "worker/background/pollers/health-alert/__tests__/checks.test.ts",
       "outcome": "killed",
       "reason": "NEW in 3a377f656 (P1-2 regression case). Mutation M3 removed ${QUEUE_NAMES.AGENT_TURN} from checkFailedOutboxByTopic's closed allowlist at worker/background/pollers/health-alert/checks.ts:124 (original blob 3344523b3361 -> mutant 913698b6a5ff, byte-identical to the pre-fix blob in the commit's own diff index line). Green baseline re-derived at head; under the mutant it FAILED with \"expected [ 'publish_response', \u2026(6) ] to include 'agent_turn'\" \u2014 the bound-values assertion. assert-one-test confirmed exactly one executed test."
+    },
+    {
+      "id": "INV-274",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "docs/roadmap/2026-09-11-owner-operator/README.md:638",
+      "outcome": "excluded",
+      "reason": "Round-3 hunk 1 of 2. Documentation carries no executable behaviour, so it is not a mutation candidate (same protocol rule as INV-268). Verified instead under duty 3 (docs vs reality) by re-resolving every claim in the line against HEAD \u2014 see finding P2-2, disposition fixed."
+    },
+    {
+      "id": "INV-275",
+      "test": "n/a \u2014 out of scope by rule",
+      "file": "docs/runbooks/beta-launch-alerting.md:325-348",
+      "outcome": "excluded",
+      "reason": "Round-3 hunk 2 of 2. Documentation carries no executable behaviour, so it is not a mutation candidate (same protocol rule as INV-268). Verified instead under duties 3 and 5 by re-resolving the bullet against the emitter at HEAD \u2014 see findings P2-3 (fixed) and P2-4 (open)."
     }
   ],
   "findings": [
@@ -2013,19 +2027,29 @@
       "duty": 3,
       "title": "The rewritten go-live alerting bullet miscounts its own terminal paths and misnames the watchdog log line",
       "at": "docs/roadmap/2026-09-11-owner-operator/README.md:638",
-      "disposition": "open",
-      "reason": "Two imprecisions inside the fix hunk, neither of them an operationally false claim. (1) The line opens \"The six terminal paths in AgentTurnWorker resolve the turn\" and then enumerates seven items, the last of which \u2014 \"a lease lost before completion\" \u2014 the same sentence says \"resolves NOTHING\"; and it never names account_offboarding, which IS one of the six domain terminal reasons (src/lib/agents/operator/schema.ts:55) and is written by the very reauthorization arm the line does name (AgentTurnWorker.ts:166-171), so the same logger.warn covers it. The runbook's parallel sentence counts correctly (\"the six domain terminal reasons (operator_disabled through budget_exceeded)\" = exactly the six non-exhausted members in declaration order). (2) The line calls the watchdog re-pend \"a topic-aggregated log line in runOutboxWatchdogRecovery\"; at head that call emits logger.log('Watchdog recovered stale entries', { recovered, failed, stale_dispatching }) (worker/background/pollers/OutboxPoller.ts:160-166), which carries NO topic field at all \u2014 the counts are aggregated ACROSS topics, not by topic. The same phrase appears in docs/runbooks/beta-launch-alerting.md:338-340. Suggested replacement: \"the six domain terminal reasons (operator_disabled through budget_exceeded) resolve the turn; a lease lost before completion resolves nothing\", and \"an untyped aggregate count in runOutboxWatchdogRecovery's log line\".",
-      "arbiter_reasoning": "P2, not P1: the operationally load-bearing claims of the line all re-resolve true at head (which paths warn, which logs info, that none calls Sentry, that the terminal outbox row alerts and the re-pend does not). A reader acting on the line reaches the right conclusion; only the arithmetic and one adjective are wrong, so this records rather than blocks. Not P0 under duty 3 because no claim is misleading about behaviour \u2014 account_offboarding is covered by the arm that is named, it is simply unnamed."
+      "disposition": "fixed",
+      "reason": "FIXED by 7583062a4 (round 3, doc-only). Both halves re-resolved against HEAD 7583062a4ea206702bab339930a315fdd6875496. (1) THE COUNT. The line now opens \"TURN_FAILURE_REASON has seven members\" and partitions them instead of asserting \"six paths\" over a seven-item list: src/lib/agents/operator/schema.ts:52-60 has exactly seven (operator_disabled, unauthorized, account_offboarding, predecessor_stalled, model_output_invalid, budget_exceeded, exhausted). The six the worker writes re-resolve to AgentTurnWorker.ts:119 (predecessor_stalled), :167 (account_offboarding), :168 and :226 (unauthorized), :201 (model_output_invalid), :289 (budget_exceeded), :331 (operator_disabled); the seventh, exhausted, re-resolves to failed-hook.ts:70 \u2014 written by the failed-hook, not the worker, exactly as the line now says. account_offboarding is now NAMED and correctly attributed to \"the other outcome of that same reauthorization arm\" (the ternary at :166-168, whose single logger.warn is at :171). The lease-lost exit is now explicitly excluded from the terminal count (\"One more exit is NOT a terminal\"), which removes the contradiction round 2 flagged; it re-resolves to the logger.warn at :370. Log levels re-derived with rg \"logger\\.(log|warn)\\(\" over AgentTurnWorker.ts: warn at :122, :171, :204, :229, :292; logger.log for operator_disabled at :324. No Sentry call anywhere in AgentTurnWorker.ts, so \"none of the six domain terminals calls Sentry\" holds. (2) THE WATCHDOG LINE. \"topic-aggregated\" is gone, replaced by \"one count-only log line ... (`Watchdog recovered stale entries` with `recovered`, `failed` and `stale_dispatching` counts \u2014 no topic field, no Sentry event)\". Verified VERBATIM at worker/background/pollers/OutboxPoller.ts:162-168: the message string matches byte for byte, all three field names match, there is no topic field, and a grep for Sentry/capture over runOutboxWatchdogRecovery (:101-170) returns nothing. The same correction was applied to the runbook's parallel sentence (beta-launch-alerting.md:346-348). || ROUND-2 EVIDENCE (retained): Two imprecisions inside the fix hunk, neither of them an operationally false claim. (1) The line opens \"The six terminal paths in AgentTurnWorker resolve the turn\" and then enumerates seven items, the last of which \u2014 \"a lease lost before completion\" \u2014 the same sentence says \"resolves NOTHING\"; and it never names account_offboarding, which IS one of the six domain terminal reasons (src/lib/agents/operator/schema.ts:55) and is written by the very reauthorization arm the line does name (AgentTurnWorker.ts:166-171), so the same logger.warn covers it. The runbook's parallel sentence counts correctly (\"the six domain terminal reasons (operator_disabled through budget_exceeded)\" = exactly the six non-exhausted members in declaration order). (2) The line calls the watchdog re-pend \"a topic-aggregated log line in runOutboxWatchdogRecovery\"; at head that call emits logger.log('Watchdog recovered stale entries', { recovered, failed, stale_dispatching }) (worker/background/pollers/OutboxPoller.ts:160-166), which carries NO topic field at all \u2014 the counts are aggregated ACROSS topics, not by topic. The same phrase appears in docs/runbooks/beta-launch-alerting.md:338-340. Suggested replacement: \"the six domain terminal reasons (operator_disabled through budget_exceeded) resolve the turn; a lease lost before completion resolves nothing\", and \"an untyped aggregate count in runOutboxWatchdogRecovery's log line\".",
+      "arbiter_reasoning": "Round 3 re-derived this from evidence produced in this pass at head 7583062a4ea206702bab339930a315fdd6875496. The fix is doc-only: git diff between the round-2 head and HEAD touches no production file (only the two docs plus the round-2 sidecar commit), so every production coordinate cited above was re-resolved rather than carried over. One generalization was inspected and accepted rather than filed: the line says the six domain terminals are written \"through a fenced status update\", and five use failTurnFenced (fenced on attempt_token) while operator_disabled at :328 uses failTurnAndCompleteOutbox, which fences on the outbox-ownership CAS instead (the code's own comment at :325-327 says so). \"Fenced\" is true of both in the sense that matters \u2014 neither write can land from a superseded dispatch \u2014 and the line does not claim attempt_token, so this is not a false claim. || P2, not P1: the operationally load-bearing claims of the line all re-resolve true at head (which paths warn, which logs info, that none calls Sentry, that the terminal outbox row alerts and the re-pend does not). A reader acting on the line reaches the right conclusion; only the arithmetic and one adjective are wrong, so this records rather than blocks. Not P0 under duty 3 because no claim is misleading about behaviour \u2014 account_offboarding is covered by the arm that is named, it is simply unnamed."
     },
     {
       "id": "P2-3",
       "severity": "P2",
       "duty": 5,
       "title": "The new runbook bullet overstates what one agent-turn-exhausted event implies about the turn",
-      "at": "docs/runbooks/beta-launch-alerting.md:330-334",
+      "at": "docs/runbooks/beta-launch-alerting.md:330-339",
+      "disposition": "fixed",
+      "reason": "FIXED by 7583062a4 (round 3, doc-only). The overstatement is gone and replaced with the ownership split, re-resolved against HEAD. The bullet now reads \"One event means one agent_turn JOB exhausted its BullMQ retries \u2014 reportJobFailure fires on every terminal failed event\", which matches worker/job-failure-sink.ts:64-66 exactly (the only gate is `if (!job || !isFailedEventTerminal(job)) return;` \u2014 no turn-state condition). It then states the turn consequence conditionally: the failed-hook \"ends the turn failure_reason = exhausted only when its markOutboxFailed CAS still owns the outbox row\", which matches worker/jobs/agent-turn/failed-hook.ts:52-71 \u2014 markOutboxFailed at :53-58, the `if (!owns)` early return at :59-63, and failTurnIfNonTerminal with TURN_FAILURE_REASON.EXHAUSTED at :67-71 reached only on the owning path. The superseded consequence the bullet now spells out (\"leaves the turn to the attempt that owns it, so a paged event can belong to a turn another attempt is running or has already completed\") is precisely that branch. || ROUND-2 EVIDENCE (retained): The new \u00a71 bullet tells the operator \"One event means one owner's Operator message ran out of BullMQ retries and the turn ended failure_reason = exhausted through worker/jobs/agent-turn/failed-hook.ts, so the owner never receives a reply\". The first clause is exact; the rest is not guaranteed. reportJobFailure fires on the terminal 'failed' event unconditionally (worker/job-failure-sink.ts:66-80), while the hook writes TURN_FAILURE_REASON.EXHAUSTED only when markOutboxFailed confirms this dispatch still OWNS the row (failed-hook.ts:52-71); the superseded branch at :59-63 logs 'agent_turn exhaustion for a superseded dispatch, leaving the turn alone' and returns, and a newer attempt may already have completed the turn. So a paged event can correspond to a turn that is running or already completed, and the owner may well receive a reply. Suggested replacement: \"\u2026ran out of BullMQ retries. If that dispatch still owned the outbox row the turn ended failure_reason = exhausted and the owner never receives a reply; if a newer dispatch had superseded it the hook leaves the turn alone, so check agent_turns.status before treating it as a lost reply.\" All six duty-5 facets themselves match the emitter (see P1-3) \u2014 this is the event's MEANING, not a facet.",
+      "arbiter_reasoning": "Round 3 re-derived this from evidence produced in this pass at head 7583062a4ea206702bab339930a315fdd6875496. Two sub-claims were checked for verbatim accuracy rather than assumed. The quoted superseded log text `agent_turn exhaustion for a superseded dispatch` is a PREFIX of the actual string, which is 'agent_turn exhaustion for a superseded dispatch, leaving the turn alone' (failed-hook.ts:60). Accepted, not filed: an operator grepping the quoted text finds the line, so the truncation costs nothing operationally and the quote is not misleading about behaviour. The new triage instruction in the same sentence does have a real gap, which is filed separately and honestly as P2-4 rather than folded into this disposition. || P2, not P1: duty 5's P1 trigger is a missing half of the alert path or a documented FACET that contradicts the emitted signal, and neither applies \u2014 identity, filter, level, grouping, cadence and destination all re-resolve true at head. The overstatement is in the interpretation text, and it errs toward over-investigating rather than under-paging, which is the safe direction for a go-live rule. Recorded so the sentence is corrected before OWNER_OPERATOR_ENABLED is flipped, not blocking the PR."
+    },
+    {
+      "id": "P2-4",
+      "severity": "P2",
+      "duty": 5,
+      "title": "The new triage step tells the operator to use a turn_id the Sentry event does not carry",
+      "at": "docs/runbooks/beta-launch-alerting.md:337-338",
       "disposition": "open",
-      "reason": "The new \u00a71 bullet tells the operator \"One event means one owner's Operator message ran out of BullMQ retries and the turn ended failure_reason = exhausted through worker/jobs/agent-turn/failed-hook.ts, so the owner never receives a reply\". The first clause is exact; the rest is not guaranteed. reportJobFailure fires on the terminal 'failed' event unconditionally (worker/job-failure-sink.ts:66-80), while the hook writes TURN_FAILURE_REASON.EXHAUSTED only when markOutboxFailed confirms this dispatch still OWNS the row (failed-hook.ts:52-71); the superseded branch at :59-63 logs 'agent_turn exhaustion for a superseded dispatch, leaving the turn alone' and returns, and a newer attempt may already have completed the turn. So a paged event can correspond to a turn that is running or already completed, and the owner may well receive a reply. Suggested replacement: \"\u2026ran out of BullMQ retries. If that dispatch still owned the outbox row the turn ended failure_reason = exhausted and the owner never receives a reply; if a newer dispatch had superseded it the hook leaves the turn alone, so check agent_turns.status before treating it as a lost reply.\" All six duty-5 facets themselves match the emitter (see P1-3) \u2014 this is the event's MEANING, not a facet.",
-      "arbiter_reasoning": "P2, not P1: duty 5's P1 trigger is a missing half of the alert path or a documented FACET that contradicts the emitted signal, and neither applies \u2014 identity, filter, level, grouping, cadence and destination all re-resolve true at head. The overstatement is in the interpretation text, and it errs toward over-investigating rather than under-paging, which is the safe direction for a go-live rule. Recorded so the sentence is corrected before OWNER_OPERATOR_ENABLED is flipped, not blocking the PR."
+      "reason": "Introduced by the round-3 hunk, so in scope. The bullet's new triage instruction reads \"Read `agent_turns.status` for the `turn_id` before treating the event as an unanswered owner message.\" The emitted event carries no turn_id. reportJobFailure (worker/job-failure-sink.ts:68-78) sets tags { subsystem, queue, topic } and extra { job_id, outbox_id, attempts_made } \u2014 nothing else; turn_id lives in the BullMQ job DATA, which Sentry never receives, and job_id is not the turn either: OutboxPoller builds it as `${entry.id}_${entry.attempts}` (worker/background/pollers/OutboxPoller.ts:301), i.e. <outbox_id>_<attempt>. The step IS performable, but only with a hop the bullet omits: take `outbox_id` from the event, read the turn id out of that job_outbox row's payload, then read agent_turns.status. Suggested replacement: \"Resolve the turn from the event's `outbox_id` (the `turn_id` in that `job_outbox` row's payload), then read `agent_turns.status` before treating the event as an unanswered owner message.\" Alternatively add `turn_id` to the sink's `extra` \u2014 but that is a production change and outside this round's doc-only scope, so it is recorded as an option, not proposed.",
+      "arbiter_reasoning": "P2, not P1. Duty 5's P1 triggers are a missing half of the alert path and a documented FACET that contradicts the emitted signal; neither applies. All six facets were re-resolved at HEAD and still match (identity, filter, level, grouping, cadence, destination \u2014 click-path row 11 at beta-launch-alerting.md:412 is unchanged and correct), and both halves of the agent_turn alert path remain present (allowlist entry at health-alert/checks.ts:121; sink tags at job-failure-sink.ts:74 with attachJobFailureSink applied over every worker at worker/index.ts:574). This is triage guidance, not a facet: the page still fires correctly and reaches the right channel, and the operator reaches the right answer after one extra lookup. Recorded rather than blocking. NOTE: the skill caps the loop at three rounds and no fourth can open, so this cannot be verified by a further red-team round \u2014 it belongs with the runbook work owed before OWNER_OPERATOR_ENABLED is flipped, alongside rule 11's \"NOT CONFIGURED BY THIS CHANGE\" build step."
     }
   ],
   "authorizations": [
@@ -2040,19 +2064,19 @@
     }
   ],
   "counts": {
-    "inventory_total": 272,
+    "inventory_total": 274,
     "killed": 32,
     "survived_confirmed_p0": 0,
     "equivalent": 0,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 240,
-    "findings_total": 11,
+    "excluded": 242,
+    "findings_total": 12,
     "p0_open": 0,
     "p1_open": 0,
-    "p2_open": 2,
+    "p2_open": 1,
     "accepted_risk": 0,
-    "fixed": 9,
+    "fixed": 11,
     "rejected": 0
   },
   "status": "CLEAR"
