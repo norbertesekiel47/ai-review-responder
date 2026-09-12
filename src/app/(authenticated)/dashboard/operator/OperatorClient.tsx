@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import { useLocationScope, type LocationInfo } from '@/contexts/LocationContext';
@@ -251,16 +251,27 @@ function useTurnSubmission({ conversation, poll, onDisabled, setNotice }: {
     setLostResponse(false);
   }, []);
 
-  return {
-    draft,
-    setDraft,
-    sending,
-    canRetry: lostResponse && pending !== null,
-    send,
-    retry,
-    refreshPlan,
-    clear,
-  };
+  /**
+   * ONE OBJECT PER CHANGE, like both sibling machines
+   * (`useOperatorConversation`, `useTurnPoll`). `startNewConversation` depends
+   * on this value, and a fresh literal every render gave that callback — and
+   * anything downstream of it — a new identity on every keystroke in the
+   * composer. The fields are already individually stable; only the wrapper was
+   * not (RT-B6).
+   */
+  return useMemo(
+    () => ({
+      draft,
+      setDraft,
+      sending,
+      canRetry: lostResponse && pending !== null,
+      send,
+      retry,
+      refreshPlan,
+      clear,
+    }),
+    [draft, setDraft, sending, lostResponse, pending, send, retry, refreshPlan, clear],
+  );
 }
 
 /**

@@ -279,6 +279,11 @@ describeWithDb(
       expect(receipt!.version).toBe(1);
       expect(receipt!.operation).toBe('set_tone');
       expect(receipt!.scope).toEqual({ accountId: tenant.accountId, locationId });
+      // THE TWO ENDS OF THE MOVE, and they provably differ: `before` is the
+      // state the card SHOWED (tone unset), `after` the state that actually
+      // committed. A Receipt that recorded the after-state twice would say the
+      // owner approved a change from "warm and brief" to "warm and brief".
+      expect(receipt!.before.tone).toBeNull();
       expect(receipt!.after.tone).toBe('warm and brief');
       expect(receipt!.effectiveNow).toBe(true);
       expect(receipt!.affects).toBe('future_drafts');
@@ -604,6 +609,11 @@ describeWithDb(
       // The Receipt's five-field state, with the stored `updatedAt` DROPPED —
       // it is recorded once, under `versionToken.before`, and nowhere else.
       expect(result.proposal.receipt!.before).not.toHaveProperty('updatedAt');
+      // …and `before` IS the before the card showed, not a second copy of the
+      // after that committed: the stored preview, read through the same
+      // production mapper the card calls, byte for byte.
+      expect(result.proposal.receipt!.before)
+        .toEqual(parseVoiceState(view!.before, 'agent_proposals.before'));
       expect(result.proposal.receipt!.after).not.toHaveProperty('updatedAt');
       expect(result.proposal.receipt!.versionToken.before.updatedAt).toBe(voice.updatedAt);
       expect(await readTone(locationId)).toBe('warm and brief');

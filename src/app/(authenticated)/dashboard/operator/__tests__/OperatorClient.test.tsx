@@ -50,7 +50,10 @@ import { OperatorClient } from '../OperatorClient';
 import {
   APPLY,
   LOCATION_UNAVAILABLE,
+  NOT_NOW,
   PREPARING,
+  PROPOSAL_STALE,
+  REFRESH_PLAN,
   RETRY_SEND,
   ROUTE_ERROR_WORDING,
   START_NEW_CONVERSATION,
@@ -577,6 +580,67 @@ describe('OperatorClient', () => {
     expect(screen.getAllByRole('region', { name: proposal.describe })).toHaveLength(1);
     expect(screen.getAllByRole('region', { name: unreferenced.describe })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: APPLY })).toHaveLength(2);
+  });
+
+  it('a refused Apply repaints the card from the row the server returned', async () => {
+    // THE CARD-REPAINT HALF of "re-render from the RETURNED row" (D11).
+    // `useProposalWrites` hands the server's row to `patchProposal`; what the
+    // TRANSCRIPT does with it is this case. The conversation GET keeps
+    // answering `pending` throughout — a refused write asks for no refetch —
+    // so the only thing that can move this card is the patched row itself.
+    const pendingProposal = {
+      id: PROPOSAL, turnId: TURN, operation: 'set_tone', contractVersion: 1,
+      labelKind: 'fact', locationId: SALON, status: 'pending',
+      rationale: 'You asked for warmer replies.', input: { tone: 'warm and brief' },
+      before: { tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      after: { tone: 'warm and brief', productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      describe: 'Set the reply tone to "warm and brief"',
+      preparedVersionToken: { businessId: SALON, updatedAt: '2026-09-12 09:00:00.111111+00' },
+      receipt: null, appliedAt: null, failureReason: null,
+    };
+    // The row the server ACTUALLY has: the settings moved after the plan was
+    // prepared, so the **Version token** no longer agrees and the Proposal is
+    // terminal.
+    const staleProposal = {
+      ...pendingProposal, status: 'stale', failureReason: 'version_mismatch',
+    };
+    const fetchMock = routeFetch([
+      [/^GET .*\/api\/operator\/conversation/, () => ({
+        status: 200,
+        body: conversationWith([storedTurn({
+          proposals: [pendingProposal],
+          segments: [{ type: 'proposal', proposalId: PROPOSAL }],
+        })]),
+      })],
+      [/^POST .*\/api\/operator\/proposals\/.*\/apply$/, () => ({
+        status: 409, body: { error: 'proposal_stale', proposal: staleProposal },
+      })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    searchParamsMock.value = new URLSearchParams({ conversationId: CONVERSATION });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<OperatorClient />);
+
+    const card = () => screen.getByRole('region', { name: pendingProposal.describe });
+    await waitFor(() => expect(within(card()).getByRole('button', { name: APPLY })).toBeEnabled());
+    await user.click(within(card()).getByRole('button', { name: APPLY }));
+
+    // THE RETURNED ROW IS TERMINAL, so the card stops offering a decision…
+    await waitFor(() => {
+      expect(within(card()).queryByRole('button', { name: APPLY })).not.toBeInTheDocument();
+    });
+    expect(within(card()).queryByRole('button', { name: NOT_NOW })).not.toBeInTheDocument();
+    // …says what the stored reason means, on its own state line…
+    const stateLines = Array.from(card().querySelectorAll('.op-state-line'))
+      .map((node) => node.textContent);
+    expect(stateLines).toContain(PROPOSAL_STALE);
+    // …names the refusal as an alert beside it…
+    expect(within(card()).getByRole('alert')).toHaveTextContent(
+      ROUTE_ERROR_WORDING.proposal_stale!,
+    );
+    // …and offers the one recovery a fresh plan can actually give.
+    expect(within(card()).getByRole('button', { name: REFRESH_PLAN })).toBeInTheDocument();
   });
 
   it('terminal failures and requested capabilities survive reload and subsequent turns', async () => {

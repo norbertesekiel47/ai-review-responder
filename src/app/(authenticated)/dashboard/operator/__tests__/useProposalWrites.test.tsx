@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import { useProposalWrites } from '../useProposalWrites';
-import { ROUTE_ERROR_WORDING } from '../wording';
+import { ROUTE_ERROR_WORDING, routeErrorSentence } from '../wording';
 
 const SALON = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TURN = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -129,9 +129,10 @@ describe('useProposalWrites', () => {
     const { result, patchProposal } = harness();
     await act(async () => { await result.current.write(proposal(), 'apply'); });
 
-    expect(result.current.errors[PROPOSAL]).toBe(
-      'Something went wrong. Nothing was changed — try again.',
-    );
+    // The fallback sentence, read from `wording.ts` rather than transcribed:
+    // `ROUTE_ERROR_FALLBACK` itself is not exported, and `routeErrorSentence`
+    // with no code IS its accessor.
+    expect(result.current.errors[PROPOSAL]).toBe(routeErrorSentence(null));
     expect(patchProposal).not.toHaveBeenCalled();
   });
 
