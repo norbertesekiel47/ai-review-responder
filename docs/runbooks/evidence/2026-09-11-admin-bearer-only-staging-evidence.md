@@ -11,7 +11,7 @@ Execution contract: [.agents/skills/runbook/SKILL.md](../../../.agents/skills/ru
 - Stripe: no billing or provider operation; test environment only.
 - Starting source main/staging: `f747cb7b64f8af5a7b74691110b0d10d9d8ff897` (#1193, PR #1264).
 - Expected Admin app main/staging: `44452f060f78c691cc81188b6bbd05a6d3be82c1`.
-- Worktree: `codex-1203-admin-bearer-only`; candidate SHA and deployment pins pending.
+- Worktree: `codex-1203-admin-bearer-only`; reviewed implementation `732548997f725ac9e1bc42225dfd01664b058de8`; staging candidate/deployment pins pending.
 - Preparation UTC: 2026-09-12T01:56:38Z.
 - Designated existing staging CI accounts: Gate A admin/non-admin; credentials stay sealed in GitHub Actions.
 - No account creation, role/factor changes, global logout, impersonation session creation, provider actions or production configuration writes are part of this campaign.
@@ -22,8 +22,9 @@ Execution contract: [.agents/skills/runbook/SKILL.md](../../../.agents/skills/ru
 |---|---|---|
 | Prerequisite retirements | #1193 merged after all ten tranche-4 retirements | Before campaign |
 | Vercel CLI | Existing authenticated session confirmed | 2026-09-12T01:56Z |
-| Local validation | Full suite: 15,454 passed / 11 expected skips; lint/typecheck pass; build pass | 2026-09-12T01:56Z |
+| Local validation | Full suite: 15,454 passed / 11 expected skips; final export slice 535 passed; refusal-order fix slice 166 passed; lint/typecheck/build pass | 2026-09-12T01:56Z |
 | Canonical gates and contract | 37 routes / 5 pages pass; 19 generated artifacts match | 2026-09-12T01:56Z |
+| Single code-review pass | Spec 0 findings at `239e8ed3`; Standards refusal-order finding fixed and rechecked at `73254899`, no open finding | 2026-09-12T02:08Z |
 | Computer Use | Unavailable; automated checks must not be described as Computer Use | 2026-09-12T01:56Z |
 | Live alias/environment pins | Source READY `dpl_G6php8zX64yu5XmKT7tVeCcnVmzQ` at `f747cb7b`; Admin READY `dpl_5Mq5BLSYQ9rVAnM2YCiFPSQEkJv1` at `44452f060`; both expected custom environments and aliases verified. All nine public baseline checks passed. | 2026-09-12T01:57:44Z |
 
