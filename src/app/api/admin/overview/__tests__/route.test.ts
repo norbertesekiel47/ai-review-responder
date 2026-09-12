@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 // src/app/api/admin/overview/__tests__/route.test.ts
 //
 // #1184: this route folded from `requireRoleOr401` onto `requireAdminWithAal2`, so the
@@ -16,7 +17,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   adminAuthModuleMock,
   mockGetAdminOverview,
   mockSql,
@@ -50,7 +51,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 }));
 
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 // Import AFTER mocks
@@ -66,7 +67,7 @@ const OVERVIEW_FIXTURE = {
 };
 
 function makeGetRequest(): NextRequest {
-  return new NextRequest('http://localhost:3000/api/admin/overview');
+  return adminBearerRequest('http://localhost:3000/api/admin/overview');
 }
 
 // ── The admin MFA gate on GET (#1184) ───────────────────────────────
@@ -86,11 +87,10 @@ describe('GET /api/admin/overview — the admin MFA gate (#1184)', () => {
     const res = await GET(makeGetRequest());
 
     expect(res.status).toBe(200);
-    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
-    // The negative half of the bearer case: no Authorization header, so the shim
-    // must resolve cookie transport rather than a value it invented.
-    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
-    expect(resolved?.transport).toBe('cookie');
+    expect(mockResolveAdminApiIdentity).toHaveBeenCalledOnce();
+    // The route fixture supplies a bearer; ordinary Admin APIs no longer accept cookies.
+    const resolved = await mockResolveAdminApiIdentity.mock.results[0]!.value;
+    expect(resolved?.transport).toBe('bearer');
   });
 
   it('returns the service payload unchanged', async () => {
@@ -137,7 +137,7 @@ describe('GET /api/admin/overview — the admin MFA gate (#1184)', () => {
   });
 
   it('GET /api/admin/overview — a bearer-transport aal2 admin is served', async () => {
-    const req = new NextRequest('http://localhost:3000/api/admin/overview', {
+    const req = adminBearerRequest('http://localhost:3000/api/admin/overview', {
       headers: { authorization: 'Bearer test-admin-access-token' },
     });
 
@@ -146,12 +146,12 @@ describe('GET /api/admin/overview — the admin MFA gate (#1184)', () => {
     expect(res.status).toBe(200);
     // The seam saw the real header, so this is a transport test rather than a
     // second spelling of the cookie case.
-    const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
+    const seen = mockResolveAdminApiIdentity.mock.calls[0]![0] as NextRequest;
     expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
     // …and the transport the shim RESOLVED from it. Asserting only the header
     // above leaves a hardcoded `transport` in the shim passing every one of the
     // nine bearer cases, which is exactly the mutation this line kills.
-    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
+    const resolved = await mockResolveAdminApiIdentity.mock.results[0]!.value;
     expect(resolved?.transport).toBe('bearer');
   });
 });

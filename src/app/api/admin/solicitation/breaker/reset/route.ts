@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -26,7 +25,7 @@ const ResetSchema = z.strictObject({
   note: z.string().trim().min(1).max(1_000),
 });
 
-async function reset(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminJson(request, ResetSchema);
   if (!gate.ok) return gate.response;
 
@@ -69,5 +68,3 @@ async function reset(request: NextRequest): Promise<NextResponse> {
     return internalError('[api/admin/solicitation/breaker/reset] failed:', error);
   }
 }
-
-export const POST = withSameOriginUnlessBearer()(reset);

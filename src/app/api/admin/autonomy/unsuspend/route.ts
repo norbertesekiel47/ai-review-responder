@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { AutonomyAccountNotFoundError } from '@/lib/auto-approval/account-lock';
 import { unsuspendAccountAutonomy } from '@/lib/auto-approval/suspension';
 import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
@@ -14,7 +13,7 @@ const UnsuspendSchema = z.strictObject({
   note: z.string().trim().min(1).max(1_000),
 });
 
-async function unsuspend(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminJson(request, UnsuspendSchema);
   if (!gate.ok) return gate.response;
 
@@ -41,5 +40,3 @@ async function unsuspend(request: NextRequest): Promise<NextResponse> {
     return internalError('[api/admin/autonomy/unsuspend] failed:', error);
   }
 }
-
-export const POST = withSameOriginUnlessBearer()(unsuspend);

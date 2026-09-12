@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { sql } from '@/lib/db/server';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
 import { enqueueGenerateResponse, enqueueSendNotification } from '@/lib/shared/job-outbox-helpers';
 import { assertLocationNotArchived } from '@/lib/approval/locks';
@@ -70,7 +69,7 @@ interface OpenFlagRow {
   account_id: string;
 }
 
-async function dispositionFlaggedResponse(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const gate = await requireAdminWithAal2(request);
   if (!gate.ok) return gate.response;
   const admin = gate.admin;
@@ -186,6 +185,3 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
 
   return NextResponse.json({ ok: true, action }, { headers: NO_STORE });
 }
-
-// CSRF by construction: same-origin enforced at the export, not inside the gate.
-export const POST = withSameOriginUnlessBearer()(dispositionFlaggedResponse);

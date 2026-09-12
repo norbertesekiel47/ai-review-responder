@@ -1,9 +1,8 @@
 // src/lib/auth/__tests__/admin-transport-seam.test.ts
 //
-// THE dual-mode contract for #1183 (ADR 0025 D1-D4, D9, D10). One file, because
-// the thing under test is a single contract — **Verified admin** reachable from
-// EITHER **Admin transport** — and splitting it across the gate, the seam and the
-// owner gate would let a reader believe each half was the whole.
+// The #1203 bearer-only contract and permanent impersonation cookie exception.
+// Retains #1183's complete credential, liveness, role and strict-AAL2 matrix,
+// with cookie cases moved to the surviving prefix (ADR 0031 D6).
 //
 // EVERYTHING IS MOCKED AT THE SDK BOUNDARY, never at a module boundary: only
 // `@supabase/ssr`, `@supabase/supabase-js` and `@/lib/db/server` are replaced, so
@@ -86,8 +85,11 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
 
+import { z } from 'zod';
+import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';
+import { sql } from '@/lib/db/server';
 import { AuthError as SupabaseAuthError } from '@supabase/supabase-js';
-import { requireAdminWithAal2 } from '../admin-mfa-gate';
+import { requireAdminWithAal2, requireAdminJson } from '../admin-mfa-gate';
 import { requireRoleOr401, withSameOrigin } from '../route-helpers';
 import { requireRole, AuthError } from '@/lib/db/auth';
 
@@ -115,6 +117,9 @@ const OWNER_ROW = { ...ADMIN_ROW, id: 'user-2', role: 'owner' };
 /** A NextRequest with the given headers. No body: the gate must not read one. */
 function req(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('https://app.example.com/api/admin/x', { method: 'POST', headers });
+}
+function impersonationReq(headers: Record<string, string> = {}): NextRequest {
+  return new NextRequest('https://app.example.com/api/admin/impersonation/start', { method: 'POST', headers });
 }
 function bearerReq(token = TOKEN): NextRequest {
   return req({ authorization: `Bearer ${token}` });
@@ -183,9 +188,9 @@ beforeEach(() => {
 // The happy paths, one per transport
 // ---------------------------------------------------------------------------
 
-describe('requireAdminWithAal2 — dual-mode', () => {
-  it('cookie ok', async () => {
-    const result = await requireAdminWithAal2(req());
+describe('requireAdminWithAal2 — bearer and permanent impersonation', () => {
+  it('permanent impersonation cookie ok', async () => {
+    const result = await requireAdminWithAal2(impersonationReq());
 
     expect(result).toEqual({ ok: true, admin: ADMIN });
     // The seam reports the transport; the GATE's result shape is unchanged, so
@@ -219,6 +224,38 @@ describe('requireAdminWithAal2 — dual-mode', () => {
   });
 });
 
+describe('ordinary Admin API rejects ambient cookies', () => {
+  it.each(['/api/admin/nav-counts', '/api/admin/businesses', '/api/admin/impersonationevil', '/api/admin/impersonation-other/start'])('refuses cookie-only %s before any SDK or database read', async (path) => {
+    const request = new NextRequest('https://app.example.com' + path);
+    request.cookies.set('sb-session', 'valid-admin-cookie');
+    await expectRefusal(refusalOf(await requireAdminWithAal2(request)), 401, { error: 'Unauthorized' });
+    expect(cookieClientCalls.count).toBe(0);
+    expect(mockGetClaims).not.toHaveBeenCalled();
+    expect(mockBearerGetUser).not.toHaveBeenCalled();
+    expect(sqlRows.calls).toBe(0);
+  });
+
+  it('requireAdminJson refuses the cookie before parsing a mutation body', async () => {
+    const request = req();
+    request.cookies.set('sb-session', 'valid-admin-cookie');
+    const readBody = vi.spyOn(request, 'json');
+    await expectRefusal(refusalOf(await requireAdminJson(request, z.object({ reason: z.string() }))), 401, { error: 'Unauthorized' });
+    expect(readBody).not.toHaveBeenCalled();
+    expect(cookieClientCalls.count).toBe(0);
+    expect(sqlRows.calls).toBe(0);
+  });
+
+  it('resolveAdminActor refuses the cookie before reading its body or tenant', async () => {
+    const request = req();
+    request.cookies.set('sb-session', 'valid-admin-cookie');
+    const readBody = vi.spyOn(request, 'json');
+    await expectRefusal(refusalOf(await resolveAdminActor(sql, request, { requireFullAccess: true })), 401, { error: 'Unauthorized' });
+    expect(readBody).not.toHaveBeenCalled();
+    expect(cookieClientCalls.count).toBe(0);
+    expect(sqlRows.calls).toBe(0);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Role and AAL refusals
 // ---------------------------------------------------------------------------
@@ -242,7 +279,7 @@ describe('requireAdminWithAal2 — role and assurance refusals', () => {
       error: null,
     });
 
-    await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 403, {
+    await expectRefusal(refusalOf(await requireAdminWithAal2(impersonationReq())), 403, {
       error: 'mfa_required',
     });
   });
@@ -265,7 +302,7 @@ describe('requireAdminWithAal2 — role and assurance refusals', () => {
     ];
     for (const outcome of cookieCases) {
       mockCookieAal.mockResolvedValue(outcome);
-      await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 403, {
+      await expectRefusal(refusalOf(await requireAdminWithAal2(impersonationReq())), 403, {
         error: 'mfa_check_failed',
       });
     }
@@ -293,7 +330,7 @@ describe('requireAdminWithAal2 — role and assurance refusals', () => {
     // "no users row". The ticket's refusal table binds BOTH transports to 403.
     sqlRows.next = [];
 
-    await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 403, {
+    await expectRefusal(refusalOf(await requireAdminWithAal2(impersonationReq())), 403, {
       error: 'Forbidden',
     });
   });
@@ -433,7 +470,7 @@ describe('requireAdminWithAal2 — bearer verification', () => {
 // The cookie arm keeps its own refusals
 // ---------------------------------------------------------------------------
 
-describe('requireAdminWithAal2 — cookie refusals', () => {
+describe('requireAdminWithAal2 — permanent impersonation cookie refusals', () => {
   it('cookie authentication failures preserve the refusal contract', async () => {
     // A returned cookie auth error must be a 401, never thrown into the gate's
     // internal_error handler. The AAL read would succeed in both cases, so only the
@@ -445,7 +482,7 @@ describe('requireAdminWithAal2 — cookie refusals', () => {
 
     for (const outcome of outcomes) {
       mockCookieGetUser.mockResolvedValue(outcome);
-      await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 401, {
+      await expectRefusal(refusalOf(await requireAdminWithAal2(impersonationReq())), 401, {
         error: 'Unauthorized',
       });
     }
@@ -462,13 +499,13 @@ describe('requireAdminWithAal2 — cookie refusals', () => {
     const fault = namedAuthError('AuthRetryableFetchError', 0);
 
     mockCookieGetUser.mockResolvedValue({ data: { user: null }, error: fault });
-    await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 401, {
+    await expectRefusal(refusalOf(await requireAdminWithAal2(impersonationReq())), 401, {
       error: 'Unauthorized',
     });
 
     mockCookieGetUser.mockResolvedValue({ data: { user: { id: AUTH_ID } }, error: null });
     mockCookieAal.mockResolvedValue({ data: null, error: fault });
-    await expectRefusal(refusalOf(await requireAdminWithAal2(req())), 403, {
+    await expectRefusal(refusalOf(await requireAdminWithAal2(impersonationReq())), 403, {
       error: 'mfa_check_failed',
     });
   });
@@ -541,10 +578,9 @@ describe('Admin transport precedence', () => {
     }
   });
 
-  it('cookie + cross-origin still 403', async () => {
-    // CSRF is applied at the export, not in the gate (ADR 0025 D8 leaves
-    // withSameOriginUnlessBearer to #1185). This pins that the dual-mode rewire did
-    // not weaken it: the wrapper refuses BEFORE the gate is entered, with its own
+  it('impersonation cookie + cross-origin still 403', async () => {
+    // Impersonation keeps CSRF at its export (ADR 0031 D6). The wrapper
+    // refuses BEFORE the gate is entered, with its own
     // body and — deliberately — no Cache-Control of its own.
     const handler = vi.fn(async (request: NextRequest) => {
       const gate = await requireAdminWithAal2(request);
@@ -552,7 +588,7 @@ describe('Admin transport precedence', () => {
     });
     const wrapped = withSameOrigin()(handler);
 
-    const response = await wrapped(req({ origin: 'https://evil.example.com' }));
+    const response = await wrapped(impersonationReq({ origin: 'https://evil.example.com' }));
 
     await expectRefusal(response, 403, { error: 'forbidden' }, { noStore: false });
     expect(handler).not.toHaveBeenCalled();

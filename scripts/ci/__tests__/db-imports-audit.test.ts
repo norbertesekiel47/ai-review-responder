@@ -100,7 +100,7 @@ describe('db-imports-audit', () => {
     expect(isCompositionRoot('src/lib/db/auth.ts', REGISTERED_WORKER_ROOTS)).toBe(true); // owner-decided 2i classification: db-layer auth gate + Supabase client factory + single identity SELECT
     expect(isCompositionRoot('src/lib/db/account-guard.ts', REGISTERED_WORKER_ROOTS)).toBe(false); // db-layer domain module — injected in 2i-T6, NOT classified as a root
     expect(isCompositionRoot('src/app/api/dashboard/route.ts', REGISTERED_WORKER_ROOTS)).toBe(true);
-    expect(isCompositionRoot('src/app/admin/jobs/page.tsx', REGISTERED_WORKER_ROOTS)).toBe(true);
+    expect(isCompositionRoot('src/app/admin/impersonate/page.tsx', REGISTERED_WORKER_ROOTS)).toBe(true);
     expect(isCompositionRoot('src/app/page.tsx', REGISTERED_WORKER_ROOTS)).toBe(true); // app-root page
     expect(isCompositionRoot('src/app/route.ts', REGISTERED_WORKER_ROOTS)).toBe(true); // app-root route handler
     expect(isCompositionRoot('src/app/(authenticated)/layout.tsx', REGISTERED_WORKER_ROOTS)).toBe(true); // Next.js invokes layouts — no injector exists

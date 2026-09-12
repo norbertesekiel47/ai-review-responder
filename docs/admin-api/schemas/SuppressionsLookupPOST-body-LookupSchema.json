@@ -12,7 +12,7 @@
     "email"
   ],
   "additionalProperties": false,
-  "x-repworth-source": "src/app/api/admin/suppressions/lookup/route.ts:33:22",
+  "x-repworth-source": "src/app/api/admin/suppressions/lookup/route.ts:32:22",
   "x-repworth-approximation": true,
   "x-repworth-limitations": [
     {

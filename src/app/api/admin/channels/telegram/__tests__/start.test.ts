@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 // src/app/api/admin/channels/telegram/__tests__/start.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -8,7 +9,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
 } = await vi.hoisted(async () => {
   const { makeAdminGateMocks } = await import('@/lib/auth/__tests__/helpers/admin-gate-mocks');
   const q: unknown[] = [];
@@ -54,7 +55,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 import { POST } from '../start/route';
@@ -73,7 +74,7 @@ function mkReq(body: unknown, opts: { origin?: string | null } = {}) {
   const origin = opts.origin === undefined ? APP_URL : opts.origin;
   if (origin !== null) headers.Origin = origin;
 
-  return new Request('http://localhost/api/admin/channels/telegram/start', {
+  return adminBearerRequest('http://localhost/api/admin/channels/telegram/start', {
     method: 'POST',
     body: JSON.stringify(body),
     headers,
@@ -123,18 +124,15 @@ beforeEach(() => {
 });
 
 describe('POST /api/admin/channels/telegram/start', () => {
-  it('returns 403 when Origin header is absent', async () => {
+  it.each([null, APP_URL])('refuses cookie-only requests with Origin %s before enrollment', async (origin) => {
     process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
-
-    const res = await POST(mkReq({ businessId: 'biz-1' }, { origin: null }) as any);
-    expect(res.status).toBe(403);
-  });
-
-  it('returns 403 when Origin does not match the app origin', async () => {
-    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
-
-    const res = await POST(mkReq({ businessId: 'biz-1' }, { origin: 'https://evil.example.com' }) as any);
-    expect(res.status).toBe(403);
+    const request = mkReq({ businessId: 'biz-1' }, { origin });
+    request.headers.delete('authorization');
+    request.headers.set('cookie', 'admin-session=fixture');
+    const res = await POST(request);
+    expect(res.status).toBe(401);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+    expect(sqlQueue).toHaveLength(0);
   });
 
   it('returns 403 when MFA step-up is not satisfied (AAL2)', async () => {

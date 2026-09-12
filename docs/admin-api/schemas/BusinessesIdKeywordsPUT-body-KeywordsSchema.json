@@ -15,7 +15,7 @@
   "required": [
     "keywords"
   ],
-  "x-repworth-source": "src/app/api/admin/businesses/[id]/keywords/route.ts:13:24",
+  "x-repworth-source": "src/app/api/admin/businesses/[id]/keywords/route.ts:12:24",
   "x-repworth-approximation": true,
   "x-repworth-limitations": [
     {

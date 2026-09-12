@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdminWithAal2, internalError } from '@/lib/auth/admin-mfa-gate';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import {
   ProviderDispositionError,
@@ -15,7 +14,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 const ParamsSchema = z.object({ offboardingId: z.uuid() });
 
-async function postProviderDisposition(
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ offboardingId: string }> },
 ): Promise<NextResponse> {
@@ -66,5 +65,3 @@ async function postProviderDisposition(
     return internalError('[api/admin/offboardings/provider-disposition] failed:', err);
   }
 }
-
-export const POST = withSameOriginUnlessBearer()(postProviderDisposition);

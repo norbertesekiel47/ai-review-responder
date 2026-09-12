@@ -9,7 +9,6 @@ import {
   getBusinessDetail,
   updateBusiness,
 } from '@/lib/admin/business-detail-service';
-import { withSameOriginUnlessBearer } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { readAdminBatchSummary } from '@/lib/solicitation/batch-view';
@@ -50,7 +49,7 @@ export async function GET(
 // PATCH /api/admin/businesses/[id] — update business settings
 // ---------------------------------------------------------------------------
 
-async function patchBusiness(
+export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
@@ -111,5 +110,3 @@ async function patchBusiness(
     return NextResponse.json({ error: 'Failed to update business' }, { status: 500 });
   }
 }
-
-export const PATCH = withSameOriginUnlessBearer()(patchBusiness);

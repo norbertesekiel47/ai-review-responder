@@ -1,25 +1,9 @@
-// src/lib/auth/verified-identity.ts
-//
-// The identity seam that sits BELOW the canonical admin gates (ADR 0025 D1). It
-// turns a NextRequest into a verified `{ authUserId, aal, transport }` and DECIDES
-// NOTHING: no role check, no AAL enforcement, no feature-flag read. The gate keeps
-// deciding, which is what lets the bearer arm be added without widening the auth
-// surface of `requireRole` — about 40 owner and mixed-role routes reach that
-// through `requireRoleOr401`, and none of them asked to accept a bearer.
-//
-// TWO SIBLING RESOLVERS, never one with a posture parameter. This copies the
-// **Channel actor** rule verbatim (src/app/api/_shared/channels/resolve-actor.ts):
-// which transports a caller may present is a security boundary, and a boolean
-// argument would turn a structural fact into a runtime branch.
-//
-// Their EXPORTS are deliberately asymmetric, which is not a contradiction of that:
-// `resolveCookieIdentity` is named by the ticket and is the delegation target, so it
-// is exported; `resolveBearerIdentity` is private, because exporting it would hand a
-// caller a way to take the bearer arm WITHOUT the transport decision — the one thing
-// the predicate exists to own. Siblings in structure, not in reachability.
-//
-// Terms: docs/context/core-accounts-channels-admin.md → **Admin transport**,
-// **Verified admin**.
+// The identity seam below the canonical Admin API gates (ADR 0025 D1).
+// Ordinary routes accept only bearers after #1203. The permanent impersonation
+// prefix retains its existing cookie behavior (ADR 0031 D6), chosen from the
+// request path rather than a caller-supplied posture flag. The seam returns
+// verified identity/AAL facts; role and strict AAL2 enforcement remain in the gate.
+// Owner gates remain cookie-only and do not compose this seam.
 
 import { NextRequest } from 'next/server';
 import {
@@ -28,6 +12,7 @@ import {
   isAuthError,
   isAuthRetryableFetchError,
 } from '@supabase/supabase-js';
+import { isAdminImpersonationApiRoute, normalizePath } from '@/lib/shared/protected-routes';
 import { cookieBackedServerClient } from '@/lib/db/auth';
 import { isBearerRequest, readBearerToken, type AdminTransport } from '@/lib/auth/admin-transport';
 
@@ -43,7 +28,8 @@ import { isBearerRequest, readBearerToken, type AdminTransport } from '@/lib/aut
 export interface VerifiedIdentity {
   authUserId: string;
   aal: string | null;
-  transport: AdminTransport;
+  // Cookie describes only the permanent impersonation exception, not Admin transport.
+  transport: AdminTransport | 'cookie';
 }
 
 /**
@@ -163,7 +149,7 @@ export async function resolveCookieIdentity(
  * locally and is blind to revocation, so dropping the round-trip would leave a
  * signed-out or revoked admin working for up to `JWT_EXP` (3600s) — on the admin
  * control plane. It is the same round-trip the cookie path already pays, which is
- * what makes the two transports carry equal trust on the same routes.
+ * why the permanent cookie exception and ordinary bearer calls retain equal trust.
  *
  * `getAuthenticatorAssuranceLevel(jwt)` is deliberately NOT used: research #1160
  * finding 2b measured that it decodes `aal` WITHOUT verifying the signature and
@@ -228,18 +214,16 @@ async function resolveBearerIdentity(request: NextRequest): Promise<VerifiedIden
 }
 
 /**
- * The dual-mode entry point: the bearer when the request presents an
- * `Authorization` header, and otherwise a DELEGATION to `resolveCookieIdentity`, so
- * the cookie path keeps exactly one owner.
- *
- * Presence of the header — not its well-formedness — selects the bearer arm. That
- * is the glossary's "a bearer wins": a malformed `Authorization` beside a valid
- * session cookie is refused, never quietly authenticated by the cookie.
+ * Bearer-only Admin API identity, with the permanent impersonation exception.
+ * Both this seam and the proxy use the same segment-bounded path predicate.
+ * Inside the exception, an Authorization header still suppresses cookies even
+ * when malformed; no bearer refusal can fall back to an ambient session.
  */
-export async function resolveDualModeIdentity(
+export async function resolveAdminApiIdentity(
   request: NextRequest,
 ): Promise<VerifiedIdentity | null> {
-  return isBearerRequest(request)
-    ? resolveBearerIdentity(request)
-    : resolveCookieIdentity(request);
+  if (isAdminImpersonationApiRoute(normalizePath(request.nextUrl.pathname)) && !isBearerRequest(request)) {
+    return resolveCookieIdentity(request);
+  }
+  return resolveBearerIdentity(request);
 }

@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 // The admin arm of the Halt latch, at its route boundary (#865; plan §3.3).
 //
 // Every case loads `../halt/route` through `loadRoute()`, mirroring the
@@ -24,7 +25,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockAdminHaltBatch,
   mockSql,
   resetMockSql,
@@ -60,7 +61,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
@@ -103,7 +104,7 @@ function postRequest(
   payload: unknown,
   origin = 'https://app.example.com',
 ): NextRequest {
-  return new NextRequest('https://app.example.com/api/admin/solicitation/batch/halt', {
+  return adminBearerRequest('https://app.example.com/api/admin/solicitation/batch/halt', {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin },
     body: JSON.stringify(payload),
@@ -194,14 +195,14 @@ describe('admin solicitation batch halt route', () => {
     expect(mockAdminHaltBatch).not.toHaveBeenCalled();
   });
 
-  it('the admin halt route rejects a cross-origin POST before calling adminHaltBatch', async () => {
+  it('the admin halt route rejects a cookie-only POST before calling adminHaltBatch', async () => {
     const { POST } = await loadRoute();
 
-    const response = await POST(postRequest(body(), 'https://evil.example.com'));
-
-    // withSameOrigin wraps the export, so CSRF is refused BEFORE the role gate
-    // — `requireRole` is never even consulted.
-    expect(response.status).toBe(403);
+    const request = postRequest(body());
+    request.headers.delete('authorization');
+    request.headers.set('cookie', 'admin-session=fixture');
+    const response = await POST(request);
+    expect(response.status).toBe(401);
     expect(mockRequireRole).not.toHaveBeenCalled();
     expect(mockAdminHaltBatch).not.toHaveBeenCalled();
   });

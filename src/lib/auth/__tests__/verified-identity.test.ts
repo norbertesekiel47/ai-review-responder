@@ -52,7 +52,7 @@ vi.mock('@/lib/db/server', () => ({ sql: () => Promise.resolve([]) }));
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
-import { resolveCookieIdentity, resolveDualModeIdentity } from '../verified-identity';
+import { resolveCookieIdentity, resolveAdminApiIdentity } from '../verified-identity';
 
 const AUTH_ID = 'auth-1';
 
@@ -134,9 +134,38 @@ describe('resolveCookieIdentity', () => {
   });
 });
 
-describe('resolveDualModeIdentity', () => {
-  it('delegates to the cookie resolver when no Authorization header is present', async () => {
-    await expect(resolveDualModeIdentity(req())).resolves.toEqual({
+describe('resolveAdminApiIdentity', () => {
+  it.each(['/api/admin/x', '/api/admin', '/api/admin/impersonation-other/start', '/api/admin/impersonationevil', '/api/admin/x/impersonation/start'])(
+    'refuses a cookie-only request to %s without constructing either SDK client',
+    async (path) => {
+      const request = new NextRequest('https://app.example.com' + path);
+      request.cookies.set('sb-session', 'valid-admin-cookie');
+      await expect(resolveAdminApiIdentity(request)).resolves.toBeNull();
+      expect(cookieClients.count).toBe(0);
+      expect(mockGetClaims).not.toHaveBeenCalled();
+      expect(mockBearerGetUser).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['/api/admin/impersonation', '/api/admin/impersonation/start', '/api/admin/impersonation/end', '/API/ADMIN/IMPERSONATION/END/'])(
+    'preserves the existing cookie path at %s',
+    async (path) => {
+      await expect(resolveAdminApiIdentity(new NextRequest('https://app.example.com' + path))).resolves.toMatchObject({ authUserId: AUTH_ID, transport: 'cookie' });
+      expect(cookieClients.count).toBe(1);
+      expect(mockGetClaims).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['Bearer t', 'Basic abc', '', 'Bearer'])('does not fall back inside impersonation with Authorization %s', async (authorization) => {
+    const request = new NextRequest('https://app.example.com/api/admin/impersonation/start', { headers: { authorization } });
+    const identity = await resolveAdminApiIdentity(request);
+    if (authorization === 'Bearer t') expect(identity?.transport).toBe('bearer');
+    else expect(identity).toBeNull();
+    expect(cookieClients.count).toBe(0);
+  });
+
+  it('retains cookie identity only for the permanent impersonation prefix', async () => {
+    await expect(resolveAdminApiIdentity(new NextRequest('https://app.example.com/api/admin/impersonation/start'))).resolves.toEqual({
       authUserId: AUTH_ID,
       aal: 'aal2',
       transport: 'cookie',
@@ -151,7 +180,7 @@ describe('resolveDualModeIdentity', () => {
     // divergent stub proves which one the seam actually reads.
     mockBearerGetUser.mockResolvedValue({ data: { user: { id: 'a-different-id' } }, error: null });
 
-    await expect(resolveDualModeIdentity(req({ authorization: 'Bearer t' }))).resolves.toEqual({
+    await expect(resolveAdminApiIdentity(req({ authorization: 'Bearer t' }))).resolves.toEqual({
       authUserId: AUTH_ID,
       aal: 'aal2',
       transport: 'bearer',
@@ -161,7 +190,7 @@ describe('resolveDualModeIdentity', () => {
   it('reads the aal claim without enforcing it', async () => {
     mockGetClaims.mockResolvedValue(claims({ aal: 'aal1' }));
 
-    await expect(resolveDualModeIdentity(req({ authorization: 'Bearer t' }))).resolves.toEqual({
+    await expect(resolveAdminApiIdentity(req({ authorization: 'Bearer t' }))).resolves.toEqual({
       authUserId: AUTH_ID,
       aal: 'aal1',
       transport: 'bearer',
@@ -174,7 +203,7 @@ describe('resolveDualModeIdentity', () => {
     // what makes "a bearer wins" structural rather than incidental.
     for (const authorization of ['Bearer t', 'Basic abc', '', 'Bearer']) {
       cookieClients.count = 0;
-      await resolveDualModeIdentity(req({ authorization }));
+      await resolveAdminApiIdentity(req({ authorization }));
       expect(cookieClients.count).toBe(0);
     }
   });
@@ -182,8 +211,8 @@ describe('resolveDualModeIdentity', () => {
   it('is blind to role — it returns facts, and the gate decides', async () => {
     // Nothing in the seam reads a users row, so there is no role to be wrong
     // about. This is the invariant that lets requireRole stay cookie-only while
-    // requireAdminWithAal2 goes dual-mode (ADR 0025 D1).
-    const identity = await resolveDualModeIdentity(req({ authorization: 'Bearer t' }));
+    // requireAdminWithAal2 verifies the Admin app bearer (ADR 0025 D1).
+    const identity = await resolveAdminApiIdentity(req({ authorization: 'Bearer t' }));
 
     expect(identity).not.toBeNull();
     expect(Object.keys(identity!).sort()).toEqual(['aal', 'authUserId', 'transport']);

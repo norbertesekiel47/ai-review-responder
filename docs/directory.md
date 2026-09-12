@@ -90,7 +90,7 @@ src/proxy.ts
 
 Next edge proxy that runs before protected requests. Does two things:
 
-1. **Auth protection** — creates a cookie-bound Supabase SSR client, reads the session cookie, and redirects/blocks unauthenticated visitors away from protected routes (owner dashboard, admin, protected APIs).
+1. **Auth protection** — ordinary Admin APIs pass through after CORS to their canonical bearer gate without creating a cookie client. Owner routes, surviving Admin pages, and the permanent impersonation API exception retain cookie-bound SSR authentication.
 2. **Role + AAL gating** — reads the caller's `users` row through RLS (no service key at edge), gates owner/admin paths, and redirects to `/mfa/challenge` when current AAL2 is required.
 
 Imports `protected-routes.ts` to know which paths need a session.

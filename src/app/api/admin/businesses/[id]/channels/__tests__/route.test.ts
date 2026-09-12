@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 // src/app/api/admin/businesses/[id]/channels/__tests__/route.test.ts
 //
 // Follows the mock-based pattern in src/lib/notifications/__tests__/enrollments.test.ts
@@ -17,7 +18,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   adminAuthModuleMock,
 } = await vi.hoisted(async () => {
   const { makeAdminGateMocks, adminAuthModuleMock } =
@@ -45,7 +46,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 }));
 
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 import { GET } from '../route';
@@ -59,7 +60,7 @@ const ADMIN = { id: 'admin-1', role: 'admin', accountId: null, locationId: null 
 function seedPassingAdmin(): void {
   mockRequireRole.mockReset();
   mockRequireCurrentAal2FromSupabase.mockReset();
-  mockResolveDualModeIdentity.mockClear();
+  mockResolveAdminApiIdentity.mockClear();
   mockRequireRole.mockResolvedValue(ADMIN);
   mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
 }
@@ -84,7 +85,7 @@ describe('GET /api/admin/businesses/[id]/channels — archived rows', () => {
   it('filters query by archived_at IS NULL (query shape assertion)', async () => {
     sqlReturnQueue.push([{ account_id: ACCOUNT_ID }]); // account resolution
     sqlReturnQueue.push([]); // no enrollments
-    const req = new NextRequest('http://localhost/api/admin/businesses/biz-1/channels');
+    const req = adminBearerRequest('http://localhost/api/admin/businesses/biz-1/channels');
     await GET(req, { params: Promise.resolve({ id: 'biz-1' }) });
 
     // The enrollment query is the LAST sql call.
@@ -105,7 +106,7 @@ describe('GET /api/admin/businesses/[id]/channels — account-scoped org-default
     sqlReturnQueue.push([{ account_id: ACCOUNT_ID }]); // account resolution
     sqlReturnQueue.push([]); // enrollments
 
-    const req = new NextRequest(`http://localhost/api/admin/businesses/${L2}/channels`);
+    const req = adminBearerRequest(`http://localhost/api/admin/businesses/${L2}/channels`);
     await GET(req, { params: Promise.resolve({ id: L2 }) });
 
     const enrollmentQuery = queryText(mockSql.mock.calls.length - 1);
@@ -139,7 +140,7 @@ describe('GET /api/admin/businesses/[id]/channels — account-scoped org-default
       },
     ]);
 
-    const req = new NextRequest(`http://localhost/api/admin/businesses/${L2}/channels`);
+    const req = adminBearerRequest(`http://localhost/api/admin/businesses/${L2}/channels`);
     const res = await GET(req, { params: Promise.resolve({ id: L2 }) });
     const body = (await res.json()) as {
       enrollments: Array<{ channel: string; status: string }>;
@@ -184,7 +185,7 @@ describe('GET /api/admin/businesses/[id]/channels — account-scoped org-default
       },
     ]);
 
-    const req = new NextRequest(`http://localhost/api/admin/businesses/${L2}/channels`);
+    const req = adminBearerRequest(`http://localhost/api/admin/businesses/${L2}/channels`);
     const res = await GET(req, { params: Promise.resolve({ id: L2 }) });
     const body = (await res.json()) as {
       enrollments: Array<{ channel: string; handle: string }>;
@@ -202,7 +203,7 @@ describe('GET /api/admin/businesses/[id]/channels — account-scoped org-default
   it('returns empty enrollments and skips the enrollment query when the location is unknown', async () => {
     sqlReturnQueue.push([]); // account resolution: no row
 
-    const req = new NextRequest(`http://localhost/api/admin/businesses/${L1}/channels`);
+    const req = adminBearerRequest(`http://localhost/api/admin/businesses/${L1}/channels`);
     const res = await GET(req, { params: Promise.resolve({ id: L1 }) });
     const body = (await res.json()) as { enrollments: unknown[] };
 
@@ -226,7 +227,7 @@ describe('GET /api/admin/businesses/[id]/channels — the admin MFA gate (#1184)
   });
 
   function makeGetRequest(): NextRequest {
-    return new NextRequest(`http://localhost/api/admin/businesses/${L1}/channels`);
+    return adminBearerRequest(`http://localhost/api/admin/businesses/${L1}/channels`);
   }
 
   function paramsFor(id: string) {
@@ -240,11 +241,10 @@ describe('GET /api/admin/businesses/[id]/channels — the admin MFA gate (#1184)
     const res = await GET(makeGetRequest(), paramsFor(L1));
 
     expect(res.status).toBe(200);
-    expect(mockResolveDualModeIdentity).toHaveBeenCalledOnce();
-    // The negative half of the bearer case: no Authorization header, so the shim
-    // must resolve cookie transport rather than a value it invented.
-    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
-    expect(resolved?.transport).toBe('cookie');
+    expect(mockResolveAdminApiIdentity).toHaveBeenCalledOnce();
+    // The route fixture supplies a bearer; ordinary Admin APIs no longer accept cookies.
+    const resolved = await mockResolveAdminApiIdentity.mock.results[0]!.value;
+    expect(resolved?.transport).toBe('bearer');
   });
 
   it('GET /api/admin/businesses/[id]/channels — an aal1 admin is refused 403 mfa_required', async () => {
@@ -285,7 +285,7 @@ describe('GET /api/admin/businesses/[id]/channels — the admin MFA gate (#1184)
   it('GET /api/admin/businesses/[id]/channels — a bearer-transport aal2 admin is served', async () => {
     sqlReturnQueue.push([{ account_id: ACCOUNT_ID }]);
     sqlReturnQueue.push([]);
-    const req = new NextRequest(`http://localhost/api/admin/businesses/${L1}/channels`, {
+    const req = adminBearerRequest(`http://localhost/api/admin/businesses/${L1}/channels`, {
       headers: { authorization: 'Bearer test-admin-access-token' },
     });
 
@@ -294,12 +294,12 @@ describe('GET /api/admin/businesses/[id]/channels — the admin MFA gate (#1184)
     expect(res.status).toBe(200);
     // The seam saw the real header, so this is a transport test rather than a
     // second spelling of the cookie case.
-    const seen = mockResolveDualModeIdentity.mock.calls[0]![0] as NextRequest;
+    const seen = mockResolveAdminApiIdentity.mock.calls[0]![0] as NextRequest;
     expect(seen.headers.get('authorization')).toBe('Bearer test-admin-access-token');
     // …and the transport the shim RESOLVED from it. Asserting only the header
     // above leaves a hardcoded `transport` in the shim passing every one of the
     // nine bearer cases, which is exactly the mutation this line kills.
-    const resolved = await mockResolveDualModeIdentity.mock.results[0]!.value;
+    const resolved = await mockResolveAdminApiIdentity.mock.results[0]!.value;
     expect(resolved?.transport).toBe('bearer');
   });
 

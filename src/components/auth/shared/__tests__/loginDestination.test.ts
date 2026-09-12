@@ -9,7 +9,7 @@ describe('resolvePostLoginDestination (owner)', () => {
   });
   it('falls back to defaultRoute when from is not allow-listed', () => {
     expect(
-      resolvePostLoginDestination('owner', '/admin/overview', '/dashboard'),
+      resolvePostLoginDestination('owner', '/admin/impersonate', '/dashboard'),
     ).toBe('/dashboard');
   });
   it('rejects protocol-relative URLs', () => {
@@ -27,21 +27,21 @@ describe('resolvePostLoginDestination (owner)', () => {
 describe('resolvePostLoginDestination (admin)', () => {
   it('accepts /admin paths that are not auth pages', () => {
     expect(
-      resolvePostLoginDestination('admin', '/admin/overview', '/admin/overview'),
-    ).toBe('/admin/overview');
+      resolvePostLoginDestination('admin', '/admin/impersonate', 'https://admin.example.com'),
+    ).toBe('/admin/impersonate');
   });
   it('rejects admin auth pages to avoid login loops', () => {
     expect(
-      resolvePostLoginDestination('admin', '/admin/login', '/admin/overview'),
-    ).toBe('/admin/overview');
+      resolvePostLoginDestination('admin', '/admin/login', 'https://admin.example.com'),
+    ).toBe('https://admin.example.com');
     expect(
-      resolvePostLoginDestination('admin', '/admin/forgot-password', '/admin/overview'),
-    ).toBe('/admin/overview');
+      resolvePostLoginDestination('admin', '/admin/forgot-password', 'https://admin.example.com'),
+    ).toBe('https://admin.example.com');
   });
   it('rejects non-/admin paths', () => {
     expect(
-      resolvePostLoginDestination('admin', '/dashboard', '/admin/overview'),
-    ).toBe('/admin/overview');
+      resolvePostLoginDestination('admin', '/dashboard', 'https://admin.example.com'),
+    ).toBe('https://admin.example.com');
   });
 });
 

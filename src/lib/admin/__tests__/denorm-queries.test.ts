@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 
@@ -29,7 +30,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   adminAuthModuleMock,
 } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../worker/__tests__/helpers/mock-sql');
@@ -69,7 +70,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 }));
 
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/shared/churn-score', () => ({
@@ -135,8 +136,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([{ total_cost_usd: 0 }]);
 
       const { GET } = await import('@/app/api/admin/costs/route');
-      const { NextRequest } = await import('next/server');
-      const req = new NextRequest('http://localhost/api/admin/costs?account_id=acct-123&days=7');
+      const req = adminBearerRequest('http://localhost/api/admin/costs?account_id=acct-123&days=7');
       const res = await GET(req);
       const body = await res.json();
 
@@ -195,8 +195,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([{ total_cost_usd: 0 }]);
 
       const { GET } = await import('@/app/api/admin/costs/route');
-      const { NextRequest } = await import('next/server');
-      const req = new NextRequest('http://localhost/api/admin/costs?account_id=acct-123&days=7');
+      const req = adminBearerRequest('http://localhost/api/admin/costs?account_id=acct-123&days=7');
       const res = await GET(req);
       const body = await res.json();
 
@@ -238,8 +237,7 @@ describe('Admin denormalized account_id queries', () => {
       sqlReturnQueue.push([{ id: 'loc-1', name: 'Downtown' }]);
 
       const { GET } = await import('@/app/api/admin/notifications/route');
-      const { NextRequest } = await import('next/server');
-      const req = new NextRequest('http://localhost/api/admin/notifications?account_id=acct-123');
+      const req = adminBearerRequest('http://localhost/api/admin/notifications?account_id=acct-123');
       const res = await GET(req);
 
       expect(res.status).toBe(200);

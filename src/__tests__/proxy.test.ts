@@ -168,7 +168,7 @@ describe('Admin API bearer transport', () => {
     expect(createServerClient).not.toHaveBeenCalled();
   });
 
-  it('rejects malformed Authorization without cookie fallback', async () => {
+  it('refuses malformed Authorization before route work without consulting cookies', async () => {
     getUser.mockResolvedValue({ data: { user: { id: 'admin-auth' } } });
     selfRow.value = { role: 'admin', account_id: null };
     for (const authorization of ['', 'Basic abc', 'Bearer', 'Bearer a b']) {
@@ -178,7 +178,47 @@ describe('Admin API bearer transport', () => {
       expect(response.status).toBe(401);
       expect(await response.json()).toEqual({ error: 'Unauthorized' });
       expect(response.headers.get('cache-control')).toBe('no-store, private');
+      expect(response.headers.get('set-cookie')).toBeNull();
       expect(response.headers.get('access-control-allow-origin')).toBe('https://admin.example.com');
+      expect(createServerClient).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(['/api/admin/overview', '/api/admin/impersonation-extra', '/api/admin/impersonations/start'])(
+    'refuses cookie-only %s without refreshing cookies',
+    async (path) => {
+      setSupabaseCookies.value = true;
+      const response = await proxy(new NextRequest(`https://repworth.net${path}`, {
+        headers: { cookie: 'sb-session=valid-admin' },
+      }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'Unauthorized' });
+      expect(response.headers.get('cache-control')).toBe('no-store, private');
+      expect(response.headers.get('set-cookie')).toBeNull();
+      expect(createServerClient).not.toHaveBeenCalled();
+      expect(getUser).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['/api/admin/channels/telegram/start', 'disabled'],
+    ['/api/admin/channels/whatsapp/start', 'missing-env'],
+    ['/api/admin/channels/telegram/cancel', 'disabled'],
+    ['/api/admin/channels/whatsapp/disable', 'missing-env'],
+  ])('refuses absent or malformed credentials before %s %s checks', async (path, state) => {
+    vi.stubEnv('CHANNELS_TELEGRAM_ENABLED', state === 'disabled' ? 'false' : 'true');
+    vi.stubEnv('CHANNELS_WHATSAPP_ENABLED', state === 'disabled' ? 'false' : 'true');
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', '');
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', '');
+    for (const authorization of [undefined, '', 'Basic invalid', 'Bearer']) {
+      const headers = new Headers({ cookie: 'sb-session=valid-admin' });
+      if (authorization !== undefined) headers.set('authorization', authorization);
+      const response = await proxy(new NextRequest(`https://repworth.net${path}`, { method: 'POST', headers }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'Unauthorized' });
+      expect(response.headers.get('cache-control')).toBe('no-store, private');
+      expect(response.headers.get('x-middleware-next')).toBeNull();
+      expect(response.headers.get('set-cookie')).toBeNull();
       expect(createServerClient).not.toHaveBeenCalled();
     }
   });
@@ -206,14 +246,14 @@ describe('Admin API bearer transport', () => {
   });
 
   it('retains cookie refusals and does not admit owner routes or admin pages by bearer', async () => {
-    expect((await proxy(request('https://repworth.net/api/admin/overview'))).status).toBe(401);
+    expect((await proxy(request('https://repworth.net/api/admin/impersonation/start'))).status).toBe(401);
     getUser.mockResolvedValueOnce({ data: { user: { id: 'owner-auth' } } });
-    expect((await proxy(request('https://repworth.net/api/admin/overview'))).status).toBe(403);
+    expect((await proxy(request('https://repworth.net/api/admin/impersonation/start'))).status).toBe(403);
     const owner = await proxy(new NextRequest('https://repworth.net/api/billing/checkout', {
       headers: { authorization: 'Bearer test-token' },
     }));
     expect(owner.status).toBe(401);
-    const page = await proxy(new NextRequest('https://repworth.net/admin/overview', {
+    const page = await proxy(new NextRequest('https://repworth.net/admin/impersonate', {
       headers: { authorization: 'Bearer test-token' },
     }));
     expect(new URL(page.headers.get('location')!).pathname).toBe('/admin/login');
@@ -250,7 +290,7 @@ describe('proxy public launch host behavior', () => {
   });
 
   it('uses normal admin auth redirect behavior on repworth.net protected pages', async () => {
-    const response = await proxy(request('https://repworth.net/admin/overview'));
+    const response = await proxy(request('https://repworth.net/admin/impersonate'));
     const location = response.headers.get('location');
 
     expect(createServerClient).toHaveBeenCalledTimes(1);
@@ -258,7 +298,7 @@ describe('proxy public launch host behavior', () => {
     const redirect = new URL(location!);
     expect(redirect.origin).toBe('https://repworth.net');
     expect(redirect.pathname).toBe('/admin/login');
-    expect(redirect.searchParams.get('from')).toBe('/admin/overview');
+    expect(redirect.searchParams.get('from')).toBe('/admin/impersonate');
   });
 
   it('returns 401 for unauthenticated billing API requests', async () => {
@@ -278,19 +318,19 @@ describe('proxy public launch host behavior', () => {
   it('redirects sales_partner away from protected admin pages', async () => {
     getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
 
-    const response = await proxy(request('https://repworth.net/admin/overview'));
+    const response = await proxy(request('https://repworth.net/admin/impersonate'));
     const location = response.headers.get('location');
 
     expect(location).not.toBeNull();
     const redirect = new URL(location!);
     expect(redirect.pathname).toBe('/admin/login');
-    expect(redirect.searchParams.get('from')).toBe('/admin/overview');
+    expect(redirect.searchParams.get('from')).toBe('/admin/impersonate');
   });
 
-  it('returns 403 for sales_partner admin API requests', async () => {
+  it('returns 403 for sales_partner impersonation API requests', async () => {
     getUser.mockResolvedValueOnce({ data: { user: { id: 'auth-sales' } } });
 
-    const response = await proxy(request('https://repworth.net/api/admin/overview'));
+    const response = await proxy(request('https://repworth.net/api/admin/impersonation/start'));
 
     expect(response.status).toBe(403);
   });
@@ -364,13 +404,13 @@ describe('proxy public launch host behavior', () => {
       error: null,
     });
 
-    const response = await proxy(request('https://repworth.net/admin/overview'));
+    const response = await proxy(request('https://repworth.net/admin/impersonate'));
     const location = response.headers.get('location');
 
     expect(location).not.toBeNull();
     const redirect = new URL(location!);
     expect(redirect.pathname).toBe('/mfa/challenge');
-    expect(redirect.searchParams.get('next')).toBe('/admin/overview');
+    expect(redirect.searchParams.get('next')).toBe('/admin/impersonate');
   });
 
   it('preserves refreshed Supabase cookies on MFA redirects', async () => {
@@ -383,7 +423,7 @@ describe('proxy public launch host behavior', () => {
     });
     setSupabaseCookies.value = true;
 
-    const response = await proxy(request('https://repworth.net/admin/overview'));
+    const response = await proxy(request('https://repworth.net/admin/impersonate'));
 
     expect(response.headers.get('location')).toContain('/mfa/challenge');
     expect(response.headers.get('set-cookie')).toContain('sb-refresh-token=updated');
@@ -442,6 +482,7 @@ const APP_ORIGIN = 'https://repworth.net';
 const ADMIN_ORIGIN = 'https://admin.staging.repworth.net';
 const EVIL_ORIGIN = 'https://evil.example';
 const ADMIN_API_URL = 'https://repworth.net/api/admin/overview';
+const IMPERSONATION_API_URL = 'https://repworth.net/api/admin/impersonation/start';
 
 const ALL_ACCESS_CONTROL_HEADERS = [
   'access-control-allow-origin',
@@ -494,11 +535,10 @@ describe('admin API CORS', () => {
   it('echoes Access-Control-Allow-Origin for an allowlisted admin origin', async () => {
     const response = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
 
-    // The request is NOT short-circuited: it reaches branch 4 and gets its
-    // pre-existing 401 — the CORS headers ride on top of that answer.
+    // Missing bearer is refused before route work; CORS still reaches the browser.
     expect(response.status).toBe(401);
     expect(response.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
-    expect(createServerClient).toHaveBeenCalledTimes(1);
+    expect(createServerClient).not.toHaveBeenCalled();
   });
 
   it('sends no Access-Control-Allow-Origin for a disallowed origin', async () => {
@@ -565,11 +605,10 @@ describe('admin API CORS', () => {
     expect(createServerClient).not.toHaveBeenCalled();
   });
 
-  it("lets a same-origin POST from this app's own origin past the CORS block", async () => {
-    // The Legacy admin portal's own mutations carry Origin: <this app>. Without
-    // the implicit self-allowance every one of them 403s in production.
+  it("lets the cookie-backed impersonation POST past the self-origin CORS allowance", async () => {
+    // The permanent impersonation carve-out retains the source app's cookies.
     const response = await proxy(
-      corsRequest(ADMIN_API_URL, { method: 'POST', origin: APP_ORIGIN }),
+      corsRequest(IMPERSONATION_API_URL, { method: 'POST', origin: APP_ORIGIN }),
     );
 
     expect(response.status).not.toBe(403);
@@ -577,13 +616,14 @@ describe('admin API CORS', () => {
     expect(createServerClient).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves an admin API request with no Origin header to the existing auth branch', async () => {
+  it('refuses an admin API request without a bearer even when Origin is absent', async () => {
     const response = await proxy(corsRequest(ADMIN_API_URL));
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: 'Unauthorized' });
+    expect(response.headers.get('set-cookie')).toBeNull();
     expect(response.headers.get('access-control-allow-origin')).toBeNull();
-    expect(createServerClient).toHaveBeenCalledTimes(1);
+    expect(createServerClient).not.toHaveBeenCalled();
   });
 
   it('admits a loopback origin on an arbitrary port outside the production lane', async () => {
@@ -772,19 +812,19 @@ describe('admin API CORS', () => {
     expect(accessControlHeaderNames(refused)).toEqual([]);
   });
 
-  it('lets an OPTIONS request with no Origin reach the existing auth branch and adds only Vary', async () => {
-    // Not a preflight: no Origin, so no CORS check and no short-circuit.
+  it('refuses an OPTIONS request without Origin or bearer and adds only Vary', async () => {
+    // Not a preflight: an absent bearer still gets the ordinary 401.
     const response = await proxy(corsRequest(ADMIN_API_URL, { method: 'OPTIONS' }));
 
     expect(response.status).toBe(401);
     expect(response.headers.get('vary')).toBe('Origin');
     expect(accessControlHeaderNames(response)).toEqual([]);
-    expect(createServerClient).toHaveBeenCalledTimes(1);
+    expect(createServerClient).not.toHaveBeenCalled();
   });
 
   it('preserves every branch 4 outcome and refreshed Supabase cookies while stamping CORS headers', async () => {
     // 401 — no session
-    const unauthorized = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    const unauthorized = await proxy(corsRequest(IMPERSONATION_API_URL, { origin: ADMIN_ORIGIN }));
     expect(unauthorized.status).toBe(401);
     expect(await unauthorized.json()).toEqual({ error: 'Unauthorized' });
 
@@ -792,7 +832,7 @@ describe('admin API CORS', () => {
     vi.clearAllMocks();
     getUser.mockResolvedValue({ data: { user: { id: 'auth-owner' } } });
     selfRow.value = { role: 'owner', account_id: 'acct-1' };
-    const forbidden = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    const forbidden = await proxy(corsRequest(IMPERSONATION_API_URL, { origin: ADMIN_ORIGIN }));
     expect(forbidden.status).toBe(403);
     expect(await forbidden.json()).toEqual({ error: 'Forbidden' });
     expect(forbidden.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
@@ -807,7 +847,7 @@ describe('admin API CORS', () => {
       error: null,
     });
     setSupabaseCookies.value = true;
-    const mfa = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    const mfa = await proxy(corsRequest(IMPERSONATION_API_URL, { origin: ADMIN_ORIGIN }));
     expect(mfa.status).toBe(403);
     expect(await mfa.json()).toEqual({ error: 'mfa_required' });
     expect(mfa.headers.get('set-cookie')).toContain('sb-refresh-token=updated');
@@ -820,7 +860,7 @@ describe('admin API CORS', () => {
     getUser.mockResolvedValue({ data: { user: { id: 'auth-admin' } } });
     selfRow.value = { role: 'admin', account_id: null };
     setSupabaseCookies.value = true;
-    const passthrough = await proxy(corsRequest(ADMIN_API_URL, { origin: ADMIN_ORIGIN }));
+    const passthrough = await proxy(corsRequest(IMPERSONATION_API_URL, { origin: ADMIN_ORIGIN }));
     expect(passthrough.status).toBe(200);
     expect(passthrough.headers.get('access-control-allow-origin')).toBe(ADMIN_ORIGIN);
     expect(passthrough.headers.get('vary')).toBe('Origin');
@@ -828,7 +868,7 @@ describe('admin API CORS', () => {
       'sb-refresh-token=updated',
     );
     expect(passthrough.headers.get(`x-middleware-request-${REQUEST_PATHNAME_HEADER}`)).toBe(
-      '/api/admin/overview',
+      '/api/admin/impersonation/start',
     );
   });
 

@@ -1,3 +1,4 @@
+import { adminBearerRequest } from '@/lib/auth/__tests__/helpers/admin-gate-mocks';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -7,7 +8,7 @@ const {
   mockRequireRole,
   mockRequireCurrentAal2FromSupabase,
   mockLoadAppUser,
-  mockResolveDualModeIdentity,
+  mockResolveAdminApiIdentity,
   mockCheckRateLimit,
   mockSql,
   txCalls,
@@ -50,7 +51,7 @@ vi.mock('@/lib/auth/mfa', () => ({
 // #1184: the gate's dependency stand-ins have one owner —
 // src/lib/auth/__tests__/helpers/admin-gate-mocks.ts.
 vi.mock('@/lib/auth/verified-identity', () => ({
-  resolveDualModeIdentity: mockResolveDualModeIdentity,
+  resolveAdminApiIdentity: mockResolveAdminApiIdentity,
 }));
 
 vi.mock('@/lib/shared/rate-limit', () => ({
@@ -81,7 +82,7 @@ import { POST } from '../route';
 import { resetServerConfigForTests } from '@/lib/config/server';
 
 function makeRequest(body: unknown): NextRequest {
-  return new NextRequest('https://app.example.com/api/admin/demos/generate', {
+  return adminBearerRequest('https://app.example.com/api/admin/demos/generate', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
