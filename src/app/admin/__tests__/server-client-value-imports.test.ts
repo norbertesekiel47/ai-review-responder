@@ -62,8 +62,14 @@ describe('admin server pages never import a VALUE from a client component module
   const pages = findServerPages(ADMIN_DIR);
 
   it('finds the admin server pages (guards the guard)', () => {
-    // A traversal bug that returned [] would make every assertion below vacuous.
-    expect(pages.length).toBeGreaterThan(5);
+    // Pin all five ADR 0029 survivors so a partial traversal cannot pass silently.
+    expect(pages.map((page) => page.slice(ADMIN_DIR.length + 1)).sort()).toEqual([
+      'forgot-password/page.tsx',
+      'impersonate/[sessionId]/view/page.tsx',
+      'impersonate/page.tsx',
+      'login/page.tsx',
+      'reset-password/page.tsx',
+    ]);
   });
 
   for (const page of pages) {
@@ -71,8 +77,7 @@ describe('admin server pages never import a VALUE from a client component module
 
     it(`${rel} imports only components from its client modules`, () => {
       const src = readFileSync(page, 'utf8');
-      // Server pages are not client modules themselves; if one ever is, the
-      // whole question is moot and the page-chrome suite already covers it.
+      // A client page has no server-to-client import boundary to check here.
       if (/^\s*['"]use client['"]/.test(src)) return;
 
       const importRe = /import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+['"](\.[^'"]+)['"]/g;

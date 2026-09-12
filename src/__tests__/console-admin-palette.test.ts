@@ -30,7 +30,6 @@ const SWEPT_FILES = [
   // find them.
   'src/app/admin/error.tsx',
   'src/app/admin/loading.tsx',
-  'src/app/admin/demos/DemosClient.tsx',
   'src/app/admin/impersonate/page.tsx',
   'src/app/admin/impersonate/ImpersonationStartClient.tsx',
   'src/app/admin/impersonate/[sessionId]/view/page.tsx',

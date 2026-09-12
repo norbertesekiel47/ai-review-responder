@@ -3,11 +3,11 @@
 // Extracted verbatim from src/app/api/admin/demos/route.ts's GET body (admin
 // console Phase 3, Task 7). Same query, same row→DTO mapping — including the
 // two `.toISOString()` conversions the route already did. Born-injected:
-// `sql` is a parameter, not an import — the composition roots (the route and
-// the demos server page) supply the singleton (invariant #15).
+// `sql` is a parameter, not an import — the API route supplies the singleton
+// (invariant #15) for the separate Admin app's list read.
 //
-// Error handling stays in the callers: the route maps a throw to a 500 with
-// `reportCaughtError`, the server page lets it hit the admin error boundary.
+// Error handling stays in the API route, which maps a throw to a 500 with
+// `reportCaughtError`.
 
 import type { Sql } from 'postgres';
 import type { DemoListItem } from '@/lib/demos/types';
@@ -24,7 +24,7 @@ interface ProspectDemoRow {
 }
 
 /**
- * Every prospect demo, newest first, for the console's Demos page (spec §4).
+ * Every prospect demo, newest first, for the Admin app's Demos page (spec §4).
  *
  * Callers must gate on admin first: `prospect_demos` is a cross-tenant sales
  * surface with no account/business column (allowlisted in tenant-scope).
@@ -44,8 +44,7 @@ export async function getAdminDemos(sql: Sql): Promise<DemoListItem[]> {
     generationStatus: row.generation_status,
     generationError: row.generation_error,
     viewCount: row.view_count,
-    // Both timestamptz; converted here so the RSC path (server page → client
-    // component) can never hand a `Date` to a field typed `string`.
+    // Both timestamptz; the DTO exposes explicit ISO strings to its API caller.
     createdAt: row.generated_at.toISOString(),
     expiresAt: row.expires_at.toISOString(),
   }));

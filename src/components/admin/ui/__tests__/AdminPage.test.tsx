@@ -27,7 +27,7 @@ describe('AdminPage', () => {
     );
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(nav).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Growth' })).toHaveAttribute('href', '/admin/demos');
+    expect(screen.getByRole('link', { name: 'Growth' })).toHaveAttribute('href', '/admin/impersonate');
     expect(nav.querySelectorAll('li')).toHaveLength(1);
   });
 
@@ -50,7 +50,7 @@ describe('AdminPage', () => {
   });
 
   it.each([
-    ['Growth', '/admin/demos'],
+    ['Growth', '/admin/impersonate'],
   ] as const)('links the %s group to %s', (group, href) => {
     render(
       <AdminPage group={group} title="x">
