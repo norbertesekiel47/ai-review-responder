@@ -1,0 +1,596 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-owner-operator-run-a-b83a4f",
+  "branch": "feat/owner-operator-run-a",
+  "fork_sha": "c5e94e6ca7e3c4187854a67129b1651a8f80566e",
+  "merge_base_sha": "c5e94e6ca7e3c4187854a67129b1651a8f80566e",
+  "head_sha": "7224424efa0a226e9a517d28e27850a1973cf14d",
+  "intake_sha256": "86430051ff3276a792c58195a3ad4ac66fd7171bbba44b183afc47d2ead38a7f",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-12T05:30:24.116Z",
+  "inventory": [
+    {
+      "id": "rt-01",
+      "test": "worker fenced completion discards an attempt whose lease was lost",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Removed `AND attempt_token = ${input.attemptToken}::uuid` from completeTurnFenced (turns.ts:388). Test failed: the stolen-lease attempt wrote the reply and proposals."
+    },
+    {
+      "id": "rt-02",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F1",
+      "reason": "Replaced `scrubPastedReview(claimed.ownerText)` (AgentTurnWorker.ts:168) with a pass-through. No test failed."
+    },
+    {
+      "id": "rt-03",
+      "test": "createTurn assigns the next sequence under the conversation row lock",
+      "file": "src/lib/agents/operator/__tests__/turns.test.ts",
+      "outcome": "killed",
+      "reason": "Removed `FOR UPDATE` from the conversation re-read (turns.ts:146). First run used the live-DB concurrency case, where the 23505 recovery path masks the loss; the true covering candidate — this unit case, found by reverse import search — fails on it."
+    },
+    {
+      "id": "rt-04",
+      "test": "createTurn stores owner_text byte-for-byte and treats a trimmed repeat as a conflict",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F2",
+      "reason": "Dropped `existing.owner_text === input.text` from sameTurnPayload (turns.ts:54). No test failed."
+    },
+    {
+      "id": "rt-05",
+      "test": "GET turn returns rendered segments and stored rows scoped by account and 404 across accounts",
+      "file": "src/app/api/operator/__tests__/turn-get-route.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F3",
+      "reason": "Removed `AND account_id = ${input.accountId}::uuid` from getTurnForOwner (turns.ts:542). No test failed."
+    },
+    {
+      "id": "rt-06",
+      "test": "POST turns rejects a location that is archived or belongs to another account and a conversation owned by another account",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F4",
+      "reason": "Removed `AND account_id = ${input.accountId}::uuid` from the conversation FOR UPDATE re-read (turns.ts:145). No test failed."
+    },
+    {
+      "id": "rt-07",
+      "test": "worker step 3 fails the turn unauthorized for a revoked owner and builds no snapshot",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Removed `AND role = 'owner'` from reauthorizeTurn's actor read (authorize.ts:27). Test failed."
+    },
+    {
+      "id": "rt-08",
+      "test": "worker fails the turn predecessor_stalled after the stall limit",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Inverted the stall comparison (AgentTurnWorker.ts:111). Test failed."
+    },
+    {
+      "id": "rt-09",
+      "test": "worker retries the model call once on invalid output and fails the turn model_output_invalid on the second failure",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "MAX_ATTEMPTS 2 -> 1 (model-call.ts:22). Test failed."
+    },
+    {
+      "id": "rt-10",
+      "test": "validator rejects a text segment that invents a count next to a metric word",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Disabled the INVENTED_COUNT_PATTERN branch (render.ts:112). Test failed."
+    },
+    {
+      "id": "rt-11",
+      "test": "validator rejects a text segment that claims a change was applied before any click",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Disabled the COMPLETION_CLAIM_PATTERN branch (render.ts:115). Test failed."
+    },
+    {
+      "id": "rt-12",
+      "test": "validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Off-by-one on the proposal_ref bound, `>=` -> `>` (render.ts:122). Test failed."
+    },
+    {
+      "id": "rt-13",
+      "test": "validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Disabled the scope_check / stored-location coexistence rule (render.ts:138). Test failed."
+    },
+    {
+      "id": "rt-14",
+      "test": "validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Disabled the proposal-scope locationId check (render.ts:155). Test failed."
+    },
+    {
+      "id": "rt-15",
+      "test": "scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "outcome": "killed",
+      "reason": "Disabled the rating-header next-block propagation (render.ts:72). Test failed."
+    },
+    {
+      "id": "rt-16",
+      "test": "snapshot star bands equal a hand count per location and exclude held drafts",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Removed `AND NOT openFlagExistsSql(...)` from readStarBands (context.ts:160). Test failed."
+    },
+    {
+      "id": "rt-17",
+      "test": "snapshot red team: instruction-shaped review bodies never reach the rendered snapshot or prompt",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Removed the history re-scrub in readRecentTurns (context.ts:231). Test failed."
+    },
+    {
+      "id": "rt-18",
+      "test": "worker supersedes earlier pending proposals with the same operation and scope",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Removed `AND operation = ${replacement.operation}` from supersedePendingProposals (proposals.ts:87). Test failed."
+    },
+    {
+      "id": "rt-19",
+      "test": "voice writer updates highlight_facts under a businesses row lock and rejects a location outside the account",
+      "file": "src/lib/responses/__tests__/voice-settings.test.ts",
+      "outcome": "killed",
+      "reason": "Removed `FOR UPDATE` from the writer lock (voice-settings.ts:102). Test failed."
+    },
+    {
+      "id": "rt-20",
+      "test": "worker predecessor wait releases the claim and delays the job without spending retry budget",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "killed",
+      "reason": "Removed the `attempt = GREATEST(attempt - 1, 0)` decrement in releaseTurnClaim (turns.ts:290). Test failed."
+    },
+    {
+      "id": "rt-21",
+      "test": "enqueueAgentTurn inserts one pending agent_turn outbox row keyed on the turn id",
+      "file": "src/lib/shared/__tests__/job-outbox-helpers.test.ts",
+      "outcome": "killed",
+      "reason": "Wrote the outbox row at status 'completed' instead of JOB_OUTBOX_STATUS_PENDING (job-outbox-helpers.ts:526). Test failed."
+    },
+    {
+      "id": "rt-22",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "F5",
+      "reason": "Swapped `before` and `after` in buildProposalRows (AgentTurnWorker.ts:368-369). No test failed. Second of the two mutations budgeted for this case."
+    },
+    {
+      "id": "rt-23",
+      "test": "(no covering candidate — reverse import search over worker/index.ts and the __tests__ tree)",
+      "file": "worker/jobs/agent-turn/failed-hook.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "F6",
+      "reason": "All 85 lines are new. No test file imports handleAgentTurnFailed; the queue lane has no failed-hook suite. A mutation has no oracle to run against."
+    },
+    {
+      "id": "rt-24",
+      "test": "(no non-mocked covering candidate — the only caller mocks the module)",
+      "file": "src/lib/agents/operator/turns.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "F7",
+      "reason": "getConversationForOwner (turns.ts:609-742) is exercised only through conversation-route.test.ts, which replaces @/lib/agents/operator/turns with a mock. No live-DB suite calls it."
+    },
+    {
+      "id": "rt-25",
+      "test": "(no covering candidate for these arms)",
+      "file": "src/lib/agents/operator/authorize.ts",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "reauthorizeTurn's `archived_at IS NULL` location arm (authorize.ts:45) and the `isSubscriptionTier` account arm (authorize.ts:54) have no test; only the role arm and the offboarding arm are covered."
+    },
+    {
+      "id": "rt-26",
+      "test": "migration 120 creates the four owner-operator tables with deny-all RLS, revoked client grants, and the two unique constraints",
+      "file": "src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Its production target is supabase/migrations/120_owner_operator.sql, out of scope per the skill: the database is provisioned before the run, so mutating the migration changes nothing under test."
+    },
+    {
+      "id": "rt-27",
+      "test": "(production hunk)",
+      "file": "supabase/migrations/120_owner_operator.sql",
+      "outcome": "excluded",
+      "reason": "supabase/migrations/ is out of scope per the skill."
+    },
+    {
+      "id": "rt-28",
+      "test": "reauthorizeTurn maps account_offboarding_blocked to account_offboarding",
+      "file": "src/lib/agents/operator/__tests__/authorize.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-29",
+      "test": "catalog separates read, proposable, and capture kinds by type and exposes only model-visible operations to the prompt",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-30",
+      "test": "invariants: every catalog operation declares a contract version and a describer",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-31",
+      "test": "buildSnapshot scopes every read to the stored account and location",
+      "file": "src/lib/agents/operator/__tests__/context.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-32",
+      "test": "generateOperatorReply records one api_costs row per billed attempt",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-33",
+      "test": "fails model_output_invalid when both attempts return an invalid shape",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-34",
+      "test": "insertProposals writes one row per proposal with contract_version and prepared_version_token",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-35",
+      "test": "model output schema has no field for counts, approval, confirmation, or receipts",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-36",
+      "test": "worker releases its claim on a transient failure so the retry re-claims and completes",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-37",
+      "test": "worker step 3 fails the turn account_offboarding for an offboarding account and builds no snapshot",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-38",
+      "test": "createTurn resolves one turn key across two conversations to created and turn_key_conflict without leaking 23505",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-39",
+      "test": "createTurn returns the same ids for two concurrent identical POSTs and writes one row",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-40",
+      "test": "content purge removes account A's owner-operator rows and preserves account B",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-41",
+      "test": "POST turns inserts the conversation, the accepted turn, and the outbox row in one transaction and returns the ids",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-42",
+      "test": "POST turns returns the existing ids for a repeated clientTurnKey with the same payload and 409 for a different payload",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-43",
+      "test": "POST turns rejects a missing or mismatched Origin before any write",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-44",
+      "test": "POST turns returns 404 operator_disabled before any write when OWNER_OPERATOR_ENABLED is off",
+      "file": "src/app/api/operator/__tests__/turns-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-45",
+      "test": "GET conversation returns the actor's most recent conversation and the summary reads with timestamps",
+      "file": "src/app/api/operator/__tests__/conversation-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-46",
+      "test": "worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-47",
+      "test": "voice route accepts and returns highlightFacts through the shared writer",
+      "file": "src/app/api/settings/__tests__/voice-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-48",
+      "test": "migration 120 registers all four tables in TENANT_TABLES and TENANT_SCOPE_COLUMNS",
+      "file": "src/lib/shared/__tests__/migration-120-owner-operator.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-49",
+      "test": "owner_operator task pins both providers to the snapshot models with the output schema",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-50",
+      "test": "table dispositions classify the four owner-operator tables as hard_delete with direct_account_id evidence and must_be_absent verification",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-51",
+      "test": "purge verification and the content purge stage remove every owner-operator row for the purged account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-52",
+      "test": "returns 400 when the writer reports no fields to update",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-53",
+      "test": "returns 500 when the writer transaction throws",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-54",
+      "test": "binds account_id as a parameterized value in the UPDATE WHERE clause (not interpolated)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-55",
+      "test": "maps schema field %s -> column %s (it.each, extended with highlightFacts)",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-56",
+      "test": "updates tone for a specific location",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-57",
+      "test": "returns 404 when location not found or not accessible",
+      "file": "src/app/api/settings/voice/__tests__/route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-58",
+      "test": "passes the ADR 0005 flag-on envelope at exactly 12 (sum 9 + three flag-gated lanes)",
+      "file": "worker/config/__tests__/startup-assertion.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-59",
+      "test": "fails boot when a fourth flag-gated lane pushes the flag-on envelope to 13",
+      "file": "worker/config/__tests__/startup-assertion.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-60",
+      "test": "it.each flag-gated optional boolean env accepts OWNER_OPERATOR_ENABLED",
+      "file": "worker/config/__tests__/startup-assertion.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-61",
+      "test": "it.each flag-gated optional boolean env rejects a non-boolean OWNER_OPERATOR_ENABLED",
+      "file": "worker/config/__tests__/startup-assertion.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    },
+    {
+      "id": "rt-62",
+      "test": "cost-guard contract list extended with the owner_operator task",
+      "file": "src/__tests__/cost-guard-contract.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "In scope and not executed: the 30-run per-round budget was spent on 4 baselines and 23 mutations."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "The worker never proves it scrubs the CURRENT message: removing scrubPastedReview at the worker seam kills no test, so pasted review text can reach the prompt and the fixed notice is never stored",
+      "at": "worker/jobs/agent-turn/AgentTurnWorker.ts:168",
+      "arbiter_reasoning": "Not equivalent and not an unexecuted branch: line 168 runs on every claimed turn, and the mutant changes two observable behaviours. (1) `generateOperatorReply` receives the RAW owner message, so a pasted review reaches buildOperatorPrompt — the intake's stated behaviour is that it 'reaches the snapshot as [review text removed]'. (2) `scrubbed.scrubbed` is then always false, so the `server_notice` segment at AgentTurnWorker.ts:242-244 is never prepended and the stored reply loses the fixed sentence. Searched for an oracle and found none: render.test.ts proves scrubPastedReview as a pure function; snapshot.integration.test.ts proves the HISTORY re-scrub in context.ts:231 and calls buildOperatorPrompt with a hand-written literal; turn-get-route.test.ts asserts the notice from a PRE-SEEDED stored segment behind a mocked module. No test seeds review-shaped owner_text and drives handleAgentTurn."
+    },
+    {
+      "id": "F2",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "sameTurnPayload's owner_text arm is unexercised — the idempotency test passes on a conversationId that its own helper varies, and the test's comment that a re-introduced .trim() would break it is false",
+      "at": "src/lib/agents/operator/turns.ts:54",
+      "arbiter_reasoning": "Not equivalent: dropping the owner_text comparison turns a same-key/same-conversation POST with different text from `turn_key_conflict` into `existing`, returning the first turn's ids for a message the owner never sent. The case executes. The oracle is broken, not absent: `baseTurnInput` (turn-worker.integration.test.ts:96) mints `conversationId: randomUUID()` on every call, and the repeat at :688 overrides only clientTurnKey and text — so the 409 comes from the conversation_id arm, not the text arm. The comment at :687-688 ('A `.trim()` re-introduced anywhere would make this return `existing` instead') is therefore false as written. Fix: pass the same conversationId to the repeat call."
+    },
+    {
+      "id": "F3",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "getTurnForOwner's account_id predicate has no non-mocked test: the route suite named 'scoped by account' mocks the module, so removing the cross-tenant guard kills nothing",
+      "at": "src/lib/agents/operator/turns.ts:542",
+      "arbiter_reasoning": "Not equivalent: without the predicate the polled turn read returns another account's turn — its status, failure reason, stored reply segments, proposals and unsupported rows — through GET /api/operator/turns/:id, breaking invariant #8. The branch executes on every call. turn-get-route.test.ts:19 replaces @/lib/agents/operator/turns wholesale, so its \"404 across accounts\" arm is produced by `mockGetTurnForOwner.mockResolvedValue(null)` and proves only the route's null->404 mapping. Reverse import search found no other caller and no live-DB suite touching getTurnForOwner."
+    },
+    {
+      "id": "F4",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "createTurn's conversation-ownership re-read can lose its account_id predicate undetected — the promised 'conversation owned by another account' case is mock-driven",
+      "at": "src/lib/agents/operator/turns.ts:145",
+      "arbiter_reasoning": "Not equivalent: the module's own docblock (turns.ts:85-88) states the guard's purpose — a client-minted conversation id colliding with another account's row must be `conversation_not_found`, never an upsert into the caller's account. Without the predicate the ON CONFLICT DO NOTHING insert silently loses, the unscoped re-read finds the foreign row, and the turn is inserted against another account's conversation. The branch executes on every POST. turns-route.test.ts:31 mocks createTurn, so its assertion is `mockCreateTurn.mockResolvedValue({kind:'conversation_not_found'})`; no live-DB case in turn-worker.integration.test.ts seeds a foreign conversation."
+    },
+    {
+      "id": "F5",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "A proposal's before/after preview is never asserted end-to-end: swapping them survives, so the card can show the change as the current state and the current state as the change",
+      "at": "worker/jobs/agent-turn/AgentTurnWorker.ts:368",
+      "arbiter_reasoning": "Not equivalent on this test's data: the seeded location has no tone and `toneProposal` sets 'warm and brief', so before and after genuinely differ. The branch executes for every proposal. before/after are the full effective voice state that the owner reads on the card and that Run B's Apply is specified to preview against, and nothing checks them: proposals.test.ts asserts insertProposals binds FIXTURE before/after values, and the live claim-race case reads only operation, status, location_id, contract_version and requires_confirmation off the stored row."
+    },
+    {
+      "id": "F6",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "worker/jobs/agent-turn/failed-hook.ts ships with zero covering tests — the whole BullMQ-exhaustion terminal transition (outbox fence ordering, isExhausted boundary, the swallowed checkpoint) is unmeasured",
+      "at": "worker/jobs/agent-turn/failed-hook.ts:30",
+      "reason": "Uncovered change: 85 new production lines, no test file imports handleAgentTurnFailed. The ordering it encodes (markOutboxFailed CAS first, failTurnIfNonTerminal only on a win) is the same ordering the flag-off path has a test for, and the judge sibling it copies has its own hook tests."
+    },
+    {
+      "id": "F7",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "getConversationForOwner (134 lines: actor scoping, the no-turns branch, the effective-rules projection, the asOf contract) has no non-mocked test",
+      "at": "src/lib/agents/operator/turns.ts:609",
+      "reason": "Uncovered change: conversation-route.test.ts mocks @/lib/agents/operator/turns, so the promised case 'GET conversation returns the actor's most recent conversation and the summary reads with timestamps' asserts a fixture the route echoes. The `created_by_user_id` predicate at :624 — the only thing scoping the no-id read to the acting owner — is never executed under test."
+    },
+    {
+      "id": "F8",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Fragile assertion: `expect(typeof status.value).toBe('number')` is a type-shaped proxy for the behaviour 'the materialized value is the metric the status_ref named'",
+      "at": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:308",
+      "reason": "Behavioural replacement: seed a known per-location pending count that differs from draftsWaiting and posted7d, then assert `value` equals the pending count. As written, materializeStatus (AgentTurnWorker.ts:317-330) could map pending_count to draftsWaiting and the assertion would still hold — the transcript would then display a permanently wrong number, since the value is frozen at fenced completion and never re-derived."
+    },
+    {
+      "id": "F9",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Vacuous assertion: `expect(mockClaimTurn).not.toHaveBeenCalled()` can never fail, because @/lib/agents/operator/turns is never mocked in this suite",
+      "at": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:90",
+      "reason": "mockClaimTurn is hoisted at :14 but no vi.mock wires it to claimTurn, so the spy is unreachable by construction. It reads as coverage of 'no claim was taken' while proving nothing. The property itself IS covered by `expect(statements).toHaveLength(2)` at :80; the fix is to delete the line or mock the module."
+    },
+    {
+      "id": "F10",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "open",
+      "title": "Stale citation past end-of-file: the plan cites src/app/api/settings/voice/route.ts:197 as the pattern for the new POST route, but this same change shortened that file to 167 lines",
+      "at": "docs/superpowers/plans/feat-owner-operator-run-a-plan.md:70",
+      "reason": "prevalidate-plan.py over the changed docs: 94 citations checked, this one unresolved. Two softer siblings in the same file (:1442 and :2252 cite voice/route.ts:102 for VoiceConfigSchema, now at :107) still resolve to a real line and are recorded under F11. The handoff, deviations, context and directory docs all pass; the unresolved citations in .claude/reference/lab-notes/postgres.md and docs/progresstracking.md sit outside this diff's hunks."
+    },
+    {
+      "id": "F11",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "open",
+      "title": "A new production comment is born stale: catalog.ts cites src/app/api/settings/voice/route.ts:102 for VoiceConfigSchema, which this change moved to :107",
+      "at": "src/lib/agents/operator/catalog.ts:99",
+      "reason": "The comment is load-bearing (it justifies the catalog input limits mirroring the route schema) and was written against the pre-change file in the same PR that moved the target."
+    },
+    {
+      "id": "F12",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Absence-of-token proxy: `expect(JSON.stringify(turn.reply)).not.toContain('status_ref')` asserts a substring of serialized JSON rather than the stored shape",
+      "at": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:314",
+      "reason": "Recorded, not blocking: the surrounding comment argues the case honestly and the StoredSegment type genuinely carries the stronger half. It still passes for an empty reply and would fail on a rename that changed nothing. Behavioural replacement: assert every parsed segment's `type` is in the StoredSegment union."
+    },
+    {
+      "id": "F13",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "readPosted7d hardcodes INTERVAL '7 days' while the reported period comes from RECENT_COMPLETED_DAYS — changing the constant would silently mislabel the window",
+      "at": "src/lib/agents/operator/context.ts:192",
+      "reason": "Latent, not a defect today (RECENT_COMPLETED_DAYS is 7). The stored status segment carries reportingPeriodDays from the constant while the count comes from the literal, so the two can disagree after a one-line edit."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 62,
+    "killed": 17,
+    "survived_confirmed_p0": 5,
+    "equivalent": 0,
+    "inconclusive": 3,
+    "skipped_budget": 35,
+    "excluded": 2,
+    "findings_total": 13,
+    "p0_open": 5,
+    "p1_open": 5,
+    "p2_open": 3,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}
