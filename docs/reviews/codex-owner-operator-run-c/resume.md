@@ -1,5 +1,15 @@
 # Run C resume checkpoint
 
+## Round 2 completed; corrections under verification — 2026-09-13 14:23 UTC
+
+The sections below are historical. The canonical second-pass report was committed separately in `14c24897` after root finalization: 766 launches, 785 inventory rows, no unmeasured scoped cases, two open P0 groups and two open P1 oracle groups. Its pins and measurements are preserved. All four findings are root-ACCEPT in review round 10.
+
+The six reviewed test-file corrections are applied. All eleven affected cases passed independently, then all 146 tests across their six full suites passed. Commit the corrections and run the full safe wrapper review gate next. No production file changed. Intake amendment 5 adds only the previously approved supporting model-pinning test path. Active/durable copies match; retain prior intake hashes as historical evidence.
+
+The round-2 controller/finalizer service is closed; all process groups, source mutations and dotenv swaps are restored. Do not restart or reuse round 2. A proposed third pass covers only the eleven corrected cases within the existing 30-launch budget, but is NOT authorized. Prepare the committed green result and exact plan before asking for that explicit exception. No new external model calls were made.
+
+Sentry login remains pending for staging Rule 12. Candidate worker/provider proof, PR/merge, post-merge scope-card proof and the C closeout docs PR remain required before D/E. Use the safe local-check helper for both local DB URLs and disabled Sentry uploads. Do not infer the new gate or mutation outcome from the earlier checkpoints below.
+
 ## Verifier correction boundary — 2026-09-13
 
 Extension commit `5c3c19568dd65ca7dd672ff3d95b8540742c7d7f` passed the full gate (15,861 full-suite tests, 11 skipped). Independent Codex review then found the first-launch fallback gap BC-F1/P2; root accepted it in review round 8. The scoped guard is corrected: three zero-launch cases reproduced the gap before the fix, and all 75 runner tests pass afterwards. The independent report and checklist are preserved in two explicitly allowed review-only paths. Commit and rerun the full gate, then request focused verification of the correction before execution. The red-team verifier remains preparation-only: round 2 has NOT opened. Root closed the idle finalizer service cleanly; recreate the controller from the corrected committed blob and refresh its expected hash before restarting the service. The earlier immutable copy in `/private/tmp/run-c-round2-controller.mjs` belongs to `5c3c1956` and must not control the corrected pass.

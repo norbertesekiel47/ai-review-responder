@@ -155,6 +155,8 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
   });
 
   it('importReview leaves the agent run terminal, not running', async () => {
+    await importReview(sql(), makeMonitored(), businessId, 'corr-import-terminal');
+
     const [run] = await sql()<{ id: string; status: string; ended_at: Date | null }[]>`
       SELECT id, status, ended_at
       FROM agent_runs
@@ -199,6 +201,7 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
   });
 
   it('importReview is idempotent on a second call for the same review', async () => {
+    await importReview(sql(), makeMonitored(), businessId, 'corr-import-idempotent-first');
     const result = await importReview(sql(), makeMonitored(), businessId, 'corr-import-2');
 
     // ON CONFLICT (provider, provider_review_name) DO NOTHING really dedupes.

@@ -142,6 +142,7 @@
     "src/lib/llm/openai-provider.ts",
     "src/lib/llm/anthropic-provider.ts",
     "src/lib/responses/prompt-policy.ts",
+    "src/lib/responses/__tests__/model-pinning.test.ts",
     "e2e/operator.spec.ts",
     "e2e/helpers/operator-seed.ts",
     "docs/roadmap/2026-09-11-owner-operator/README.md",

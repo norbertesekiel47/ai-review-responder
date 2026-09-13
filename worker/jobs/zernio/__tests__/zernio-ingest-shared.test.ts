@@ -421,7 +421,8 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
       () => [],
-      // 2. INSERT INTO reviews … RETURNING id.
+      // 2. INSERT may conflict with a concurrent winner after SELECT found no
+      // match. The response must reference RETURNING id, not the minted id.
       () => [{ id: 'new-review-uuid' }],
       // 3. INSERT INTO responses … RETURNING 1 (rowcount=1 means actually inserted).
       () => [{}],
@@ -448,6 +449,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(calls[2]!.sql).toContain('response_text');
     expect(calls[2]!.sql).toContain('approved_text');
     expect(calls[2]!.sql).toContain('original_draft_text');
+    expect(calls[2]!.values[0]).toBe('new-review-uuid');
     expect(calls[2]!.values).toContain(2);
     // Counter bump.
     expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
@@ -764,6 +766,8 @@ describe('reconcileExternallyAnsweredReview — consentedImport option (#675)', 
     const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       () => [],                          // 1. SELECT matched rows → none.
+      // A concurrent winner can supply the returned ID; consent does not
+      // change which review the imported response must reference.
       () => [{ id: 'new-review-uuid' }], // 2. INSERT INTO reviews … RETURNING id.
       () => [{}],                        // 3. INSERT INTO responses … RETURNING 1.
       () => [],                          // 4. UPDATE zernio_backfill_runs (counter bump).
@@ -779,6 +783,7 @@ describe('reconcileExternallyAnsweredReview — consentedImport option (#675)', 
     expect(calls[1]!.sql).toContain('INSERT INTO reviews');
     expect(calls[2]!.sql).toContain('INSERT INTO responses');
     expect(calls[2]!.sql).toContain("'posted'");
+    expect(calls[2]!.values[0]).toBe('new-review-uuid');
     expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply'));
   });

@@ -27,7 +27,7 @@ import { POLICY_ACTION_POSTING, POLICY_PERSONA_REPLY } from '../types';
 // Run C T1 adds the transaction-aware writer cases at the end. Each one seeds
 // its own scratch location, resets the account default it reads, and deletes
 // its policy + audit rows + location in `finally`, so it assumes nothing from
-// the earlier chained tests. The lock case uses the suite connection as its
+// the other tests. The lock case uses the suite connection as its
 // holder/probe and one extra writer connection.
 //
 // Gated on TEST_DATABASE_POOL_URL; skips cleanly without one.
@@ -285,29 +285,56 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
   });
 
   it('threshold upserts hit the same rows without clobbering the dial values', async () => {
-    const afterManual = await patch({ ...actor, operation: 'set_account_manual' });
-    expect(afterManual.accountDefault).toMatchObject({
-      threshold: null,
-      vetoWindowMinutes: 30,
-      dailyAutoPostCap: 25,
-    });
+    await resetAccountDefault({ threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 25 });
+    const [accountRow] = await sql()<{ id: string }[]>`
+      SELECT id FROM auto_approval_policies
+      WHERE account_id = ${tenant.accountId}::uuid AND location_id IS NULL
+        AND persona = ${POLICY_PERSONA_REPLY} AND action_class = ${POLICY_ACTION_POSTING}
+    `;
+    expect(accountRow).toBeDefined();
+    const locationId = await seedScratchLocation();
+    const overrideId = randomUUID();
 
-    const afterLocationManual = await patch({
-      ...actor,
-      operation: 'set_location_manual',
-      locationId: tenant.businessId,
-    });
-    const override = afterLocationManual.locations.find(
-      (entry) => entry.locationId === tenant.businessId,
-    )?.override;
-    expect(override).toMatchObject({
-      threshold: null,
-      vetoWindowMinutes: 30,
-      dailyAutoPostCap: 5,
-    });
+    try {
+      await sql()`
+        INSERT INTO auto_approval_policies (
+          id, account_id, location_id, persona, action_class,
+          auto_approve_min_star, veto_window_minutes, daily_auto_post_cap
+        ) VALUES (
+          ${overrideId}::uuid, ${tenant.accountId}::uuid, ${locationId}::uuid,
+          ${POLICY_PERSONA_REPLY}, ${POLICY_ACTION_POSTING}, 5, 30, 5
+        )
+      `;
+
+      const afterManual = await patch({ ...actor, operation: 'set_account_manual' });
+      expect(afterManual.accountDefault).toMatchObject({
+        policyId: accountRow!.id,
+        threshold: null,
+        vetoWindowMinutes: 30,
+        dailyAutoPostCap: 25,
+      });
+
+      const afterLocationManual = await patch({
+        ...actor,
+        operation: 'set_location_manual',
+        locationId,
+      });
+      const override = afterLocationManual.locations.find(
+        (entry) => entry.locationId === locationId,
+      )?.override;
+      expect(override).toMatchObject({
+        policyId: overrideId,
+        threshold: null,
+        vetoWindowMinutes: 30,
+        dailyAutoPostCap: 5,
+      });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
   });
 
   it('clear on a suspended account default preserves the row; unsuspended clear deletes it', async () => {
+    await resetAccountDefault({ threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 25 });
     // Governor-owned suspension survives a clear (finding-1 fix): the clear
     // degrades to a threshold-NULL UPDATE, keeping suspended_at and the dials.
     await sql()`

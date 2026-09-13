@@ -521,14 +521,32 @@ describe('auto-approval settings service', () => {
     dbState.subscriptionStatus = SubscriptionStatus.TRIALING;
     const { patchAutoApprovalSettings } = await import('../settings');
 
-    await expect(patchAutoApprovalSettings(mockSql, {
+    const result = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
       operation: 'set_account_default',
       threshold: 5,
       confirmationLevel: 'standard',
-    })).resolves.toMatchObject({ readiness: { canExpand: true } });
+    });
+
+    expect(result.readiness.canExpand).toBe(true);
+    expect(result.accountDefault).toMatchObject({ exists: true, threshold: 5 });
+    expect(dbState.accountDefault).toMatchObject({ threshold: 5 });
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        accountId: ACCOUNT_ID,
+        actorUserId: ACTOR_USER_ID,
+        eventType: 'auto_approval_policy_changed',
+        payload: expect.objectContaining({
+          operation: 'set_account_default',
+          expansion: true,
+          afterEffectiveThreshold: 5,
+        }),
+      }),
+    );
   });
 
   it('allows past-due grace but blocks expansion after the grace window', async () => {
@@ -537,14 +555,18 @@ describe('auto-approval settings service', () => {
     const { patchAutoApprovalSettings } = await import('../settings');
     const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
-    await expect(patchAutoApprovalSettings(mockSql, {
+    const result = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
       actorUserId: ACTOR_USER_ID,
       impersonated: false,
       operation: 'set_account_default',
       threshold: 5,
       confirmationLevel: 'standard',
-    })).resolves.toMatchObject({ readiness: { accountWritable: true } });
+    });
+
+    expect(result.readiness.accountWritable).toBe(true);
+    expect(result.accountDefault).toMatchObject({ exists: true, threshold: 5 });
+    expect(dbState.accountDefault).toMatchObject({ threshold: 5 });
 
     dbState.accountDefault = null;
     dbState.pastDueAt = new Date(Date.now() - 8 * 86_400_000);

@@ -1,5 +1,17 @@
 # Run C evidence
 
+## Round 2 corrections — 2026-09-13 14:23 UTC
+
+The completed second pass is preserved in report-only commit `14c24897`, measured against `4127714519b253e4a0560b9cf561a987af8cf70c`. It used 766 of 1,500 supervised launches. Its 785-row inventory records 379 kills, 396 evidence-backed exclusions, three confirmed survivors across two P0 findings, and seven inconclusive oracle rows across two P1 findings. No scoped case remains unmeasured or budget-skipped. Root's finalizer confirmed every recorded process group empty and all source/dotenv state restored before either report was written. The report remains OPEN_P0; corrections do not retroactively change those measurements.
+
+Root accepted all four findings in review round 10. Six existing test files now assert trial/grace policy persistence, the trial audit, the returned review-ID relationship in both answered-import cases, and canonical schema identity through a boolean assertion. Six integration cases now establish their own tone/policy/import prerequisites while preserving their original behavioral assertions and cleanup. No production file or test identity changed. The independent Codex draft reviews are preserved in [spec-correctness.md](spec-correctness.md).
+
+All eleven affected cases passed individually with exactly one executed test per invocation. The six complete affected suites then passed all 146 tests, with no skips. Evidence: `/private/tmp/run-c-corrected-baselines.json`, its eleven referenced JSON reports/logs, and `/private/tmp/run-c-corrected-six-suites.log`. Both database variables were pinned to the disposable localhost:5499/test_ws4 database; Sentry upload/DSN values were empty. These runs establish corrected baselines and normal suite behavior, not new mutation kills. A new committed full review gate is next.
+
+Surface amendment 5 records the omitted existing `src/lib/responses/__tests__/model-pinning.test.ts` path under the owner's explicit earlier approval for supporting LLM tests. Only that path was added to the identical active/durable intake copies. Historical intake hashes in the frozen reports remain unchanged. No verifier code or product scope changed.
+
+A further mutation pass needs explicit owner authorization naming the third round. The existing runner supports that exception with its ordinary 30-launch limit; the proposed correction-only scope is eleven cases, requiring at least 22 baseline/mutant launches. No third round has opened. Staging Rule 12 configuration still awaits the requested Sentry login; candidate worker/provider proof, PR/merge, post-merge scope-card proof and closeout remain outstanding. D/E are unstarted. Development and review remain Codex only.
+
 ## Verifier extension review — 2026-09-13
 
 Candidate `5c3c19568dd65ca7dd672ff3d95b8540742c7d7f` passed the full wrapper review gate, including build, E2E, all 72 verifier regression tests and 15,861 full-suite tests (11 skipped). Log: `/private/tmp/run-c-budget-extension-gate.log`. The existing reclassification warning remains visible; the feature retains its high-risk classification and eight tracers.
