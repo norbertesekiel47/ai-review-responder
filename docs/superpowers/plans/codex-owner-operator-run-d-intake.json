@@ -76,6 +76,7 @@
     "docs/directory/worker-background.md",
     "docs/directory/lib-owner-operator.md",
     ".claude/reference/lab-notes/history/2026-09.md",
+    ".claude/reference/arch-review-log.md",
     "docs/superpowers/plans/codex-owner-operator-run-d*",
     "docs/reviews/codex-owner-operator-run-d/**",
     "docs/reviews/red-team/codex-owner-operator-run-d/**",
