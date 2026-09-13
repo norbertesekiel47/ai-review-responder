@@ -1,0 +1,213 @@
+{
+  "costs": [
+    {
+      "id": "01a09ba4-a58d-714b-b1c1-a5dd8b644cc1",
+      "cost_usd": 0.000451,
+      "endpoint": "owner-operator",
+      "provider": "openai",
+      "latency_ms": 1637,
+      "input_tokens": 2522,
+      "output_tokens": 122,
+      "prompt_version": "2026-09-13.3",
+      "system_prompt_hash": "3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a"
+    },
+    {
+      "id": "01a09ba7-c4df-71ae-912e-5f5988ab7003",
+      "cost_usd": 0.000419,
+      "endpoint": "owner-operator",
+      "provider": "openai",
+      "latency_ms": 1141,
+      "input_tokens": 2547,
+      "output_tokens": 62,
+      "prompt_version": "2026-09-13.3",
+      "system_prompt_hash": "3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a"
+    },
+    {
+      "id": "01a09bac-e4fb-700b-92ba-8b6205a0d303",
+      "cost_usd": 0.000422,
+      "endpoint": "owner-operator",
+      "provider": "openai",
+      "latency_ms": 1933,
+      "input_tokens": 2568,
+      "output_tokens": 62,
+      "prompt_version": "2026-09-13.3",
+      "system_prompt_hash": "3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a"
+    },
+    {
+      "id": "01a09ba2-e59b-7753-a87e-d5472941f33f",
+      "cost_usd": 0.000415,
+      "endpoint": "owner-operator",
+      "provider": "openai",
+      "latency_ms": 2080,
+      "input_tokens": 2484,
+      "output_tokens": 71,
+      "prompt_version": "2026-09-13.3",
+      "system_prompt_hash": "3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a"
+    }
+  ],
+  "turns": [
+    {
+      "id": "01a09ba2-ccc4-7228-ba3a-3c8736e2ceaf",
+      "reply": [
+        {
+          "asOf": "2026-09-13T16:38:57.126Z",
+          "type": "status",
+          "value": 0,
+          "metric": "pending_count",
+          "reportingPeriodDays": 7
+        },
+        {
+          "type": "scope_check",
+          "locationId": "019f43c0-0000-7000-8000-000000000012"
+        }
+      ],
+      "status": "completed",
+      "attempt": 1,
+      "created_at": "2026-09-13T16:38:52.173014+00:00",
+      "location_id": "019f43c0-0000-7000-8000-000000000011",
+      "completed_at": "2026-09-13T16:38:59.341125+00:00",
+      "failure_reason": null,
+      "conversation_id": "b03d88c5-7eb5-4220-8957-b914f85c5cd6"
+    },
+    {
+      "id": "01a09ba4-8f2c-73be-b918-f156793332b4",
+      "reply": [
+        {
+          "asOf": "2026-09-13T16:40:52.244Z",
+          "type": "status",
+          "value": 0,
+          "metric": "pending_count",
+          "reportingPeriodDays": 7
+        },
+        {
+          "asOf": "2026-09-13T16:40:52.244Z",
+          "type": "status",
+          "value": 0,
+          "metric": "drafts_waiting",
+          "reportingPeriodDays": 7
+        },
+        {
+          "asOf": "2026-09-13T16:40:52.244Z",
+          "type": "status",
+          "value": 0,
+          "metric": "posted_7d",
+          "reportingPeriodDays": 7
+        },
+        {
+          "text": "Would you like to turn off auto-posting for your account's default rule?",
+          "type": "question"
+        },
+        {
+          "type": "scope_check",
+          "locationId": "019f43c0-0000-7000-8000-000000000012"
+        }
+      ],
+      "status": "completed",
+      "attempt": 1,
+      "created_at": "2026-09-13T16:40:47.499156+00:00",
+      "location_id": "019f43c0-0000-7000-8000-000000000011",
+      "completed_at": "2026-09-13T16:40:54.011319+00:00",
+      "failure_reason": null,
+      "conversation_id": "b03d88c5-7eb5-4220-8957-b914f85c5cd6"
+    },
+    {
+      "id": "01a09ba7-b364-77e2-9fa6-4fdd4d427ad2",
+      "reply": [
+        {
+          "type": "scope_check",
+          "locationId": "019f43c0-0000-7000-8000-000000000012"
+        }
+      ],
+      "status": "completed",
+      "attempt": 1,
+      "created_at": "2026-09-13T16:44:13.40575+00:00",
+      "location_id": "019f43c0-0000-7000-8000-000000000011",
+      "completed_at": "2026-09-13T16:44:18.636237+00:00",
+      "failure_reason": null,
+      "conversation_id": "b03d88c5-7eb5-4220-8957-b914f85c5cd6"
+    },
+    {
+      "id": "01a09bac-d106-72c9-92d6-eb2f4ba24b31",
+      "reply": [
+        {
+          "type": "scope_check",
+          "locationId": "019f43c0-0000-7000-8000-000000000012"
+        }
+      ],
+      "status": "completed",
+      "attempt": 1,
+      "created_at": "2026-09-13T16:49:48.575172+00:00",
+      "location_id": "019f43c0-0000-7000-8000-000000000011",
+      "completed_at": "2026-09-13T16:49:54.534134+00:00",
+      "failure_reason": null,
+      "conversation_id": "b03d88c5-7eb5-4220-8957-b914f85c5cd6"
+    }
+  ],
+  "outbox": [
+    {
+      "id": "01a09ba2-cdcd-7149-87f6-755b8c0187dd",
+      "topic": "agent_turn",
+      "status": "completed",
+      "turn_id": "01a09ba2-ccc4-7228-ba3a-3c8736e2ceaf",
+      "attempts": 1,
+      "aggregate_id": "01a09ba2-ccc4-7228-ba3a-3c8736e2ceaf"
+    },
+    {
+      "id": "01a09ba4-902c-74e1-b983-01507748bd91",
+      "topic": "agent_turn",
+      "status": "completed",
+      "turn_id": "01a09ba4-8f2c-73be-b918-f156793332b4",
+      "attempts": 1,
+      "aggregate_id": "01a09ba4-8f2c-73be-b918-f156793332b4"
+    },
+    {
+      "id": "01a09ba7-b45f-778f-a40c-ee5b332000e2",
+      "topic": "agent_turn",
+      "status": "completed",
+      "turn_id": "01a09ba7-b364-77e2-9fa6-4fdd4d427ad2",
+      "attempts": 1,
+      "aggregate_id": "01a09ba7-b364-77e2-9fa6-4fdd4d427ad2"
+    },
+    {
+      "id": "01a09bac-d223-71cc-99fb-f4489fa9e653",
+      "topic": "agent_turn",
+      "status": "completed",
+      "turn_id": "01a09bac-d106-72c9-92d6-eb2f4ba24b31",
+      "attempts": 1,
+      "aggregate_id": "01a09bac-d106-72c9-92d6-eb2f4ba24b31"
+    }
+  ],
+  "policy": [
+    {
+      "id": "019f43c0-0000-7000-8000-000000000021",
+      "cap": 2,
+      "veto": 15,
+      "threshold": 4,
+      "location_id": null
+    }
+  ],
+  "proposals": 0,
+  "responses": 0,
+  "unsupported": [
+    {
+      "id": "01a09ba2-e60a-74f1-a73b-38ca89e981e1",
+      "request": "Turn automatic replies off for all locations.",
+      "turn_id": "01a09ba2-ccc4-7228-ba3a-3c8736e2ceaf"
+    },
+    {
+      "id": "01a09ba4-a5f8-730f-b061-0a634303b87a",
+      "request": "Turn auto-posting off in my account's default rule.",
+      "turn_id": "01a09ba4-8f2c-73be-b918-f156793332b4"
+    },
+    {
+      "id": "01a09ba7-c54a-74b9-aa32-e53455a2cb90",
+      "request": "Turn off auto-reply for the cafe",
+      "turn_id": "01a09ba7-b364-77e2-9fa6-4fdd4d427ad2"
+    },
+    {
+      "id": "01a09bac-e564-75d9-88e8-c52b5dcfa6c8",
+      "request": "Stop replying on weekends",
+      "turn_id": "01a09bac-d106-72c9-92d6-eb2f4ba24b31"
+    }
+  ]
+}

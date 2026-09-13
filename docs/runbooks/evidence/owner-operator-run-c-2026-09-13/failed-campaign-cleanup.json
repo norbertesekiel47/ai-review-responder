@@ -1,0 +1,134 @@
+{
+  "at": "2026-09-13T16:54Z",
+  "counts": [
+    {
+      "relation": "accounts",
+      "remaining": 0
+    },
+    {
+      "relation": "users",
+      "remaining": 0
+    },
+    {
+      "relation": "businesses",
+      "remaining": 0
+    },
+    {
+      "relation": "reviews",
+      "remaining": 0
+    },
+    {
+      "relation": "responses",
+      "remaining": 0
+    },
+    {
+      "relation": "policies",
+      "remaining": 0
+    },
+    {
+      "relation": "proposals",
+      "remaining": 0
+    },
+    {
+      "relation": "turns",
+      "remaining": 0
+    },
+    {
+      "relation": "conversations",
+      "remaining": 0
+    },
+    {
+      "relation": "unsupported",
+      "remaining": 0
+    },
+    {
+      "relation": "runs",
+      "remaining": 0
+    },
+    {
+      "relation": "outcomes",
+      "remaining": 0
+    },
+    {
+      "relation": "costs",
+      "remaining": 0
+    },
+    {
+      "relation": "account_audits",
+      "remaining": 0
+    },
+    {
+      "relation": "approval_audits",
+      "remaining": 0
+    },
+    {
+      "relation": "analytics",
+      "remaining": 0
+    },
+    {
+      "relation": "outbox",
+      "remaining": 0
+    },
+    {
+      "relation": "connections",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_email",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_identity",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_sessions",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_identities",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_refresh_tokens",
+      "remaining": 0
+    },
+    {
+      "relation": "captured_steps",
+      "remaining": 0
+    },
+    {
+      "relation": "captured_outbox",
+      "remaining": 0
+    }
+  ],
+  "queue": [
+    {
+      "id": "01a09ba2-cdcd-7149-87f6-755b8c0187dd_1",
+      "stateBefore": "completed",
+      "removed": true
+    },
+    {
+      "id": "01a09ba4-902c-74e1-b983-01507748bd91_1",
+      "stateBefore": "completed",
+      "removed": true
+    },
+    {
+      "id": "01a09ba7-b45f-778f-a40c-ee5b332000e2_1",
+      "stateBefore": "completed",
+      "removed": true
+    },
+    {
+      "id": "01a09bac-d223-71cc-99fb-f4489fa9e653_1",
+      "stateBefore": "completed",
+      "removed": true
+    }
+  ],
+  "flags": {
+    "OWNER_OPERATOR_ENABLED": true,
+    "AUTO_APPROVAL_ENABLED": false,
+    "JUDGE_ENABLED": true,
+    "MOCK_EXTERNAL_APIS": false,
+    "environment": "staging"
+  }
+}

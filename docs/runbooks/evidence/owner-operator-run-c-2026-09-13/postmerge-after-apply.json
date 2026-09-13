@@ -1,0 +1,265 @@
+{
+  "costs": [
+    {
+      "id": "01a09c3e-b3d2-761c-b73d-1a389dd1a332",
+      "cost_usd": 0.000478,
+      "endpoint": "owner-operator",
+      "provider": "openai",
+      "latency_ms": 1853,
+      "input_tokens": 2865,
+      "output_tokens": 81,
+      "prompt_version": "2026-09-13.4",
+      "system_prompt_hash": "9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032"
+    }
+  ],
+  "turns": [
+    {
+      "id": "01a09c3e-9a02-770a-9ce5-08c27b1ca0fc",
+      "reply": [
+        {
+          "type": "proposal",
+          "proposalId": "01a09c3e-b591-72c0-ba5b-f6e1975e6531"
+        }
+      ],
+      "status": "completed",
+      "attempt": 1,
+      "created_at": "2026-09-13T19:29:02.78194+00:00",
+      "location_id": "019f43c0-0000-7000-8000-000000000011",
+      "completed_at": "2026-09-13T19:29:10.553135+00:00",
+      "failure_reason": null,
+      "conversation_id": "019f43c0-0000-7000-8000-000000000031"
+    }
+  ],
+  "audits": [
+    {
+      "id": "01a09c3f-98f5-70a5-ae24-e8867a2a0755",
+      "event_type": "auto_approval_policy_changed",
+      "actor_user_id": "019f43c0-0000-7000-8000-000000000002"
+    }
+  ],
+  "outbox": [
+    {
+      "id": "01a09c3e-9b14-7154-8d14-3da5fb931a2b",
+      "topic": "agent_turn",
+      "status": "completed",
+      "turn_id": "01a09c3e-9a02-770a-9ce5-08c27b1ca0fc",
+      "attempts": 1
+    }
+  ],
+  "proposals": [
+    {
+      "id": "01a09c3e-b591-72c0-ba5b-f6e1975e6531",
+      "after": {
+        "domain": "policy",
+        "rowExists": true,
+        "threshold": null,
+        "consequence": {
+          "asOf": "2026-09-13T19:29:10.512072Z",
+          "held": {
+            "manual": 8,
+            "cap_reached": 0,
+            "below_threshold": 0
+          },
+          "byDay": [
+            {
+              "day": "2026-09-10T00:00:00.000000Z",
+              "held": 1,
+              "total": 1,
+              "eligible": 0
+            },
+            {
+              "day": "2026-09-11T00:00:00.000000Z",
+              "held": 7,
+              "total": 7,
+              "eligible": 0
+            }
+          ],
+          "total": 8,
+          "source": "reviews_received_30d",
+          "eligible": 0,
+          "windowEnd": "2026-09-13T19:29:10.512072Z",
+          "busiestDay": 7,
+          "windowStart": "2026-08-14T19:29:10.512072Z",
+          "excludedUnknown": 1,
+          "excludedImported": 1
+        },
+        "dailyAutoPostCap": 2,
+        "effectiveDailyCap": 2,
+        "vetoWindowMinutes": 15,
+        "affectedLocationCount": 2
+      },
+      "before": {
+        "domain": "policy",
+        "rowExists": true,
+        "threshold": 4,
+        "consequence": {
+          "asOf": "2026-09-13T19:29:10.512072Z",
+          "held": {
+            "manual": 0,
+            "cap_reached": 1,
+            "below_threshold": 2
+          },
+          "byDay": [
+            {
+              "day": "2026-09-10T00:00:00.000000Z",
+              "held": 0,
+              "total": 1,
+              "eligible": 1
+            },
+            {
+              "day": "2026-09-11T00:00:00.000000Z",
+              "held": 3,
+              "total": 7,
+              "eligible": 4
+            }
+          ],
+          "total": 8,
+          "source": "reviews_received_30d",
+          "eligible": 5,
+          "windowEnd": "2026-09-13T19:29:10.512072Z",
+          "busiestDay": 7,
+          "windowStart": "2026-08-14T19:29:10.512072Z",
+          "excludedUnknown": 1,
+          "excludedImported": 1
+        },
+        "dailyAutoPostCap": 2,
+        "effectiveDailyCap": 2,
+        "vetoWindowMinutes": 15,
+        "affectedLocationCount": 2
+      },
+      "status": "applied",
+      "receipt": {
+        "after": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": null,
+          "consequence": {
+            "asOf": "2026-09-13T19:30:07.902543Z",
+            "held": {
+              "manual": 8,
+              "cap_reached": 0,
+              "below_threshold": 0
+            },
+            "byDay": [
+              {
+                "day": "2026-09-10T00:00:00.000000Z",
+                "held": 1,
+                "total": 1,
+                "eligible": 0
+              },
+              {
+                "day": "2026-09-11T00:00:00.000000Z",
+                "held": 7,
+                "total": 7,
+                "eligible": 0
+              }
+            ],
+            "total": 8,
+            "source": "reviews_received_30d",
+            "eligible": 0,
+            "windowEnd": "2026-09-13T19:30:07.902543Z",
+            "busiestDay": 7,
+            "windowStart": "2026-08-14T19:30:07.902543Z",
+            "excludedUnknown": 1,
+            "excludedImported": 1
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 15,
+          "affectedLocationCount": 2
+        },
+        "scope": {
+          "accountId": "019f43c0-0000-7000-8000-000000000001",
+          "locationId": null
+        },
+        "before": {
+          "domain": "policy",
+          "rowExists": true,
+          "threshold": 4,
+          "consequence": {
+            "asOf": "2026-09-13T19:30:07.902543Z",
+            "held": {
+              "manual": 0,
+              "cap_reached": 1,
+              "below_threshold": 2
+            },
+            "byDay": [
+              {
+                "day": "2026-09-10T00:00:00.000000Z",
+                "held": 0,
+                "total": 1,
+                "eligible": 1
+              },
+              {
+                "day": "2026-09-11T00:00:00.000000Z",
+                "held": 3,
+                "total": 7,
+                "eligible": 4
+              }
+            ],
+            "total": 8,
+            "source": "reviews_received_30d",
+            "eligible": 5,
+            "windowEnd": "2026-09-13T19:30:07.902543Z",
+            "busiestDay": 7,
+            "windowStart": "2026-08-14T19:30:07.902543Z",
+            "excludedUnknown": 1,
+            "excludedImported": 1
+          },
+          "dailyAutoPostCap": 2,
+          "effectiveDailyCap": 2,
+          "vetoWindowMinutes": 15,
+          "affectedLocationCount": 2
+        },
+        "turnId": "01a09c3e-9a02-770a-9ce5-08c27b1ca0fc",
+        "affects": "future_eligible_reviews",
+        "version": 1,
+        "actorName": "Run C Synthetic Owner",
+        "appliedAt": "2026-09-13T19:30:09.848Z",
+        "operation": "set_auto_reply_scope",
+        "ownerText": "Turn automatic replies off for all locations.",
+        "actorUserId": "019f43c0-0000-7000-8000-000000000002",
+        "effectiveNow": true,
+        "retainedVeto": {
+          "asOf": "2026-09-13T19:30:09.673322Z",
+          "count": 0
+        },
+        "versionToken": {
+          "after": {
+            "accountDefaultRow": {
+              "id": "019f43c0-0000-7000-8000-000000000021",
+              "updatedAt": "2026-09-13 19:30:07.090258+00"
+            }
+          },
+          "before": {
+            "accountDefaultRow": {
+              "id": "019f43c0-0000-7000-8000-000000000021",
+              "updatedAt": "2026-09-13 19:26:27.951991+00"
+            }
+          }
+        },
+        "remainingBlocked": [
+          "auto_approval_disabled",
+          "autopilot_unavailable"
+        ],
+        "differsFromPreview": false
+      },
+      "turn_id": "01a09c3e-9a02-770a-9ce5-08c27b1ca0fc",
+      "operation": "set_auto_reply_scope",
+      "location_id": null
+    }
+  ],
+  "responses": 0,
+  "connections": 0,
+  "policy_rows": [
+    {
+      "id": "019f43c0-0000-7000-8000-000000000021",
+      "cap": 2,
+      "veto": 15,
+      "threshold": null,
+      "location_id": null
+    }
+  ],
+  "unsupported": null,
+  "approval_audits": 0
+}

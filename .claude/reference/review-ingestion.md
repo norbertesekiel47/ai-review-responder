@@ -24,6 +24,19 @@ hash comparison). These are separate concerns — never mix them.
 > (Since #675 the consented Review import enqueues **no generation at all**, so the
 > `backfill` lane gains no new rows — the vocabulary survives for pre-#675 rows.)
 
+> **Operator consequence provenance (Run C, #1278):** a genuine review INSERT
+> records `detail.ingestion_origin` (`live`, `imported` or `unknown`) on its
+> initial `review_ingested` step in the same transaction. The writers are
+> `processReview` / `importReview` in `src/lib/reviews/process-review.ts` and
+> `insertImportedReview` in `worker/jobs/zernio/zernio-ingest-shared.ts`. The
+> answered-import path records it only when the returned review id is the
+> newly generated id: conflict losers and existing rows earn no new origin.
+> Updates, revival and external-reply attachment never relabel history. The
+> Operator includes only confirmed-live provenance in its 30-day consequences
+> and reports imported/unknown exclusions separately; absent, conflicting or
+> pruned markers mean unknown. This is distinct from the publisher's
+> `origin_lane` and adds no generation or posting.
+
 > **Trial note (since migration 069 / PR #362):** the new `'trialing'` subscription
 > status is treated like `'active'` for ingestion — `trialing` accounts ARE included in
 > the backfill-resume enqueue (`worker/ingress/stripe/shared.ts`) and the per-cadence

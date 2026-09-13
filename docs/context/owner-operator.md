@@ -2,7 +2,7 @@ _Context file of the RepWorth domain glossary — the index of contexts and the 
 
 ## Owner Operator — coined 2026-09-11, Run A intake
 
-The conversational surface an owner uses to configure RepWorth by talking. Spec of record: `docs/roadmap/2026-09-11-owner-operator/README.md`. Runs A and B added the turn pipeline, voice proposals, Apply, Decline, receipts and the Console screen. Run C extends those contracts to auto-reply policy changes; its implementation is in progress and unmerged. The spec's status and acceptance sections own delivery evidence.
+The conversational surface an owner uses to configure RepWorth by talking. Spec of record: `docs/roadmap/2026-09-11-owner-operator/README.md`. Runs A and B added the turn pipeline, voice proposals, Apply, Decline, receipts and the Console screen. Run C extends those contracts to auto-reply policy changes. The spec's status and acceptance sections own delivery evidence.
 
 - **Operator turn**: one owner message and the single model reply it earns — an `agent_turns` row carrying `owner_text`, the stored `location_id`, a `sequence` within its conversation, and a lifecycle `accepted → running → completed | failed`. **The turn, not the browser, owns the target**: the location is frozen at POST, so moving the selector afterwards retargets nothing. Idempotency is the account-scoped `(account_id, client_turn_key)` unique — a re-POST of the same key and payload returns the original ids and writes no second row; a different payload under that key is a 409, and `text` is compared verbatim. _Avoid_: message, chat turn, prompt, request. *(coined in the Run A intake, 2026-09-11)*
 

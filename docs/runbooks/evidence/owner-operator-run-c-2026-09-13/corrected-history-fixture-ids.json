@@ -1,0 +1,73 @@
+{
+  "accountId": "019f43c0-0000-7000-8000-000000000001",
+  "rows": [
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000101",
+      "run_id": "01a09c1e-caa6-76ac-86ad-4d5fbb614099",
+      "step_id": "01a09c1e-cb80-71e9-9eaa-ea5fa76bf914",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000102",
+      "run_id": "01a09c1e-cc8e-768d-b8f8-fdfb27ffe932",
+      "step_id": "01a09c1e-cd5f-7175-9025-4310c3a3cc79",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000103",
+      "run_id": "01a09c1e-ce69-74ef-95b5-76b31d2b81b6",
+      "step_id": "01a09c1e-cf43-753a-bfed-80427ae21633",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000104",
+      "run_id": "01a09c1e-d04e-77ba-b5ab-d9ef246a5483",
+      "step_id": "01a09c1e-d115-7026-a42b-84f34d5bc5b8",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000105",
+      "run_id": "01a09c1e-d21f-7130-81a6-0317bc675df5",
+      "step_id": "01a09c1e-d2f0-722b-8ac2-f76ea987425f",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000106",
+      "run_id": "01a09c1e-d3ee-75d0-8923-c0885de6b14e",
+      "step_id": "01a09c1e-d4ac-77c8-99eb-fa663a389dd9",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000107",
+      "run_id": "01a09c1e-d5b6-71f7-b762-3ad13634d0bb",
+      "step_id": "01a09c1e-d687-7699-b2f8-1ed87a2a9595",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000108",
+      "run_id": "01a09c1e-d791-7070-a2a2-7293099a5a9d",
+      "step_id": "01a09c1e-d84e-7454-9255-03669e0a3ea8",
+      "origin": "live"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000109",
+      "run_id": "01a09c1e-d958-7181-9bce-3ed4422dd427",
+      "step_id": "01a09c1e-da1d-769b-a375-ed4b62c4563a",
+      "origin": "imported"
+    },
+    {
+      "review_id": "019f43c0-0000-7000-8000-000000000110",
+      "run_id": null,
+      "step_id": null,
+      "origin": null
+    }
+  ],
+  "counts": {
+    "reviews": 10,
+    "runs": 9,
+    "steps": 9,
+    "confirmedLive": 8,
+    "imported": 1,
+    "unknown": 1
+  }
+}

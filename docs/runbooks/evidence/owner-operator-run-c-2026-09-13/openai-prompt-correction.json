@@ -1,0 +1,75 @@
+{
+  "at": "2026-09-13T17:03:13.498Z",
+  "mode": "direct registered OpenAI adapter; synthetic fixtures",
+  "promptVersion": "2026-09-13.4",
+  "systemPromptHash": "9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032",
+  "total": 5,
+  "passed": 5,
+  "results": [
+    {
+      "id": "owner-operator-widen-scope",
+      "provider": "openai",
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "promptTokens": 2800,
+        "completionTokens": 108
+      },
+      "latencyMs": 2382,
+      "schemaPassed": true,
+      "failures": [],
+      "passed": true
+    },
+    {
+      "id": "owner-operator-all-locations-off",
+      "provider": "openai",
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "promptTokens": 2818,
+        "completionTokens": 80
+      },
+      "latencyMs": 1267,
+      "schemaPassed": true,
+      "failures": [],
+      "passed": true
+    },
+    {
+      "id": "owner-operator-account-default-off",
+      "provider": "openai",
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "promptTokens": 2831,
+        "completionTokens": 81
+      },
+      "latencyMs": 1793,
+      "schemaPassed": true,
+      "failures": [],
+      "passed": true
+    },
+    {
+      "id": "owner-operator-cafe-scope-check",
+      "provider": "openai",
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "promptTokens": 2819,
+        "completionTokens": 39
+      },
+      "latencyMs": 991,
+      "schemaPassed": true,
+      "failures": [],
+      "passed": true
+    },
+    {
+      "id": "owner-operator-weekend-unsupported",
+      "provider": "openai",
+      "model": "gpt-4o-mini-2024-07-18",
+      "usage": {
+        "promptTokens": 2815,
+        "completionTokens": 47
+      },
+      "latencyMs": 888,
+      "schemaPassed": true,
+      "failures": [],
+      "passed": true
+    }
+  ]
+}

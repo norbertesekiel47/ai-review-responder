@@ -9,7 +9,17 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-13 (Owner Operator T8 merged, #1276; the Operator is ON in staging, off in production).
+Last updated: 2026-09-13 (Owner Operator Run C #1278 merged; post-merge staging acceptance and cleanup PASS).
+
+## Quick summary — Owner Operator Run C: policy proposals and measured consequences (2026-09-13, #1278)
+
+The Operator now prepares auto-reply scope, veto-window and daily-cap changes alongside the four voice operations. Console (Harbor) cards show the full effective rules, inherited or overridden scope, confirmation requirements and server-calculated 30-day consequences. Apply uses the existing policy writer inside one transaction, rechecks authorization and both policy versions, and saves the actual before/after state, consequence window, exclusions and retained-veto count in its receipt. The [Operator directory](directory/lib-owner-operator.md) maps those modules; provider contracts live in `src/lib/llm/`.
+
+Only confirmed-live reviews enter historical estimates; imported reviews and unknown provenance are shown separately. Initial ingestion records provenance on the existing run spine without relabeling older reviews. Registered structured tasks now deliver their JSON schema to the providers. These changes add no Apply-triggered generation or posting.
+
+The reviewed candidate passed the full local gate and the corrected pre-merge staging journey: ten-review arithmetic, account-default contraction, same-receipt replay, Cafe clarification and weekend capability capture. [Deployment and cleanup evidence](runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md) records the earlier failed attempt separately. Release reference: #1278, `280d1b0137f4f5a3e2cd613abe7464238d0f665e`. Both staging deployments match that squash; the fresh mobile Apply and desktop receipt reload passed with old/new eligibility5/0of8, one audit and all25cleanup checks zero.
+
+The Operator remains enabled in staging and disabled in production. Staging auto-approval remains disabled; the contraction worked without enabling it. The retained-veto alert is configured in staging, with live delivery untested. §12.1's traffic/owner-dependent items and the COO-recorded owner pilot remain open; the [blank observation template](runbooks/owner-operator-pilot-observation-template.md) leaves owner and window to the founder. Runs D and E are separate follow-ups.
 
 ## Quick summary — Owner Operator T8: LIVE on staging, first live turn fixed, §12.1 checkpoint recorded (2026-09-13, #1276)
 
