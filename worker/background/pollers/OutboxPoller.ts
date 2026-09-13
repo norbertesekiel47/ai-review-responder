@@ -1,6 +1,8 @@
 import * as Sentry from '@sentry/node';
 import type { Queue } from 'bullmq';
 import type { Sql } from 'postgres';
+import { reconcileTurnForFailedOutbox } from '../../../src/lib/agents/operator/turns';
+import { QUEUE_NAMES } from '../../../src/lib/shared/queue-names';
 import { getWorkerConfig } from '../../../src/lib/config/worker';
 import { sql } from '../../../src/lib/db/server';
 import {
@@ -11,6 +13,7 @@ import {
 } from '../../../src/lib/shared/logger';
 import { withTimeout } from '../../../src/lib/shared/with-timeout';
 import { topicToQueue } from '../../queues';
+import { AGENT_TURN_LEASE_SECONDS } from '../../jobs/agent-turn/constants';
 
 const LOG_PREFIX = '[OutboxPoller]';
 
@@ -125,7 +128,7 @@ export async function runOutboxWatchdogRecovery(
     // recording anything. This writes nothing new itself, so the
     // bounded-class-only PII contract (worker/jobs/csv-ingest/failed-hook.ts)
     // is honored by construction.
-    const [terminated] = await tx<{ count: string }[]>`
+    const [terminated] = await tx<{ count: string; operator_ids: string[] | null }[]>`
       WITH terminated AS (
         UPDATE job_outbox
         SET status = 'failed',
@@ -134,13 +137,19 @@ export async function runOutboxWatchdogRecovery(
         WHERE status = 'dispatched'
           AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
           AND attempts >= max_attempts
-        RETURNING id
+        RETURNING id, topic
       )
-      SELECT COUNT(*)::text AS count FROM terminated
+      SELECT COUNT(*)::text AS count,
+             array_agg(id) FILTER (WHERE topic = ${QUEUE_NAMES.AGENT_TURN}) AS operator_ids
+      FROM terminated
     `;
+    let deferredCount = 0;
+    for (const outboxId of terminated?.operator_ids ?? []) {
+      if (await reconcileTurnForFailedOutbox(tx, outboxId, AGENT_TURN_LEASE_SECONDS) === 'deferred') deferredCount += 1;
+    }
 
     const recoveredCount = parseInt(recovered?.count ?? '0', 10);
-    const terminatedCount = parseInt(terminated?.count ?? '0', 10);
+    const terminatedCount = parseInt(terminated?.count ?? '0', 10) - deferredCount;
 
     // Recover stale 'dispatching' rows (claimed but process crashed before dispatch).
     // Only recover rows older than 2 minutes — active claims from other processes
@@ -210,11 +219,11 @@ async function claimPendingBatch(batchSize: number): Promise<OutboxEntry[]> {
  * since re-claimed (attempts bumped) by a newer cycle writes nothing — the same
  * optimistic-lock guard the per-row UPDATEs carried before bulk dispatch.
  */
-async function markDispatched(entries: OutboxEntry[]): Promise<void> {
+async function markDispatched(db: Sql, entries: OutboxEntry[]): Promise<void> {
   if (entries.length === 0) return;
   const ids = entries.map((e) => e.id);
   const attempts = entries.map((e) => e.attempts);
-  await sql`
+  await db`
     UPDATE job_outbox AS o
     SET status = 'dispatched', dispatched_at = NOW()
     FROM unnest(${ids}::uuid[], ${attempts}::int[]) AS claimed(id, attempts)
@@ -224,7 +233,9 @@ async function markDispatched(entries: OutboxEntry[]): Promise<void> {
   `;
 }
 
-async function markDispatchFailed(
+/** Dispatch-failure phase, with an explicit DB client like watchdog recovery. */
+export async function runOutboxDispatchFailure(
+  db: Sql,
   entries: OutboxEntry[],
   errorMsg: string,
   logger: WorkerLogger,
@@ -233,24 +244,32 @@ async function markDispatchFailed(
   const retryable = entries.filter((e) => e.attempts < e.max_attempts);
 
   if (exhausted.length > 0) {
-    logger.error('Entries exceeded max_attempts, marking as failed', {
+    logger.error('Entries exceeded max_attempts, reconciling exhaustion', {
       outbox_ids: exhausted.map((e) => e.id),
       count: exhausted.length,
     });
-    await sql`
-      UPDATE job_outbox AS o
-      SET status = 'failed', last_error = ${errorMsg}
-      FROM unnest(${exhausted.map((e) => e.id)}::uuid[], ${exhausted.map((e) => e.attempts)}::int[]) AS claimed(id, attempts)
-      WHERE o.id = claimed.id
-        AND o.status = 'dispatching'
-        AND o.attempts = claimed.attempts
-    `;
+    await db.begin(async (tx) => {
+      const terminalized = await tx<{ id: string; topic: string }[]>`
+        UPDATE job_outbox AS o
+        SET status = 'failed', last_error = ${errorMsg}, completed_at = NOW()
+        FROM unnest(${exhausted.map((e) => e.id)}::uuid[], ${exhausted.map((e) => e.attempts)}::int[]) AS claimed(id, attempts)
+        WHERE o.id = claimed.id
+          AND o.status = 'dispatching'
+          AND o.attempts = claimed.attempts
+        RETURNING o.id, o.topic
+      `;
+      for (const row of terminalized) {
+        if (row.topic === QUEUE_NAMES.AGENT_TURN) {
+          await reconcileTurnForFailedOutbox(tx, row.id, AGENT_TURN_LEASE_SECONDS);
+        }
+      }
+    });
   }
 
   if (retryable.length > 0) {
     // Reset to pending for a later cycle; the claim bumps attempts again, so
     // the retry carries a fresh jobId.
-    await sql`
+    await db`
       UPDATE job_outbox AS o
       SET status = 'pending', last_error = ${errorMsg}
       FROM unnest(${retryable.map((e) => e.id)}::uuid[], ${retryable.map((e) => e.attempts)}::int[]) AS claimed(id, attempts)
@@ -325,9 +344,10 @@ function prepareJob(entry: OutboxEntry): PreparedJob {
  */
 /** Resolves `true` when any row in the group hit the dispatch-failure path. */
 // fallow-ignore-next-line complexity
-async function dispatchTopicGroup(
+export async function runOutboxTopicDispatch(
+  db: Sql,
   topic: string,
-  queue: Queue,
+  queue: Pick<Queue, 'addBulk'>,
   entries: OutboxEntry[],
   dispatchTimeoutMs: number,
   logger: WorkerLogger,
@@ -345,7 +365,7 @@ async function dispatchTopicGroup(
         { outbox_id: entry.id, topic },
         toError(prepareError),
       );
-      await markDispatchFailed([entry], toError(prepareError).message, logger);
+      await runOutboxDispatchFailure(db, [entry], toError(prepareError).message, logger);
       failed = true;
     }
   }
@@ -365,7 +385,7 @@ async function dispatchTopicGroup(
       level: 'info',
     });
 
-    await markDispatched(groupEntries);
+    await markDispatched(db, groupEntries);
   } catch (dispatchError) {
     logger.error(
       'Failed to dispatch topic group',
@@ -380,7 +400,7 @@ async function dispatchTopicGroup(
     });
 
     const errorMsg = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
-    await markDispatchFailed(groupEntries, errorMsg, logger);
+    await runOutboxDispatchFailure(db, groupEntries, errorMsg, logger);
     failed = true;
   }
   return failed;
@@ -409,7 +429,8 @@ async function dispatchBatch(
   // trips, not per-group, and serial groups keep Redis and pool pressure
   // identical to the pre-bulk poller.
   for (const [topic, group] of groups) {
-    const groupFailed = await dispatchTopicGroup(
+    const groupFailed = await runOutboxTopicDispatch(
+      sql,
       topic,
       group.queue,
       group.entries,

@@ -4,7 +4,7 @@
 // the cost guard and the api_costs audit are mocked (plan decision V2); the
 // database is real.
 import { randomUUID } from 'node:crypto';
-import { DelayedError, type Job } from 'bullmq';
+import { DelayedError, type Job, type Queue } from 'bullmq';
 import postgres from 'postgres';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 
@@ -31,8 +31,12 @@ vi.mock('@/lib/costs/cost-guard', () => ({
   ) => (await fn()).value,
 }));
 vi.mock('@/lib/costs/audit', () => ({ calculateCostUsd: () => 0.0009, recordApiCost }));
+vi.mock('../../../../../worker/queues', () => ({ topicToQueue: {} }));
 
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
+import { createWorkerLogger } from '@/lib/shared/logger';
+import { runOutboxTopicDispatch, runOutboxWatchdogRecovery } from '../../../../../worker/background/pollers/OutboxPoller';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import {
   acquireLiveDbLock,
@@ -54,6 +58,7 @@ import {
 import type { AgentTurnPayload } from '@/lib/shared/worker-types';
 import type { AccountOffboardingPurgeRow } from '../../../../../worker/jobs/account-offboarding/purge-stages';
 import { handleAgentTurn } from '../../../../../worker/jobs/agent-turn/AgentTurnWorker';
+import { handleAgentTurnFailed } from '../../../../../worker/jobs/agent-turn/failed-hook';
 import { AGENT_TURN_LEASE_SECONDS } from '../../../../../worker/jobs/agent-turn/constants';
 import { REVIEW_TEXT_REMOVED_MARKER } from '../render';
 import {
@@ -64,7 +69,7 @@ import {
   TURN_FAILURE_REASON,
   TURN_STATUS,
 } from '../schema';
-import { claimTurn, createTurn, type CreateTurnResult } from '../turns';
+import { claimTurn, createTurn, releaseTurnClaim, type CreateTurnResult } from '../turns';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 let db: postgres.Sql;
@@ -246,12 +251,21 @@ async function readVoiceColumns(businessId: string): Promise<VoiceColumns> {
   return row;
 }
 
-async function readOutbox(outboxId: string): Promise<{ status: string; last_error: string | null }> {
-  const [row] = await db<{ status: string; last_error: string | null }[]>`
-    SELECT status, last_error FROM job_outbox WHERE id = ${outboxId}::uuid
+async function readOutbox(outboxId: string) {
+  const [row] = await db<{ status: string; last_error: string | null; attempts: number; dispatched_at: string | null }[]>`
+    SELECT status, last_error, attempts, dispatched_at::text FROM job_outbox WHERE id = ${outboxId}::uuid
   `;
   if (!row) throw new Error(`no job_outbox row for ${outboxId}`);
   return row;
+}
+
+async function seedWaitingTurn(attempt = 1) {
+  const conversationId = randomUUID();
+  const first = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId })));
+  const second = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId })));
+  const payload = await payloadFor(second, attempt);
+  await markDispatched(db, payload.outbox_id, attempt);
+  return { first, second, payload, job: jobFor(payload) };
 }
 
 describeWithDb(
@@ -549,7 +563,9 @@ describeWithDb(
       const payload = await payloadFor(created, 1);
       await markDispatched(db, payload.outbox_id, 1);
 
+      const beforeTransient = await readOutbox(payload.outbox_id);
       await expect(handleAgentTurn(db, jobFor(payload))).rejects.toBeInstanceOf(TransientLLMError);
+      expect(await readOutbox(payload.outbox_id)).toEqual(beforeTransient);
 
       // The claim was handed back, so the ~5 s retry can take it immediately
       // rather than bouncing off a live 180 s lease.
@@ -587,6 +603,38 @@ describeWithDb(
       // nothing is left for the watchdog to reclaim.
       expect((await readOutbox(payload.outbox_id)).status).toBe('completed');
       expect(job.moveToDelayed).not.toHaveBeenCalled();
+    });
+
+    it('claim release reconciles dispatch exhaustion after a running worker yields', async () => {
+      const { TransientLLMError } = await import('@/lib/llm/error-classifier');
+      for (const path of ['predecessor', 'transient']) {
+        const conversationId = randomUUID();
+        if (path === 'predecessor') await createTurn(db, baseTurnInput({ conversationId }));
+        const created = createdOrThrow(await createTurn(db, baseTurnInput({ conversationId })));
+        const payload = await payloadFor(created, 5);
+        await markDispatched(db, payload.outbox_id, 5);
+        const terminalizeOutbox = async () => {
+          await db`UPDATE job_outbox SET status = 'failed', completed_at = NOW() WHERE id = ${payload.outbox_id}::uuid`;
+        };
+        if (path === 'predecessor') {
+          // A worker delivered by an ambiguous enqueue may still claim this
+          // accepted row. Its yield must reconcile the failed outbox.
+          await terminalizeOutbox();
+        } else {
+          runLlmTask.mockImplementationOnce(async () => {
+            expect((await readTurn(created.turnId)).status).toBe(TURN_STATUS.RUNNING);
+            await terminalizeOutbox();
+            throw new TransientLLMError('synthetic timeout after enqueue exhaustion');
+          });
+        }
+        const job = jobFor(payload);
+        await expect(handleAgentTurn(db, job)).resolves.toBeUndefined();
+        expect(await readTurn(created.turnId)).toMatchObject({ status: TURN_STATUS.FAILED, failure_reason: 'dispatch_exhausted', attempt: 0, attempt_token: null });
+        expect(job.moveToDelayed).not.toHaveBeenCalled();
+        await handleAgentTurnFailed(db, jobFor(payload, { attemptsMade: 5 }), new Error('late retry exhaustion'));
+        expect((await readTurn(created.turnId)).failure_reason).toBe('dispatch_exhausted');
+        expect((await readOutbox(payload.outbox_id)).status).toBe('failed');
+      }
     });
 
     it('worker fenced completion discards an attempt whose lease was lost', async () => {
@@ -654,6 +702,117 @@ describeWithDb(
       expect(turn.attempt_token).toBeNull();
       // The outbox row is still in flight — the job is delayed, not finished.
       expect((await readOutbox(payload.outbox_id)).status).toBe('dispatched');
+      expect(runLlmTask).not.toHaveBeenCalled();
+    });
+
+    it('healthy predecessor waits survive the watchdog window without redispatch or retry spending', async () => {
+      const { first, second, payload, job } = await seedWaitingTurn();
+      const logger = createWorkerLogger('[RunDWaitTest]');
+      for (let cycle = 0; cycle < 3; cycle += 1) {
+        await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '16 minutes' WHERE id = ${payload.outbox_id}::uuid`;
+        const before = await readOutbox(payload.outbox_id);
+        await expect(handleAgentTurn(db, job)).rejects.toBeInstanceOf(DelayedError);
+        const after = await readOutbox(payload.outbox_id);
+        expect(after).toMatchObject({ status: 'dispatched', attempts: 1 });
+        expect(after.dispatched_at).not.toBe(before.dispatched_at);
+        await runOutboxWatchdogRecovery(db, 900, logger);
+        expect(await readOutbox(payload.outbox_id)).toEqual(after);
+        expect(await readTurn(second.turnId)).toMatchObject({ status: 'accepted', attempt: 0, attempt_token: null });
+        expect(job.attemptsMade).toBe(0);
+      }
+      expect(job.moveToDelayed).toHaveBeenCalledTimes(3);
+      expect(runLlmTask).not.toHaveBeenCalled();
+      // Heartbeats must not reset the predecessor's independent stall age.
+      await db`UPDATE agent_turns SET created_at = NOW() - INTERVAL '21 minutes' WHERE id = ${first.turnId}::uuid AND account_id = ${tenant.accountId}::uuid`;
+      await handleAgentTurn(db, job);
+      expect((await readTurn(second.turnId)).failure_reason).toBe('predecessor_stalled');
+    });
+
+    it('predecessor wait ignores a superseded outbox attempt and a stolen turn token', async () => {
+      const { second, payload } = await seedWaitingTurn();
+      const claimed = await claimTurn(db, { turnId: second.turnId, accountId: tenant.accountId, leaseSeconds: AGENT_TURN_LEASE_SECONDS });
+      if (!claimed) throw new Error('fixture claim missing');
+      const input = { turnId: second.turnId, accountId: tenant.accountId, attemptToken: claimed.attemptToken, outboxId: payload.outbox_id, outboxAttempt: 1, leaseSeconds: AGENT_TURN_LEASE_SECONDS, refreshLiveness: true };
+      const originalTurn = await readTurn(second.turnId);
+      const originalOutbox = await readOutbox(payload.outbox_id);
+      // The yield must not wait behind completion's turn-first lock order.
+      await db.begin(async (completionTx) => {
+        await completionTx`SELECT id FROM agent_turns WHERE id = ${second.turnId}::uuid AND account_id = ${tenant.accountId}::uuid FOR UPDATE`;
+        await expect(releaseTurnClaim(db, input)).resolves.toBe('lost');
+        expect(await readTurn(second.turnId)).toEqual(originalTurn);
+        expect(await readOutbox(payload.outbox_id)).toEqual(originalOutbox);
+      });
+      for (const override of [{ outboxAttempt: 0 }, { outboxAttempt: undefined }, { attemptToken: randomUUID() }, { accountId: randomUUID() }, { outboxId: randomUUID() }]) {
+        await expect(releaseTurnClaim(db, { ...input, ...override })).resolves.toBe('lost');
+        expect(await readTurn(second.turnId)).toEqual(originalTurn);
+        expect(await readOutbox(payload.outbox_id)).toEqual(originalOutbox);
+      }
+      await db`UPDATE job_outbox SET payload = payload || ${db.json({ conversation_id: randomUUID() })} WHERE id = ${payload.outbox_id}::uuid`;
+      await expect(releaseTurnClaim(db, input)).resolves.toBe('lost');
+      expect(await readTurn(second.turnId)).toEqual(originalTurn);
+      expect(await readOutbox(payload.outbox_id)).toEqual(originalOutbox);
+    });
+
+    it('predecessor wait rolls back both liveness and claim release on a database failure', async () => {
+      const { second, payload } = await seedWaitingTurn();
+      const claimed = await claimTurn(db, { turnId: second.turnId, accountId: tenant.accountId, leaseSeconds: AGENT_TURN_LEASE_SECONDS });
+      if (!claimed) throw new Error('fixture claim missing');
+      await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '16 minutes' WHERE id = ${payload.outbox_id}::uuid`;
+      const beforeTurn = await readTurn(second.turnId);
+      const beforeOutbox = await readOutbox(payload.outbox_id);
+      const aborting = abortingExecutor(db, async (tx) => {
+        const [updated] = await tx<{ refreshed: boolean }[]>`SELECT dispatched_at > NOW() - INTERVAL '1 minute' AS refreshed FROM job_outbox WHERE id = ${payload.outbox_id}::uuid`;
+        expect(updated?.refreshed).toBe(true);
+        await tx`SELECT 1 / 0`;
+      });
+      await expect(releaseTurnClaim(aborting, { turnId: second.turnId, accountId: tenant.accountId, attemptToken: claimed.attemptToken, outboxId: payload.outbox_id, outboxAttempt: 1, leaseSeconds: AGENT_TURN_LEASE_SECONDS, refreshLiveness: true })).rejects.toMatchObject({ code: '22012' });
+      expect(await readTurn(second.turnId)).toEqual(beforeTurn);
+      expect(await readOutbox(payload.outbox_id)).toEqual(beforeOutbox);
+    });
+
+    it('a crashed predecessor wait is recovered by the unchanged watchdog', async () => {
+      const { second, payload, job } = await seedWaitingTurn();
+      await expect(handleAgentTurn(db, job)).rejects.toBeInstanceOf(DelayedError);
+      await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '16 minutes' WHERE id = ${payload.outbox_id}::uuid`;
+      await runOutboxWatchdogRecovery(db, 900, createWorkerLogger('[RunDCrashWaitTest]'));
+      expect(await readOutbox(payload.outbox_id)).toMatchObject({ status: 'pending', attempts: 1, dispatched_at: null });
+      expect(await readTurn(second.turnId)).toMatchObject({ status: 'accepted', attempt: 0 });
+    });
+
+    it('predecessor delay failure preserves a retryable turn and outbox', async () => {
+      const { second, payload, job } = await seedWaitingTurn();
+      const schedulingError = new Error('synthetic Redis delay failure');
+      vi.mocked(job.moveToDelayed).mockRejectedValueOnce(schedulingError);
+      await expect(handleAgentTurn(db, job)).rejects.toBe(schedulingError);
+      expect(await readTurn(second.turnId)).toMatchObject({ status: 'accepted', attempt: 0, attempt_token: null });
+      expect(await readOutbox(payload.outbox_id)).toMatchObject({ status: 'dispatched', attempts: 1 });
+      expect(job.attemptsMade).toBe(0);
+      await expect(handleAgentTurn(db, job)).rejects.toBeInstanceOf(DelayedError);
+      expect(job.moveToDelayed).toHaveBeenCalledTimes(2);
+      expect(runLlmTask).not.toHaveBeenCalled();
+    });
+
+    it('predecessor wait handles a worker starting before dispatch acknowledgement', async () => {
+      const { second, payload } = await seedWaitingTurn();
+      await db`UPDATE job_outbox SET status = 'dispatching', dispatched_at = NOW() - INTERVAL '1 minute' WHERE id = ${payload.outbox_id}::uuid`;
+      const before = await readOutbox(payload.outbox_id);
+      const entries = await db<Parameters<typeof runOutboxTopicDispatch>[3]>`SELECT id, topic, payload, attempts, max_attempts FROM job_outbox WHERE id = ${payload.outbox_id}::uuid`;
+      const queue: Pick<Queue, 'addBulk'> = {
+        addBulk: vi.fn(async (prepared) => {
+          const delivered = prepared[0]!;
+          const job = jobFor(delivered.data as AgentTurnPayload, { id: delivered.opts!.jobId });
+          await expect(handleAgentTurn(db, job)).rejects.toBeInstanceOf(DelayedError);
+          expect(job.moveToDelayed).toHaveBeenCalledOnce();
+          const intermediate = await readOutbox(payload.outbox_id);
+          expect(intermediate).toMatchObject({ status: 'dispatching', attempts: 1 });
+          expect(intermediate.dispatched_at).not.toBe(before.dispatched_at);
+          expect(await readTurn(second.turnId)).toMatchObject({ status: 'accepted', attempt: 0, attempt_token: null });
+          return [job];
+        }),
+      };
+      await expect(runOutboxTopicDispatch(db, 'agent_turn', queue, entries, 10_000, createWorkerLogger('[RunDHandoffTest]'))).resolves.toBe(false);
+      expect(queue.addBulk).toHaveBeenCalledOnce();
+      expect(await readOutbox(payload.outbox_id)).toMatchObject({ status: 'dispatched', attempts: 1 });
       expect(runLlmTask).not.toHaveBeenCalled();
     });
 

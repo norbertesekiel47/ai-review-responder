@@ -210,8 +210,10 @@ describe('OutboxPoller.pollOutbox', () => {
     sqlReturnQueue.push([outboxEntry({ attempts: 5, max_attempts: 5 })]);
     await pollOutbox();
 
-    const failedUpdate = findSql(mockSql.mock.calls, "status = 'failed'", 'last_error');
+    const failedUpdate = findSql(mockTx.mock.calls, "status = 'failed'", 'unnest');
     expect(failedUpdate).toBeDefined();
+    expect(failedUpdate!.slice(1)).toEqual(['redis down', ['out-1'], [5]]);
+    expect(mockSql.begin).toHaveBeenCalledTimes(2); // watchdog + coupled exhaustion
     // …and must NOT also reset the row to pending.
     expect(findSql(mockSql.mock.calls, "status = 'pending'", 'last_error')).toBeUndefined();
   });
@@ -328,7 +330,7 @@ describe('OutboxPoller.pollOutbox', () => {
       ]);
       await pollOutbox();
 
-      const failed = findSql(mockSql.mock.calls, "status = 'failed'", 'last_error') as unknown[];
+      const failed = findSql(mockTx.mock.calls, "status = 'failed'", 'unnest') as unknown[];
       const pending = findSql(mockSql.mock.calls, "status = 'pending'", 'last_error') as unknown[];
       expect(failed[2]).toEqual(['n-1']);
       expect(pending[2]).toEqual(['n-2']);

@@ -18,7 +18,7 @@ Root-level helpers every poller/scheduler composes; none is a loop itself. Wired
 
 | File | What it does |
 |------|--------------|
-| `OutboxPoller.ts` | Every 10s: (1) watchdog resets stuck `dispatching` rows, (2) reads `pending` rows and dispatches to BullMQ via `topicToQueue`, (3) marks corresponding rows `completed`. Uses `FOR UPDATE SKIP LOCKED` for safe concurrency. |
+| `OutboxPoller.ts` | Every 5s by default: watchdog recovers stale work, claims `pending` rows with `FOR UPDATE SKIP LOCKED`, and dispatches topic groups through BullMQ before attempt-fenced `dispatched` acknowledgement; workers own completion. Explicit-DB watchdog, topic-dispatch and dispatch-failure phases permit isolated integration tests. Operator exhaustion couples accepted/expired-claim failure to the actual outbox CAS winner; live or locked claims retain a recoverable dispatched row without spending attempts. |
 | `NotificationFailoverPoller.ts` | Detects notifications stuck in `sent` without a delivery confirmation; alerts admin if all channels failed. Admin alerts go through `tryClaimAlert` — claim-before-send (#415): claim row committed under an advisory lock, Resend called OUTSIDE the tx with a per-claim idempotency key, a failed send KEEPS the claim (24 h dedup). Skipped when `NOTIFICATION_FAILOVER_DISABLED=true` or mock mode. |
 | `ArchivalPoller.ts` | Archives old reviews, responses, and cost rows to keep the main tables fast. Its `inbound_events` arm sweeps BOTH terminal statuses — `'processed'` and `'stale_ignored'` (acked-for-age Stripe events) — on one 30-day `processed_at` clock, as TWO equality arms under `UNION ALL`. Not one `status IN (…)` predicate: the two statuses are covered by two different single-value partial indexes, so a ScalarArrayOp matched neither and planned a seq scan. Each arm reports its own count and its own saturation (`events_processed` / `events_stale_ignored`). |
 | `EngagementMonitorPoller.ts` | Scans businesses for low-engagement signals and enqueues `engagement-alert` jobs. |
@@ -79,4 +79,3 @@ Focused modules for `StripeLocationsReconcilePoller` *(Wave 1)* — the poller s
 | `AutonomyGovernorScheduler.ts` | **(WS6)** Every 15 minutes by default, fairly rotates through autonomous accounts, computes seven-day rates, revalidates a breached candidate under the account lock, and invokes the idempotent suspension writer. `GOVERNOR_ENABLED` off makes the cycle inert. |
 
 ---
-

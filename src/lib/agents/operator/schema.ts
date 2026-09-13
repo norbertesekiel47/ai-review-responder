@@ -90,6 +90,7 @@ export const TURN_FAILURE_REASON = {
   MODEL_OUTPUT_INVALID: 'model_output_invalid',
   BUDGET_EXCEEDED: 'budget_exceeded',
   EXHAUSTED: 'exhausted',
+  DISPATCH_EXHAUSTED: 'dispatch_exhausted',
 } as const;
 export type TurnFailureReason =
   (typeof TURN_FAILURE_REASON)[keyof typeof TURN_FAILURE_REASON];
