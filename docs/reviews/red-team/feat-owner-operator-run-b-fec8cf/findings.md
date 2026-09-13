@@ -1,19 +1,20 @@
-# Red team — `feat/owner-operator-run-b`, round 2 (fresh run over the two CI-fix commits)
+# Red team — `feat/owner-operator-run-b`, round 3 (fresh run over the two CI-fix commits)
 
-**Round 2 is the last round.** A fourth never opens and a third needs an owner authorization that does not
-exist, so what is still `skipped-budget` below stays unmeasured by this run.
+**Round 3 is the last round.** A fourth never opens. It was authorized (AUTH-1) for exactly two things — the 11
+`skipped-budget` rows and RT-B7 — and both were executed, so nothing in this run stays unmeasured on budget
+grounds.
 
 | | |
 |---|---|
 | Mode | `feature` · run id `feature-feat-owner-operator-run-b-fec8cf` |
 | Branch | `feat/owner-operator-run-b` |
 | Fork / merge-base | `6edacd0b094e47a1f72008ce75b126a4eead87ed` |
-| Head | `77ce88f0449db0fdd1c9829e612039ae2b6bae2c` (round 1 ran at `3512492348c43dfe4b25ed093c3e0dea374ee91b`) |
+| Head | `94e4a1a269f3f239d189ac07fa806ebe9bd55f85` (round 2 ran at `77ce88f0449db0fdd1c9829e612039ae2b6bae2c`, round 1 at `3512492348c43dfe4b25ed093c3e0dea374ee91b`) |
 | Intake sha256 | `3c4181464cbcee3e1bd57950773f877afdfac5bab231c294f1e1f643a5342c05` |
 | Risk | `high` (declared in the intake) |
-| Round | 2 of 2 |
-| Status | **`INCOMPLETE_ORACLE`** (no open finding; one round-1 oracle row and 11 never-executed rows remain) |
-| Mutation runs | round 1: 30 of 30 · round 2: 30 of 30 (both budgets exhausted) |
+| Round | 3 of 3 (third round authorized by AUTH-1) |
+| Status | **`CLEAR`** (no open P0, no open P1, no inconclusive row, no `skipped-budget` row; one P2 is open and recorded) |
+| Mutation runs | round 1: 30 of 30 · round 2: 30 of 30 · round 3: 20 of 30 |
 
 ## Why this run exists
 
@@ -44,6 +45,13 @@ reverted from a pristine copy immediately after its run, which `restoreMutations
 journalled original blob) and 1 dotenv file, and closed the journal; `git status --porcelain` is empty apart
 from this report.
 
+Round 3 used the same allowlist and the same `dotenv-swap` (`swapped 1 file(s)`), the same validated
+`localhost:5499` test database, and `ADMIN_APP_URL=https://admin.example.invalid` in the shell for the live-DB
+suite. Watchers re-checked before the round: `none`. `git status --porcelain` was empty at the open. Round 3's
+restoration took a hand-resolution pass — recorded in full under "Round 3 — restoration, and one deviation worth
+recording" — and ends with `finalize: restored 0 mutated file(s) and 0 dotenv file(s); journal closed`, the real
+`.env.local` back in place, and the tree clean apart from this report's two artifacts.
+
 ## Severity table
 
 | Id | Sev | Duty | Where | Claim | Disposition |
@@ -54,10 +62,12 @@ from this report.
 | RT-B4 | P1 | 3 | `docs/superpowers/plans/feat-owner-operator-run-b-handoff.md:27` | The handoff's gate citation is wrong in both halves — neither the SHA nor the fingerprint matches the recorded evidence | **fixed** |
 | RT-B5 | P2 | 2 | `.../__tests__/useProposalWrites.test.tsx:133` | The new suite hardcodes a wording sentence the same commit un-exported, against `wording.ts`'s own stated rule | **fixed** |
 | RT-B6 | P2 | 4 | `src/app/(authenticated)/dashboard/operator/OperatorClient.tsx:254` | `useTurnSubmission` returns a fresh object every render while both sibling hooks memoize | **fixed** |
-| RT-B7 | P2 | 1 | `src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts:320` | `applyLoadedView`'s `turnId` from the ref vs the render capture is unmeasured across `finishTurn` — elevated from oracle row B1-27 at the round-2 close by the root; owner decision "Round 3: measure the 11 rows, pin B1-27 (Recommended)" | **open** (round 3) |
+| RT-B7 | P2 | 1 | `src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts:320` | `applyLoadedView`'s `turnId` from the ref vs the render capture is unmeasured across `finishTurn` — elevated from oracle row B1-27 at the round-2 close by the root; owner decision "Round 3: measure the 11 rows, pin B1-27 (Recommended)" | **fixed** (round 3) |
+| RT-B8 | P2 | 1 | `src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts:354` | The S3 transcript refetch in `adoptAcceptedTurn` survives the ENTIRE OperatorClient suite — no case can see the second message in an already-adopted conversation | **open** (new in round 3) |
 
-Counts after round 2: **87 inventory rows — 49 killed, 0 confirmed survivors, 0 equivalent, 1 inconclusive
-(oracle), 11 skipped-budget, 26 excluded. 6 findings: 1 P0, 3 P1, 2 P2 — all six `fixed`.** Round 1 read: 83
+Counts after round 3: **88 inventory rows — 62 killed, 0 confirmed survivors, 0 equivalent, 0 inconclusive,
+0 skipped-budget, 26 excluded. 8 findings: 1 P0, 3 P1, 4 P2 — 7 `fixed`, 1 open P2 (RT-B8).** Round 2 read: 87
+rows, 49 killed, 1 inconclusive (oracle), 11 skipped-budget, 26 excluded, 6 fixed + 1 open P2. Round 1 read: 83
 rows, 20 killed, 1 confirmed survivor, 3 inconclusive, 34 skipped-budget, 25 excluded, 6 open findings.
 
 ## Round 2 — what was measured at `77ce88f04`
@@ -121,13 +131,111 @@ capture. Re-read, not re-measured: the fix commit touches neither `applyLoadedVi
 new OperatorClient case never clears `turnId`, so nothing discriminates the two spellings. No test was invented
 for it, as instructed. This row is what holds the run at `INCOMPLETE_ORACLE`.
 
+*(Round 3 executed all twelve of these. Every one is now `killed`; see below.)*
+
+## Round 3 — what was measured at `94e4a1a26`
+
+Authorized by AUTH-1 and scoped to exactly two things: the 11 `skipped-budget` rows and RT-B7. One commit
+landed between rounds — `94e4a1a26`, test-only (+76/−0 in `OperatorClient.test.tsx`), the case RT-B7 asked for.
+**20 of 30 runs**: 4 green full-file baselines, 13 single-test mutant runs, 1 whole-file run under a surviving
+mutant (the RT-B8 evidence), 1 lost to a missing `--test-db` on the live-DB baseline, and 1 post-restore
+re-baseline of the live-DB suite. Baselines: `OperatorClient.test.tsx` 16/16, `ProposalCard.test.tsx` 4/4,
+`useProposalWrites.test.tsx` 6/6, `apply.integration.test.ts` 8/8 against the local container — so no kill
+below rests on an unproven baseline.
+
+### Part A — RT-B7 / B1-27
+
+M08 re-applied verbatim at `useOperatorConversation.ts:320` (`turnId: loadRef.current.activeTurnId` → the
+render capture `turnId`). The new case **FAILED** with `AssertionError: expected 0 to be greater than 0` on
+`await waitFor(() => expect(pollsForB()).toBeGreaterThan(0))` — the same evidence round 1 produced by hand.
+`assert-one-test` confirmed one executed test. RT-B7 → **fixed**; new inventory row **R3-01** killed; the
+rounds-1-and-2 oracle row **B1-27** → killed (the mutant it was waiting on is dead), following the round-2
+precedent for B1-04 and B1-25.
+
+The case is clean on duty 2: it asserts a poll count against a named turn id, the turn id in the URL the router
+was handed, and the Preparing line on screen. The two `releases.length` waits synchronise on the case's own held
+promises rather than asserting production structure.
+
+### Part B — the 11 rows, one mutation each (B1-16 two), all killed
+
+| Row | Mutation | Kill |
+|---|---|---|
+| B1-16 | M-B16b: Composer `onSend(draft, scopedLocationId)` → `onSend(draft, '')` (`OperatorClient.tsx:607`) | `expected '' to be 'aaaaaaaa-…'` at `OperatorClient.test.tsx:172` |
+| B1-19 | `'exhausted'` dropped from `OFFERS_NEW_CONVERSATION` (`wording.ts:84-87`) | `expected false to be true` at `:303` — the offer is gone |
+| B1-20 | `composerBlocked = scopedLocationId === null` → `= false` (`OperatorClient.tsx:292`) | `expect(element).toBeDisabled()` — the composer accepts a message under All locations |
+| B1-24 | the placed-card de-duplication dropped (`TurnBody.tsx:124`) | `to have a length of 1 but got 2` — one plan renders two live Apply buttons (RB-06) |
+| B1-26 | `setFresh(true)` → `setFresh(false)` in `startFresh` (`useOperatorConversation.ts:382`) | `expected '/dashboard/operator?conversationId=cc…' to be '/dashboard/operator'` — the bare GET re-adopts (RB-08) |
+| B1-30 | the Prepared-for note guard negated (`ProposalCard.tsx:84`) | `not.toBeInTheDocument()`, `found <p class="op-note"` |
+| B1-32 | the list diff's change flag inverted (`ProposalCard.tsx:269`) | `not.toHaveClass("op-changed")` — the unchanged item is flagged |
+| B1-33 | `<p class="op-state-line">` → `<button>` (`RequestedCapabilityCard.tsx:25`) | `not.toBeInTheDocument()`, `found <button class="op-state-line"` |
+| B1-37 | the unreachable branch's `setErrors(…)` deleted (`useProposalWrites.ts:75`) | `expected undefined to be 'Something went wrong…'` at `:135` |
+| B1-38 | `onDisabled()` removed from the 404 branch (`useProposalWrites.ts:72`) | `expected "vi.fn()" to be called 1 times, but got 0 times` at `:148` |
+| B1-57 | `if (!contractCurrent && …)` → `if (contractCurrent && …)` (`apply.ts:81`), so `recordTerminal(sql, …)` commits OUTSIDE the transaction | `promise resolved "{ kind: 'rejected', …(2) }" instead of rejecting` |
+
+Every run passed `assert-one-test`.
+
+**B1-57, honestly.** Round 2 predicted that no single-line `apply.ts` mutation could discriminate this row. That
+is true *inside* `sql.begin` — the injected poison (`SELECT 1 / 0`, 22012) aborts the transaction after the
+callback returns, so every in-transaction write is undone whatever the mutant did. It is also true of the two
+mutations that would escape the transaction from inside it (the Receipt `UPDATE agent_proposals`, or
+`updateVoiceConfig`, re-pointed at `sql`): both queue on locks this same transaction holds — `businesses … FOR
+UPDATE` at `apply.ts:116-124` and `lockProposalForAccount` at `:142` — and would have burned a run on a timeout
+rather than a classification. The run was spent on the one escape route that cannot deadlock, the
+**pre-transaction** guard, and it killed. What that proves: the case's `rejects.toThrow()` and
+`status === PENDING` assertions really do fire on a state change that survives the rollback. What it does not
+prove: a Receipt write relocated outside `sql.begin`, which stays undiscriminable by a single-line mutation —
+recorded as a limit, not dressed up as coverage. The suite was re-run green (8/8) after the restore, so the
+mutant's committed row left no residue on the shared container.
+
+**B1-16 needed two mutants, and the first one produced the round's only new finding.** M-B16 removed
+`setReloadEpoch((value) => value + 1)` from `adoptAcceptedTurn` (`useOperatorConversation.ts:354`) — the S3
+post-POST transcript refetch — and B1-16 passed. That is not a weak oracle in B1-16: the case sends the FIRST
+message of a NEW conversation, so the same callback also moves `setConversationId(null → CONVERSATION)` and
+`setFresh(true → false)`, both dependencies of the load effect at `:335`, and the read re-runs regardless. The
+second mutant (the table above) killed the row on its titular property. But the full file then ran under M-B16
+and **all 16 cases passed** → **RT-B8**.
+
+### RT-B8 — the new finding (P2, open)
+
+`adoptAcceptedTurn`'s refetch is unmeasured by every test in the repository. Reverse import search:
+`useOperatorConversation` is imported only by `OperatorClient.tsx`, `useProposalWrites.ts` and `useTurnPoll.ts`;
+`useProposalWrites.test.tsx` passes `patchProposal`/`reloadTranscript` in as `vi.fn()`, so the real hook is never
+reached there; the only suite that renders `OperatorClient` is `OperatorClient.test.tsx`, and it passes 16/16
+with the statement removed. The one case that sends a second message into an already-adopted conversation
+(`terminal failures and requested capabilities survive reload and subsequent turns`, `:646-687`) asserts only
+that the EARLIER cards stay, never that the new owner text appears — and its conversation GET answers a fixed
+two-turn body that could not carry a third turn anyway.
+
+This is new production behaviour, not an old front: `useOperatorConversation.ts` is +415/−0 against the merge
+base and the merge-base `OperatorClient.tsx` contains no `setReloadEpoch` at all. HEAD is correct; the code
+comment at `:349-353` records the regression it fixed in its own words. **P2, not P1**, matching this sidecar's
+own calibration — RT-B7 and RT-B6 were both recorded P2 for "the line is executed but no assertion discriminates
+it, and HEAD is not defective", and the protocol's P1 "uncovered change" means a hunk with *no* covering
+candidate, whereas two cases execute this one. Elevation to P1 is the owner's call and would block the PR.
+Remedy: let the subsequent-turns case's conversation GET answer a THIRD stored turn carrying the second
+message's text, and assert it is on screen after the second send — the composer empties on send and there is no
+optimistic bubble, so that text can only arrive through the refetch.
+
+### Round 3 — restoration, and one deviation worth recording
+
+Round 3 reverted each mutation by re-applying the pristine copy **through the runner's own `mutate`**, which
+journals the revert as a further entry. `finalize`'s `restoreMutations` walks the journal in order and treats any
+entry whose working blob equals that entry's `mutantOid` as restorable *from its `originalOid`* — so for a revert
+entry (whose `originalOid` IS the mutant) it wrote the mutant back, and the first `finalize` left eight files
+holding one mutant each and aborted on the rest. The diff was inspected first and was exactly eight one-line
+journaled mutants and nothing foreign. It was then resolved with the runner plus `git checkout --` on the eight
+**named** paths, iterating `finalize` until the journal converged; the journal itself was never hand-edited. Final
+state: `finalize: restored 0 mutated file(s) and 0 dotenv file(s); journal closed`, `.env.local` back to its 86
+keys with no backup file left, and `git status --porcelain` empty apart from this report's two artifacts. The
+lesson for the next round is to revert with a *plain* restore rather than a second journaled `mutate`.
+
 ## The nine properties the handoff asked to disprove
 
 | # | Property | Verdict |
 |---|---|---|
 | 1 | Gate order after the `gate.ts` extraction | **Partly measured.** flag-before-auth (M01), impersonation-after-auth (M02) and the writable-owner step (M26) are each pinned by a killing mutation. The fourth step — uuid LAST — is not: **RT-B1**. |
 | 2 | 4-minute deadline, 2 s/5 s cadence, timer cleanup | **Holds.** M04 (deadline → 8 min), M05 (slow cadence → 2 s), M06 (independent deadline neutered) and M07 (effect cleanup removed) all killed. Cleanup on a halted wait is measured; cleanup on an *epoch bump* is not separately observable — the "Keep waiting" assertion (`pollCount` greater-than) would pass with two loops running. Recorded, not raised: M07 already proves the cleanup exists and runs. |
-| 3 | Abort-on-POST and the `activeTurnIdRef` resume guard | **Mixed.** The epoch guard is pinned (M09 killed). The ref read itself survived (M08) and is recorded inconclusive with the exact window that would distinguish it (`finishTurn` nulls `turnId` and the ref, bumps `reloadEpoch`, but does **not** bump `loadRef.current.epoch`). Distinct from the closed run's accepted-risk RT-12, which is about the explicit `controller.abort()` calls. |
+| 3 | Abort-on-POST and the `activeTurnIdRef` resume guard | **Holds after round 3.** The epoch guard is pinned (M09 killed). The ref read survived M08 in rounds 1–2 and was recorded inconclusive with the exact window that distinguishes it (`finishTurn` nulls `turnId` and the ref, bumps `reloadEpoch`, but does **not** bump `loadRef.current.epoch`); round 3's new case drives that window and M08 now dies in it (RT-B7 fixed, rows R3-01 and B1-27 killed). Distinct from the closed run's accepted-risk RT-12, which is about the explicit `controller.abort()` calls. |
 | 4 | 30 s POST deadline → byte-identical retry | **Holds.** M10 (deadline → 300 s) and M11 (retry allocates a fresh `clientTurnKey`) both killed. |
 | 5 | Apply / Not now / Refresh plan re-render from the RETURNED row | **Half measured.** `useProposalWrites` hands the server's row to `patchProposal` (M12 killed) and serializes writes (M13 killed); `ProposalState` answers from the row's status (M23 killed); Refresh plan posts the stored location (M24 killed). What the transcript does with the patched row is unverified: **RT-B3**. |
 | 6 | `apply.ts` lock order, in-transaction revalidation before the write, Receipt fields, repeat-Apply idempotency, `versionTokensAgree` | **Holds except one Receipt field.** M15 (lock order swapped), M17 (revalidation moved after the write), M18 (settled-applied arm deleted), M16 (`versionTokensAgree` drops the client token), M20 (`actorName` → null), M19b (`differsFromPreview` → false) and M21 (`locationMissingResult` ignores the status) all killed. `before` survived: **RT-B2**. `versionTokensAgree` still distinguishes all three tokens (M16); note there is no `'absent'` token in `version-token.ts` — the only `'absent'` in the Operator tree is a `locationRow` fixture label at `version-token.test.ts:66`, so the handoff's phrasing of this sub-item does not correspond to production code. |
@@ -192,6 +300,16 @@ RT-01; it is unchanged by these two commits.)
 
 ## Budget
 
+**Round 3: 20 of 30 runs, all through the runner** — 4 green full-file baselines (`OperatorClient` 16,
+`ProposalCard` 4, `useProposalWrites` 6, live-DB `apply.integration` 8), 13 single-test mutant runs (the 11 rows,
+with B1-16 taking two and RT-B7's M08 one), 1 whole-file run under the surviving M-B16 that produced RT-B8, 1
+lost to a missing `--test-db` on the live-DB baseline (the suite self-skipped — the same operator error round 1
+made), and 1 post-restore re-baseline of the live-DB suite after M-B57 committed a row outside the transaction.
+Every mutant run passed `assert-one-test`. **Nothing in scope is unexecuted**, so no row carries
+`skipped-budget` and the run is not `INCOMPLETE_BUDGET`. Ten runs were left unspent: the scope was 12 rows, not
+30, and padding it with out-of-scope probes is exactly the widening AUTH-1 forbade. Restoration needed a
+hand-resolution pass, recorded above under "Round 3 — restoration".
+
 **Round 2: 30 of 30 runs, all through the runner** — 3 green full-file baselines, 6 fix-verification mutant
 runs (M22 ×2, M03 ×2, M25, plus M22's second case), and 21 single-test mutant runs on round-1
 `skipped-budget` rows. Every run passed `assert-one-test`; every mutation was reverted from the pristine blob
@@ -221,11 +339,16 @@ Rendered from `findings.json`'s `authorizations` array.
 > owner re-issued it in the sentence above. RT-B7 is oracle row B1-27 elevated to a P2 finding so the authorization has
 > a finding id to resolve. Round 3 is scoped to: the 11 `skipped-budget` rows (B1-16, B1-19, B1-20, B1-24, B1-26,
 > B1-30, B1-32, B1-33, B1-37, B1-38, B1-57) and the RT-B7 case.
+>
+> **Discharged.** All 12 were executed in round 3 and all 12 are `killed`. AUTH-1 resolves RT-B7, which is now
+> `fixed` on its own evidence rather than on the authorization — no finding in this sidecar is `accepted-risk`.
+> RT-B8 was raised inside the authorized scope (B1-16's own target line) and is the one open finding; it is a P2,
+> so it does not block, and nothing else remains for a fourth round to do.
 
 ## Red-team findings rejected
 
-None in either round. The closed run's rejected findings (RT-09, RT-10, RT-14) stand and belong in the PR
-description's "Red-team findings rejected" section unchanged.
+None in any of the three rounds. The closed run's rejected findings (RT-09, RT-10, RT-14) stand and belong in the
+PR description's "Red-team findings rejected" section unchanged.
 
 ## Run-opening authorization (recorded here, not in `authorizations`)
 
