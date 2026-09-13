@@ -5,11 +5,11 @@
   "branch": "codex/owner-operator-run-c",
   "fork_sha": "6b2eb580940480c6a9b304f3e69c0d7a3bb04f29",
   "merge_base_sha": "6b2eb580940480c6a9b304f3e69c0d7a3bb04f29",
-  "head_sha": "2565c78585d6b08837e01dbb2a4a3ba3c265eff0",
-  "intake_sha256": "316f7acb33ec1e37a5142f489f156c82b1eafeb4d2d4aad42d6274481d97da14",
+  "head_sha": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "intake_sha256": "21cfd449e0740912251621c65d9a1ca1a36fd82dbb9481a5b3693ce5b9090b0e",
   "risk": "high",
-  "round": 3,
-  "generated_at": "2026-09-13T16:13:07.139Z",
+  "round": 4,
+  "generated_at": "2026-09-13T18:38:38.687Z",
   "inventory": [
     {
       "id": "I0001",
@@ -5505,6 +5505,1518 @@
       "test": "the mutation budget fails closed on an unparseable sidecar rather than crashing",
       "outcome": "killed",
       "reason": "R2-I0785: individual baseline passed, exactly one selected mutant case failed; Open a third fixture round without valid branch-bound owner authorization. Root restored source and dotenv. "
+    },
+    {
+      "id": "R4-0001",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "operator prompt its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0001, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe prompt-example-threshold; baseline launch 1 passed exactly one actual test; mutant launch 2 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0001 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0001-baseline.json; /private/tmp/run-c-round4/R4-0001-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ { …(4) } ] to deeply equal [ { …(4) } ] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/src/lib/agents/operator/__tests__/prompt.test.ts:51:31. Production target: src/lib/agents/operator/prompt.ts. Change only the worked example input threshold from null to 5; alternative, revert the declared version to 2026-09-13.3. This verifies the example/identity assertion, not live model compliance. Measures worked-example/schema assertions only, not live provider compliance."
+    },
+    {
+      "id": "R4-0002",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "operator prompt the system prompt declares every top-level key and every segment type OperatorModelOutputSchema accepts",
+      "outcome": "excluded",
+      "reason": "The assertions observe the unchanged OUTPUT_SHAPE/schema vocabulary and reject only versions 2026-09-11.2 and 2026-09-13.1. Both old 2026-09-13.3 and corrected 2026-09-13.4 satisfy them; the changed policy prose/example does not alter their tested predicate. No claim of prompt semantic coverage."
+    },
+    {
+      "id": "R4-0003",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "operator prompt the user envelope carries each proposable input shape on the operation itself, and no shape on reads or captures",
+      "outcome": "excluded",
+      "reason": "Reads only prompt.user snapshot.allowedOperations input shapes; this delta changes system instructions and version, while the user-envelope serializer and operation shape dataflow are unchanged."
+    },
+    {
+      "id": "R4-0004",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "operator prompt the user envelope lists every operation the wire schema accepts, with exactly that schema input keys",
+      "outcome": "excluded",
+      "reason": "Reads only prompt.user allowedOperations/schema input-key mapping and absence of confirmation fields; the changed system instructions/version do not flow into this unchanged user-envelope predicate."
+    },
+    {
+      "id": "R4-0005",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval runs every structured task and Operator regression through both registered providers (8 x 2)",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0005, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe omit-account-default-fixture; baseline launch 3 passed exactly one actual test; mutant launch 4 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0005 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0005-baseline.json; /private/tmp/run-c-round4/R4-0005-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 7 to be 8 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:97:26. Production target: tests/llm-eval/structured-runner.ts. Remove one added account-off regression fixture from the map input, reducing the report case count."
+    },
+    {
+      "id": "R4-0006",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval builds the judge case with the production judge envelope",
+      "outcome": "excluded",
+      "reason": "Selects only the unchanged judge fixture and buildJudgePrompt envelope; no new Operator fixture or response helper is consumed by the assertion."
+    },
+    {
+      "id": "R4-0007",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval fails a case whose fallback output breaks the registered schema",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0007, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 5 passed exactly one actual test; mutant launch 6 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0007 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0007-baseline.json; /private/tmp/run-c-round4/R4-0007-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 3 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:150:27. Production target: tests/llm-eval/structured-runner.ts. Make the new account-off checker reject an otherwise valid null-threshold contraction; the aggregate failed/remaining-pass assertion must detect the added failed case."
+    },
+    {
+      "id": "R4-0008",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval fails a schema-valid but semantically wrong result (question-only Operator output)",
+      "outcome": "excluded",
+      "reason": "Selects the first owner_operator result, the original location star-scope fixture. Its primary override and asserted semantic error are unchanged; added account-off/Cafe/weekend results are not inspected. The fallback helper takes its unchanged default branch for this original request."
+    },
+    {
+      "id": "R4-0009",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval fails an Operator proposal with the wrong star threshold or scope",
+      "outcome": "excluded",
+      "reason": "Overrides owner_operator fallback with the original wrong-threshold/location result, then inspects only the first original owner_operator fixture. The new cases may also fail but their results are not the asserted dataflow."
+    },
+    {
+      "id": "R4-0010",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval fails when the primary result came from the fallback provider",
+      "outcome": "excluded",
+      "reason": "Inspects only the judge provider mismatch. The primary override uses the unchanged judge result, and new Operator failures are outside this predicate."
+    },
+    {
+      "id": "R4-0011",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval fails an incomplete or non-JSON fallback without reporting its text",
+      "outcome": "excluded",
+      "reason": "Inspects the unchanged judge truncation and solicitation non-JSON paths plus absence of their sentinel text; the added Operator cases and new mock branches do not supply these fields or sentinel."
+    },
+    {
+      "id": "R4-0012",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval reports a thrown provider error by kind and status only",
+      "outcome": "excluded",
+      "reason": "Inspects the unchanged triage thrown-error sanitization plus absence of that error sentinel; new Operator fixture outcomes do not change the asserted triage error."
+    },
+    {
+      "id": "R4-0013",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval records a fallback exception once and continues to the next case without retrying",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0013, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 7 passed exactly one actual test; mutant launch 8 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0013 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0013-baseline.json; /private/tmp/run-c-round4/R4-0013-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 3 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:245:27. Production target: tests/llm-eval/structured-runner.ts. Make the new account-off checker reject an otherwise valid null-threshold contraction; the aggregate failed/remaining-pass assertion must detect the added failed case."
+    },
+    {
+      "id": "R4-0014",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval fails before any provider call when OPENAI_API_KEY is missing",
+      "outcome": "excluded",
+      "reason": "Missing-key guard throws before runStructuredEval traverses any case or calls either changed response helper; the key validation implementation is unchanged."
+    },
+    {
+      "id": "R4-0015",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "runStructuredEval fails before any provider call when ANTHROPIC_API_KEY is missing",
+      "outcome": "excluded",
+      "reason": "Missing-key guard throws before runStructuredEval traverses any case or calls either changed response helper; the key validation implementation is unchanged."
+    },
+    {
+      "id": "R4-0016",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "Operator deployed-regression fixtures owner-operator-all-locations-off requires an account contraction despite blocked readiness and no pending reviews",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0016, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 9 passed exactly one actual test; mutant launch 10 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0016 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0016-baseline.json; /private/tmp/run-c-round4/R4-0016-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:288:35. Production target: tests/llm-eval/structured-runner.ts. Change the new account-off threshold predicate from !== null to !== 5, making the provided valid null-threshold result fail and the wrong-threshold result misclassified; use an assertion failure, not a malformed schema."
+    },
+    {
+      "id": "R4-0017",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "Operator deployed-regression fixtures owner-operator-account-default-off requires an account contraction despite blocked readiness and no pending reviews",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0017, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 11 passed exactly one actual test; mutant launch 12 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0017 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0017-baseline.json; /private/tmp/run-c-round4/R4-0017-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:288:35. Production target: tests/llm-eval/structured-runner.ts. Change the new account-off threshold predicate from !== null to !== 5, making the provided valid null-threshold result fail and the wrong-threshold result misclassified; use an assertion failure, not a malformed schema."
+    },
+    {
+      "id": "R4-0018",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "Operator deployed-regression fixtures requires only a Cafe scope chooser for the exact named-other-location request",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0018, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-pure-cafe-chooser; baseline launch 13 passed exactly one actual test; mutant launch 14 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0018 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0018-baseline.json; /private/tmp/run-c-round4/R4-0018-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:304:37. Production target: tests/llm-eval/structured-runner.ts. Invert the new Cafe unsupported.length predicate, so its otherwise valid pure chooser is rejected."
+    },
+    {
+      "id": "R4-0019",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "Operator deployed-regression fixtures requires unsupported without a scope chooser or proposal for the exact weekend request",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0019, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-weekend-scheduling; baseline launch 15 passed exactly one actual test; mutant launch 16 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0019 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0019-baseline.json; /private/tmp/run-c-round4/R4-0019-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:315:41. Production target: tests/llm-eval/structured-runner.ts. Replace the new weekday/weekend request regex with a pattern that cannot match a valid scheduling request, causing the positive unsupported-result assertion to fail."
+    },
+    {
+      "id": "R4-0020",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "sanitizeLlmError keeps kind, status, cause kind, issue codes/paths and billed usage — never messages",
+      "outcome": "excluded",
+      "reason": "Calls sanitizeLlmError directly with an explicit error object; that function and its input/output shape are unchanged, and no prompt/fixture/response helper is called."
+    },
+    {
+      "id": "R4-0021",
+      "file": "tests/llm-eval/__tests__/structured-runner.test.ts",
+      "test": "run.ts offline default does not import the keyed structured lane",
+      "outcome": "excluded",
+      "reason": "Mocks the entire structured-runner module and asserts offline run.ts never imports it. The corrected runtime module is not loaded; the offline dispatch path is unchanged."
+    },
+    {
+      "id": "R4-0022",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts",
+      "test": "operator model call generateOperatorReply records one api_costs row per billed attempt",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0022, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe stale-caller-prompt-identity; baseline launch 17 passed exactly one actual test; mutant launch 18 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0022 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0022-baseline.json; /private/tmp/run-c-round4/R4-0022-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected { …(11) } to match object { …(6) } at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/src/lib/agents/operator/__tests__/model-call.test.ts:123:23. Production target: src/lib/agents/operator/model-call.ts. Replace the direct caller cost-row promptVersion with the prior literal 2026-09-13.3; its expected imported corrected identity must reject the stale audit metadata. Measures direct-caller audit identity propagation only, with provider output mocked."
+    },
+    {
+      "id": "R4-0023",
+      "file": "src/lib/agents/operator/__tests__/model-call.test.ts",
+      "test": "operator model call fails model_output_invalid when both attempts return an invalid shape",
+      "outcome": "excluded",
+      "reason": "Both attempts throw fixed mocked structured-output errors. Assertions observe unchanged invalid-shape retry, billed-row count and token cost; neither prompt content nor prompt identity is asserted."
+    },
+    {
+      "id": "R4-0024",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "operator snapshot (live DB) snapshot red team: instruction-shaped review bodies never reach the rendered snapshot or prompt",
+      "outcome": "excluded",
+      "reason": "Assertions verify snapshot review-text scrubbing, fixed-string non-leakage, stored-history preservation and counts. The new system prose/example contain none of the injected sentinel strings, and no new policy interpretation is executed; snapshot construction and prompt user serialization are unchanged."
+    },
+    {
+      "id": "R4-0025",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "operator snapshot (live DB) snapshot summarises each historical turn's own proposals from the catalog",
+      "outcome": "excluded",
+      "reason": "Calls buildSnapshot and asserts stored-turn proposal summaries/pending cards. This case never calls buildOperatorPrompt, and the changed system instructions are outside its dataflow."
+    },
+    {
+      "id": "R4-0026",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "operator snapshot (live DB) snapshot operating rules report the location override and its dials",
+      "outcome": "excluded",
+      "reason": "Calls buildSnapshot and checks database-derived override/dial state. It never calls buildOperatorPrompt or any new semantic evaluator; the policy projection is unchanged."
+    },
+    {
+      "id": "R4-0027",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "operator snapshot (live DB) snapshot star bands equal a hand count per location and exclude held drafts",
+      "outcome": "excluded",
+      "reason": "Calls buildSnapshot and checks hand-counted star bands and held-draft exclusion. It never calls buildOperatorPrompt or new evaluator checks; the metrics reader is unchanged."
+    },
+    {
+      "id": "R4-0028",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round opens only the committed canonical third-to-fourth transition",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0028, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-valid-fourth-admission; baseline launch 19 passed exactly one actual test; mutant launch 20 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0028 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0028-baseline.json; /private/tmp/run-c-round4/R4-0028-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 1 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:191:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific opens only the committed canonical third-to-fourth transition guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0029",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses admission when committed historical Markdown is deleted",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0029, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-admission-markdown-preservation; baseline launch 21 passed exactly one actual test; mutant launch 22 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0029 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0029-baseline.json; /private/tmp/run-c-round4/R4-0029-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:204:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific deleted guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0030",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses admission when committed historical Markdown is replaced",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0030, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-admission-markdown-preservation; baseline launch 23 passed exactly one actual test; mutant launch 24 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0030 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0030-baseline.json; /private/tmp/run-c-round4/R4-0030-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:204:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific replaced guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0031",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for missing without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0031, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 25 passed exactly one actual test; mutant launch 26 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0031 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0031-baseline.json; /private/tmp/run-c-round4/R4-0031-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific missing guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0032",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for uncommitted without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0032, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 27 passed exactly one actual test; mutant launch 28 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0032 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0032-baseline.json; /private/tmp/run-c-round4/R4-0032-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific uncommitted guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0033",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for branch without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0033, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-current-branch-in-admission; baseline launch 29 passed exactly one actual test; mutant launch 30 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0033 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0033-baseline.json; /private/tmp/run-c-round4/R4-0033-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific branch guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0034",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for path without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0034, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 31 passed exactly one actual test; mutant launch 32 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0034 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0034-baseline.json; /private/tmp/run-c-round4/R4-0034-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific path guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0035",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for third text without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0035, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-text; baseline launch 33 passed exactly one actual test; mutant launch 34 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0035 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0035-baseline.json; /private/tmp/run-c-round4/R4-0035-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific third text guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0036",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for second text without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0036, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-previous-grant-id; baseline launch 35 passed exactly one actual test; mutant launch 36 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0036 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0036-baseline.json; /private/tmp/run-c-round4/R4-0036-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific second text guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0037",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for date without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0037, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-date; baseline launch 37 passed exactly one actual test; mutant launch 38 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0037 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0037-baseline.json; /private/tmp/run-c-round4/R4-0037-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific date guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0038",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for identity without resetting round three",
+      "outcome": "equivalent",
+      "reason": "Round 4 R4-0038, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-inventory-identity-hash; baseline launch 39 passed exactly one actual test; mutant launch 40 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0038 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0038-baseline.json; /private/tmp/run-c-round4/R4-0038-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the identity digest guard at mutation-runner.mjs:124. The fixture rewrites inventory[0].test at red-team-mutation-runner.test.ts:228. The complete historicalEvidence/admissionEvidence comparison at runner:168–170 excludes only authorizations, so the unequal inventory test string necessarily returns null. The fourth admission gate at runner:680 refuses; test:244–245 actually observes status 1 and unchanged round 3 / runs 22. This is deterministic redundant-denial equivalence. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization."
+    },
+    {
+      "id": "R4-0039",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for history without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0039, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-full-admission-history; baseline launch 41 passed exactly one actual test; mutant launch 42 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0039 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0039-baseline.json; /private/tmp/run-c-round4/R4-0039-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific history guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0040",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for ancestry without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0040, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 43 passed exactly one actual test; mutant launch 44 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0040 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0040-baseline.json; /private/tmp/run-c-round4/R4-0040-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific ancestry guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0041",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for product without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0041, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-finite-admission-paths; baseline launch 45 passed exactly one actual test; mutant launch 46 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0041 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0041-baseline.json; /private/tmp/run-c-round4/R4-0041-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific product guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0042",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for dirty without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0042, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-untracked-admission-mutations; baseline launch 47 passed exactly one actual test; mutant launch 48 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0042 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0042-baseline.json; /private/tmp/run-c-round4/R4-0042-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific dirty guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0043",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses fourth-round admission for staged without resetting round three",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0043, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-untracked-admission-mutations; baseline launch 49 passed exactly one actual test; mutant launch 50 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0043 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0043-baseline.json; /private/tmp/run-c-round4/R4-0043-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific staged guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0044",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round pins the grant before releasing the first supervisor",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0044, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe record-wrong-first-launch; baseline launch 51 passed exactly one actual test; mutant launch 52 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0044 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0044-baseline.json; /private/tmp/run-c-round4/R4-0044-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 1 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:254:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific pins the grant before releasing the first supervisor guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0045",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses an ungranted first launch without executing its child",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0045, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe fail-open-fourth-launch-authentication; baseline launch 53 passed exactly one actual test; mutant launch 54 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0045 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0045-baseline.json; /private/tmp/run-c-round4/R4-0045-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:264:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific refuses an ungranted first launch without executing its child guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0046",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses approval drift between launches and preserves the count",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0046, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe fail-open-fourth-launch-authentication; baseline launch 55 passed exactly one actual test; mutant launch 56 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0046 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0046-baseline.json; /private/tmp/run-c-round4/R4-0046-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific approval guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0047",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses head drift between launches and preserves the count",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0047, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-between-launch-head-pin; baseline launch 57 passed exactly one actual test; mutant launch 58 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0047 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0047-baseline.json; /private/tmp/run-c-round4/R4-0047-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific head guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0048",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round refuses grant drift between launches and preserves the count",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0048, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-between-launch-budget-pin; baseline launch 59 passed exactly one actual test; mutant launch 60 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0048 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0048-baseline.json; /private/tmp/run-c-round4/R4-0048-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific grant guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0049",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the owner-approved Run C fourth round permits launch 150, refuses 151, and never opens a fifth round",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0049, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-151-fourth-launches; baseline launch 61 passed exactly one actual test; mutant launch 62 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0049 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0049-baseline.json; /private/tmp/run-c-round4/R4-0049-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:299:28. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific permits launch 150, refuses 151, and never opens a fifth round guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact."
+    },
+    {
+      "id": "R4-0050",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the vitest oracle helpers escapes every regex metacharacter in a test title",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called."
+    },
+    {
+      "id": "R4-0051",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the vitest oracle helpers accepts exactly one executed test",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called."
+    },
+    {
+      "id": "R4-0052",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the vitest oracle helpers calls zero executed tests INCONCLUSIVE, never a kill",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called."
+    },
+    {
+      "id": "R4-0053",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the vitest oracle helpers calls two executed tests INCONCLUSIVE, never a kill",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called."
+    },
+    {
+      "id": "R4-0054",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the environment allowlist emits only the allowlisted keys and drops everything else",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called."
+    },
+    {
+      "id": "R4-0055",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the environment allowlist sets the live-DB kill switch when no database is supplied",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called."
+    },
+    {
+      "id": "R4-0056",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the environment allowlist accepts a localhost database and drops the kill switch",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called."
+    },
+    {
+      "id": "R4-0057",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the environment allowlist refuses a remote database host — a mutation removes the guard that made it safe",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called."
+    },
+    {
+      "id": "R4-0058",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the watcher precondition passes when nothing is serving or watching the worktree",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged watcher/process inspection; none of the fourth-round code runs."
+    },
+    {
+      "id": "R4-0059",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the watcher precondition aborts when a process matching \"next dev\" is live",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged watcher/process inspection; none of the fourth-round code runs."
+    },
+    {
+      "id": "R4-0060",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the watcher precondition aborts when a process matching \"tsx watch worker/index.ts\" is live",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged watcher/process inspection; none of the fourth-round code runs."
+    },
+    {
+      "id": "R4-0061",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the watcher precondition aborts when a process matching \"pnpm worker\" is live",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged watcher/process inspection; none of the fourth-round code runs."
+    },
+    {
+      "id": "R4-0062",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the watcher precondition aborts when a process matching \"bash scripts/dev-stack.sh\" is live",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged watcher/process inspection; none of the fourth-round code runs."
+    },
+    {
+      "id": "R4-0063",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the watcher precondition aborts when a process matching \"playwright test\" is live",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged watcher/process inspection; none of the fourth-round code runs."
+    },
+    {
+      "id": "R4-0064",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the watcher precondition never reports the checking process or its own ancestry",
+      "outcome": "excluded",
+      "reason": "Only invokes unchanged watcher/process inspection; none of the fourth-round code runs."
+    },
+    {
+      "id": "R4-0065",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the journal and the finalizer journals the original blob before applying, then records the mutant blob",
+      "outcome": "excluded",
+      "reason": "Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted."
+    },
+    {
+      "id": "R4-0066",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the journal and the finalizer restores the original and leaves a clean tree",
+      "outcome": "excluded",
+      "reason": "Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted."
+    },
+    {
+      "id": "R4-0067",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the journal and the finalizer ABORTS on content that is neither the original nor the journaled mutant",
+      "outcome": "excluded",
+      "reason": "Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted."
+    },
+    {
+      "id": "R4-0068",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the journal and the finalizer is idempotent: a second finalize over a restored tree still succeeds",
+      "outcome": "excluded",
+      "reason": "Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted."
+    },
+    {
+      "id": "R4-0069",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the journal and the finalizer treats a file already back at its original content as done",
+      "outcome": "excluded",
+      "reason": "Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted."
+    },
+    {
+      "id": "R4-0070",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the dotenv rename-swap swaps the real file to a backup and journals only paths and a hash",
+      "outcome": "excluded",
+      "reason": "Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed."
+    },
+    {
+      "id": "R4-0071",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the dotenv rename-swap restores the real file and closes the swap",
+      "outcome": "excluded",
+      "reason": "Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed."
+    },
+    {
+      "id": "R4-0072",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the dotenv rename-swap ABORTS and keeps both files when the scrubbed copy was modified",
+      "outcome": "excluded",
+      "reason": "Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed."
+    },
+    {
+      "id": "R4-0073",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the dotenv rename-swap closes the entry when the backup is gone and the real file is already back",
+      "outcome": "excluded",
+      "reason": "Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed."
+    },
+    {
+      "id": "R4-0074",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the dotenv rename-swap FAILS when the backup is gone and the destination is still the scrubbed copy",
+      "outcome": "excluded",
+      "reason": "Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed."
+    },
+    {
+      "id": "R4-0075",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the dotenv rename-swap refuses a second swap while one is open",
+      "outcome": "excluded",
+      "reason": "Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed."
+    },
+    {
+      "id": "R4-0076",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the paused supervisor runs a command in its own process group and reaps it",
+      "outcome": "excluded",
+      "reason": "Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied."
+    },
+    {
+      "id": "R4-0077",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the paused supervisor kills the whole group on timeout and reports 124",
+      "outcome": "excluded",
+      "reason": "Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied."
+    },
+    {
+      "id": "R4-0078",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the paused supervisor never executes the command when the parent dies before the release",
+      "outcome": "excluded",
+      "reason": "Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied."
+    },
+    {
+      "id": "R4-0079",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the paused supervisor kills descendants orphaned after the group leader exits",
+      "outcome": "excluded",
+      "reason": "Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied."
+    },
+    {
+      "id": "R4-0080",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the paused supervisor refuses to signal a live PID whose start time differs from the journal",
+      "outcome": "excluded",
+      "reason": "Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied."
+    },
+    {
+      "id": "R4-0081",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the paused supervisor reaps a live journaled group whose identity does match",
+      "outcome": "excluded",
+      "reason": "Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied."
+    },
+    {
+      "id": "R4-0082",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the paused supervisor refuses to restore files while a process group is still live",
+      "outcome": "excluded",
+      "reason": "Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied."
+    },
+    {
+      "id": "R4-0083",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a run past the 30-per-round cap and names the resulting status",
+      "outcome": "excluded",
+      "reason": "Runs an exhausted ordinary round-1 fixture; the new round-4 dispatch is false and no fourth-grant id is present. The unchanged default cap rejects at 30."
+    },
+    {
+      "id": "R4-0084",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget continues the approved #1185 round without resetting spent launches",
+      "outcome": "excluded",
+      "reason": "The named #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0085",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses launch 1401 even with #1185 owner authorization",
+      "outcome": "excluded",
+      "reason": "The named #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0086",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a branch mismatch",
+      "outcome": "excluded",
+      "reason": "The branch #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0087",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a round mismatch",
+      "outcome": "excluded",
+      "reason": "The round #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0088",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a head mismatch",
+      "outcome": "excluded",
+      "reason": "The head #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0089",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a inventory mismatch",
+      "outcome": "excluded",
+      "reason": "The inventory #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0090",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a identity mismatch",
+      "outcome": "excluded",
+      "reason": "The identity #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0091",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a text mismatch",
+      "outcome": "excluded",
+      "reason": "The text #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0092",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a missing mismatch",
+      "outcome": "excluded",
+      "reason": "The missing #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0093",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget keeps the default cap when #1185 authorization has a malformed mismatch",
+      "outcome": "excluded",
+      "reason": "The malformed #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged."
+    },
+    {
+      "id": "R4-0094",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget continues only the approved Run C next pass and durably pins its committed HEAD",
+      "outcome": "excluded",
+      "reason": "The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0095",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget pins the approved Run C candidate on its first launch from zero",
+      "outcome": "excluded",
+      "reason": "The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0096",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget retains the ordinary first launch and 30-run limit for another branch",
+      "outcome": "excluded",
+      "reason": "The another branch Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0097",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget retains the ordinary first launch and 30-run limit for another round",
+      "outcome": "excluded",
+      "reason": "The another round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0098",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget permits Run C launch 1500 and refuses launch 1501 without resetting the counter",
+      "outcome": "excluded",
+      "reason": "The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0099",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a branch mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The branch Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0100",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a round mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0101",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a report-round mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The report-round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0102",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a head mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The head Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0103",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a inventory mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The inventory Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0104",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a identity mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The identity Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0105",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a text mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The text Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0106",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a date mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The date Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0107",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a missing mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The missing Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0108",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a malformed mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The malformed Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0109",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a product mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The product Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0110",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a ancestry mismatch before launching the scoped Run C pass",
+      "outcome": "excluded",
+      "reason": "The ancestry Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0111",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses even documentation-only HEAD drift after the Run C first launch",
+      "outcome": "excluded",
+      "reason": "The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0112",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget does not treat an uncommitted Run C approval as authorization",
+      "outcome": "excluded",
+      "reason": "The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0113",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget rejects an unexpected unstaged product edit before the first Run C launch",
+      "outcome": "excluded",
+      "reason": "The unstaged Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0114",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget rejects an unexpected staged product edit before the first Run C launch",
+      "outcome": "excluded",
+      "reason": "The staged Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0115",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget allows only the journaled Run C mutant and denies an unrelated edit after pinning",
+      "outcome": "excluded",
+      "reason": "The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged."
+    },
+    {
+      "id": "R4-0116",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget resets the counter when a new round opens",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0116, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe retain-spent-runs-after-round-start; baseline launch 63 passed exactly one actual test; mutant launch 64 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0116 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0116-baseline.json; /private/tmp/run-c-round4/R4-0116-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 30 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:884:28. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Prevent the direct round-opening caller from resetting runs after successful round transition."
+    },
+    {
+      "id": "R4-0117",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses to open a round over an unrestored mutation",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0117, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-unrestored-round-start-mutation; baseline launch 65 passed exactly one actual test; mutant launch 66 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0117 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0117-baseline.json; /private/tmp/run-c-round4/R4-0117-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:892:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Bypass cmdRoundStart refusal for an unrestored mutation, allowing the next round to open over it."
+    },
+    {
+      "id": "R4-0118",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses to open a round over an open dotenv swap",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0118, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-open-round-start-dotenv; baseline launch 67 passed exactly one actual test; mutant launch 68 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0118 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0118-baseline.json; /private/tmp/run-c-round4/R4-0118-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'dotenv swap is still open' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:900:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Bypass cmdRoundStart refusal for an open dotenv swap."
+    },
+    {
+      "id": "R4-0119",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses an UNAUTHORIZED third round",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0119, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 69 passed exactly one actual test; mutant launch 70 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0119 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0119-baseline.json; /private/tmp/run-c-round4/R4-0119-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:918:26. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Permit third-round admission without the required owner authorization."
+    },
+    {
+      "id": "R4-0120",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a third round when the sidecar authorizes something else",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0120, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 71 passed exactly one actual test; mutant launch 72 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0120 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0120-baseline.json; /private/tmp/run-c-round4/R4-0120-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'needs a recorded owner authorization' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:928:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Treat any same-branch authorization as sufficient for third-round admission."
+    },
+    {
+      "id": "R4-0121",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget opens a third round the sidecar records an owner authorization for",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0121, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-authorized-third-round; baseline launch 73 passed exactly one actual test; mutant launch 74 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0121 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0121-baseline.json; /private/tmp/run-c-round4/R4-0121-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 1 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:936:26. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Reject the otherwise valid existing third-round authorization."
+    },
+    {
+      "id": "R4-0122",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget refuses a FOURTH round even with the authorization present",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0122, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 75 passed exactly one actual test; mutant launch 76 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0122 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0122-baseline.json; /private/tmp/run-c-round4/R4-0122-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:944:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Permit a generic fourth transition despite absence of the scoped fourth grant."
+    },
+    {
+      "id": "R4-0123",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget ignores an authorization recorded for a DIFFERENT branch",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0123, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 77 passed exactly one actual test; mutant launch 78 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0123 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0123-baseline.json; /private/tmp/run-c-round4/R4-0123-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'needs a recorded owner authorization' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:960:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Treat a different branch authorization as sufficient for the third-round direct caller."
+    },
+    {
+      "id": "R4-0124",
+      "file": "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+      "test": "the mutation budget fails closed on an unparseable sidecar rather than crashing",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0124, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 79 passed exactly one actual test; mutant launch 80 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0124 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0124-baseline.json; /private/tmp/run-c-round4/R4-0124-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:968:26. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Treat an unreadable sidecar as third-round authorization instead of failing closed."
+    },
+    {
+      "id": "R4-0125",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof accepts appended fourth-round results only with committed admission and launch proof",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0125, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-valid-fourth-report; baseline launch 81 passed exactly one actual test; mutant launch 82 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0125 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0125-baseline.json; /private/tmp/run-c-round4/R4-0125-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 'red-team-status: FAILED (1 issue(s))\\…' to be '' // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:297:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the accepts appended fourth-round results only with committed admission and launch proof predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0126",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects approval first written in the final report after measurement",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0126, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe trust-final-self-grant; baseline launch 83 passed exactly one actual test; mutant launch 84 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0126 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0126-baseline.json; /private/tmp/run-c-round4/R4-0126-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:304:28. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the rejects approval first written in the final report after measurement predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0127",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is deleted",
+      "outcome": "equivalent",
+      "reason": "Round 4 R4-0127, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-missing-final-markdown; baseline launch 85 passed exactly one actual test; mutant launch 86 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0127 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0127-baseline.json; /private/tmp/run-c-round4/R4-0127-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation makes the new final prefix reader substitute historical bytes when Markdown is absent. The fixture deletes final Markdown at red-team-status.test.ts:310 and asserts checker status 1 at :316. Checker:679–680 independently accumulates a missing-human-report error before invoking the new proof at :693; the mutated branch executes because the earlier error is accumulated, and the final error gate at :826 still rejects. Replacement and newline-loss are separate measured kills, not covered by this equivalence. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization."
+    },
+    {
+      "id": "R4-0128",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is rewritten",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0128, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-final-markdown-prefix; baseline launch 87 passed exactly one actual test; mutant launch 88 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0128 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0128-baseline.json; /private/tmp/run-c-round4/R4-0128-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:316:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the rewritten predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0129",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is trailing newline removed",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0129, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-final-markdown-prefix; baseline launch 89 passed exactly one actual test; mutant launch 90 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0129 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0129-baseline.json; /private/tmp/run-c-round4/R4-0129-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:316:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the trailing newline removed predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0130",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with missing approval",
+      "outcome": "equivalent",
+      "reason": "Round 4 R4-0130, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-unauthorized-fourth-shape; baseline launch 91 passed exactly one actual test; mutant launch 92 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0130 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0130-baseline.json; /private/tmp/run-c-round4/R4-0130-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation relaxes the round-four shape condition at red-team-status.mjs:289–290. The fixture removes the final approval at test:325 and still observes checker status 1 at :351. The independent final proof call at checker:693 reaches runner:197, which calls runCFourthAuthorization again. Its exact-match count guard at runner:127 returns null for missing approval, the final proof returns false, and checker:694/:826 denies. Shape relaxation therefore preserves this actual refusal deterministically. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization."
+    },
+    {
+      "id": "R4-0131",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with foreign branch",
+      "outcome": "equivalent",
+      "reason": "Round 4 R4-0131, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-sidecar-branch-in-grant-shape; baseline launch 93 passed exactly one actual test; mutant launch 94 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0131 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0131-baseline.json; /private/tmp/run-c-round4/R4-0131-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the sidecar branch restriction at runner:118. The fixture changes final sidecar.branch to codex/other at red-team-status.test.ts:326 and observes checker status 1 at :351. The final report/admission branch comparison at runner:209 and independent derived-branch comparison at checker:707–710 still compare that value with codex/owner-operator-run-c. Each unequal comparison independently preserves denial. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization."
+    },
+    {
+      "id": "R4-0132",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with wrong text",
+      "outcome": "equivalent",
+      "reason": "Round 4 R4-0132, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-text; baseline launch 95 passed exactly one actual test; mutant launch 96 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0132 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0132-baseline.json; /private/tmp/run-c-round4/R4-0132-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the exact authorization.text predicate at runner:128. The fixture changes final text to third round authorized at red-team-status.test.ts:327 and observes status 1 at :351. The admission read at runner:161 retains the original exact owner question/reply; the full authorizations-prefix comparison at runner:208 through unchangedPrefix:134–136 includes text. Those differing strings necessarily preserve denial. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization."
+    },
+    {
+      "id": "R4-0133",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with wrong date",
+      "outcome": "equivalent",
+      "reason": "Round 4 R4-0133, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-date; baseline launch 97 passed exactly one actual test; mutant launch 98 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0133 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0133-baseline.json; /private/tmp/run-c-round4/R4-0133-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the authorization.date predicate at runner:127. The fixture sets final date 2026-09-14 at red-team-status.test.ts:328 and observes status 1 at :351. The admission read at runner:161 still contains 2026-09-13; the full authorizations-prefix comparison at runner:208 through unchangedPrefix:134–136 includes date. The unequal dates necessarily preserve denial. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization."
+    },
+    {
+      "id": "R4-0134",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with measured head",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0134, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe trust-journal-head-over-reported-head; baseline launch 99 passed exactly one actual test; mutant launch 100 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0134 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0134-baseline.json; /private/tmp/run-c-round4/R4-0134-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the measured head predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0135",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with identity",
+      "outcome": "equivalent",
+      "reason": "Round 4 R4-0135, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-inventory-identity-hash; baseline launch 101 passed exactly one actual test; mutant launch 102 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0135 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0135-baseline.json; /private/tmp/run-c-round4/R4-0135-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the inventory identity digest at runner:124. The fixture rewrites final inventory[0].test at red-team-status.test.ts:330 and observes status 1 at :351. The committed admission inventory read at runner:161 remains original. The independent complete inventory-prefix comparison at runner:208 through unchangedPrefix:134–136 compares the rewritten test string and necessarily denies. This is deterministic redundant-denial equivalence, not a vacuous/unexecuted mutation. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization."
+    },
+    {
+      "id": "R4-0136",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with history",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0136, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-final-inventory-history; baseline launch 103 passed exactly one actual test; mutant launch 104 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0136 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0136-baseline.json; /private/tmp/run-c-round4/R4-0136-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the history predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0137",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with intake",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0137, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-current-intake-fingerprint; baseline launch 105 passed exactly one actual test; mutant launch 106 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0137 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0137-baseline.json; /private/tmp/run-c-round4/R4-0137-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the intake predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0138",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with dirty",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0138, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-unrestored-tracked-tree; baseline launch 107 passed exactly one actual test; mutant launch 108 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0138 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0138-baseline.json; /private/tmp/run-c-round4/R4-0138-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the dirty predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0139",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with unrestored",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0139, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-unrestored-journal-entry; baseline launch 109 passed exactly one actual test; mutant launch 110 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0139 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0139-baseline.json; /private/tmp/run-c-round4/R4-0139-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the unrestored predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0140",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with grant",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0140, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-grant-digest-pin; baseline launch 111 passed exactly one actual test; mutant launch 112 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0140 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0140-baseline.json; /private/tmp/run-c-round4/R4-0140-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the grant predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0141",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with missing journal",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0141, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-missing-final-launch-journal; baseline launch 113 passed exactly one actual test; mutant launch 114 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0141 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0141-baseline.json; /private/tmp/run-c-round4/R4-0141-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the missing journal predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0142",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with budget",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0142, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe accept-151-launch-report; baseline launch 115 passed exactly one actual test; mutant launch 116 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0142 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0142-baseline.json; /private/tmp/run-c-round4/R4-0142-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the budget predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0143",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with fifth",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0143, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe widen-fourth-shape-grant-to-fifth; baseline launch 117 passed exactly one actual test; mutant launch 118 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0143 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0143-baseline.json; /private/tmp/run-c-round4/R4-0143-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the fifth predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0144",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the committed Run C fourth-round proof rejects fourth-round evidence with accepted risk",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0144, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe treat-fourth-verification-grant-as-risk-approval; baseline launch 119 passed exactly one actual test; mutant launch 120 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0144 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0144-baseline.json; /private/tmp/run-c-round4/R4-0144-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the accepted risk predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard."
+    },
+    {
+      "id": "R4-0145",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the CLI contract rejects --risk in feature mode: risk comes from the intake, never the caller",
+      "outcome": "excluded",
+      "reason": "CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates."
+    },
+    {
+      "id": "R4-0146",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the CLI contract requires --issue and --head together in standalone mode",
+      "outcome": "excluded",
+      "reason": "CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates."
+    },
+    {
+      "id": "R4-0147",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the CLI contract rejects a short --head, so the run can never be pinned to an abbreviated SHA",
+      "outcome": "excluded",
+      "reason": "CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates."
+    },
+    {
+      "id": "R4-0148",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver fails closed when no sidecar exists and no intake can supply a risk",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0149",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver waives the sidecar when the signed-off intake declares risk normal",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0150",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver waives equally from the Claude lane `classification` spelling",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0151",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver requires the sidecar when the intake declares risk high",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0152",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver requires the sidecar for a Claude lane `classification: high` intake",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0153",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver fails closed on an unreadable intake rather than waiving",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0154",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver fails closed on an intake that declares no risk at all",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0155",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "absence — the risk-scoped waiver names the standalone remedy rather than the feature-lane rule",
+      "outcome": "excluded",
+      "reason": "Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged."
+    },
+    {
+      "id": "R4-0156",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "a clean run passes a CLEAR sidecar whose only later commit is its own report",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its a clean run passes a CLEAR assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0157",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "strict schema rejects an unknown top-level field",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema rejects an unknown top-level assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0158",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "strict schema rejects a duplicate inventory row id",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema rejects a duplicate inventory assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0159",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "strict schema rejects an UNAUTHORIZED third round",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0159, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-unauthorized-third-report; baseline launch 121 passed exactly one actual test; mutant launch 122 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0159 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0159-baseline.json; /private/tmp/run-c-round4/R4-0159-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'requires an authorizations entry' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:499:28. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Allow a third-round report without its owner authorization."
+    },
+    {
+      "id": "R4-0160",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "strict schema accepts a third round the sidecar records an owner authorization for",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0160, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-authorized-third-report; baseline launch 123 passed exactly one actual test; mutant launch 124 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0160 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0160-baseline.json; /private/tmp/run-c-round4/R4-0160-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 'red-team-status: FAILED (1 issue(s))\\…' not to contain 'requires an authorizations entry' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:515:31. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Reject an authorized third-round report."
+    },
+    {
+      "id": "R4-0161",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "strict schema rejects a fourth round even when an authorization is present",
+      "outcome": "killed",
+      "reason": "Round 4 R4-0161, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-unauthorized-fourth-shape; baseline launch 125 passed exactly one actual test; mutant launch 126 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0161 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0161-baseline.json; /private/tmp/run-c-round4/R4-0161-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 'red-team-status: FAILED (1 issue(s))\\…' to contain 'round must be 1, 2, or an authorized 3' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:529:28. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Allow a generic fourth-round report in validateShape and bypass the new scoped-proof requirement for that generic case. DIAGNOSTIC-ONLY KILL: the relaxed shape guard removes the expected schema-specific ceiling message, failing red-team-status.test.ts:529. Both original and mutant still reject the unauthorized fourth report through independent proof; this is not evidence of an admission bypass."
+    },
+    {
+      "id": "R4-0162",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "strict schema requires an excluded row to record why it is out of scope",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema requires an excluded row assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0163",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "recomputation — the summary is never trusted fails when a count disagrees with the rows",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0164",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "recomputation — the summary is never trusted recomputes OPEN_P0 from a confirmed survivor that the file calls CLEAR",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0165",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "recomputation — the summary is never trusted forces INCOMPLETE_BUDGET when any in-scope candidate was skipped",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0166",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "recomputation — the summary is never trusted separates the two inconclusive classes: oracle forces ORACLE, infra forces INFRA",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0167",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "recomputation — the summary is never trusted never reports CLEAR from an empty inventory",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0168",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "recomputation — the summary is never trusted requires the arbiter reasoning behind every confirmed survivor",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0169",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "run binding and the contract fails when the sidecar claims a run_id the checkout does not derive",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0170",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "run binding and the contract fails when the intake was amended after the run",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0171",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "run binding and the contract normalizes the Claude lane `classification` into the canonical risk",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract normalizes assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0172",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "run binding and the contract reads the Codex lane `risk` field directly",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract reads assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0173",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "run binding and the contract fails when the recorded merge-base is not what fork_sha recomputes to",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0174",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "high-risk adjudication blocks an open P1 on a high-risk run",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication blocks an open P1 assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0175",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "high-risk adjudication accepts a P1 whose accepted-risk reference resolves to an authorization naming it",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication accepts a P1 whose assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0176",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "high-risk adjudication rejects an accepted-risk reference that resolves to nothing",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication rejects an accepted-risk reference assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0177",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "high-risk adjudication rejects an authorization that does not name the finding citing it",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication rejects an authorization that assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0178",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "staleness and the restored tree fails when any commit outside the run's two artifacts lands after the run",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0179",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "staleness and the restored tree still fails for an unrelated docs/reviews change",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree still assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0180",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "staleness and the restored tree fails on a tracked modification left in the worktree — an unrestored mutation",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0181",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "staleness and the restored tree excludes the report's own file when it is the FIRST porcelain line",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree excludes assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0182",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the classes git cannot see fails while a dotenv backup is still on disk",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0183",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the classes git cannot see fails while the journal reports an open dotenv swap",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0184",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the classes git cannot see fails while the journal reports an unrestored mutation",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0185",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the classes git cannot see fails while a supervisor process group is still journaled active",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0186",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "standalone mode derives its path from --issue and --head on a detached HEAD, and accepts branch null",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode derives its path from assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0187",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "standalone mode defaults --risk to high, so an unstated standalone run is adjudicated as high risk",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode defaults --risk to high, assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0188",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "standalone mode rejects a --head that is not the head the sidecar recorded",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode rejects a --head that assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0189",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the equivalent outcome does not block — a proven-equivalent mutant still reaches CLEAR",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome does not block assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0190",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the equivalent outcome rejects an equivalent row that records no proof",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome rejects an equivalent assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0191",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the equivalent outcome rejects an equivalent row that also references a finding",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome rejects an equivalent assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0192",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the equivalent outcome leaves inconclusive/oracle blocking exactly as before",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome leaves inconclusive/oracle blocking assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0193",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the equivalent outcome reads an ABSENT equivalent count as zero",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome reads an ABSENT assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0194",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the equivalent outcome still catches a WRONG equivalent count",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome still catches a assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0195",
+      "file": "scripts/ci/__tests__/red-team-status.test.ts",
+      "test": "the equivalent outcome keeps an absent killed count a mismatch — the latitude is equivalent-only",
+      "outcome": "excluded",
+      "reason": "This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome keeps an absent assertions observe unchanged schema/count/binding/restoration logic."
+    },
+    {
+      "id": "R4-0196",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection routes trivial/normal without creating state",
+      "outcome": "excluded",
+      "reason": "This feature lane selection routes trivial/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0197",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection routes small/normal without creating state",
+      "outcome": "excluded",
+      "reason": "This feature lane selection routes small/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0198",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection routes standard/normal without creating state",
+      "outcome": "excluded",
+      "reason": "This feature lane selection routes standard/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0199",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection routes trivial/high without creating state",
+      "outcome": "excluded",
+      "reason": "This feature lane selection routes trivial/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0200",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection routes small/high without creating state",
+      "outcome": "excluded",
+      "reason": "This feature lane selection routes small/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0201",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection routes standard/high without creating state",
+      "outcome": "excluded",
+      "reason": "This feature lane selection routes standard/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0202",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection routes epic/high without creating state",
+      "outcome": "excluded",
+      "reason": "This feature lane selection routes epic/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0203",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "feature lane selection requires a build even for a lightweight backend change",
+      "outcome": "excluded",
+      "reason": "This feature lane selection requires a build even for a lightweight backend change case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0204",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "native Codex workflow requires plan approval before a guarded small/high run can execute",
+      "outcome": "excluded",
+      "reason": "Only requests executing and plan_approved transitions; transition-state invokes the checker only for nextPhase===reviewed. No changed checker or runner predicate is executed."
+    },
+    {
+      "id": "R4-0205",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "native Codex workflow prepares an armed run without committing, deleting the draft, or writing Claude permissions",
+      "outcome": "excluded",
+      "reason": "This native Codex workflow prepares an armed run without committing, deleting the draft, or writing Claude permissions case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0206",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "native Codex workflow reports unavailable Codex usage instead of a zero Claude bill",
+      "outcome": "excluded",
+      "reason": "This native Codex workflow reports unavailable Codex usage instead of a zero Claude bill case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0207",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "native Codex workflow records and renders a native review without companion state",
+      "outcome": "excluded",
+      "reason": "This native Codex workflow records and renders a native review without companion state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0208",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "native Codex workflow keeps the selected runtime when carrying progress from another host",
+      "outcome": "excluded",
+      "reason": "This native Codex workflow keeps the selected runtime when carrying progress from another host case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0209",
+      "file": "scripts/ci/__tests__/feature-workflow-runtime.test.ts",
+      "test": "native Codex workflow refuses an ambiguous latest companion job",
+      "outcome": "excluded",
+      "reason": "This native Codex workflow refuses an ambiguous latest companion job case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used."
+    },
+    {
+      "id": "R4-0210",
+      "file": "src/__tests__/cost-guard-contract.test.ts",
+      "test": "LLM cost-guard contract: runLlmTask callers are allowlisted every runLlmTask call site is in the reviewed-caller allowlist",
+      "outcome": "excluded",
+      "reason": "Static source scan observes runLlmTask call-site file membership only. This delta adds no call-site file or invocation and leaves the reviewed allowlist unchanged; new prompt strings and case/check bodies do not match a new call site."
+    },
+    {
+      "id": "R4-0211",
+      "file": "src/__tests__/cost-guard-contract.test.ts",
+      "test": "LLM cost-guard contract: runLlmTask callers are allowlisted the allowlist carries no stale entries (files without a call site)",
+      "outcome": "excluded",
+      "reason": "Static source scan observes runLlmTask call-site file membership only. This delta adds no call-site file or invocation and leaves the reviewed allowlist unchanged; new prompt strings and case/check bodies do not match a new call site."
+    },
+    {
+      "id": "R4-0212",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "AgentTurnWorker flag gate worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "outcome": "excluded",
+      "reason": "The AgentTurnWorker flag gate worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged."
+    },
+    {
+      "id": "R4-0213",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "AgentTurnWorker flag gate worker fails the turn unauthorized when the location voice row vanished after authorization",
+      "outcome": "excluded",
+      "reason": "The AgentTurnWorker flag gate worker fails the turn unauthorized when the location voice row vanished after authorization case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged."
+    },
+    {
+      "id": "R4-0214",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "AgentTurnWorker policy preparation worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find",
+      "outcome": "excluded",
+      "reason": "The AgentTurnWorker policy preparation worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged."
+    },
+    {
+      "id": "R4-0215",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "AgentTurnWorker policy preparation worker stamps a policy proposal from the snapshot of its own target, not the turn location",
+      "outcome": "excluded",
+      "reason": "The AgentTurnWorker policy preparation worker stamps a policy proposal from the snapshot of its own target, not the turn location case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged."
+    },
+    {
+      "id": "R4-0216",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "AgentTurnWorker policy preparation a voice-only turn issues no policy read",
+      "outcome": "excluded",
+      "reason": "The AgentTurnWorker policy preparation a voice-only turn issues no policy read case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged."
     }
   ],
   "findings": [
@@ -5604,13 +7116,13 @@
     }
   ],
   "counts": {
-    "inventory_total": 785,
-    "killed": 389,
+    "inventory_total": 1001,
+    "killed": 445,
     "survived_confirmed_p0": 0,
-    "equivalent": 0,
+    "equivalent": 7,
     "inconclusive": 0,
     "skipped_budget": 0,
-    "excluded": 396,
+    "excluded": 549,
     "findings_total": 7,
     "p0_open": 0,
     "p1_open": 0,

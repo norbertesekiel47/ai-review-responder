@@ -1840,3 +1840,4945 @@ Owner: I'll finish everything from C, D, and E. I give you the approval.
 Date: 2026-09-13; finding references: RT-P0-1, RT-P0-2, RT-ORACLE-1, RT-ORACLE-2.
 
 Request presented: Approve the third mutation-verification round, using Codex only, with a maximum of 30 local test launches. Owner reply: [@Browser](plugin://browser@openai-bundled) I approve and sign in to sentry using in app browser. This authorizes the third round for the eleven corrected cases I0228, I0229, I0394, I0403, I0592, I0677, I0679, I0685, I0686, I0704 and I0706: 22 required launches, maximum 30, no fourth round, no external Claude/Opus delegates and no accepted-risk disposition. Historical round-2 measurements and findings remain unchanged until fresh verification is completed.
+
+
+---
+
+# Round 4 — corrected prompt and scoped verifier extension
+
+Generated 2026-09-13T18:38:38.687Z. This section appends to all 557236 original Markdown bytes. Historical rounds 1–3, their measured heads, failure reports, attempts, findings and authorizations above are preserved. This section reports only the owner-approved fourth local pass.
+
+## Result and immutable scope
+
+**CLEAR for the bounded local fourth-round contract.** All 216 derived candidates are recorded: 63 measured individual cases and 153 evidence-backed unchanged-dataflow exclusions. The 126 supervised launches produced 56 assertion kills and seven root-adjudicated equivalent survivors, with no inconclusive or budget-skipped scoped row. Each case used one baseline and one semantic mutant, at most 120 seconds per launch; no second mutant or provider call was used. The authorized cap was 150, leaving 24 unused.
+
+Combined sidecar inventory: 1001 rows, 445 killed, seven equivalent, 549 excluded. All seven historical findings remain fixed; this pass adds no P0, P1 or P2 finding or risk acceptance.
+
+- Fork and original merge-base: 6b2eb580940480c6a9b304f3e69c0d7a3bb04f29.
+- Fourth-round correction baseline: fb536c09711ec331262f5efc64ff42f066bec3ba.
+- Immutable measured HEAD: f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39.
+- Locked intake SHA256: 21cfd449e0740912251621c65d9a1ca1a36fd82dbb9481a5b3693ce5b9090b0e.
+- Root-reviewed schedule SHA256: c6b298a737eac6589d3887e4872764495757cd64dd14f0d28bace56664060311.
+- Immutable controller SHA256: a910125ebee0359019f95c679402ed9d28f7fb3c5ab6776214e2b19aedae8e2d.
+- Exact grant: owner-run-c-fourth-round-prompt-regression; preserved in the authorizations array and reproduced below.
+- Final root acknowledgment: R4-FINAL, exit 0, all 126 recorded process groups empty, zero remaining restorations and closed journal.
+
+The prompt example and mocked evaluator mutations measure assertions and oracle behavior, not whether a live model follows natural-language instructions. The prior five authorized OpenAI synthetic probes remain separate bounded evidence and predate the strengthened weekend oracle; they do not prove that later oracle or the corrected deployed worker/browser/Apply journey. No Anthropic or other fallback-provider compliance claim is made. Corrected staging acceptance remains outstanding.
+
+R4-0161 is an explicit **diagnostic-only kill**: the mutant still rejects the unauthorized report, but the expected shape-specific ceiling message disappears and the real assertion at red-team-status.test.ts:529 fails. This is not an admission-bypass claim. The other known redundant-denial survivors are recorded as equivalent with their full independent source proofs, not forced into kills by deleting multiple safeguards.
+
+## Root final restoration evidence
+
+```json
+{
+  "id": "R4-FINAL",
+  "exitCode": 0,
+  "stdout": "reap: every journaled process group is empty (126 recorded)\nfinalize: restored 0 mutated file(s) and 0 dotenv file(s); journal closed\n",
+  "stderr": ""
+}
+```
+
+## Preserved fourth-round authorization
+
+```json
+{
+  "id": "owner-run-c-fourth-round-prompt-regression",
+  "date": "2026-09-13",
+  "finding_ids": [],
+  "text": "Question: May I make the Run C-only verifier change described in /private/tmp/run-c-fourth-round-proposal.md and run a fourth verification round, capped at 150 local test launches? It covers the prompt fix and the verifier’s own safeguards, preserves all earlier evidence, uses Codex only, and keeps further rounds blocked.\nOwner: Yes, approve the scoped fourth round"
+}
+```
+
+## Duty 2–5 evidence
+
+## Duty 2: fragile assertions
+
+Reviewed every changed test body and the changed validForPrompt/fallbackOk/beforeEach/checker/prepare helpers. The account-off worked example is parsed through the actual schema and checked for account scope, null threshold, proposal reference and empty unsupported array. The serialized prefix locates the one explicit example; its formatting dependency is visible and is not substituted for live semantic proof. The evaluator tests challenge the real exported check functions with independently constructed valid/wrong outputs. Count assertions in the traversal are tied to the explicit eight-case contract and sequential provider traversal; they are not incidental rendered-string counts or unspecified ordering. The guards assert observable admission/refusal, unchanged journal/counters, durable grant or current verdict, rather than searching for tag absence. No actionable fragile-assertion finding was established in this bounded delta. The equivalent mutants retain their independent-denial proof and are never represented as kills.
+
+## Duty 3: documentation against pinned source and actual evidence
+
+Ran the existing prevalidate-plan.py on the added/changed documentary text, with the repository explicitly supplied. The scratch extraction and complete checker output are retained in /private/tmp/run-c-round4-prep/changed-doc-text.md and doc-prevalidation.log. It checked 41 path/line references (zero unresolved), four fixture references (zero ignored), and three Git IDs. The one flagged ID, caae5b4d877e254033485a73f38f56b074c8910e, is explicitly documented as a Markdown blob; git cat-file -t confirms blob. Thus a validator expecting every context-matched Git ID to be a commit reports a false positive here, not a false documentation claim.
+
+Manually resolved the claim context against pinned source: account-default/null/off/unsupported instructions and worked example; schema and tenant/scope validation; catalog/settings null-threshold mapping; account override consequence handling; current-state Apply/readiness/confirmation boundary; full historical Markdown/blob checks; exact fourth grant and prefix/journal corroboration; test parameter expansions and fixture pinning. Historical reviewer passages and accepted checklist findings retain their time-of-review references and are explicitly followed by correction appendices; they are historical provenance rather than claims that the old defect still exists at corrected HEAD. Timestamped resume/evidence checkpoints likewise retain earlier state and identify the newer active boundary. No new misleading claim or active stale citation was established.
+
+Read /private/tmp/run-c-fourth-pinned-gate.log: all listed required gates pass, GATE GREEN, fingerprint written/current cc6dfc2a8c16324bc373ee145fa97aa17df2ffe8d26e3a9fad4c6737db25791e, and head f207fe8f. Independently read the actual expanded full-suite log .feature/logs/extra-pnpm-lint----pnpm-typecheck----pnpm-test-887985.log: 15,911 passed / 11 skipped. The separate default test lane log has its own DB-disabled totals and is not substituted for this full-suite evidence. Read the focused Markdown regression logs: original red 4 failed / 1 passed, corrected 168 passed. The retained precommit gate has the cited fingerprint 2f10dbd978b60ff9120d947df5b0477be41a9c5acef5d70ab7c1576d634a692b. The full gate records its reclassification warning; the amended deviation explicitly acknowledges measured 5095 production / 6528 test lines and retains the bounded standard/high classification. No warning was silently represented as a pass.
+
+Read only metadata and result predicates from the saved authorized probe JSON: total 5, passed 5, every schemaPassed true, every failures list empty, only OpenAI model gpt-4o-mini-2024-07-18, prompt version 2026-09-13.4, system hash 9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032. Saved report SHA256 is 200463f77d888dea2586a72064ccffc0a6cc05622b26a15ed08296b74137a924. These are five prior owner-authorized synthetic calls, not calls from this verifier. The report predates the stronger weekend assertion and supplies neither retrospective proof of that assertion nor corrected deployed-worker/Apply acceptance.
+
+Admission history was compared directly to immutable baseline: 785 complete rows and all findings equal, original authorizations are an exact prefix, original full Markdown bytes equal. Codex/Claude red-team skill mirrors are byte-identical at the pin. All earlier failed-campaign evidence remains historical; this pass does not erase or relabel it.
+
+## Duty 4: missed sibling cases
+
+Patterns searched with git grep at pinned HEAD: scope_check, Account default, Turn automatic replies off, Weekday/weekend, checkOperatorSemantics, OPERATOR_REGRESSION_CASES, runCFourthAuthorization, validRunCFourthReport, authorizedRunCFourthBudget, round >, round === 4, sidecar.round === 4, RUN_C_HISTORY_MARKDOWN. Scope: the four correction runtime/test owners and their direct prompt/model-call/run.ts callers, plus runner, status checker and transition-state. Reverse-import/source-reader boundaries are fully recorded in the 216-row inventory and surface matrix. The original location-star-scope evaluator is distinct and unchanged; the two new account-off rows share the one new checker. Cafe and weekend use separate new checkers. Both admission and final historical Markdown checks are present; all fourth-round runner/checker call sites route through the exact grant, and the generic fifth ceiling remains. No missed sibling defect was found inside the approved finite delta. No unrelated unchanged product subsystem was opened.
+
+## Duty 5: operational completeness
+
+The product delta adds prompt text and local/keyed evaluator predicates; it adds no production worker terminal/swallowed failure path, provider call, posting path or Sentry signal. Evaluator failure strings use the existing failed-case reporting path. The verifier delta adds local CLI refusal outcomes surfaced to the invoking process, not a production runtime alert channel. Consequently no new production Sentry identity/filter/level/grouping/threshold/action rule pair is required by this bounded delta. Existing deployed-worker acceptance and alert drills remain separate runbook work. No browser/provider verification was performed by this verifier, and no such proof is claimed.
+
+All 63 measurements, seven root equivalence adjudications, and the final root restoration have now completed as recorded in this appendix.
+
+The existing schema-specific diagnostic assertion in R4-0161 is retained as a diagnostic contract; its kill does not independently establish a change to the ultimate authorization verdict. This limitation was reviewed by the verifier and root before report construction.
+
+## Complete candidate inventory and measured attempts
+
+Every expanded title is literal and receives its own inventory identity. Excluded rows retain their individual original scope reasons. Actual attempt evidence below retains the complete selected-test failure messages and root restoration acknowledgment; skipped sibling tests are not counted as executed.
+
+### R4-0001 — killed
+
+- File: src/lib/agents/operator/__tests__/prompt.test.ts:46
+- Full individual title: operator prompt its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity
+- Direction: A: changed test file; B: changed prompt system/version
+- Anchored escaped filter: `^operator prompt its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity$`
+- Scope basis: Added assertion directly observes the changed account-off worked example and the new prompt identity.
+- Disposition/evidence: Round 4 R4-0001, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe prompt-example-threshold; baseline launch 1 passed exactly one actual test; mutant launch 2 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0001 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0001-baseline.json; /private/tmp/run-c-round4/R4-0001-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ { …(4) } ] to deeply equal [ { …(4) } ] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/src/lib/agents/operator/__tests__/prompt.test.ts:51:31. Production target: src/lib/agents/operator/prompt.ts. Change only the worked example input threshold from null to 5; alternative, revert the declared version to 2026-09-13.3. This verifies the example/identity assertion, not live model compliance. Measures worked-example/schema assertions only, not live provider compliance.
+
+```json
+{
+  "measurementId": "R4-0001",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "prompt-example-threshold",
+  "production": "src/lib/agents/operator/prompt.ts",
+  "from": "\"input\":{\"threshold\":null},\"rationale\":\"You asked to turn automatic replies off for the account default.\"",
+  "to": "\"input\":{\"threshold\":5},\"rationale\":\"You asked to turn automatic replies off for the account default.\"",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0001-baseline.json",
+    "executed": [
+      {
+        "title": "operator prompt its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 1
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0001-mutant.json",
+    "executed": [
+      {
+        "title": "operator prompt its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected [ { …(4) } ] to deeply equal [ { …(4) } ]\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/src/lib/agents/operator/__tests__/prompt.test.ts:51:31\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 2
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0001",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (2 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0002 — excluded
+
+- File: src/lib/agents/operator/__tests__/prompt.test.ts:61
+- Full individual title: operator prompt the system prompt declares every top-level key and every segment type OperatorModelOutputSchema accepts
+- Direction: A: changed test file; B: changed prompt system/version
+- Anchored escaped filter: `^operator prompt the system prompt declares every top-level key and every segment type OperatorModelOutputSchema accepts$`
+- Scope basis: The assertions observe the unchanged OUTPUT_SHAPE/schema vocabulary and reject only versions 2026-09-11.2 and 2026-09-13.1. Both old 2026-09-13.3 and corrected 2026-09-13.4 satisfy them; the changed policy prose/example does not alter their tested predicate. No claim of prompt semantic coverage.
+- Disposition/evidence: The assertions observe the unchanged OUTPUT_SHAPE/schema vocabulary and reject only versions 2026-09-11.2 and 2026-09-13.1. Both old 2026-09-13.3 and corrected 2026-09-13.4 satisfy them; the changed policy prose/example does not alter their tested predicate. No claim of prompt semantic coverage.
+
+### R4-0003 — excluded
+
+- File: src/lib/agents/operator/__tests__/prompt.test.ts:91
+- Full individual title: operator prompt the user envelope carries each proposable input shape on the operation itself, and no shape on reads or captures
+- Direction: A: changed test file; B: changed prompt system/version
+- Anchored escaped filter: `^operator prompt the user envelope carries each proposable input shape on the operation itself, and no shape on reads or captures$`
+- Scope basis: Reads only prompt.user snapshot.allowedOperations input shapes; this delta changes system instructions and version, while the user-envelope serializer and operation shape dataflow are unchanged.
+- Disposition/evidence: Reads only prompt.user snapshot.allowedOperations input shapes; this delta changes system instructions and version, while the user-envelope serializer and operation shape dataflow are unchanged.
+
+### R4-0004 — excluded
+
+- File: src/lib/agents/operator/__tests__/prompt.test.ts:105
+- Full individual title: operator prompt the user envelope lists every operation the wire schema accepts, with exactly that schema input keys
+- Direction: A: changed test file; B: changed prompt system/version
+- Anchored escaped filter: `^operator prompt the user envelope lists every operation the wire schema accepts, with exactly that schema input keys$`
+- Scope basis: Reads only prompt.user allowedOperations/schema input-key mapping and absence of confirmation fields; the changed system instructions/version do not flow into this unchanged user-envelope predicate.
+- Disposition/evidence: Reads only prompt.user allowedOperations/schema input-key mapping and absence of confirmation fields; the changed system instructions/version do not flow into this unchanged user-envelope predicate.
+
+### R4-0005 — killed
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:93
+- Full individual title: runStructuredEval runs every structured task and Operator regression through both registered providers (8 x 2)
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval runs every structured task and Operator regression through both registered providers \(8 x 2\)$`
+- Scope basis: The assertion checks the aggregate report across the added regression cases; changed per-prompt mock responses and new evaluator fixtures therefore affect the observed result.
+- Disposition/evidence: Round 4 R4-0005, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe omit-account-default-fixture; baseline launch 3 passed exactly one actual test; mutant launch 4 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0005 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0005-baseline.json; /private/tmp/run-c-round4/R4-0005-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 7 to be 8 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:97:26. Production target: tests/llm-eval/structured-runner.ts. Remove one added account-off regression fixture from the map input, reducing the report case count.
+
+```json
+{
+  "measurementId": "R4-0005",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "omit-account-default-fixture",
+  "production": "tests/llm-eval/structured-runner.ts",
+  "from": "    ['owner-operator-account-default-off', \"Turn auto-posting off in my account's default rule. Keep the veto window and daily cap unchanged.\"],\n",
+  "to": "",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0005-baseline.json",
+    "executed": [
+      {
+        "title": "runStructuredEval runs every structured task and Operator regression through both registered providers (8 x 2)",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 3
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0005-mutant.json",
+    "executed": [
+      {
+        "title": "runStructuredEval runs every structured task and Operator regression through both registered providers (8 x 2)",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 7 to be 8 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:97:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      }
+    ],
+    "runs": 4
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0005",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (4 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0006 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:134
+- Full individual title: runStructuredEval builds the judge case with the production judge envelope
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval builds the judge case with the production judge envelope$`
+- Scope basis: Selects only the unchanged judge fixture and buildJudgePrompt envelope; no new Operator fixture or response helper is consumed by the assertion.
+- Disposition/evidence: Selects only the unchanged judge fixture and buildJudgePrompt envelope; no new Operator fixture or response helper is consumed by the assertion.
+
+### R4-0007 — killed
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:140
+- Full individual title: runStructuredEval fails a case whose fallback output breaks the registered schema
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval fails a case whose fallback output breaks the registered schema$`
+- Scope basis: The assertion checks the aggregate report across the added regression cases; changed per-prompt mock responses and new evaluator fixtures therefore affect the observed result.
+- Disposition/evidence: Round 4 R4-0007, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 5 passed exactly one actual test; mutant launch 6 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0007 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0007-baseline.json; /private/tmp/run-c-round4/R4-0007-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 3 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:150:27. Production target: tests/llm-eval/structured-runner.ts. Make the new account-off checker reject an otherwise valid null-threshold contraction; the aggregate failed/remaining-pass assertion must detect the added failed case.
+
+```json
+{
+  "measurementId": "R4-0007",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "reject-valid-account-off",
+  "production": "tests/llm-eval/structured-runner.ts",
+  "from": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== null)",
+  "to": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== 5)",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0007-baseline.json",
+    "executed": [
+      {
+        "title": "runStructuredEval fails a case whose fallback output breaks the registered schema",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 5
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0007-mutant.json",
+    "executed": [
+      {
+        "title": "runStructuredEval fails a case whose fallback output breaks the registered schema",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 3 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:150:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      }
+    ],
+    "runs": 6
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0007",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (6 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0008 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:157
+- Full individual title: runStructuredEval fails a schema-valid but semantically wrong result (question-only Operator output)
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval fails a schema-valid but semantically wrong result \(question-only Operator output\)$`
+- Scope basis: Selects the first owner_operator result, the original location star-scope fixture. Its primary override and asserted semantic error are unchanged; added account-off/Cafe/weekend results are not inspected. The fallback helper takes its unchanged default branch for this original request.
+- Disposition/evidence: Selects the first owner_operator result, the original location star-scope fixture. Its primary override and asserted semantic error are unchanged; added account-off/Cafe/weekend results are not inspected. The fallback helper takes its unchanged default branch for this original request.
+
+### R4-0009 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:176
+- Full individual title: runStructuredEval fails an Operator proposal with the wrong star threshold or scope
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval fails an Operator proposal with the wrong star threshold or scope$`
+- Scope basis: Overrides owner_operator fallback with the original wrong-threshold/location result, then inspects only the first original owner_operator fixture. The new cases may also fail but their results are not the asserted dataflow.
+- Disposition/evidence: Overrides owner_operator fallback with the original wrong-threshold/location result, then inspects only the first original owner_operator fixture. The new cases may also fail but their results are not the asserted dataflow.
+
+### R4-0010 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:195
+- Full individual title: runStructuredEval fails when the primary result came from the fallback provider
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval fails when the primary result came from the fallback provider$`
+- Scope basis: Inspects only the judge provider mismatch. The primary override uses the unchanged judge result, and new Operator failures are outside this predicate.
+- Disposition/evidence: Inspects only the judge provider mismatch. The primary override uses the unchanged judge result, and new Operator failures are outside this predicate.
+
+### R4-0011 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:209
+- Full individual title: runStructuredEval fails an incomplete or non-JSON fallback without reporting its text
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval fails an incomplete or non-JSON fallback without reporting its text$`
+- Scope basis: Inspects the unchanged judge truncation and solicitation non-JSON paths plus absence of their sentinel text; the added Operator cases and new mock branches do not supply these fields or sentinel.
+- Disposition/evidence: Inspects the unchanged judge truncation and solicitation non-JSON paths plus absence of their sentinel text; the added Operator cases and new mock branches do not supply these fields or sentinel.
+
+### R4-0012 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:224
+- Full individual title: runStructuredEval reports a thrown provider error by kind and status only
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval reports a thrown provider error by kind and status only$`
+- Scope basis: Inspects the unchanged triage thrown-error sanitization plus absence of that error sentinel; new Operator fixture outcomes do not change the asserted triage error.
+- Disposition/evidence: Inspects the unchanged triage thrown-error sanitization plus absence of that error sentinel; new Operator fixture outcomes do not change the asserted triage error.
+
+### R4-0013 — killed
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:238
+- Full individual title: runStructuredEval records a fallback exception once and continues to the next case without retrying
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval records a fallback exception once and continues to the next case without retrying$`
+- Scope basis: The assertion checks the aggregate report across the added regression cases; changed per-prompt mock responses and new evaluator fixtures therefore affect the observed result.
+- Disposition/evidence: Round 4 R4-0013, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 7 passed exactly one actual test; mutant launch 8 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0013 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0013-baseline.json; /private/tmp/run-c-round4/R4-0013-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 3 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:245:27. Production target: tests/llm-eval/structured-runner.ts. Make the new account-off checker reject an otherwise valid null-threshold contraction; the aggregate failed/remaining-pass assertion must detect the added failed case.
+
+```json
+{
+  "measurementId": "R4-0013",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "reject-valid-account-off",
+  "production": "tests/llm-eval/structured-runner.ts",
+  "from": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== null)",
+  "to": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== 5)",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0013-baseline.json",
+    "executed": [
+      {
+        "title": "runStructuredEval records a fallback exception once and continues to the next case without retrying",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 7
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0013-mutant.json",
+    "executed": [
+      {
+        "title": "runStructuredEval records a fallback exception once and continues to the next case without retrying",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 3 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:245:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      }
+    ],
+    "runs": 8
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0013",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (8 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0014 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:260
+- Full individual title: runStructuredEval fails before any provider call when OPENAI_API_KEY is missing
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval fails before any provider call when OPENAI_API_KEY is missing$`
+- Scope basis: Missing-key guard throws before runStructuredEval traverses any case or calls either changed response helper; the key validation implementation is unchanged.
+- Disposition/evidence: Missing-key guard throws before runStructuredEval traverses any case or calls either changed response helper; the key validation implementation is unchanged.
+
+### R4-0015 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:260
+- Full individual title: runStructuredEval fails before any provider call when ANTHROPIC_API_KEY is missing
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^runStructuredEval fails before any provider call when ANTHROPIC_API_KEY is missing$`
+- Scope basis: Missing-key guard throws before runStructuredEval traverses any case or calls either changed response helper; the key validation implementation is unchanged.
+- Disposition/evidence: Missing-key guard throws before runStructuredEval traverses any case or calls either changed response helper; the key validation implementation is unchanged.
+
+### R4-0016 — killed
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:277
+- Full individual title: Operator deployed-regression fixtures owner-operator-all-locations-off requires an account contraction despite blocked readiness and no pending reviews
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^Operator deployed-regression fixtures owner-operator-all-locations-off requires an account contraction despite blocked readiness and no pending reviews$`
+- Scope basis: Added expanded account-off case directly checks the new blocked snapshot and new account-default semantic oracle.
+- Disposition/evidence: Round 4 R4-0016, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 9 passed exactly one actual test; mutant launch 10 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0016 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0016-baseline.json; /private/tmp/run-c-round4/R4-0016-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:288:35. Production target: tests/llm-eval/structured-runner.ts. Change the new account-off threshold predicate from !== null to !== 5, making the provided valid null-threshold result fail and the wrong-threshold result misclassified; use an assertion failure, not a malformed schema.
+
+```json
+{
+  "measurementId": "R4-0016",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "reject-valid-account-off",
+  "production": "tests/llm-eval/structured-runner.ts",
+  "from": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== null)",
+  "to": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== 5)",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0016-baseline.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures owner-operator-all-locations-off requires an account contraction despite blocked readiness and no pending reviews",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 9
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0016-mutant.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures owner-operator-all-locations-off requires an account contraction despite blocked readiness and no pending reviews",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected [ Array(1) ] to deeply equal []\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:288:35\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 10
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0016",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (10 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0017 — killed
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:277
+- Full individual title: Operator deployed-regression fixtures owner-operator-account-default-off requires an account contraction despite blocked readiness and no pending reviews
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^Operator deployed-regression fixtures owner-operator-account-default-off requires an account contraction despite blocked readiness and no pending reviews$`
+- Scope basis: Added expanded account-off case directly checks the new blocked snapshot and new account-default semantic oracle.
+- Disposition/evidence: Round 4 R4-0017, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-account-off; baseline launch 11 passed exactly one actual test; mutant launch 12 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0017 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0017-baseline.json; /private/tmp/run-c-round4/R4-0017-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:288:35. Production target: tests/llm-eval/structured-runner.ts. Change the new account-off threshold predicate from !== null to !== 5, making the provided valid null-threshold result fail and the wrong-threshold result misclassified; use an assertion failure, not a malformed schema.
+
+```json
+{
+  "measurementId": "R4-0017",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "reject-valid-account-off",
+  "production": "tests/llm-eval/structured-runner.ts",
+  "from": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== null)",
+  "to": "if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== 5)",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0017-baseline.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures owner-operator-account-default-off requires an account contraction despite blocked readiness and no pending reviews",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 11
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0017-mutant.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures owner-operator-account-default-off requires an account contraction despite blocked readiness and no pending reviews",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected [ Array(1) ] to deeply equal []\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:288:35\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 12
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0017",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (12 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0018 — killed
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:299
+- Full individual title: Operator deployed-regression fixtures requires only a Cafe scope chooser for the exact named-other-location request
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^Operator deployed-regression fixtures requires only a Cafe scope chooser for the exact named-other-location request$`
+- Scope basis: Added Cafe case directly observes the changed named-other-location checker.
+- Disposition/evidence: Round 4 R4-0018, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-pure-cafe-chooser; baseline launch 13 passed exactly one actual test; mutant launch 14 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0018 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0018-baseline.json; /private/tmp/run-c-round4/R4-0018-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:304:37. Production target: tests/llm-eval/structured-runner.ts. Invert the new Cafe unsupported.length predicate, so its otherwise valid pure chooser is rejected.
+
+```json
+{
+  "measurementId": "R4-0018",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "reject-pure-cafe-chooser",
+  "production": "tests/llm-eval/structured-runner.ts",
+  "from": "if (output.unsupported.length !== 0) failures.push('scope mismatch classified as unsupported');",
+  "to": "if (output.unsupported.length === 0) failures.push('scope mismatch classified as unsupported');",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0018-baseline.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures requires only a Cafe scope chooser for the exact named-other-location request",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 13
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0018-mutant.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures requires only a Cafe scope chooser for the exact named-other-location request",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected [ Array(1) ] to deeply equal []\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:304:37\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 14
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0018",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (14 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0019 — killed
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:309
+- Full individual title: Operator deployed-regression fixtures requires unsupported without a scope chooser or proposal for the exact weekend request
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^Operator deployed-regression fixtures requires unsupported without a scope chooser or proposal for the exact weekend request$`
+- Scope basis: Added weekend case directly observes scheduling-specific unsupported validation and proposal/chooser refusal.
+- Disposition/evidence: Round 4 R4-0019, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe reject-valid-weekend-scheduling; baseline launch 15 passed exactly one actual test; mutant launch 16 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0019 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0019-baseline.json; /private/tmp/run-c-round4/R4-0019-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected [ Array(1) ] to deeply equal [] at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:315:41. Production target: tests/llm-eval/structured-runner.ts. Replace the new weekday/weekend request regex with a pattern that cannot match a valid scheduling request, causing the positive unsupported-result assertion to fail.
+
+```json
+{
+  "measurementId": "R4-0019",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "reject-valid-weekend-scheduling",
+  "production": "tests/llm-eval/structured-runner.ts",
+  "from": "if (!/\\b(?:weekends?|weekdays?|saturdays?|sundays?|days? of (?:the )?week)\\b/i",
+  "to": "if (!/\\bnever-a-valid-scheduling-request\\b/i",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0019-baseline.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures requires unsupported without a scope chooser or proposal for the exact weekend request",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 15
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0019-mutant.json",
+    "executed": [
+      {
+        "title": "Operator deployed-regression fixtures requires unsupported without a scope chooser or proposal for the exact weekend request",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected [ Array(1) ] to deeply equal []\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/tests/llm-eval/__tests__/structured-runner.test.ts:315:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 16
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0019",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (16 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0020 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:330
+- Full individual title: sanitizeLlmError keeps kind, status, cause kind, issue codes/paths and billed usage — never messages
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^sanitizeLlmError keeps kind, status, cause kind, issue codes/paths and billed usage — never messages$`
+- Scope basis: Calls sanitizeLlmError directly with an explicit error object; that function and its input/output shape are unchanged, and no prompt/fixture/response helper is called.
+- Disposition/evidence: Calls sanitizeLlmError directly with an explicit error object; that function and its input/output shape are unchanged, and no prompt/fixture/response helper is called.
+
+### R4-0021 — excluded
+
+- File: tests/llm-eval/__tests__/structured-runner.test.ts:353
+- Full individual title: run.ts offline default does not import the keyed structured lane
+- Direction: A: changed cases and validForPrompt/fallbackOk/beforeEach helpers; B: changed evaluator fixtures/checks; B: run.ts direct importer
+- Anchored escaped filter: `^run\.ts offline default does not import the keyed structured lane$`
+- Scope basis: Mocks the entire structured-runner module and asserts offline run.ts never imports it. The corrected runtime module is not loaded; the offline dispatch path is unchanged.
+- Disposition/evidence: Mocks the entire structured-runner module and asserts offline run.ts never imports it. The corrected runtime module is not loaded; the offline dispatch path is unchanged.
+
+### R4-0022 — killed
+
+- File: src/lib/agents/operator/__tests__/model-call.test.ts:104
+- Full individual title: operator model call generateOperatorReply records one api_costs row per billed attempt
+- Direction: B: direct prompt imports and model-call runtime caller
+- Anchored escaped filter: `^operator model call generateOperatorReply records one api_costs row per billed attempt$`
+- Scope basis: The prompt version/hash are changed values consumed by the direct model-call caller and asserted in each billed-attempt metadata row. Provider results are mocked, so this covers metadata forwarding only.
+- Disposition/evidence: Round 4 R4-0022, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe stale-caller-prompt-identity; baseline launch 17 passed exactly one actual test; mutant launch 18 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0022 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0022-baseline.json; /private/tmp/run-c-round4/R4-0022-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected { …(11) } to match object { …(6) } at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/src/lib/agents/operator/__tests__/model-call.test.ts:123:23. Production target: src/lib/agents/operator/model-call.ts. Replace the direct caller cost-row promptVersion with the prior literal 2026-09-13.3; its expected imported corrected identity must reject the stale audit metadata. Measures direct-caller audit identity propagation only, with provider output mocked.
+
+```json
+{
+  "measurementId": "R4-0022",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "stale-caller-prompt-identity",
+  "production": "src/lib/agents/operator/model-call.ts",
+  "from": "promptVersion: OWNER_OPERATOR_PROMPT_VERSION,",
+  "to": "promptVersion: '2026-09-13.3',",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0022-baseline.json",
+    "executed": [
+      {
+        "title": "operator model call generateOperatorReply records one api_costs row per billed attempt",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 17
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0022-mutant.json",
+    "executed": [
+      {
+        "title": "operator model call generateOperatorReply records one api_costs row per billed attempt",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected { …(11) } to match object { …(6) }\n(5 matching properties omitted from actual)\n    at Proxy.<anonymous> (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+expect@4.1.7/node_modules/@vitest/expect/dist/index.js:1283:10)\n    at Proxy.<anonymous> (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+expect@4.1.7/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/chai@6.2.2/node_modules/chai/index.js:1700:25)\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/src/lib/agents/operator/__tests__/model-call.test.ts:123:23\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      }
+    ],
+    "runs": 18
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0022",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (18 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0023 — excluded
+
+- File: src/lib/agents/operator/__tests__/model-call.test.ts:153
+- Full individual title: operator model call fails model_output_invalid when both attempts return an invalid shape
+- Direction: B: direct prompt imports and model-call runtime caller
+- Anchored escaped filter: `^operator model call fails model_output_invalid when both attempts return an invalid shape$`
+- Scope basis: Both attempts throw fixed mocked structured-output errors. Assertions observe unchanged invalid-shape retry, billed-row count and token cost; neither prompt content nor prompt identity is asserted.
+- Disposition/evidence: Both attempts throw fixed mocked structured-output errors. Assertions observe unchanged invalid-shape retry, billed-row count and token cost; neither prompt content nor prompt identity is asserted.
+
+### R4-0024 — excluded
+
+- File: src/lib/agents/operator/__tests__/snapshot.integration.test.ts:198
+- Full individual title: operator snapshot (live DB) snapshot red team: instruction-shaped review bodies never reach the rendered snapshot or prompt
+- Direction: B: direct prompt importer
+- Anchored escaped filter: `^operator snapshot \(live DB\) snapshot red team: instruction-shaped review bodies never reach the rendered snapshot or prompt$`
+- Scope basis: Assertions verify snapshot review-text scrubbing, fixed-string non-leakage, stored-history preservation and counts. The new system prose/example contain none of the injected sentinel strings, and no new policy interpretation is executed; snapshot construction and prompt user serialization are unchanged.
+- Disposition/evidence: Assertions verify snapshot review-text scrubbing, fixed-string non-leakage, stored-history preservation and counts. The new system prose/example contain none of the injected sentinel strings, and no new policy interpretation is executed; snapshot construction and prompt user serialization are unchanged.
+
+### R4-0025 — excluded
+
+- File: src/lib/agents/operator/__tests__/snapshot.integration.test.ts:291
+- Full individual title: operator snapshot (live DB) snapshot summarises each historical turn's own proposals from the catalog
+- Direction: B: direct prompt importer
+- Anchored escaped filter: `^operator snapshot \(live DB\) snapshot summarises each historical turn's own proposals from the catalog$`
+- Scope basis: Calls buildSnapshot and asserts stored-turn proposal summaries/pending cards. This case never calls buildOperatorPrompt, and the changed system instructions are outside its dataflow.
+- Disposition/evidence: Calls buildSnapshot and asserts stored-turn proposal summaries/pending cards. This case never calls buildOperatorPrompt, and the changed system instructions are outside its dataflow.
+
+### R4-0026 — excluded
+
+- File: src/lib/agents/operator/__tests__/snapshot.integration.test.ts:352
+- Full individual title: operator snapshot (live DB) snapshot operating rules report the location override and its dials
+- Direction: B: direct prompt importer
+- Anchored escaped filter: `^operator snapshot \(live DB\) snapshot operating rules report the location override and its dials$`
+- Scope basis: Calls buildSnapshot and checks database-derived override/dial state. It never calls buildOperatorPrompt or any new semantic evaluator; the policy projection is unchanged.
+- Disposition/evidence: Calls buildSnapshot and checks database-derived override/dial state. It never calls buildOperatorPrompt or any new semantic evaluator; the policy projection is unchanged.
+
+### R4-0027 — excluded
+
+- File: src/lib/agents/operator/__tests__/snapshot.integration.test.ts:403
+- Full individual title: operator snapshot (live DB) snapshot star bands equal a hand count per location and exclude held drafts
+- Direction: B: direct prompt importer
+- Anchored escaped filter: `^operator snapshot \(live DB\) snapshot star bands equal a hand count per location and exclude held drafts$`
+- Scope basis: Calls buildSnapshot and checks hand-counted star bands and held-draft exclusion. It never calls buildOperatorPrompt or new evaluator checks; the metrics reader is unchanged.
+- Disposition/evidence: Calls buildSnapshot and checks hand-counted star bands and held-draft exclusion. It never calls buildOperatorPrompt or new evaluator checks; the metrics reader is unchanged.
+
+### R4-0028 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:189
+- Full individual title: the owner-approved Run C fourth round opens only the committed canonical third-to-fourth transition
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round opens only the committed canonical third-to-fourth transition$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0028, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-valid-fourth-admission; baseline launch 19 passed exactly one actual test; mutant launch 20 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0028 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0028-baseline.json; /private/tmp/run-c-round4/R4-0028-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 1 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:191:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific opens only the committed canonical third-to-fourth transition guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0028",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "deny-valid-fourth-admission",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (round > 3 && !fourthGrant) {",
+  "to": "if (round > 3) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0028-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round opens only the committed canonical third-to-fourth transition",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 19
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0028-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round opens only the committed canonical third-to-fourth transition",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 1 to be +0 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:191:39\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 20
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0028",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (20 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0029 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:195
+- Full individual title: the owner-approved Run C fourth round refuses admission when committed historical Markdown is deleted
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses admission when committed historical Markdown is deleted$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0029, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-admission-markdown-preservation; baseline launch 21 passed exactly one actual test; mutant launch 22 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0029 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0029-baseline.json; /private/tmp/run-c-round4/R4-0029-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:204:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific deleted guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0029",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-admission-markdown-preservation",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (git(root, ['rev-parse', `${RUN_C_FOURTH_BASELINE}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB\n      || git(root, ['rev-parse', `${headSha}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB) return null;",
+  "to": "    if (git(root, ['rev-parse', `${RUN_C_FOURTH_BASELINE}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB) return null;",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0029-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses admission when committed historical Markdown is deleted",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 21
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0029-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses admission when committed historical Markdown is deleted",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:204:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 22
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0029",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (22 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0030 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:195
+- Full individual title: the owner-approved Run C fourth round refuses admission when committed historical Markdown is replaced
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses admission when committed historical Markdown is replaced$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0030, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-admission-markdown-preservation; baseline launch 23 passed exactly one actual test; mutant launch 24 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0030 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0030-baseline.json; /private/tmp/run-c-round4/R4-0030-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:204:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific replaced guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0030",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-admission-markdown-preservation",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (git(root, ['rev-parse', `${RUN_C_FOURTH_BASELINE}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB\n      || git(root, ['rev-parse', `${headSha}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB) return null;",
+  "to": "    if (git(root, ['rev-parse', `${RUN_C_FOURTH_BASELINE}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB) return null;",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0030-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses admission when committed historical Markdown is replaced",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 23
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0030-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses admission when committed historical Markdown is replaced",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:204:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 24
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0030",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (24 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0031 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for missing without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for missing without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0031, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 25 passed exactly one actual test; mutant launch 26 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0031 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0031-baseline.json; /private/tmp/run-c-round4/R4-0031-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific missing guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0031",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-fourth-without-valid-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (round > 3 && !fourthGrant) {",
+  "to": "if (round > 4 && !fourthGrant) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0031-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for missing without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 25
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0031-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for missing without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 26
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0031",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (26 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0032 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for uncommitted without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for uncommitted without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0032, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 27 passed exactly one actual test; mutant launch 28 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0032 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0032-baseline.json; /private/tmp/run-c-round4/R4-0032-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific uncommitted guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0032",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-fourth-without-valid-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (round > 3 && !fourthGrant) {",
+  "to": "if (round > 4 && !fourthGrant) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0032-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for uncommitted without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 27
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0032-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for uncommitted without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 28
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0032",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (28 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0033 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for branch without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for branch without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0033, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-current-branch-in-admission; baseline launch 29 passed exactly one actual test; mutant launch 30 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0033 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0033-baseline.json; /private/tmp/run-c-round4/R4-0033-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific branch guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0033",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-current-branch-in-admission",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (git(root, ['branch', '--show-current']) !== 'codex/owner-operator-run-c'\n      || git(root, ['merge-base', RUN_C_FOURTH_BASELINE, headSha]) !== RUN_C_FOURTH_BASELINE",
+  "to": "    if (git(root, ['merge-base', RUN_C_FOURTH_BASELINE, headSha]) !== RUN_C_FOURTH_BASELINE",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0033-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for branch without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 29
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0033-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for branch without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 30
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0033",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (30 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0034 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for path without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for path without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0034, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 31 passed exactly one actual test; mutant launch 32 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0034 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0034-baseline.json; /private/tmp/run-c-round4/R4-0034-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific path guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0034",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-fourth-without-valid-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (round > 3 && !fourthGrant) {",
+  "to": "if (round > 4 && !fourthGrant) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0034-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for path without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 31
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0034-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for path without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 32
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0034",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (32 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0035 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for third text without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for third text without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0035, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-text; baseline launch 33 passed exactly one actual test; mutant launch 34 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0035 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0035-baseline.json; /private/tmp/run-c-round4/R4-0035-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific third text guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0035",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-fourth-approval-text",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    || authorization.text !== RUN_C_FOURTH_TEXT\n",
+  "to": "",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0035-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for third text without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 33
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0035-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for third text without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 34
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0035",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (34 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0036 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for second text without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for second text without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0036, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-previous-grant-id; baseline launch 35 passed exactly one actual test; mutant launch 36 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0036 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0036-baseline.json; /private/tmp/run-c-round4/R4-0036-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific second text guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0036",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-previous-grant-id",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "entry?.id === RUN_C_FOURTH_AUTHORIZATION);",
+  "to": "(entry?.id === RUN_C_FOURTH_AUTHORIZATION || entry?.id === RUN_C_AUTHORIZATION));",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0036-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for second text without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 35
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0036-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for second text without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 36
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0036",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (36 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0037 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for date without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for date without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0037, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-date; baseline launch 37 passed exactly one actual test; mutant launch 38 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0037 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0037-baseline.json; /private/tmp/run-c-round4/R4-0037-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific date guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0037",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-fourth-approval-date",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (matches.length !== 1 || authorization.date !== '2026-09-13'",
+  "to": "if (matches.length !== 1",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0037-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for date without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 37
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0037-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for date without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 38
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0037",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (38 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0038 — equivalent
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for identity without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for identity without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0038, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-inventory-identity-hash; baseline launch 39 passed exactly one actual test; mutant launch 40 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0038 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0038-baseline.json; /private/tmp/run-c-round4/R4-0038-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the identity digest guard at mutation-runner.mjs:124. The fixture rewrites inventory[0].test at red-team-mutation-runner.test.ts:228. The complete historicalEvidence/admissionEvidence comparison at runner:168–170 excludes only authorizations, so the unequal inventory test string necessarily returns null. The fourth admission gate at runner:680 refuses; test:244–245 actually observes status 1 and unchanged round 3 / runs 22. This is deterministic redundant-denial equivalence. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+```json
+{
+  "measurementId": "R4-0038",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-inventory-identity-hash",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (sha256(JSON.stringify(identities)) !== '58454909c7c79f1f7b71c6a261fb3deab104d7bc36d5a0fa3ff6958e0a353c3b') return null;",
+  "to": "  // MUTANT: admission no longer verifies the inventory identity digest.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0038-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for identity without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 39
+  },
+  "mutant": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0038-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for identity without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 40
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0038",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (40 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+**Verifier proof:** The only mutation removes the identity digest guard at mutation-runner.mjs:124. The fixture rewrites inventory[0].test at red-team-mutation-runner.test.ts:228. The complete historicalEvidence/admissionEvidence comparison at runner:168–170 excludes only authorizations, so the unequal inventory test string necessarily returns null. The fourth admission gate at runner:680 refuses; test:244–245 actually observes status 1 and unchanged round 3 / runs 22. This is deterministic redundant-denial equivalence.
+
+**Root disposition:** Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+### R4-0039 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for history without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for history without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0039, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-full-admission-history; baseline launch 41 passed exactly one actual test; mutant launch 42 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0039 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0039-baseline.json; /private/tmp/run-c-round4/R4-0039-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific history guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0039",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-full-admission-history",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (JSON.stringify(historicalEvidence) !== JSON.stringify(admissionEvidence)) return null;",
+  "to": "    // MUTANT: omit complete historical evidence comparison.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0039-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for history without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 41
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0039-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for history without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 42
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0039",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (42 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0040 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for ancestry without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for ancestry without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0040, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 43 passed exactly one actual test; mutant launch 44 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0040 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0040-baseline.json; /private/tmp/run-c-round4/R4-0040-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific ancestry guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0040",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-fourth-without-valid-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (round > 3 && !fourthGrant) {",
+  "to": "if (round > 4 && !fourthGrant) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0040-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for ancestry without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 43
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0040-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for ancestry without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 44
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0040",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (44 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0041 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for product without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for product without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0041, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-finite-admission-paths; baseline launch 45 passed exactly one actual test; mutant launch 46 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0041 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0041-baseline.json; /private/tmp/run-c-round4/R4-0041-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific product guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0041",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-finite-admission-paths",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (changed.split('\\n').filter(Boolean).some((path) => !RUN_C_FOURTH_PATHS.has(path))) return null;",
+  "to": "    // MUTANT: do not enforce the finite changed-path set.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0041-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for product without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 45
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0041-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for product without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 46
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0041",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (46 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0042 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for dirty without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for dirty without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0042, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-untracked-admission-mutations; baseline launch 47 passed exactly one actual test; mutant launch 48 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0042 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0042-baseline.json; /private/tmp/run-c-round4/R4-0042-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific dirty guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0042",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-untracked-admission-mutations",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (!proof || !onlyJournaledChanges(root, journal)\n",
+  "to": "    if (!proof\n",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0042-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for dirty without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 47
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0042-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for dirty without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 48
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0042",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (48 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0043 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:209
+- Full individual title: the owner-approved Run C fourth round refuses fourth-round admission for staged without resetting round three
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses fourth-round admission for staged without resetting round three$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0043, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-untracked-admission-mutations; baseline launch 49 passed exactly one actual test; mutant launch 50 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0043 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0043-baseline.json; /private/tmp/run-c-round4/R4-0043-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific staged guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0043",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-untracked-admission-mutations",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (!proof || !onlyJournaledChanges(root, journal)\n",
+  "to": "    if (!proof\n",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0043-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for staged without resetting round three",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 49
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0043-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses fourth-round admission for staged without resetting round three",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:244:41\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 50
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0043",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (50 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0044 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:249
+- Full individual title: the owner-approved Run C fourth round pins the grant before releasing the first supervisor
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round pins the grant before releasing the first supervisor$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0044, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe record-wrong-first-launch; baseline launch 51 passed exactly one actual test; mutant launch 52 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0044 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0044-baseline.json; /private/tmp/run-c-round4/R4-0044-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 1 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:254:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific pins the grant before releasing the first supervisor guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0044",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "record-wrong-first-launch",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "journal.budgetAuthorization = { ...authorization, firstRun: journal.runs };",
+  "to": "journal.budgetAuthorization = { ...authorization, firstRun: journal.runs + 1 };",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0044-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round pins the grant before releasing the first supervisor",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 51
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0044-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round pins the grant before releasing the first supervisor",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 1 to be +0 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:254:27\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 52
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0044",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (52 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0045 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:260
+- Full individual title: the owner-approved Run C fourth round refuses an ungranted first launch without executing its child
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses an ungranted first launch without executing its child$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0045, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe fail-open-fourth-launch-authentication; baseline launch 53 passed exactly one actual test; mutant launch 54 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0045 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0045-baseline.json; /private/tmp/run-c-round4/R4-0045-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:264:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific refuses an ungranted first launch without executing its child guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0045",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "fail-open-fourth-launch-authentication",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if ((journal.round >= 4 || journal.budgetAuthorization?.id === RUN_C_FOURTH_AUTHORIZATION)\n",
+  "to": "  if (false && (journal.round >= 4 || journal.budgetAuthorization?.id === RUN_C_FOURTH_AUTHORIZATION)\n",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0045-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses an ungranted first launch without executing its child",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 53
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0045-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses an ungranted first launch without executing its child",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:264:27\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 54
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0045",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (54 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0046 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:269
+- Full individual title: the owner-approved Run C fourth round refuses approval drift between launches and preserves the count
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses approval drift between launches and preserves the count$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0046, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe fail-open-fourth-launch-authentication; baseline launch 55 passed exactly one actual test; mutant launch 56 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0046 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0046-baseline.json; /private/tmp/run-c-round4/R4-0046-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific approval guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0046",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "fail-open-fourth-launch-authentication",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if ((journal.round >= 4 || journal.budgetAuthorization?.id === RUN_C_FOURTH_AUTHORIZATION)\n",
+  "to": "  if (false && (journal.round >= 4 || journal.budgetAuthorization?.id === RUN_C_FOURTH_AUTHORIZATION)\n",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0046-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses approval drift between launches and preserves the count",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 55
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0046-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses approval drift between launches and preserves the count",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 56
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0046",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (56 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0047 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:269
+- Full individual title: the owner-approved Run C fourth round refuses head drift between launches and preserves the count
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses head drift between launches and preserves the count$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0047, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-between-launch-head-pin; baseline launch 57 passed exactly one actual test; mutant launch 58 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0047 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0047-baseline.json; /private/tmp/run-c-round4/R4-0047-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific head guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0047",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-between-launch-head-pin",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    && previous.headSha === grant.headSha && previous.maxRuns === grant.maxRuns;",
+  "to": "    && previous.maxRuns === grant.maxRuns;",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0047-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses head drift between launches and preserves the count",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 57
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0047-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses head drift between launches and preserves the count",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 58
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0047",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (58 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0048 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:269
+- Full individual title: the owner-approved Run C fourth round refuses grant drift between launches and preserves the count
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round refuses grant drift between launches and preserves the count$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0048, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-between-launch-budget-pin; baseline launch 59 passed exactly one actual test; mutant launch 60 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0048 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0048-baseline.json; /private/tmp/run-c-round4/R4-0048-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific grant guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0048",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-between-launch-budget-pin",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    && previous.headSha === grant.headSha && previous.maxRuns === grant.maxRuns;",
+  "to": "    && previous.headSha === grant.headSha;",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0048-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses grant drift between launches and preserves the count",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 59
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0048-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round refuses grant drift between launches and preserves the count",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:287:72\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 60
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0048",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (60 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0049 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:292
+- Full individual title: the owner-approved Run C fourth round permits launch 150, refuses 151, and never opens a fifth round
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the owner-approved Run C fourth round permits launch 150, refuses 151, and never opens a fifth round$`
+- Scope basis: New expanded fourth-round guard case exercises the committed admission/launch contract; no new case is pruned.
+- Disposition/evidence: Round 4 R4-0049, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-151-fourth-launches; baseline launch 61 passed exactly one actual test; mutant launch 62 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0049 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0049-baseline.json; /private/tmp/run-c-round4/R4-0049-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:299:28. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the specific permits launch 150, refuses 151, and never opens a fifth round guard with a semantically wrong admission/launch decision; keep fixture Git pins, source syntax and child environment intact.
+
+```json
+{
+  "measurementId": "R4-0049",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-151-fourth-launches",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "grant: { id: authorization.id, maxRuns: 150, sha256: sha256(JSON.stringify(authorization)), headSha },",
+  "to": "grant: { id: authorization.id, maxRuns: 151, sha256: sha256(JSON.stringify(authorization)), headSha },",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0049-baseline.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round permits launch 150, refuses 151, and never opens a fifth round",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 61
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0049-mutant.json",
+    "executed": [
+      {
+        "title": "the owner-approved Run C fourth round permits launch 150, refuses 151, and never opens a fifth round",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:299:28\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 62
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0049",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (62 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0050 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:310
+- Full individual title: the vitest oracle helpers escapes every regex metacharacter in a test title
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the vitest oracle helpers escapes every regex metacharacter in a test title$`
+- Scope basis: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+- Disposition/evidence: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+
+### R4-0051 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:316
+- Full individual title: the vitest oracle helpers accepts exactly one executed test
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the vitest oracle helpers accepts exactly one executed test$`
+- Scope basis: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+- Disposition/evidence: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+
+### R4-0052 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:328
+- Full individual title: the vitest oracle helpers calls zero executed tests INCONCLUSIVE, never a kill
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the vitest oracle helpers calls zero executed tests INCONCLUSIVE, never a kill$`
+- Scope basis: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+- Disposition/evidence: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+
+### R4-0053 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:328
+- Full individual title: the vitest oracle helpers calls two executed tests INCONCLUSIVE, never a kill
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the vitest oracle helpers calls two executed tests INCONCLUSIVE, never a kill$`
+- Scope basis: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+- Disposition/evidence: Only invokes unchanged escape-test-name/assert-one-test commands; fourth-round admission and launch-budget dispatch are not called.
+
+### R4-0054 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:342
+- Full individual title: the environment allowlist emits only the allowlisted keys and drops everything else
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the environment allowlist emits only the allowlisted keys and drops everything else$`
+- Scope basis: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+- Disposition/evidence: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+
+### R4-0055 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:356
+- Full individual title: the environment allowlist sets the live-DB kill switch when no database is supplied
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the environment allowlist sets the live-DB kill switch when no database is supplied$`
+- Scope basis: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+- Disposition/evidence: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+
+### R4-0056 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:362
+- Full individual title: the environment allowlist accepts a localhost database and drops the kill switch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the environment allowlist accepts a localhost database and drops the kill switch$`
+- Scope basis: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+- Disposition/evidence: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+
+### R4-0057 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:370
+- Full individual title: the environment allowlist refuses a remote database host — a mutation removes the guard that made it safe
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the environment allowlist refuses a remote database host — a mutation removes the guard that made it safe$`
+- Scope basis: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+- Disposition/evidence: Only invokes unchanged env validation/serialization; fourth-round admission, grant and report functions are not called.
+
+### R4-0058 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:378
+- Full individual title: the watcher precondition passes when nothing is serving or watching the worktree
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the watcher precondition passes when nothing is serving or watching the worktree$`
+- Scope basis: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+- Disposition/evidence: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+
+### R4-0059 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:383
+- Full individual title: the watcher precondition aborts when a process matching "next dev" is live
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the watcher precondition aborts when a process matching "next dev" is live$`
+- Scope basis: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+- Disposition/evidence: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+
+### R4-0060 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:383
+- Full individual title: the watcher precondition aborts when a process matching "tsx watch worker/index.ts" is live
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the watcher precondition aborts when a process matching "tsx watch worker/index\.ts" is live$`
+- Scope basis: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+- Disposition/evidence: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+
+### R4-0061 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:383
+- Full individual title: the watcher precondition aborts when a process matching "pnpm worker" is live
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the watcher precondition aborts when a process matching "pnpm worker" is live$`
+- Scope basis: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+- Disposition/evidence: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+
+### R4-0062 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:383
+- Full individual title: the watcher precondition aborts when a process matching "bash scripts/dev-stack.sh" is live
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the watcher precondition aborts when a process matching "bash scripts/dev-stack\.sh" is live$`
+- Scope basis: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+- Disposition/evidence: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+
+### R4-0063 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:383
+- Full individual title: the watcher precondition aborts when a process matching "playwright test" is live
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the watcher precondition aborts when a process matching "playwright test" is live$`
+- Scope basis: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+- Disposition/evidence: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+
+### R4-0064 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:399
+- Full individual title: the watcher precondition never reports the checking process or its own ancestry
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the watcher precondition never reports the checking process or its own ancestry$`
+- Scope basis: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+- Disposition/evidence: Only invokes unchanged watcher/process inspection; none of the fourth-round code runs.
+
+### R4-0065 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:419
+- Full individual title: the journal and the finalizer journals the original blob before applying, then records the mutant blob
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the journal and the finalizer journals the original blob before applying, then records the mutant blob$`
+- Scope basis: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+- Disposition/evidence: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+
+### R4-0066 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:429
+- Full individual title: the journal and the finalizer restores the original and leaves a clean tree
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the journal and the finalizer restores the original and leaves a clean tree$`
+- Scope basis: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+- Disposition/evidence: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+
+### R4-0067 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:439
+- Full individual title: the journal and the finalizer ABORTS on content that is neither the original nor the journaled mutant
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the journal and the finalizer ABORTS on content that is neither the original nor the journaled mutant$`
+- Scope basis: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+- Disposition/evidence: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+
+### R4-0068 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:449
+- Full individual title: the journal and the finalizer is idempotent: a second finalize over a restored tree still succeeds
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the journal and the finalizer is idempotent: a second finalize over a restored tree still succeeds$`
+- Scope basis: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+- Disposition/evidence: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+
+### R4-0069 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:455
+- Full individual title: the journal and the finalizer treats a file already back at its original content as done
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the journal and the finalizer treats a file already back at its original content as done$`
+- Scope basis: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+- Disposition/evidence: Uses unchanged mutate/finalize blob restoration commands with a normal fixture journal; no fourth-round authorization is consulted.
+
+### R4-0070 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:466
+- Full individual title: the dotenv rename-swap swaps the real file to a backup and journals only paths and a hash
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the dotenv rename-swap swaps the real file to a backup and journals only paths and a hash$`
+- Scope basis: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+- Disposition/evidence: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+
+### R4-0071 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:477
+- Full individual title: the dotenv rename-swap restores the real file and closes the swap
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the dotenv rename-swap restores the real file and closes the swap$`
+- Scope basis: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+- Disposition/evidence: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+
+### R4-0072 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:488
+- Full individual title: the dotenv rename-swap ABORTS and keeps both files when the scrubbed copy was modified
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the dotenv rename-swap ABORTS and keeps both files when the scrubbed copy was modified$`
+- Scope basis: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+- Disposition/evidence: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+
+### R4-0073 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:502
+- Full individual title: the dotenv rename-swap closes the entry when the backup is gone and the real file is already back
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the dotenv rename-swap closes the entry when the backup is gone and the real file is already back$`
+- Scope basis: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+- Disposition/evidence: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+
+### R4-0074 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:519
+- Full individual title: the dotenv rename-swap FAILS when the backup is gone and the destination is still the scrubbed copy
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the dotenv rename-swap FAILS when the backup is gone and the destination is still the scrubbed copy$`
+- Scope basis: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+- Disposition/evidence: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+
+### R4-0075 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:530
+- Full individual title: the dotenv rename-swap refuses a second swap while one is open
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the dotenv rename-swap refuses a second swap while one is open$`
+- Scope basis: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+- Disposition/evidence: Uses unchanged dotenv-swap/restore hashing and rename protocol; no new round/launch function is executed.
+
+### R4-0076 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:538
+- Full individual title: the paused supervisor runs a command in its own process group and reaps it
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the paused supervisor runs a command in its own process group and reaps it$`
+- Scope basis: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+- Disposition/evidence: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+
+### R4-0077 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:548
+- Full individual title: the paused supervisor kills the whole group on timeout and reports 124
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the paused supervisor kills the whole group on timeout and reports 124$`
+- Scope basis: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+- Disposition/evidence: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+
+### R4-0078 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:561
+- Full individual title: the paused supervisor never executes the command when the parent dies before the release
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the paused supervisor never executes the command when the parent dies before the release$`
+- Scope basis: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+- Disposition/evidence: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+
+### R4-0079 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:584
+- Full individual title: the paused supervisor kills descendants orphaned after the group leader exits
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the paused supervisor kills descendants orphaned after the group leader exits$`
+- Scope basis: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+- Disposition/evidence: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+
+### R4-0080 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:596
+- Full individual title: the paused supervisor refuses to signal a live PID whose start time differs from the journal
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the paused supervisor refuses to signal a live PID whose start time differs from the journal$`
+- Scope basis: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+- Disposition/evidence: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+
+### R4-0081 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:607
+- Full individual title: the paused supervisor reaps a live journaled group whose identity does match
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the paused supervisor reaps a live journaled group whose identity does match$`
+- Scope basis: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+- Disposition/evidence: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+
+### R4-0082 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:617
+- Full individual title: the paused supervisor refuses to restore files while a process group is still live
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the paused supervisor refuses to restore files while a process group is still live$`
+- Scope basis: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+- Disposition/evidence: Uses ordinary round-zero/one supervision and unchanged process/finalizer mechanics; the new fourth-round dispatch branch is false and no fourth-round pin is supplied.
+
+### R4-0083 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:637
+- Full individual title: the mutation budget refuses a run past the 30-per-round cap and names the resulting status
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a run past the 30-per-round cap and names the resulting status$`
+- Scope basis: Runs an exhausted ordinary round-1 fixture; the new round-4 dispatch is false and no fourth-grant id is present. The unchanged default cap rejects at 30.
+- Disposition/evidence: Runs an exhausted ordinary round-1 fixture; the new round-4 dispatch is false and no fourth-grant id is present. The unchanged default cap rejects at 30.
+
+### R4-0084 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:663
+- Full individual title: the mutation budget continues the approved #1185 round without resetting spent launches
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget continues the approved #1185 round without resetting spent launches$`
+- Scope basis: The named #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The named #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0085 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:675
+- Full individual title: the mutation budget refuses launch 1401 even with #1185 owner authorization
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses launch 1401 even with #1185 owner authorization$`
+- Scope basis: The named #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The named #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0086 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a branch mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a branch mismatch$`
+- Scope basis: The branch #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The branch #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0087 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a round mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a round mismatch$`
+- Scope basis: The round #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The round #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0088 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a head mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a head mismatch$`
+- Scope basis: The head #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The head #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0089 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a inventory mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a inventory mismatch$`
+- Scope basis: The inventory #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The inventory #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0090 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a identity mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a identity mismatch$`
+- Scope basis: The identity #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The identity #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0091 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a text mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a text mismatch$`
+- Scope basis: The text #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The text #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0092 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a missing mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a missing mismatch$`
+- Scope basis: The missing #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The missing #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0093 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:683
+- Full individual title: the mutation budget keeps the default cap when #1185 authorization has a malformed mismatch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget keeps the default cap when #1185 authorization has a malformed mismatch$`
+- Scope basis: The malformed #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+- Disposition/evidence: The malformed #1185 fixture remains round 1 or its explicitly mismatched old round-2 path. The new round===4 dispatcher and fourth-authorization-id guard are false; its old ticket grant predicate and limits are unchanged.
+
+### R4-0094 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:736
+- Full individual title: the mutation budget continues only the approved Run C next pass and durably pins its committed HEAD
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget continues only the approved Run C next pass and durably pins its committed HEAD$`
+- Scope basis: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0095 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:748
+- Full individual title: the mutation budget pins the approved Run C candidate on its first launch from zero
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget pins the approved Run C candidate on its first launch from zero$`
+- Scope basis: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0096 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:758
+- Full individual title: the mutation budget retains the ordinary first launch and 30-run limit for another branch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget retains the ordinary first launch and 30-run limit for another branch$`
+- Scope basis: The another branch Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The another branch Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0097 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:758
+- Full individual title: the mutation budget retains the ordinary first launch and 30-run limit for another round
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget retains the ordinary first launch and 30-run limit for another round$`
+- Scope basis: The another round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The another round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0098 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:775
+- Full individual title: the mutation budget permits Run C launch 1500 and refuses launch 1501 without resetting the counter
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget permits Run C launch 1500 and refuses launch 1501 without resetting the counter$`
+- Scope basis: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0099 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a branch mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a branch mismatch before launching the scoped Run C pass$`
+- Scope basis: The branch Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The branch Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0100 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a round mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a round mismatch before launching the scoped Run C pass$`
+- Scope basis: The round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0101 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a report-round mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a report-round mismatch before launching the scoped Run C pass$`
+- Scope basis: The report-round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The report-round Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0102 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a head mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a head mismatch before launching the scoped Run C pass$`
+- Scope basis: The head Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The head Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0103 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a inventory mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a inventory mismatch before launching the scoped Run C pass$`
+- Scope basis: The inventory Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The inventory Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0104 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a identity mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a identity mismatch before launching the scoped Run C pass$`
+- Scope basis: The identity Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The identity Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0105 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a text mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a text mismatch before launching the scoped Run C pass$`
+- Scope basis: The text Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The text Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0106 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a date mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a date mismatch before launching the scoped Run C pass$`
+- Scope basis: The date Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The date Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0107 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a missing mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a missing mismatch before launching the scoped Run C pass$`
+- Scope basis: The missing Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The missing Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0108 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a malformed mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a malformed mismatch before launching the scoped Run C pass$`
+- Scope basis: The malformed Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The malformed Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0109 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a product mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a product mismatch before launching the scoped Run C pass$`
+- Scope basis: The product Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The product Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0110 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:785
+- Full individual title: the mutation budget refuses a ancestry mismatch before launching the scoped Run C pass
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a ancestry mismatch before launching the scoped Run C pass$`
+- Scope basis: The ancestry Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The ancestry Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0111 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:820
+- Full individual title: the mutation budget refuses even documentation-only HEAD drift after the Run C first launch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses even documentation-only HEAD drift after the Run C first launch$`
+- Scope basis: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0112 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:833
+- Full individual title: the mutation budget does not treat an uncommitted Run C approval as authorization
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget does not treat an uncommitted Run C approval as authorization$`
+- Scope basis: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0113 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:845
+- Full individual title: the mutation budget rejects an unexpected unstaged product edit before the first Run C launch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget rejects an unexpected unstaged product edit before the first Run C launch$`
+- Scope basis: The unstaged Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The unstaged Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0114 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:845
+- Full individual title: the mutation budget rejects an unexpected staged product edit before the first Run C launch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget rejects an unexpected staged product edit before the first Run C launch$`
+- Scope basis: The staged Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The staged Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0115 — excluded
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:860
+- Full individual title: the mutation budget allows only the journaled Run C mutant and denies an unrelated edit after pinning
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget allows only the journaled Run C mutant and denies an unrelated edit after pinning$`
+- Scope basis: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+- Disposition/evidence: The named Run C next-pass fixture exercises the previous round-2 grant and 1500-launch checks. The new round===4 branch and fourth-grant-id precondition are false throughout this case; its previous grant, pin and journaled-change logic are unchanged.
+
+### R4-0116 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:879
+- Full individual title: the mutation budget resets the counter when a new round opens
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget resets the counter when a new round opens$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0116, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe retain-spent-runs-after-round-start; baseline launch 63 passed exactly one actual test; mutant launch 64 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0116 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0116-baseline.json; /private/tmp/run-c-round4/R4-0116-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 30 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:884:28. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Prevent the direct round-opening caller from resetting runs after successful round transition.
+
+```json
+{
+  "measurementId": "R4-0116",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "retain-spent-runs-after-round-start",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  writeJournal(root, emptyJournal(round));",
+  "to": "  writeJournal(root, { ...emptyJournal(round), runs: journal.runs });",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0116-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget resets the counter when a new round opens",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 63
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0116-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget resets the counter when a new round opens",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 30 to be +0 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:884:28\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 64
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0116",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (64 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0117 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:888
+- Full individual title: the mutation budget refuses to open a round over an unrestored mutation
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses to open a round over an unrestored mutation$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0117, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-unrestored-round-start-mutation; baseline launch 65 passed exactly one actual test; mutant launch 66 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0117 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0117-baseline.json; /private/tmp/run-c-round4/R4-0117-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:892:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Bypass cmdRoundStart refusal for an unrestored mutation, allowing the next round to open over it.
+
+```json
+{
+  "measurementId": "R4-0117",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-unrestored-round-start-mutation",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "      blockers.push(`mutation of ${entry.path} is journaled '${entry.state}', not 'restored'`);",
+  "to": "      // MUTANT: no blocker for an unrestored mutation.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0117-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses to open a round over an unrestored mutation",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 65
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0117-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses to open a round over an unrestored mutation",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:892:27\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 66
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0117",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (66 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0118 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:897
+- Full individual title: the mutation budget refuses to open a round over an open dotenv swap
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses to open a round over an open dotenv swap$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0118, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-open-round-start-dotenv; baseline launch 67 passed exactly one actual test; mutant launch 68 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0118 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0118-baseline.json; /private/tmp/run-c-round4/R4-0118-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'dotenv swap is still open' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:900:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Bypass cmdRoundStart refusal for an open dotenv swap.
+
+```json
+{
+  "measurementId": "R4-0118",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-open-round-start-dotenv",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (journal.dotenv?.open === true) blockers.push('the dotenv swap is still open');",
+  "to": "  // MUTANT: no blocker for an open dotenv swap.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0118-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses to open a round over an open dotenv swap",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 67
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0118-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses to open a round over an open dotenv swap",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected '' to contain 'dotenv swap is still open'\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:900:39\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 68
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0118",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (68 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0119 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:914
+- Full individual title: the mutation budget refuses an UNAUTHORIZED third round
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses an UNAUTHORIZED third round$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0119, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 69 passed exactly one actual test; mutant launch 70 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0119 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0119-baseline.json; /private/tmp/run-c-round4/R4-0119-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:918:26. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Permit third-round admission without the required owner authorization.
+
+```json
+{
+  "measurementId": "R4-0119",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-third-without-owner-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "to": "  if (false && round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0119-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses an UNAUTHORIZED third round",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 69
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0119-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses an UNAUTHORIZED third round",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:918:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 70
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0119",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (70 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0120 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:922
+- Full individual title: the mutation budget refuses a third round when the sidecar authorizes something else
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a third round when the sidecar authorizes something else$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0120, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 71 passed exactly one actual test; mutant launch 72 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0120 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0120-baseline.json; /private/tmp/run-c-round4/R4-0120-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'needs a recorded owner authorization' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:928:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Treat any same-branch authorization as sufficient for third-round admission.
+
+```json
+{
+  "measurementId": "R4-0120",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-third-without-owner-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "to": "  if (false && round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0120-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses a third round when the sidecar authorizes something else",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 71
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0120-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses a third round when the sidecar authorizes something else",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected '' to contain 'needs a recorded owner authorization'\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:928:39\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 72
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0120",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (72 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0121 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:931
+- Full individual title: the mutation budget opens a third round the sidecar records an owner authorization for
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget opens a third round the sidecar records an owner authorization for$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0121, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-authorized-third-round; baseline launch 73 passed exactly one actual test; mutant launch 74 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0121 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0121-baseline.json; /private/tmp/run-c-round4/R4-0121-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 1 to be +0 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:936:26. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Reject the otherwise valid existing third-round authorization.
+
+```json
+{
+  "measurementId": "R4-0121",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "deny-authorized-third-round",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "to": "  if (round === 3) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0121-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget opens a third round the sidecar records an owner authorization for",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 73
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0121-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget opens a third round the sidecar records an owner authorization for",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 1 to be +0 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:936:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 74
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0121",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (74 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0122 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:940
+- Full individual title: the mutation budget refuses a FOURTH round even with the authorization present
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget refuses a FOURTH round even with the authorization present$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0122, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-fourth-without-valid-grant; baseline launch 75 passed exactly one actual test; mutant launch 76 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0122 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0122-baseline.json; /private/tmp/run-c-round4/R4-0122-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:944:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Permit a generic fourth transition despite absence of the scoped fourth grant.
+
+```json
+{
+  "measurementId": "R4-0122",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-fourth-without-valid-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (round > 3 && !fourthGrant) {",
+  "to": "if (round > 4 && !fourthGrant) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0122-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses a FOURTH round even with the authorization present",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 75
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0122-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget refuses a FOURTH round even with the authorization present",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:944:27\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 76
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0122",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (76 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0123 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:948
+- Full individual title: the mutation budget ignores an authorization recorded for a DIFFERENT branch
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget ignores an authorization recorded for a DIFFERENT branch$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0123, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 77 passed exactly one actual test; mutant launch 78 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0123 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0123-baseline.json; /private/tmp/run-c-round4/R4-0123-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'needs a recorded owner authorization' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:960:39. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Treat a different branch authorization as sufficient for the third-round direct caller.
+
+```json
+{
+  "measurementId": "R4-0123",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-third-without-owner-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "to": "  if (false && round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0123-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget ignores an authorization recorded for a DIFFERENT branch",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 77
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0123-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget ignores an authorization recorded for a DIFFERENT branch",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected '' to contain 'needs a recorded owner authorization'\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:960:39\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 78
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0123",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (78 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0124 — killed
+
+- File: scripts/ci/__tests__/red-team-mutation-runner.test.ts:963
+- Full individual title: the mutation budget fails closed on an unparseable sidecar rather than crashing
+- Direction: A: new fourth-round tests/prepare helper; B: runner CLI direct source consumer
+- Anchored escaped filter: `^the mutation budget fails closed on an unparseable sidecar rather than crashing$`
+- Scope basis: Existing round-opening regression is a directly affected cmdRoundStart caller and explicitly part of the owner-approved fourth-round extension contract.
+- Disposition/evidence: Round 4 R4-0124, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-third-without-owner-grant; baseline launch 79 passed exactly one actual test; mutant launch 80 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0124 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0124-baseline.json; /private/tmp/run-c-round4/R4-0124-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:968:26. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Treat an unreadable sidecar as third-round authorization instead of failing closed.
+
+```json
+{
+  "measurementId": "R4-0124",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-third-without-owner-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "to": "  if (false && round === 3 && !hasThirdRoundAuthorization(root)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0124-baseline.json",
+    "executed": [
+      {
+        "title": "the mutation budget fails closed on an unparseable sidecar rather than crashing",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 79
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0124-mutant.json",
+    "executed": [
+      {
+        "title": "the mutation budget fails closed on an unparseable sidecar rather than crashing",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-mutation-runner.test.ts:968:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 80
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0124",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (80 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0125 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:294
+- Full individual title: the committed Run C fourth-round proof accepts appended fourth-round results only with committed admission and launch proof
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof accepts appended fourth-round results only with committed admission and launch proof$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0125, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-valid-fourth-report; baseline launch 81 passed exactly one actual test; mutant launch 82 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0125 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0125-baseline.json; /private/tmp/run-c-round4/R4-0125-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 'red-team-status: FAILED (1 issue(s))\…' to be '' // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:297:27. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the accepts appended fourth-round results only with committed admission and launch proof predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0125",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "deny-valid-fourth-report",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "export function validRunCFourthReport(root, sidecar, sidecarPath, journal) {",
+  "to": "export function validRunCFourthReport(root, sidecar, sidecarPath, journal) {\n  return false;",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0125-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof accepts appended fourth-round results only with committed admission and launch proof",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 81
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0125-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof accepts appended fourth-round results only with committed admission and launch proof",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 'red-team-status: FAILED (1 issue(s))\\…' to be '' // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:297:27\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 82
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0125",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (82 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0126 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:302
+- Full individual title: the committed Run C fourth-round proof rejects approval first written in the final report after measurement
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects approval first written in the final report after measurement$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0126, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe trust-final-self-grant; baseline launch 83 passed exactly one actual test; mutant launch 84 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0126 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0126-baseline.json; /private/tmp/run-c-round4/R4-0126-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:304:28. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the rejects approval first written in the final report after measurement predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0126",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "trust-final-self-grant",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    const authorization = runCFourthAuthorization(admission);",
+  "to": "    const authorization = runCFourthAuthorization(JSON.parse(readFileSync(join(root, RUN_C_REPORT), 'utf8')));",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0126-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects approval first written in the final report after measurement",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 83
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0126-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects approval first written in the final report after measurement",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:304:28\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 84
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0126",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (84 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0127 — equivalent
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:307
+- Full individual title: the committed Run C fourth-round proof rejects final evidence when historical Markdown is deleted
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects final evidence when historical Markdown is deleted$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0127, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-missing-final-markdown; baseline launch 85 passed exactly one actual test; mutant launch 86 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0127 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0127-baseline.json; /private/tmp/run-c-round4/R4-0127-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation makes the new final prefix reader substitute historical bytes when Markdown is absent. The fixture deletes final Markdown at red-team-status.test.ts:310 and asserts checker status 1 at :316. Checker:679–680 independently accumulates a missing-human-report error before invoking the new proof at :693; the mutated branch executes because the earlier error is accumulated, and the final error gate at :826 still rejects. Replacement and newline-loss are separate measured kills, not covered by this equivalence. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+```json
+{
+  "measurementId": "R4-0127",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-missing-final-markdown",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    const markdown = readFileSync(join(root, RUN_C_MARKDOWN));",
+  "to": "    const markdown = existsSync(join(root, RUN_C_MARKDOWN)) ? readFileSync(join(root, RUN_C_MARKDOWN)) : proof.historicalMarkdown;",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0127-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is deleted",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 85
+  },
+  "mutant": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0127-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is deleted",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 86
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0127",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (86 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+**Verifier proof:** The only mutation makes the new final prefix reader substitute historical bytes when Markdown is absent. The fixture deletes final Markdown at red-team-status.test.ts:310 and asserts checker status 1 at :316. Checker:679–680 independently accumulates a missing-human-report error before invoking the new proof at :693; the mutated branch executes because the earlier error is accumulated, and the final error gate at :826 still rejects. Replacement and newline-loss are separate measured kills, not covered by this equivalence.
+
+**Root disposition:** Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+### R4-0128 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:307
+- Full individual title: the committed Run C fourth-round proof rejects final evidence when historical Markdown is rewritten
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects final evidence when historical Markdown is rewritten$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0128, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-final-markdown-prefix; baseline launch 87 passed exactly one actual test; mutant launch 88 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0128 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0128-baseline.json; /private/tmp/run-c-round4/R4-0128-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:316:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the rewritten predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0128",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-final-markdown-prefix",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (!markdown.subarray(0, proof.historicalMarkdown.length).equals(proof.historicalMarkdown)) return false;",
+  "to": "    // MUTANT: no final Markdown history-prefix check.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0128-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is rewritten",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 87
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0128-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is rewritten",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:316:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 88
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0128",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (88 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0129 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:307
+- Full individual title: the committed Run C fourth-round proof rejects final evidence when historical Markdown is trailing newline removed
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects final evidence when historical Markdown is trailing newline removed$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0129, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-final-markdown-prefix; baseline launch 89 passed exactly one actual test; mutant launch 90 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0129 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0129-baseline.json; /private/tmp/run-c-round4/R4-0129-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:316:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the trailing newline removed predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0129",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-final-markdown-prefix",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    if (!markdown.subarray(0, proof.historicalMarkdown.length).equals(proof.historicalMarkdown)) return false;",
+  "to": "    // MUTANT: no final Markdown history-prefix check.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0129-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is trailing newline removed",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 89
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0129-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects final evidence when historical Markdown is trailing newline removed",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:316:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 90
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0129",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (90 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0130 — equivalent
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with missing approval
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with missing approval$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0130, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-unauthorized-fourth-shape; baseline launch 91 passed exactly one actual test; mutant launch 92 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0130 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0130-baseline.json; /private/tmp/run-c-round4/R4-0130-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation relaxes the round-four shape condition at red-team-status.mjs:289–290. The fixture removes the final approval at test:325 and still observes checker status 1 at :351. The independent final proof call at checker:693 reaches runner:197, which calls runCFourthAuthorization again. Its exact-match count guard at runner:127 returns null for missing approval, the final proof returns false, and checker:694/:826 denies. Shape relaxation therefore preserves this actual refusal deterministically. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+```json
+{
+  "measurementId": "R4-0130",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-unauthorized-fourth-shape",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "&& !(sidecar.round === 4 && runCFourthAuthorization(sidecar))) {",
+  "to": "&& !(sidecar.round === 4)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0130-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with missing approval",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 91
+  },
+  "mutant": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0130-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with missing approval",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 92
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0130",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (92 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+**Verifier proof:** The only mutation relaxes the round-four shape condition at red-team-status.mjs:289–290. The fixture removes the final approval at test:325 and still observes checker status 1 at :351. The independent final proof call at checker:693 reaches runner:197, which calls runCFourthAuthorization again. Its exact-match count guard at runner:127 returns null for missing approval, the final proof returns false, and checker:694/:826 denies. Shape relaxation therefore preserves this actual refusal deterministically.
+
+**Root disposition:** Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+### R4-0131 — equivalent
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with foreign branch
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with foreign branch$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0131, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-sidecar-branch-in-grant-shape; baseline launch 93 passed exactly one actual test; mutant launch 94 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0131 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0131-baseline.json; /private/tmp/run-c-round4/R4-0131-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the sidecar branch restriction at runner:118. The fixture changes final sidecar.branch to codex/other at red-team-status.test.ts:326 and observes checker status 1 at :351. The final report/admission branch comparison at runner:209 and independent derived-branch comparison at checker:707–710 still compare that value with codex/owner-operator-run-c. Each unequal comparison independently preserves denial. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+```json
+{
+  "measurementId": "R4-0131",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-sidecar-branch-in-grant-shape",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (sidecar?.mode !== 'feature' || sidecar.branch !== 'codex/owner-operator-run-c'",
+  "to": "if (sidecar?.mode !== 'feature'",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0131-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with foreign branch",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 93
+  },
+  "mutant": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0131-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with foreign branch",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 94
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0131",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (94 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+**Verifier proof:** The only mutation removes the sidecar branch restriction at runner:118. The fixture changes final sidecar.branch to codex/other at red-team-status.test.ts:326 and observes checker status 1 at :351. The final report/admission branch comparison at runner:209 and independent derived-branch comparison at checker:707–710 still compare that value with codex/owner-operator-run-c. Each unequal comparison independently preserves denial.
+
+**Root disposition:** Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+### R4-0132 — equivalent
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with wrong text
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with wrong text$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0132, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-text; baseline launch 95 passed exactly one actual test; mutant launch 96 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0132 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0132-baseline.json; /private/tmp/run-c-round4/R4-0132-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the exact authorization.text predicate at runner:128. The fixture changes final text to third round authorized at red-team-status.test.ts:327 and observes status 1 at :351. The admission read at runner:161 retains the original exact owner question/reply; the full authorizations-prefix comparison at runner:208 through unchangedPrefix:134–136 includes text. Those differing strings necessarily preserve denial. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+```json
+{
+  "measurementId": "R4-0132",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-fourth-approval-text",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "    || authorization.text !== RUN_C_FOURTH_TEXT\n",
+  "to": "",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0132-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with wrong text",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 95
+  },
+  "mutant": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0132-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with wrong text",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 96
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0132",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (96 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+**Verifier proof:** The only mutation removes the exact authorization.text predicate at runner:128. The fixture changes final text to third round authorized at red-team-status.test.ts:327 and observes status 1 at :351. The admission read at runner:161 retains the original exact owner question/reply; the full authorizations-prefix comparison at runner:208 through unchangedPrefix:134–136 includes text. Those differing strings necessarily preserve denial.
+
+**Root disposition:** Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+### R4-0133 — equivalent
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with wrong date
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with wrong date$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0133, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-fourth-approval-date; baseline launch 97 passed exactly one actual test; mutant launch 98 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0133 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0133-baseline.json; /private/tmp/run-c-round4/R4-0133-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the authorization.date predicate at runner:127. The fixture sets final date 2026-09-14 at red-team-status.test.ts:328 and observes status 1 at :351. The admission read at runner:161 still contains 2026-09-13; the full authorizations-prefix comparison at runner:208 through unchangedPrefix:134–136 includes date. The unequal dates necessarily preserve denial. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+```json
+{
+  "measurementId": "R4-0133",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-fourth-approval-date",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "if (matches.length !== 1 || authorization.date !== '2026-09-13'",
+  "to": "if (matches.length !== 1",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0133-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with wrong date",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 97
+  },
+  "mutant": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0133-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with wrong date",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 98
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0133",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (98 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+**Verifier proof:** The only mutation removes the authorization.date predicate at runner:127. The fixture sets final date 2026-09-14 at red-team-status.test.ts:328 and observes status 1 at :351. The admission read at runner:161 still contains 2026-09-13; the full authorizations-prefix comparison at runner:208 through unchangedPrefix:134–136 includes date. The unequal dates necessarily preserve denial.
+
+**Root disposition:** Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+### R4-0134 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with measured head
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with measured head$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0134, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe trust-journal-head-over-reported-head; baseline launch 99 passed exactly one actual test; mutant launch 100 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0134 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0134-baseline.json; /private/tmp/run-c-round4/R4-0134-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the measured head predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0134",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "trust-journal-head-over-reported-head",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  const proof = runCFourthProof(root, sidecar.head_sha);",
+  "to": "  const proof = runCFourthProof(root, journal?.budgetAuthorization?.headSha);",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0134-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with measured head",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 99
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0134-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with measured head",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 100
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0134",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (100 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0135 — equivalent
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with identity
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with identity$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0135, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-inventory-identity-hash; baseline launch 101 passed exactly one actual test; mutant launch 102 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0135 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0135-baseline.json; /private/tmp/run-c-round4/R4-0135-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Both actual tests passed with no failureMessages; this is not a kill. The only mutation removes the inventory identity digest at runner:124. The fixture rewrites final inventory[0].test at red-team-status.test.ts:330 and observes status 1 at :351. The committed admission inventory read at runner:161 remains original. The independent complete inventory-prefix comparison at runner:208 through unchangedPrefix:134–136 compares the rewritten test string and necessarily denies. This is deterministic redundant-denial equivalence, not a vacuous/unexecuted mutation. Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+```json
+{
+  "measurementId": "R4-0135",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-inventory-identity-hash",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (sha256(JSON.stringify(identities)) !== '58454909c7c79f1f7b71c6a261fb3deab104d7bc36d5a0fa3ff6958e0a353c3b') return null;",
+  "to": "  // MUTANT: admission no longer verifies the inventory identity digest.",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0135-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with identity",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 101
+  },
+  "mutant": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0135-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with identity",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 102
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0135",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (102 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+**Verifier proof:** The only mutation removes the inventory identity digest at runner:124. The fixture rewrites final inventory[0].test at red-team-status.test.ts:330 and observes status 1 at :351. The committed admission inventory read at runner:161 remains original. The independent complete inventory-prefix comparison at runner:208 through unchangedPrefix:134–136 compares the rewritten test string and necessarily denies. This is deterministic redundant-denial equivalence, not a vacuous/unexecuted mutation.
+
+**Root disposition:** Root independently inspected the actual individual reports, exact mutation and cited source predicates, ACCEPTED equivalent, and confirmed restoration before report authorization.
+
+### R4-0136 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with history
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with history$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0136, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-final-inventory-history; baseline launch 103 passed exactly one actual test; mutant launch 104 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0136 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0136-baseline.json; /private/tmp/run-c-round4/R4-0136-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the history predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0136",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-final-inventory-history",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "return ['inventory', 'findings', 'authorizations'].every((key) => unchangedPrefix(proof.admission[key], sidecar[key]))",
+  "to": "return ['findings', 'authorizations'].every((key) => unchangedPrefix(proof.admission[key], sidecar[key]))",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0136-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with history",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 103
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0136-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with history",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 104
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0136",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (104 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0137 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with intake
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with intake$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0137, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-current-intake-fingerprint; baseline launch 105 passed exactly one actual test; mutant launch 106 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0137 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0137-baseline.json; /private/tmp/run-c-round4/R4-0137-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the intake predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0137",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-current-intake-fingerprint",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "    if (sidecar.intake_sha256 !== sha256(raw)) {",
+  "to": "    if (false && sidecar.intake_sha256 !== sha256(raw)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0137-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with intake",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 105
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0137-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with intake",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 106
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0137",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (106 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0138 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with dirty
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with dirty$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0138, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-unrestored-tracked-tree; baseline launch 107 passed exactly one actual test; mutant launch 108 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0138 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0138-baseline.json; /private/tmp/run-c-round4/R4-0138-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the dirty predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0138",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-unrestored-tracked-tree",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "  if (porcelain.length > 0) {",
+  "to": "  if (false && porcelain.length > 0) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0138-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with dirty",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 107
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0138-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with dirty",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 108
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0138",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (108 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0139 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with unrestored
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with unrestored$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0139, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-unrestored-journal-entry; baseline launch 109 passed exactly one actual test; mutant launch 110 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0139 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0139-baseline.json; /private/tmp/run-c-round4/R4-0139-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the unrestored predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0139",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-unrestored-journal-entry",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "    if (entry.state !== 'restored') {",
+  "to": "    if (false && entry.state !== 'restored') {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0139-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with unrestored",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 109
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0139-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with unrestored",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 110
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0139",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (110 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0140 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with grant
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with grant$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0140, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe ignore-grant-digest-pin; baseline launch 111 passed exactly one actual test; mutant launch 112 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0140 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0140-baseline.json; /private/tmp/run-c-round4/R4-0140-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the grant predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0140",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "ignore-grant-digest-pin",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  return previous?.id === grant.id && previous.sha256 === grant.sha256",
+  "to": "  return previous?.id === grant.id",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0140-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with grant",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 111
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0140-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with grant",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 112
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0140",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (112 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0141 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with missing journal
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with missing journal$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0141, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-missing-final-launch-journal; baseline launch 113 passed exactly one actual test; mutant launch 114 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0141 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0141-baseline.json; /private/tmp/run-c-round4/R4-0141-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the missing journal predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0141",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-missing-final-launch-journal",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "  if (!proof || journal?.round !== 4 || !sameGrant(journal.budgetAuthorization, proof.grant)",
+  "to": "  if (proof && journal === null) return true;\n  if (!proof || journal?.round !== 4 || !sameGrant(journal.budgetAuthorization, proof.grant)",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0141-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with missing journal",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 113
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0141-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with missing journal",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 114
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0141",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (114 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0142 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with budget
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with budget$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0142, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe accept-151-launch-report; baseline launch 115 passed exactly one actual test; mutant launch 116 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0142 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0142-baseline.json; /private/tmp/run-c-round4/R4-0142-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/red-team/scripts/mutation-runner.mjs. Challenge the budget predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0142",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "accept-151-launch-report",
+  "production": ".agents/skills/red-team/scripts/mutation-runner.mjs",
+  "from": "|| !Number.isInteger(journal.runs) || journal.runs < 1 || journal.runs > 150) return false;",
+  "to": "|| !Number.isInteger(journal.runs) || journal.runs < 1 || journal.runs > 151) return false;",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0142-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with budget",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 115
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0142-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with budget",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 116
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0142",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (116 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0143 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with fifth
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with fifth$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0143, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe widen-fourth-shape-grant-to-fifth; baseline launch 117 passed exactly one actual test; mutant launch 118 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0143 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0143-baseline.json; /private/tmp/run-c-round4/R4-0143-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the fifth predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0143",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "widen-fourth-shape-grant-to-fifth",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "  } else if (sidecar.round !== 1 && sidecar.round !== 2\n    && !(sidecar.round === 4 && runCFourthAuthorization(sidecar))) {\n    errors.push('round must be 1, 2, or an authorized 3 (hard cap)');\n  }\n  if (!nonEmptyString(sidecar.generated_at)) errors.push('generated_at must be a non-empty string');\n  if (!STATUS_PRECEDENCE.includes(sidecar.status)) {\n    errors.push(`status must be one of ${STATUS_PRECEDENCE.join(', ')}`);\n  }\n  if (!Array.isArray(sidecar.inventory)) errors.push('inventory must be an array');\n  if (!Array.isArray(sidecar.findings)) errors.push('findings must be an array');\n  if (!Array.isArray(sidecar.authorizations)) errors.push('authorizations must be an array');\n  if (!isPlainObject(sidecar.counts)) errors.push('counts must be an object');\n\n  if (errors.length > 0) return errors;\n\n  const rowIds = new Set();\n  for (const [index, row] of sidecar.inventory.entries()) {\n    const scope = `inventory[${index}]`;\n    if (!isPlainObject(row)) {\n      errors.push(`${scope} must be an object`);\n      continue;\n    }\n    checkKeys(scope, row, ROW_KEYS, errors);\n    if (!nonEmptyString(row.id)) errors.push(`${scope}.id must be a non-empty string`);\n    else if (rowIds.has(row.id)) errors.push(`${scope}.id duplicates '${row.id}'`);\n    else rowIds.add(row.id);\n    if (!nonEmptyString(row.test)) errors.push(`${scope}.test must be a non-empty string`);\n    if (!nonEmptyString(row.file)) errors.push(`${scope}.file must be a non-empty string`);\n    if (!OUTCOMES.has(row.outcome)) {\n      errors.push(`${scope}.outcome must be one of ${[...OUTCOMES].join(', ')}`);\n      continue;\n    }\n    if (row.outcome === 'excluded' && !nonEmptyString(row.reason)) {\n      errors.push(`${scope}: an excluded row must record a reason`);\n    }\n    if (row.outcome === 'equivalent') {\n      if (!nonEmptyString(row.reason)) {\n        errors.push(`${scope}: an equivalent row must record the proof that behaviour is preserved`);\n      }\n      if (row.finding_id !== undefined) {\n        errors.push(`${scope}: an equivalent row may not reference a finding — it claims the mutant changes nothing`);\n      }\n    }\n    if (row.outcome === 'inconclusive') {\n      if (row.inconclusive_class !== 'oracle' && row.inconclusive_class !== 'infra') {\n        errors.push(`${scope}: an inconclusive row must set inconclusive_class to oracle or infra`);\n      }\n      if (!nonEmptyString(row.reason)) {\n        errors.push(`${scope}: an inconclusive row must record a reason`);\n      }\n    } else if (row.inconclusive_class !== undefined) {\n      errors.push(`${scope}: inconclusive_class belongs only on an inconclusive row`);\n    }\n    if (row.outcome === 'survived-confirmed-P0' && !nonEmptyString(row.finding_id)) {\n      errors.push(`${scope}: a confirmed survivor must reference the P0 finding it raised`);\n    }\n  }\n\n  const findingIds = new Set();\n  for (const [index, finding] of sidecar.findings.entries()) {\n    const scope = `findings[${index}]`;\n    if (!isPlainObject(finding)) {\n      errors.push(`${scope} must be an object`);\n      continue;\n    }\n    checkKeys(scope, finding, FINDING_KEYS, errors);\n    if (!nonEmptyString(finding.id)) errors.push(`${scope}.id must be a non-empty string`);\n    else if (findingIds.has(finding.id)) errors.push(`${scope}.id duplicates '${finding.id}'`);\n    else findingIds.add(finding.id);\n    if (!SEVERITIES.has(finding.severity)) errors.push(`${scope}.severity must be P0, P1, or P2`);\n    if (!nonEmptyString(finding.title)) errors.push(`${scope}.title must be a non-empty string`);\n    if (!nonEmptyString(finding.at)) errors.push(`${scope}.at must name a file:line`);\n    if (!Number.isInteger(finding.duty) || finding.duty < 1 || finding.duty > 5) {\n      errors.push(`${scope}.duty must be an integer 1-5`);\n    }\n    if (!DISPOSITIONS.has(finding.disposition)) {\n      errors.push(`${scope}.disposition must be one of ${[...DISPOSITIONS].join(', ')}`);\n      continue;\n    }\n    // Exclusive dispositions: a finding is never both open and accepted-risk.\n    if (finding.disposition === 'rejected' && !nonEmptyString(finding.reason)) {\n      errors.push(`${scope}: a rejected finding must carry its one-line verdict`);\n    }\n    if (finding.disposition === 'accepted-risk' && !nonEmptyString(finding.authorization)) {\n      errors.push(`${scope}: an accepted-risk finding must reference an authorization`);\n    }\n    if (finding.disposition !== 'accepted-risk' && finding.authorization !== undefined) {\n      errors.push(`${scope}: authorization belongs only on an accepted-risk finding`);\n    }\n  }\n\n  const authorizationIds = new Set();\n  // This exact grant authorizes verification work, not accepting any finding.\n  // Its owner-recorded empty list must remain empty; risk links still reject it.\n  const fourthRoundGrant = sidecar.round === 3 || sidecar.round === 4\n    ? runCFourthAuthorization(sidecar)\n    : null;\n",
+  "to": "  } else if (sidecar.round !== 1 && sidecar.round !== 2\n    && !((sidecar.round === 4 || sidecar.round === 5) && runCFourthAuthorization(sidecar))) {\n    errors.push('round must be 1, 2, or an authorized 3 (hard cap)');\n  }\n  if (!nonEmptyString(sidecar.generated_at)) errors.push('generated_at must be a non-empty string');\n  if (!STATUS_PRECEDENCE.includes(sidecar.status)) {\n    errors.push(`status must be one of ${STATUS_PRECEDENCE.join(', ')}`);\n  }\n  if (!Array.isArray(sidecar.inventory)) errors.push('inventory must be an array');\n  if (!Array.isArray(sidecar.findings)) errors.push('findings must be an array');\n  if (!Array.isArray(sidecar.authorizations)) errors.push('authorizations must be an array');\n  if (!isPlainObject(sidecar.counts)) errors.push('counts must be an object');\n\n  if (errors.length > 0) return errors;\n\n  const rowIds = new Set();\n  for (const [index, row] of sidecar.inventory.entries()) {\n    const scope = `inventory[${index}]`;\n    if (!isPlainObject(row)) {\n      errors.push(`${scope} must be an object`);\n      continue;\n    }\n    checkKeys(scope, row, ROW_KEYS, errors);\n    if (!nonEmptyString(row.id)) errors.push(`${scope}.id must be a non-empty string`);\n    else if (rowIds.has(row.id)) errors.push(`${scope}.id duplicates '${row.id}'`);\n    else rowIds.add(row.id);\n    if (!nonEmptyString(row.test)) errors.push(`${scope}.test must be a non-empty string`);\n    if (!nonEmptyString(row.file)) errors.push(`${scope}.file must be a non-empty string`);\n    if (!OUTCOMES.has(row.outcome)) {\n      errors.push(`${scope}.outcome must be one of ${[...OUTCOMES].join(', ')}`);\n      continue;\n    }\n    if (row.outcome === 'excluded' && !nonEmptyString(row.reason)) {\n      errors.push(`${scope}: an excluded row must record a reason`);\n    }\n    if (row.outcome === 'equivalent') {\n      if (!nonEmptyString(row.reason)) {\n        errors.push(`${scope}: an equivalent row must record the proof that behaviour is preserved`);\n      }\n      if (row.finding_id !== undefined) {\n        errors.push(`${scope}: an equivalent row may not reference a finding — it claims the mutant changes nothing`);\n      }\n    }\n    if (row.outcome === 'inconclusive') {\n      if (row.inconclusive_class !== 'oracle' && row.inconclusive_class !== 'infra') {\n        errors.push(`${scope}: an inconclusive row must set inconclusive_class to oracle or infra`);\n      }\n      if (!nonEmptyString(row.reason)) {\n        errors.push(`${scope}: an inconclusive row must record a reason`);\n      }\n    } else if (row.inconclusive_class !== undefined) {\n      errors.push(`${scope}: inconclusive_class belongs only on an inconclusive row`);\n    }\n    if (row.outcome === 'survived-confirmed-P0' && !nonEmptyString(row.finding_id)) {\n      errors.push(`${scope}: a confirmed survivor must reference the P0 finding it raised`);\n    }\n  }\n\n  const findingIds = new Set();\n  for (const [index, finding] of sidecar.findings.entries()) {\n    const scope = `findings[${index}]`;\n    if (!isPlainObject(finding)) {\n      errors.push(`${scope} must be an object`);\n      continue;\n    }\n    checkKeys(scope, finding, FINDING_KEYS, errors);\n    if (!nonEmptyString(finding.id)) errors.push(`${scope}.id must be a non-empty string`);\n    else if (findingIds.has(finding.id)) errors.push(`${scope}.id duplicates '${finding.id}'`);\n    else findingIds.add(finding.id);\n    if (!SEVERITIES.has(finding.severity)) errors.push(`${scope}.severity must be P0, P1, or P2`);\n    if (!nonEmptyString(finding.title)) errors.push(`${scope}.title must be a non-empty string`);\n    if (!nonEmptyString(finding.at)) errors.push(`${scope}.at must name a file:line`);\n    if (!Number.isInteger(finding.duty) || finding.duty < 1 || finding.duty > 5) {\n      errors.push(`${scope}.duty must be an integer 1-5`);\n    }\n    if (!DISPOSITIONS.has(finding.disposition)) {\n      errors.push(`${scope}.disposition must be one of ${[...DISPOSITIONS].join(', ')}`);\n      continue;\n    }\n    // Exclusive dispositions: a finding is never both open and accepted-risk.\n    if (finding.disposition === 'rejected' && !nonEmptyString(finding.reason)) {\n      errors.push(`${scope}: a rejected finding must carry its one-line verdict`);\n    }\n    if (finding.disposition === 'accepted-risk' && !nonEmptyString(finding.authorization)) {\n      errors.push(`${scope}: an accepted-risk finding must reference an authorization`);\n    }\n    if (finding.disposition !== 'accepted-risk' && finding.authorization !== undefined) {\n      errors.push(`${scope}: authorization belongs only on an accepted-risk finding`);\n    }\n  }\n\n  const authorizationIds = new Set();\n  // This exact grant authorizes verification work, not accepting any finding.\n  // Its owner-recorded empty list must remain empty; risk links still reject it.\n  const fourthRoundGrant = sidecar.round === 3 || (sidecar.round === 4 || sidecar.round === 5)\n    ? runCFourthAuthorization(sidecar)\n    : null;\n",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0143-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with fifth",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 117
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0143-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with fifth",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 118
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0143",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (118 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0144 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:320
+- Full individual title: the committed Run C fourth-round proof rejects fourth-round evidence with accepted risk
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the committed Run C fourth-round proof rejects fourth-round evidence with accepted risk$`
+- Scope basis: New expanded fourth-round status case observes admission provenance, history preservation or final verdict binding.
+- Disposition/evidence: Round 4 R4-0144, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe treat-fourth-verification-grant-as-risk-approval; baseline launch 119 passed exactly one actual test; mutant launch 120 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0144 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0144-baseline.json; /private/tmp/run-c-round4/R4-0144-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected +0 to be 1 // Object.is equality at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Challenge the accepted risk predicate so a valid report is rejected or the specifically invalid report is accepted. Keep historical fixture pins and source import valid; changing an unrelated earlier refusal is not a kill for this guard.
+
+```json
+{
+  "measurementId": "R4-0144",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "treat-fourth-verification-grant-as-risk-approval",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "    if (!authorization.finding_ids.includes(finding.id)) {",
+  "to": "    if (authorization.id !== 'owner-run-c-fourth-round-prompt-regression' && !authorization.finding_ids.includes(finding.id)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0144-baseline.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with accepted risk",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 119
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0144-mutant.json",
+    "executed": [
+      {
+        "title": "the committed Run C fourth-round proof rejects fourth-round evidence with accepted risk",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected +0 to be 1 // Object.is equality\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:351:30\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "runs": 120
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0144",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (120 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0145 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:357
+- Full individual title: the CLI contract rejects --risk in feature mode: risk comes from the intake, never the caller
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the CLI contract rejects --risk in feature mode: risk comes from the intake, never the caller$`
+- Scope basis: CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates.
+- Disposition/evidence: CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates.
+
+### R4-0146 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:363
+- Full individual title: the CLI contract requires --issue and --head together in standalone mode
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the CLI contract requires --issue and --head together in standalone mode$`
+- Scope basis: CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates.
+- Disposition/evidence: CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates.
+
+### R4-0147 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:368
+- Full individual title: the CLI contract rejects a short --head, so the run can never be pinned to an abbreviated SHA
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the CLI contract rejects a short --head, so the run can never be pinned to an abbreviated SHA$`
+- Scope basis: CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates.
+- Disposition/evidence: CLI argument parsing rejects before reading a sidecar or entering new fourth-round predicates.
+
+### R4-0148 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:390
+- Full individual title: absence — the risk-scoped waiver fails closed when no sidecar exists and no intake can supply a risk
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver fails closed when no sidecar exists and no intake can supply a risk$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0149 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:399
+- Full individual title: absence — the risk-scoped waiver waives the sidecar when the signed-off intake declares risk normal
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver waives the sidecar when the signed-off intake declares risk normal$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0150 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:407
+- Full individual title: absence — the risk-scoped waiver waives equally from the Claude lane `classification` spelling
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver waives equally from the Claude lane `classification` spelling$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0151 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:414
+- Full individual title: absence — the risk-scoped waiver requires the sidecar when the intake declares risk high
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver requires the sidecar when the intake declares risk high$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0152 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:422
+- Full individual title: absence — the risk-scoped waiver requires the sidecar for a Claude lane `classification: high` intake
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver requires the sidecar for a Claude lane `classification: high` intake$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0153 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:427
+- Full individual title: absence — the risk-scoped waiver fails closed on an unreadable intake rather than waiving
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver fails closed on an unreadable intake rather than waiving$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0154 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:435
+- Full individual title: absence — the risk-scoped waiver fails closed on an intake that declares no risk at all
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver fails closed on an intake that declares no risk at all$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0155 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:445
+- Full individual title: absence — the risk-scoped waiver names the standalone remedy rather than the feature-lane rule
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^absence — the risk-scoped waiver names the standalone remedy rather than the feature-lane rule$`
+- Scope basis: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+- Disposition/evidence: Missing-sidecar waiver/error path returns before validateShape or fourth-round proof; risk derivation and absence logic are unchanged.
+
+### R4-0156 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:460
+- Full individual title: a clean run passes a CLEAR sidecar whose only later commit is its own report
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^a clean run passes a CLEAR sidecar whose only later commit is its own report$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its a clean run passes a CLEAR assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its a clean run passes a CLEAR assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0157 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:469
+- Full individual title: strict schema rejects an unknown top-level field
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^strict schema rejects an unknown top-level field$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema rejects an unknown top-level assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema rejects an unknown top-level assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0158 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:479
+- Full individual title: strict schema rejects a duplicate inventory row id
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^strict schema rejects a duplicate inventory row id$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema rejects a duplicate inventory assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema rejects a duplicate inventory assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0159 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:494
+- Full individual title: strict schema rejects an UNAUTHORIZED third round
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^strict schema rejects an UNAUTHORIZED third round$`
+- Scope basis: Existing third/fourth report regression directly covers the changed validateShape round-admission branch.
+- Disposition/evidence: Round 4 R4-0159, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-unauthorized-third-report; baseline launch 121 passed exactly one actual test; mutant launch 122 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0159 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0159-baseline.json; /private/tmp/run-c-round4/R4-0159-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected '' to contain 'requires an authorizations entry' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:499:28. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Allow a third-round report without its owner authorization.
+
+```json
+{
+  "measurementId": "R4-0159",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-unauthorized-third-report",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "    if (!authorizations.some((entry) => /third round/i.test(String(entry?.text ?? '')))) {",
+  "to": "    if (false && !authorizations.some((entry) => /third round/i.test(String(entry?.text ?? '')))) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0159-baseline.json",
+    "executed": [
+      {
+        "title": "strict schema rejects an UNAUTHORIZED third round",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 121
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0159-mutant.json",
+    "executed": [
+      {
+        "title": "strict schema rejects an UNAUTHORIZED third round",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected '' to contain 'requires an authorizations entry'\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:499:28\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 122
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0159",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (122 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0160 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:502
+- Full individual title: strict schema accepts a third round the sidecar records an owner authorization for
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^strict schema accepts a third round the sidecar records an owner authorization for$`
+- Scope basis: Existing third/fourth report regression directly covers the changed validateShape round-admission branch.
+- Disposition/evidence: Round 4 R4-0160, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe deny-authorized-third-report; baseline launch 123 passed exactly one actual test; mutant launch 124 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0160 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0160-baseline.json; /private/tmp/run-c-round4/R4-0160-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 'red-team-status: FAILED (1 issue(s))\…' not to contain 'requires an authorizations entry' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:515:31. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Reject an authorized third-round report.
+
+```json
+{
+  "measurementId": "R4-0160",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "deny-authorized-third-report",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "    if (!authorizations.some((entry) => /third round/i.test(String(entry?.text ?? '')))) {",
+  "to": "    if (true) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0160-baseline.json",
+    "executed": [
+      {
+        "title": "strict schema accepts a third round the sidecar records an owner authorization for",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 123
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0160-mutant.json",
+    "executed": [
+      {
+        "title": "strict schema accepts a third round the sidecar records an owner authorization for",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 'red-team-status: FAILED (1 issue(s))\\…' not to contain 'requires an authorizations entry'\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:515:31\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 124
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0160",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (124 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0161 — killed
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:518
+- Full individual title: strict schema rejects a fourth round even when an authorization is present
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^strict schema rejects a fourth round even when an authorization is present$`
+- Scope basis: Existing third/fourth report regression directly covers the changed validateShape round-admission branch.
+- Disposition/evidence: Round 4 R4-0161, pinned HEAD f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39, recipe allow-unauthorized-fourth-shape; baseline launch 125 passed exactly one actual test; mutant launch 126 executed exactly that same test. assert-one-test exited 0 for both. Root finalizer R4-0161 exited 0, source/dotenv restored and journal closed. Evidence: /private/tmp/run-c-round4/R4-0161-baseline.json; /private/tmp/run-c-round4/R4-0161-mutant.json; complete attempt, mutation and finalizer evidence retained in the appended Markdown. Actual assertion: AssertionError: expected 'red-team-status: FAILED (1 issue(s))\…' to contain 'round must be 1, 2, or an authorized 3' at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:529:28. Production target: .agents/skills/feature/scripts/red-team-status.mjs. Allow a generic fourth-round report in validateShape and bypass the new scoped-proof requirement for that generic case. DIAGNOSTIC-ONLY KILL: the relaxed shape guard removes the expected schema-specific ceiling message, failing red-team-status.test.ts:529. Both original and mutant still reject the unauthorized fourth report through independent proof; this is not evidence of an admission bypass.
+
+```json
+{
+  "measurementId": "R4-0161",
+  "head": "f207fe8fd03df2a1b9f896f401e9a5d4eac1fe39",
+  "recipe": "allow-unauthorized-fourth-shape",
+  "production": ".agents/skills/feature/scripts/red-team-status.mjs",
+  "from": "&& !(sidecar.round === 4 && runCFourthAuthorization(sidecar))) {",
+  "to": "&& !(sidecar.round === 4)) {",
+  "baseline": {
+    "exit": 0,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0161-baseline.json",
+    "executed": [
+      {
+        "title": "strict schema rejects a fourth round even when an authorization is present",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ],
+    "runs": 125
+  },
+  "mutant": {
+    "exit": 1,
+    "one": 0,
+    "report": "/private/tmp/run-c-round4/R4-0161-mutant.json",
+    "executed": [
+      {
+        "title": "strict schema rejects a fourth round even when an authorization is present",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 'red-team-status: FAILED (1 issue(s))\\…' to contain 'round must be 1, 2, or an authorized 3'\n    at /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/scripts/ci/__tests__/red-team-status.test.ts:529:28\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c/node_modules/.pnpm/@vitest+runner@4.1.7/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64"
+        ]
+      }
+    ],
+    "runs": 126
+  },
+  "restored": true,
+  "finalize": {
+    "id": "R4-0161",
+    "exitCode": 0,
+    "stdout": "reap: every journaled process group is empty (126 recorded)\nfinalize: restored 1 mutated file(s) and 1 dotenv file(s); journal closed\n",
+    "stderr": ""
+  }
+}
+```
+
+### R4-0162 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:532
+- Full individual title: strict schema requires an excluded row to record why it is out of scope
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^strict schema requires an excluded row to record why it is out of scope$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema requires an excluded row assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its strict schema requires an excluded row assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0163 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:543
+- Full individual title: recomputation — the summary is never trusted fails when a count disagrees with the rows
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^recomputation — the summary is never trusted fails when a count disagrees with the rows$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0164 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:555
+- Full individual title: recomputation — the summary is never trusted recomputes OPEN_P0 from a confirmed survivor that the file calls CLEAR
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^recomputation — the summary is never trusted recomputes OPEN_P0 from a confirmed survivor that the file calls CLEAR$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0165 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:581
+- Full individual title: recomputation — the summary is never trusted forces INCOMPLETE_BUDGET when any in-scope candidate was skipped
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^recomputation — the summary is never trusted forces INCOMPLETE_BUDGET when any in-scope candidate was skipped$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0166 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:599
+- Full individual title: recomputation — the summary is never trusted separates the two inconclusive classes: oracle forces ORACLE, infra forces INFRA
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^recomputation — the summary is never trusted separates the two inconclusive classes: oracle forces ORACLE, infra forces INFRA$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0167 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:628
+- Full individual title: recomputation — the summary is never trusted never reports CLEAR from an empty inventory
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^recomputation — the summary is never trusted never reports CLEAR from an empty inventory$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0168 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:639
+- Full individual title: recomputation — the summary is never trusted requires the arbiter reasoning behind every confirmed survivor
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^recomputation — the summary is never trusted requires the arbiter reasoning behind every confirmed survivor$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its recomputation — the summary is never assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0169 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:664
+- Full individual title: run binding and the contract fails when the sidecar claims a run_id the checkout does not derive
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^run binding and the contract fails when the sidecar claims a run_id the checkout does not derive$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0170 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:676
+- Full individual title: run binding and the contract fails when the intake was amended after the run
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^run binding and the contract fails when the intake was amended after the run$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0171 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:684
+- Full individual title: run binding and the contract normalizes the Claude lane `classification` into the canonical risk
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^run binding and the contract normalizes the Claude lane `classification` into the canonical risk$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract normalizes assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract normalizes assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0172 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:691
+- Full individual title: run binding and the contract reads the Codex lane `risk` field directly
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^run binding and the contract reads the Codex lane `risk` field directly$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract reads assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract reads assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0173 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:696
+- Full individual title: run binding and the contract fails when the recorded merge-base is not what fork_sha recomputes to
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^run binding and the contract fails when the recorded merge-base is not what fork_sha recomputes to$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its run binding and the contract fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0174 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:708
+- Full individual title: high-risk adjudication blocks an open P1 on a high-risk run
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^high-risk adjudication blocks an open P1 on a high-risk run$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication blocks an open P1 assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication blocks an open P1 assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0175 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:729
+- Full individual title: high-risk adjudication accepts a P1 whose accepted-risk reference resolves to an authorization naming it
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^high-risk adjudication accepts a P1 whose accepted-risk reference resolves to an authorization naming it$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication accepts a P1 whose assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication accepts a P1 whose assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0176 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:754
+- Full individual title: high-risk adjudication rejects an accepted-risk reference that resolves to nothing
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^high-risk adjudication rejects an accepted-risk reference that resolves to nothing$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication rejects an accepted-risk reference assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication rejects an accepted-risk reference assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0177 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:775
+- Full individual title: high-risk adjudication rejects an authorization that does not name the finding citing it
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^high-risk adjudication rejects an authorization that does not name the finding citing it$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication rejects an authorization that assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its high-risk adjudication rejects an authorization that assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0178 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:810
+- Full individual title: staleness and the restored tree fails when any commit outside the run's two artifacts lands after the run
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^staleness and the restored tree fails when any commit outside the run's two artifacts lands after the run$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0179 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:822
+- Full individual title: staleness and the restored tree still fails for an unrelated docs/reviews change
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^staleness and the restored tree still fails for an unrelated docs/reviews change$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree still assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree still assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0180 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:830
+- Full individual title: staleness and the restored tree fails on a tracked modification left in the worktree — an unrestored mutation
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^staleness and the restored tree fails on a tracked modification left in the worktree — an unrestored mutation$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0181 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:844
+- Full individual title: staleness and the restored tree excludes the report's own file when it is the FIRST porcelain line
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^staleness and the restored tree excludes the report's own file when it is the FIRST porcelain line$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree excludes assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its staleness and the restored tree excludes assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0182 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:856
+- Full individual title: the classes git cannot see fails while a dotenv backup is still on disk
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the classes git cannot see fails while a dotenv backup is still on disk$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0183 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:864
+- Full individual title: the classes git cannot see fails while the journal reports an open dotenv swap
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the classes git cannot see fails while the journal reports an open dotenv swap$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0184 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:872
+- Full individual title: the classes git cannot see fails while the journal reports an unrestored mutation
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the classes git cannot see fails while the journal reports an unrestored mutation$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0185 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:884
+- Full individual title: the classes git cannot see fails while a supervisor process group is still journaled active
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the classes git cannot see fails while a supervisor process group is still journaled active$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the classes git cannot see fails assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0186 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:904
+- Full individual title: standalone mode derives its path from --issue and --head on a detached HEAD, and accepts branch null
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^standalone mode derives its path from --issue and --head on a detached HEAD, and accepts branch null$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode derives its path from assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode derives its path from assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0187 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:921
+- Full individual title: standalone mode defaults --risk to high, so an unstated standalone run is adjudicated as high risk
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^standalone mode defaults --risk to high, so an unstated standalone run is adjudicated as high risk$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode defaults --risk to high, assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode defaults --risk to high, assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0188 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:933
+- Full individual title: standalone mode rejects a --head that is not the head the sidecar recorded
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^standalone mode rejects a --head that is not the head the sidecar recorded$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode rejects a --head that assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its standalone mode rejects a --head that assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0189 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:966
+- Full individual title: the equivalent outcome does not block — a proven-equivalent mutant still reaches CLEAR
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the equivalent outcome does not block — a proven-equivalent mutant still reaches CLEAR$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome does not block assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome does not block assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0190 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:977
+- Full individual title: the equivalent outcome rejects an equivalent row that records no proof
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the equivalent outcome rejects an equivalent row that records no proof$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome rejects an equivalent assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome rejects an equivalent assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0191 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:993
+- Full individual title: the equivalent outcome rejects an equivalent row that also references a finding
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the equivalent outcome rejects an equivalent row that also references a finding$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome rejects an equivalent assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome rejects an equivalent assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0192 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:1006
+- Full individual title: the equivalent outcome leaves inconclusive/oracle blocking exactly as before
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the equivalent outcome leaves inconclusive/oracle blocking exactly as before$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome leaves inconclusive/oracle blocking assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome leaves inconclusive/oracle blocking assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0193 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:1027
+- Full individual title: the equivalent outcome reads an ABSENT equivalent count as zero
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the equivalent outcome reads an ABSENT equivalent count as zero$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome reads an ABSENT assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome reads an ABSENT assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0194 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:1035
+- Full individual title: the equivalent outcome still catches a WRONG equivalent count
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the equivalent outcome still catches a WRONG equivalent count$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome still catches a assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome still catches a assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0195 — excluded
+
+- File: scripts/ci/__tests__/red-team-status.test.ts:1045
+- Full individual title: the equivalent outcome keeps an absent killed count a mismatch — the latitude is equivalent-only
+- Direction: A: new fourth-round cases and changed checker launch/reset helper; B: checker direct source consumer and shared runner predicate importer
+- Anchored escaped filter: `^the equivalent outcome keeps an absent killed count a mismatch — the latitude is equivalent-only$`
+- Scope basis: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome keeps an absent assertions observe unchanged schema/count/binding/restoration logic.
+- Disposition/evidence: This existing case uses seedRepo's ordinary round-1 report and beforeEach resets checker to CHECKER, the same executable used before the helper change. The new round-4 proof call is short-circuited and the fourth-grant shape exception is absent; its the equivalent outcome keeps an absent assertions observe unchanged schema/count/binding/restoration logic.
+
+### R4-0196 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:36
+- Full individual title: feature lane selection routes trivial/normal without creating state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection routes trivial/normal without creating state$`
+- Scope basis: This feature lane selection routes trivial/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection routes trivial/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0197 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:36
+- Full individual title: feature lane selection routes small/normal without creating state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection routes small/normal without creating state$`
+- Scope basis: This feature lane selection routes small/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection routes small/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0198 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:36
+- Full individual title: feature lane selection routes standard/normal without creating state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection routes standard/normal without creating state$`
+- Scope basis: This feature lane selection routes standard/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection routes standard/normal without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0199 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:36
+- Full individual title: feature lane selection routes trivial/high without creating state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection routes trivial/high without creating state$`
+- Scope basis: This feature lane selection routes trivial/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection routes trivial/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0200 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:36
+- Full individual title: feature lane selection routes small/high without creating state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection routes small/high without creating state$`
+- Scope basis: This feature lane selection routes small/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection routes small/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0201 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:36
+- Full individual title: feature lane selection routes standard/high without creating state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection routes standard/high without creating state$`
+- Scope basis: This feature lane selection routes standard/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection routes standard/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0202 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:36
+- Full individual title: feature lane selection routes epic/high without creating state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection routes epic/high without creating state$`
+- Scope basis: This feature lane selection routes epic/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection routes epic/high without creating state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0203 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:51
+- Full individual title: feature lane selection requires a build even for a lightweight backend change
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^feature lane selection requires a build even for a lightweight backend change$`
+- Scope basis: This feature lane selection requires a build even for a lightweight backend change case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This feature lane selection requires a build even for a lightweight backend change case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0204 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:58
+- Full individual title: native Codex workflow requires plan approval before a guarded small/high run can execute
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^native Codex workflow requires plan approval before a guarded small/high run can execute$`
+- Scope basis: Only requests executing and plan_approved transitions; transition-state invokes the checker only for nextPhase===reviewed. No changed checker or runner predicate is executed.
+- Disposition/evidence: Only requests executing and plan_approved transitions; transition-state invokes the checker only for nextPhase===reviewed. No changed checker or runner predicate is executed.
+
+### R4-0205 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:68
+- Full individual title: native Codex workflow prepares an armed run without committing, deleting the draft, or writing Claude permissions
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^native Codex workflow prepares an armed run without committing, deleting the draft, or writing Claude permissions$`
+- Scope basis: This native Codex workflow prepares an armed run without committing, deleting the draft, or writing Claude permissions case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This native Codex workflow prepares an armed run without committing, deleting the draft, or writing Claude permissions case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0206 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:84
+- Full individual title: native Codex workflow reports unavailable Codex usage instead of a zero Claude bill
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^native Codex workflow reports unavailable Codex usage instead of a zero Claude bill$`
+- Scope basis: This native Codex workflow reports unavailable Codex usage instead of a zero Claude bill case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This native Codex workflow reports unavailable Codex usage instead of a zero Claude bill case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0207 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:93
+- Full individual title: native Codex workflow records and renders a native review without companion state
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^native Codex workflow records and renders a native review without companion state$`
+- Scope basis: This native Codex workflow records and renders a native review without companion state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This native Codex workflow records and renders a native review without companion state case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0208 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:105
+- Full individual title: native Codex workflow keeps the selected runtime when carrying progress from another host
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^native Codex workflow keeps the selected runtime when carrying progress from another host$`
+- Scope basis: This native Codex workflow keeps the selected runtime when carrying progress from another host case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This native Codex workflow keeps the selected runtime when carrying progress from another host case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0209 — excluded
+
+- File: scripts/ci/__tests__/feature-workflow-runtime.test.ts:114
+- Full individual title: native Codex workflow refuses an ambiguous latest companion job
+- Direction: B: transition-state runtime caller of checker; copied helper-directory boundary
+- Anchored escaped filter: `^native Codex workflow refuses an ambiguous latest companion job$`
+- Scope basis: This native Codex workflow refuses an ambiguous latest companion job case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+- Disposition/evidence: This native Codex workflow refuses an ambiguous latest companion job case invokes unchanged progress/setup/review-log behavior. Copying the feature helper directory does not execute red-team-status; no reviewed transition or fourth-round sidecar is used.
+
+### R4-0210 — excluded
+
+- File: src/__tests__/cost-guard-contract.test.ts:84
+- Full individual title: LLM cost-guard contract: runLlmTask callers are allowlisted every runLlmTask call site is in the reviewed-caller allowlist
+- Direction: B: source-reader boundary for structured-runner and model-call
+- Anchored escaped filter: `^LLM cost-guard contract: runLlmTask callers are allowlisted every runLlmTask call site is in the reviewed-caller allowlist$`
+- Scope basis: Static source scan observes runLlmTask call-site file membership only. This delta adds no call-site file or invocation and leaves the reviewed allowlist unchanged; new prompt strings and case/check bodies do not match a new call site.
+- Disposition/evidence: Static source scan observes runLlmTask call-site file membership only. This delta adds no call-site file or invocation and leaves the reviewed allowlist unchanged; new prompt strings and case/check bodies do not match a new call site.
+
+### R4-0211 — excluded
+
+- File: src/__tests__/cost-guard-contract.test.ts:96
+- Full individual title: LLM cost-guard contract: runLlmTask callers are allowlisted the allowlist carries no stale entries (files without a call site)
+- Direction: B: source-reader boundary for structured-runner and model-call
+- Anchored escaped filter: `^LLM cost-guard contract: runLlmTask callers are allowlisted the allowlist carries no stale entries \(files without a call site\)$`
+- Scope basis: Static source scan observes runLlmTask call-site file membership only. This delta adds no call-site file or invocation and leaves the reviewed allowlist unchanged; new prompt strings and case/check bodies do not match a new call site.
+- Disposition/evidence: Static source scan observes runLlmTask call-site file membership only. This delta adds no call-site file or invocation and leaves the reviewed allowlist unchanged; new prompt strings and case/check bodies do not match a new call site.
+
+### R4-0212 — excluded
+
+- File: worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:117
+- Full individual title: AgentTurnWorker flag gate worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context
+- Direction: B: worker direct caller of model-call boundary
+- Anchored escaped filter: `^AgentTurnWorker flag gate worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context$`
+- Scope basis: The AgentTurnWorker flag gate worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+- Disposition/evidence: The AgentTurnWorker flag gate worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+
+### R4-0213 — excluded
+
+- File: worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:159
+- Full individual title: AgentTurnWorker flag gate worker fails the turn unauthorized when the location voice row vanished after authorization
+- Direction: B: worker direct caller of model-call boundary
+- Anchored escaped filter: `^AgentTurnWorker flag gate worker fails the turn unauthorized when the location voice row vanished after authorization$`
+- Scope basis: The AgentTurnWorker flag gate worker fails the turn unauthorized when the location voice row vanished after authorization case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+- Disposition/evidence: The AgentTurnWorker flag gate worker fails the turn unauthorized when the location voice row vanished after authorization case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+
+### R4-0214 — excluded
+
+- File: worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:268
+- Full individual title: AgentTurnWorker policy preparation worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find
+- Direction: B: worker direct caller of model-call boundary
+- Anchored escaped filter: `^AgentTurnWorker policy preparation worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find$`
+- Scope basis: The AgentTurnWorker policy preparation worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+- Disposition/evidence: The AgentTurnWorker policy preparation worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+
+### R4-0215 — excluded
+
+- File: worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:284
+- Full individual title: AgentTurnWorker policy preparation worker stamps a policy proposal from the snapshot of its own target, not the turn location
+- Direction: B: worker direct caller of model-call boundary
+- Anchored escaped filter: `^AgentTurnWorker policy preparation worker stamps a policy proposal from the snapshot of its own target, not the turn location$`
+- Scope basis: The AgentTurnWorker policy preparation worker stamps a policy proposal from the snapshot of its own target, not the turn location case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+- Disposition/evidence: The AgentTurnWorker policy preparation worker stamps a policy proposal from the snapshot of its own target, not the turn location case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+
+### R4-0216 — excluded
+
+- File: worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:313
+- Full individual title: AgentTurnWorker policy preparation a voice-only turn issues no policy read
+- Direction: B: worker direct caller of model-call boundary
+- Anchored escaped filter: `^AgentTurnWorker policy preparation a voice-only turn issues no policy read$`
+- Scope basis: The AgentTurnWorker policy preparation a voice-only turn issues no policy read case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+- Disposition/evidence: The AgentTurnWorker policy preparation a voice-only turn issues no policy read case replaces the entire model-call module with mockGenerate at line 35. Changed prompt content/identity never executes or reaches its assertions; worker authorization/policy preparation is unchanged.
+
+## Final finding and release boundary
+
+No new actionable finding was established in the finite corrected delta. This report is local adversarial proof for the measured commit, not corrected staging acceptance, posting authorization, or permission for another round/provider call. Report-only commit, renewed final gate/fingerprint and current checker acceptance remain root-owned next steps.
