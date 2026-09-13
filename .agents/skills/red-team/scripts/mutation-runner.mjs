@@ -82,6 +82,8 @@ const RUN_C_EXTENSION_PATHS = new Set([
   'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/findings.md',
   'docs/reviews/codex-owner-operator-run-c/evidence.md',
   'docs/reviews/codex-owner-operator-run-c/resume.md',
+  'docs/reviews/finding-checklists/spec-correctness.md',
+  'docs/reviews/codex-owner-operator-run-c/budget-extension-review.md',
 ]);
 
 function onlyJournaledChanges(root, journal) {
@@ -651,6 +653,11 @@ async function cmdRun(root, parsed) {
   const authorization = authorizedBudget(root, journal);
   if (journal.budgetAuthorization?.id === RUN_C_AUTHORIZATION && !authorization) {
     console.error('run: Run C budget authorization or pinned HEAD changed; refusing another launch');
+    return 1;
+  }
+  if (!authorization && journal.round === 2
+    && git(root, ['branch', '--show-current']) === 'codex/owner-operator-run-c') {
+    console.error('run: Run C startup preconditions failed; refusing the first launch');
     return 1;
   }
   const maxRuns = authorization?.maxRuns ?? MAX_RUNS_PER_ROUND;

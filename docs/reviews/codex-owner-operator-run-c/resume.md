@@ -1,5 +1,11 @@
 # Run C resume checkpoint
 
+## Verifier correction boundary — 2026-09-13
+
+Extension commit `5c3c19568dd65ca7dd672ff3d95b8540742c7d7f` passed the full gate (15,861 full-suite tests, 11 skipped). Independent Codex review then found the first-launch fallback gap BC-F1/P2; root accepted it in review round 8. The scoped guard is corrected: three zero-launch cases reproduced the gap before the fix, and all 75 runner tests pass afterwards. The independent report and checklist are preserved in two explicitly allowed review-only paths. Commit and rerun the full gate, then request focused verification of the correction before execution. The red-team verifier remains preparation-only: round 2 has NOT opened. Root closed the idle finalizer service cleanly; recreate the controller from the corrected committed blob and refresh its expected hash before restarting the service. The earlier immutable copy in `/private/tmp/run-c-round2-controller.mjs` belongs to `5c3c1956` and must not control the corrected pass.
+
+Sentry login is still pending. GitHub's automatic Claude review is already disabled; do not enable it. Independent static inventory scope audits are retaining original identities and attaching explicit proofs to excluded cases; no scope reduction alone proves coverage.
+
 ## Current continuation boundary — 2026-09-13 12:24 UTC
 
 All eight implementation tracers are complete. Candidate `5f2c201769ba982f49b9ecbd82678b45e75b19b1` passed the full review gate; the full-suite command passed15,842 tests with11 skipped. Spec and security/tenancy reviews found no actionable defect. Review reports are committed in `8ffb8ee1`. Root corrected the one maintainability comment and three red-team findings; focused card/context tests passed16/16. Check the current Git HEAD and gate fingerprint after the correction commit rather than treating the older gate as current.

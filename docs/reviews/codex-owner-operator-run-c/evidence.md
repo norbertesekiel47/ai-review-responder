@@ -1,5 +1,15 @@
 # Run C evidence
 
+## Verifier extension review — 2026-09-13
+
+Candidate `5c3c19568dd65ca7dd672ff3d95b8540742c7d7f` passed the full wrapper review gate, including build, E2E, all 72 verifier regression tests and 15,861 full-suite tests (11 skipped). Log: `/private/tmp/run-c-budget-extension-gate.log`. The existing reclassification warning remains visible; the feature retains its high-risk classification and eight tracers.
+
+The [independent Codex review](budget-extension-review.md) found BC-F1/P2: before the first round-2 launch, an invalid Run C grant could fall back to the ordinary 30-run budget. Root accepted the finding and recorded it in review round 8 and the spec/correctness checklist. The original rejection tests started at 30 launches and therefore missed the startup case. Three zero-launch regressions reproduced the gap before correction (`/private/tmp/run-c-budget-startup-red.log`). The corrected guard requires a valid grant from the first Run C round-2 launch; all 75 regression tests now pass, including ordinary branch/round startup and their unchanged cap (`/private/tmp/run-c-budget-startup-fix-tests.log`). The gate above predates this correction; a new committed gate and focused review are still owed. Round 2 has not opened, and no mutation ran while this gap was present.
+
+Original inventory identities remain intact. Independent scope tracing established that many conservative whole-file entries do not execute changed code; any exclusion must retain its exact mock or control-flow proof on the original row. This is inventory correction, not evidence of a successful mutation or permission to omit an in-scope case.
+
+Current coding and review delegates are Codex. GitHub's `Claude Code Review` workflow was read back as `disabled_manually` on 2026-09-13; no workflow setting was changed. The Sentry browser is still signed out, and staging alert configuration awaits the requested owner login while local work proceeds.
+
 ## Review checkpoint — 2026-09-13 12:24 UTC
 
 Run C is implemented but unmerged. The full review gate passed at `5f2c201769ba982f49b9ecbd82678b45e75b19b1`; its explicit full-suite command recorded 15,842 passing tests and 11 skipped, while the base test row separately skips the broad live-database lane and runs the six declared integration suites. Independent spec/correctness and security/tenancy reviews reported no findings. The maintainability review found one misleading inheritance-owner comment. Reports were committed in `8ffb8ee1`.

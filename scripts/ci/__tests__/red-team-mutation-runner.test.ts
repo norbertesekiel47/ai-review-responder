@@ -579,6 +579,33 @@ describe('the mutation budget', () => {
     expect(journal().runs).toBe(32);
   });
 
+  it('pins the approved Run C candidate on its first launch from zero', () => {
+    authorizeRunC();
+    writeJournal({ ...journal(), runs: 0 });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expect(journal().runs).toBe(1);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toMatchObject({
+      id: 'owner-run-c-budget-next-pass', firstRun: 1, headSha: git('rev-parse', 'HEAD'),
+    });
+  });
+
+  it.each(['another branch', 'another round'])(
+    'retains the ordinary first launch and 30-run limit for %s', (scope) => {
+      authorizeRunC();
+      write('.feature/red-team-journal.json', JSON.stringify({
+        ...journal(), runs: 0, round: scope === 'another round' ? 1 : 2,
+      }));
+      if (scope === 'another branch') git('branch', '-m', 'codex/another-task');
+      expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+      expect(journal().runs).toBe(1);
+      expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+      writeJournal({ ...journal(), runs: 30 });
+      const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain('budget exhausted (30');
+    },
+  );
+
   it('permits Run C launch 1500 and refuses launch 1501 without resetting the counter', () => {
     authorizeRunC();
     writeJournal({ ...journal(), runs: 1499 });
@@ -590,8 +617,10 @@ describe('the mutation budget', () => {
   });
 
   it.each(['branch', 'round', 'report-round', 'head', 'inventory', 'identity', 'text', 'date', 'missing', 'malformed', 'product', 'ancestry'])(
-    'keeps the default cap when Run C approval has a %s mismatch', (mismatch) => {
+    'refuses a %s mismatch before launching the scoped Run C pass', (mismatch) => {
       authorizeRunC();
+      const ordinaryScope = mismatch === 'branch' || mismatch === 'round';
+      if (!ordinaryScope) writeJournal({ ...journal(), runs: 0 });
       const sidecar = JSON.parse(read(runCReport));
       if (mismatch === 'branch') git('branch', '-m', 'codex/other');
       if (mismatch === 'round') write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 3 }));
@@ -615,8 +644,10 @@ describe('the mutation budget', () => {
       }
       const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
       expect(refused.status).toBe(1);
-      expect(refused.stderr).toContain('budget exhausted (30');
-      expect(journal().runs).toBe(30);
+      expect(refused.stderr).toContain(ordinaryScope ? 'budget exhausted (30' : 'Run C startup preconditions failed');
+      expect(journal().runs).toBe(ordinaryScope ? 30 : 0);
+      expect(journal().supervisors).toEqual([]);
+      expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
     },
   );
 
@@ -635,22 +666,28 @@ describe('the mutation budget', () => {
 
   it('does not treat an uncommitted Run C approval as authorization', () => {
     const baseline = authorizeRunC();
+    writeJournal({ ...journal(), runs: 0 });
     git('update-ref', 'HEAD', baseline);
     const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
     expect(refused.status).toBe(1);
-    expect(refused.stderr).toContain('budget exhausted (30');
-    expect(journal().runs).toBe(30);
+    expect(refused.stderr).toContain('Run C startup preconditions failed');
+    expect(journal().runs).toBe(0);
+    expect(journal().supervisors).toEqual([]);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
   });
 
   it.each(['unstaged', 'staged'])(
     'rejects an unexpected %s product edit before the first Run C launch', (kind) => {
       authorizeRunC();
+      writeJournal({ ...journal(), runs: 0 });
       write('src/gate.ts', 'export const allow = () => true;');
       if (kind === 'staged') git('add', 'src/gate.ts');
       const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
       expect(refused.status).toBe(1);
-      expect(refused.stderr).toContain('budget exhausted (30');
-      expect(journal().runs).toBe(30);
+      expect(refused.stderr).toContain('Run C startup preconditions failed');
+      expect(journal().runs).toBe(0);
+      expect(journal().supervisors).toEqual([]);
+      expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
     },
   );
 
