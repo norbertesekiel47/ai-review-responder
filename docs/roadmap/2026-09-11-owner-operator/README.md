@@ -577,6 +577,34 @@ All required to release the second 30 hours:
 Missed checkpoint: pause expansion and re-scope. Do not spend the second 30
 hours finishing the first slice by default.
 
+**Checkpoint report — 2026-09-13 (T8, staging, flag on both lanes from 03:04Z;
+owner Tanicia Resort Testing, account `01a06dd3-…fecb`, conversation
+`d0225d23-…9b77`).** The first live turn ever (03:11Z) FAILED
+`model_output_invalid` on both pinned providers — nothing had declared the
+output shape to the model (§14, T8 finding); fixed in the same PR
+(prompt `2026-09-13.1` + `allowedOperations[].input`), redeployed at 03:26Z, and
+every row below was driven after that fix.
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 1 | Owner sends, receives a tone Proposal, applies, reads an accurate Receipt | **PASS** | turn 2 (8.95 s): Proposal `01a098ce-e793` `set_tone` "warm and brief" with the full before/after; Apply → Receipt `appliedAt 03:28:50.999Z`, before "professional and friendly", after "warm and brief", actor name, verbatim request, turn reference; `businesses.tone` read back "warm and brief" |
+| 2 | The next generated draft reflects the new tone | **NOT OBSERVABLE** | no staging location has a review, so no draft is generated; the tone column is the writer's own input to every draft (`voice-settings.ts`) — observe on the first staging review after the flip |
+| 3 | Refresh resumes; repeat Apply returns the original Receipt; resend returns the same ids | **PASS** | reload during turn 3's "Preparing your plan" kept `turnId=01a098d0-4746` in the URL and resumed it; a second POST apply on the applied Proposal answered 200 with the same `appliedAt 03:28:50.999Z`; POST turns twice with one `clientTurnKey` answered the same `{conversationId, turnId 01a098d1-a8ce}`, and a different text under that key answered 409 `turn_key_conflict` |
+| 4 | Concurrent form write → `stale`; another account → 404; bumped contract → `contract_changed` | **PASS** | `businesses.updated_at` touched at 03:30:37Z after turn 3's token (03:28:49Z) → Apply → `stale`/`version_mismatch` with Refresh plan; an unknown Proposal id → 404 `proposal_not_found` (the other-account row takes the same path, pinned by `apply.integration.test.ts`); Refresh plan's new Proposal bumped to `contract_version 2` → Apply → `rejected`/`contract_changed` with Refresh plan |
+| 5 | Two simultaneous dispatches → one completed turn, one proposal set | **PASS (suite)** | `turn-worker.integration.test.ts` claim race: one model call, one billed cost, the loser exits without touching the outbox row (Run A's fresh red-team P0 fix); on staging every `job_outbox` row for `agent_turn` completed once (6 of 6) |
+| 6 | Secondary-location turn keeps its target when the selector moves | **NOT DRIVEN** | the staging owner has one location; the property is pinned by the `OperatorClient` cases ("posts a turn with the stored location…") and the turn row freezes `location_id` at POST |
+| 7 | Missing/mismatched Origin rejected on both POST routes before any write | **PASS (suite)** | from outside the browser `staging.repworth.net` answers Vercel's SSO gate (401) before the app, so the check is pinned by `turns-route.test.ts` / `apply-route.test.ts` ("rejects a missing or mismatched Origin before any write") and red-team rows B1-05/B1-12 killed |
+| 8 | Auto-approval Apply path examined; remaining work estimated in §13 | **DONE** | §13 "Auto-approval Apply path — T8 estimate" |
+| 9 | One COO-roster owner named, with an observation window | **OWNER'S CALL** | not named in this PR; the roster and window are the owner's, and delegation testing needs a location with review traffic |
+| 10 | p50 and p95 turn latency recorded | **RECORDED** | 5 completed turns after the fix: **p50 8.38 s, p95 9.5 s, max 9.64 s**; 3.3–5.5 s of each is the outbox poller's claim wait, the model call itself 2.7–3.8 s; terminal reasons over 7 days: completed 5, `model_output_invalid` 1 (the pre-fix turn) |
+
+Verdict: the first slice works end to end on staging with the shape fix; items 2,
+6 and 9 wait on review traffic, a second location and the owner. Constants
+unchanged (`worker/jobs/agent-turn/constants.ts`): the lease floor is
+max(p95 × 1.5 = 14.3 s, 2 × 30 s = 60 s) and 180 s stands; the stall window
+stays above the 900 s watchdog; the 10 s predecessor wait is not lowered on a
+five-turn sample with p50 just under 10 s.
+
 ### 12.2 Full v1
 
 - Every §4 proposable operation applies with full-state before/after and receipt, including a dial-only operation that creates a location override (receipt shows the created row and the manual threshold).
@@ -635,6 +663,30 @@ card.
 MCP is not scheduled after v1. It needs a named external user and its own
 scope.
 
+**Auto-approval Apply path — T8 estimate (§12.1 item 8, 2026-09-13).** What
+exists: the Apply transaction (lock-before-check, three-way **Version token**,
+the operation's own fields through a shared writer, the server-written
+**Receipt**), the catalog's `defineProposable` seam, and the settings side's
+`getAutoApprovalSettings` read. What is missing, with hours: the three
+proposables (`set_auto_reply_scope`, `set_veto_window`, `set_daily_cap`) with
+their input schemas, `inputShape`, describers and previews over the effective
+**Operating rules** rather than the voice state — 3; a transaction-aware entry
+point into the policy writer (`patchAutoApprovalSettingsInTransaction`) that
+takes the Apply transaction's `tx` and the location lock, with the
+`auto_approval_policies` **Version token** (`{ businessId, updatedAt }` or
+`'absent'` when no override row exists) — 4; the **created-override case**: an
+Apply on a location with no override row must INSERT one inside the same
+transaction and the Receipt must say the override was created, not changed —
+2; the readiness gate: a proposal on an account whose tier does not grant
+Autopilot, or while `AUTO_APPROVAL_ENABLED` is off, is prepared but its card
+says what is missing and Apply is refused with a named reason — 2; the
+confirmation UI (the consequence line and the asymmetric friction for
+widening) — the §13 rows already carry 8 + 2; tests: live-DB cases for the
+created-override and the concurrent policy write, route cases for the refusal
+reasons — 3. **Total 14–16 hours** beyond the 12 the table provisions for
+"auto-approval cards", because the created-override and readiness cases were
+not in that row.
+
 ## 14. Open questions
 
 - Which pinned model for `owner_operator`: the reply-generation primary, or a stronger model for planning quality. Decide at the checkpoint from staging transcripts. **2026-09-11 (Run A):** registered at the reply-generation pair (`OPENAI_MODEL` primary, `ANTHROPIC_MODEL` fallback) with `maxTokens: 1200` and `temperature: 0.2` — 1200 because a reply is an ordered segment list plus up to five proposals with rationales, and 0.2 because a proposal is a contract, not prose. **This run pins the numbers only; the MODEL question stays open at the checkpoint.**
@@ -646,7 +698,8 @@ scope.
 - **Run B open item — a turn stranded by outbox dispatch exhaustion** (review round 1, CA1). Five `OutboxPoller` dispatch failures terminalize the `job_outbox` row while the turn is still `accepted`: successors in the conversation fail `predecessor_stalled` after 20 min, but that turn itself never reaches a terminal status, so the screen polls something that will never answer. The reverse case is already closed — a stale attempt's still-`dispatched` row is completed by the next dispatch's terminal-turn branch (`readTerminalTurn` → `markOutboxCompletedIfOwned`), proven live by the claim-race case's third dispatch. The fix belongs in `OutboxPoller` (a turn-aware exhaustion hook, or a sweeper that fails `accepted` turns whose outbox row is terminal), which is outside Run A's surface. Run B's screen must at minimum show a timeout and offer "try again" rather than spinning.
 - **Run B open item — the predecessor wait outlives the watchdog window** (review round 1, CA4). Two clocks disagree by design: `AGENT_TURN_PREDECESSOR_STALL_SECONDS` is 1200 s (20 min) while the outbox watchdog re-dispatches after 900 000 ms (15 min), so a turn waiting on a slow predecessor can be dispatched a second time mid-wait. Accepted as a tradeoff for Run A — a redundant dispatch is safe by construction (the **Turn claim** serialises; the loser exits without touching the outbox row) and at the default watchdog it happens at most once per wait. Removing it needs either a durable waiting state or sequence-aware dispatch, both of which change `OutboxPoller`. Revisit with the checkpoint's staging p50/p95, alongside the lease and stall numbers above.
 - **Go-live alerting — the `agent_turn` lane's domain terminals emit structured logs only; its failure rows are watched** (review round 2, R9; corrected by the fresh red-team rounds 1 and 3, P1-4/P1-5/P2-2). `TURN_FAILURE_REASON` has seven members. Six are DOMAIN terminals the worker itself writes through a fenced status update, and they do not log uniformly: `predecessor_stalled`, `unauthorized` (the reauthorization arm and the vanished-voice-row arm), `account_offboarding` (the other outcome of that same reauthorization arm), `model_output_invalid` and `budget_exceeded` emit a `logger.warn` line; `operator_disabled` emits `logger.log` (info — an orderly flag-off skip, not an incident). The seventh, `exhausted`, is written by the failed-hook after BullMQ retry exhaustion, not by the worker. One more exit is NOT a terminal: a lease lost before completion emits `logger.warn` and resolves nothing — the attempt that owns the lease completes the turn and the outbox row. None of the six domain terminals calls Sentry, and that is ONE go-live decision — whether they get a Sentry rule row, and at what rate, given that `operator_disabled` is a flag-off skip and `budget_exceeded` is a per-account terminal — to be taken with the rest of Run A's alerting before the pilot, not path by path. What IS alerted today, after the fresh red-team round: (a) a `job_outbox` row for topic `agent_turn` that lands `failed` — by `OutboxPoller` dispatch exhaustion or by the watchdog terminalising a long-`dispatched` row — raises `outbox_failed:agent_turn` from `checkFailedOutboxByTopic` (the topic was missing from that closed allowlist; P1-2) and pages through runbook rule 1; (b) BullMQ retry exhaustion reaches Sentry through `worker/job-failure-sink.ts` tagged `subsystem:worker_job`, `queue:agent_turn`, with its own rule row in `docs/runbooks/beta-launch-alerting.md` (P1-3). The orphaned-lease case named in the intake's observability section is therefore alerted only on its TERMINAL half: a stuck `dispatched` row the watchdog re-pends produces one count-only log line in `runOutboxWatchdogRecovery` (`Watchdog recovered stale entries` with `recovered`, `failed` and `stale_dispatching` counts — no topic field, no Sentry event), and it stays that way by design — the re-dispatch is the recovery.
-- **Go-live alerting for the six DOMAIN terminal reasons — settled 2026-09-12 (Run B, decision D6): structured logs only, no Sentry rule.** `operator_disabled` is an orderly flag-off skip and `budget_exceeded` is a per-account terminal; neither is an incident, and a rule that pages on both would train the operator to ignore the lane. The two paths that ARE alerted stay alerted: a `job_outbox` row for topic `agent_turn` landing `failed` raises `outbox_failed:agent_turn` through runbook rule 1, and BullMQ retry exhaustion reaches Sentry through `worker/job-failure-sink.ts` under runbook **rule 11** — the event fires today, but the Sentry → Discord rule is NOT BUILT as of Run B's merge (the API refused the build for want of an `alerts:write` token; `docs/runbooks/beta-launch-alerting.md` row 11 carries the state and both rule ids once it exists) and the T8 staging flip gates on it. The distribution is read from the rows instead, on staging with the flag on: `SELECT failure_reason, count(*) FROM agent_turns WHERE created_at > now() - interval '7 days' GROUP BY 1`. **Revisit trigger: the §12.1 checkpoint.** If any domain reason is materially represented there, it earns its own rule then — with a real rate to set the threshold from, which is the thing this decision was missing.
+- **Go-live alerting for the six DOMAIN terminal reasons — settled 2026-09-12 (Run B, decision D6): structured logs only, no Sentry rule.** `operator_disabled` is an orderly flag-off skip and `budget_exceeded` is a per-account terminal; neither is an incident, and a rule that pages on both would train the operator to ignore the lane. The two paths that ARE alerted stay alerted: a `job_outbox` row for topic `agent_turn` landing `failed` raises `outbox_failed:agent_turn` through runbook rule 1, and BullMQ retry exhaustion reaches Sentry through `worker/job-failure-sink.ts` under runbook **rule 11** — BUILT 2026-09-13 in both Sentry projects (staging `3984512`, production `3984518`; `docs/runbooks/beta-launch-alerting.md` row 11), through the Sentry UI after the API had refused the build for want of an `alerts:write` token; the T8 staging flip gated on it. The distribution is read from the rows instead, on staging with the flag on: `SELECT failure_reason, count(*) FROM agent_turns WHERE created_at > now() - interval '7 days' GROUP BY 1`. **Revisit trigger: the §12.1 checkpoint.** If any domain reason is materially represented there, it earns its own rule then — with a real rate to set the threshold from, which is the thing this decision was missing. **T8 read (2026-09-13, 7 days, 6 turns): completed 5, `model_output_invalid` 1 — the one before the shape fix; no domain reason earned a rule.**
+- **T8 finding — the LLM seam declares no structured-output contract to any provider (2026-09-13).** `runLlmTask` sends system + user text and validates the completion with the task's zod schema only after it arrives; no JSON schema reaches OpenAI (`response_format`) or Anthropic (a tool input schema). The triage, judge and solicitation tasks survive on trivial schemas; the Operator's did not — the first live turn failed on both providers until the prompt spelled the shape (`2026-09-13.1`) and the catalog projected each proposable's `inputShape`. The prompt promise holds today (`prompt.test.ts` pins it against the schema). **Open:** hand the schema to the provider per task so the shape becomes a provider guarantee; and give the eval harness one live, keyed case per structured task, because nothing offline could have caught this. Recorded for the next architecture pass in the arch-review log.
 
 ## 15. Review log
 
@@ -713,3 +766,23 @@ scope.
   (the refetch on a second message in an adopted conversation is unmeasured),
   Sentry rule 11 (NOT BUILT), the staging flip, p50/p95, the constants tune,
   §12.1.
+- 2026-09-13, **T8 — the staging flip and the first live turn**
+  (`feat/owner-operator-t8`). Sentry rule 11 built in both projects through
+  the Sentry UI (staging `3984512`, production `3984518`) after the API had
+  refused for want of `alerts:write`. `OWNER_OPERATOR_ENABLED=true` on staging,
+  both lanes, owner-run: Railway worker 02:59Z (deploy SUCCESS 03:01Z), Vercel
+  `staging` Custom Environment 03:03Z (READY 03:04Z); production off. **The
+  first live Operator turn failed `model_output_invalid` on BOTH pinned
+  providers** — reproduced locally within minutes: nothing declared the output
+  shape to the model (§14). Fixed by declaring `OperatorModelOutputSchema` in
+  the system prompt (version `2026-09-13.1`) and projecting each proposable's
+  `inputShape` as `allowedOperations[].input`; pinned by `prompt.test.ts`
+  (keys and segment types read FROM the schema) and `catalog.test.ts`
+  (`inputShape` keys equal the strict schema's keys); re-verified live against
+  both models before the redeploy. Red-team RT-B8 closed by a discriminating
+  case. The §12.1 checkpoint table is filled: items 1, 3, 4 driven on staging
+  and PASS; 5 and 7 rest on the suites; 2, 6 and 9 wait on review traffic, a
+  second location and the owner; p50 8.38 s / p95 9.5 s over five turns;
+  constants unchanged with the floors recorded. Left open: the auto-approval
+  Apply path (§13 estimate 14–16 h), and the seam's missing structured-output
+  contract (§14).

@@ -80,6 +80,22 @@ describe('operator catalog', () => {
     for (const op of modelVisibleOperations('copilot')) {
       expect(op.describe.length).toBeGreaterThan(0);
     }
+    // T8 (2026-09-13): the model learns each proposable's `input` keys FROM
+    // the projection, never from the prompt (which must not carry a second
+    // list of ids). The shape's keys must be exactly the keys the STRICT zod
+    // schema accepts — SAMPLE_INPUT is that key set, proven by the parse in
+    // the describer sweep below — and an extra key must still be refused, so
+    // the shape cannot drift wider than the contract.
+    for (const op of modelVisibleOperations('copilot')) {
+      if (op.kind !== 'proposable') {
+        expect(op.input).toBeUndefined();
+        continue;
+      }
+      expect(op.input).toBeDefined();
+      const shapeKeys = [...op.input!.matchAll(/"([A-Za-z]+)"\s*:/g)].map((m) => m[1]).sort();
+      expect(shapeKeys).toEqual(Object.keys(SAMPLE_INPUT[op.id]!).sort());
+      expect(proposableOperation(op.id)!.parseInput({ ...SAMPLE_INPUT[op.id], extra: 1 }).ok).toBe(false);
+    }
   });
 
   it('invariants: every catalog operation declares a contract version and a describer', () => {
