@@ -62,6 +62,14 @@ export interface ProposableOperation {
    * prompt list would throw inside any describer that reads a field.
    */
   summary: string;
+  /**
+   * The JSON shape of `input`, as the PROMPT declares it to the model — a
+   * literal like `{"tone": string}`. The zod schema is the contract; this is
+   * its spelling for a reader that never sees zod. T8 (2026-09-13): the first
+   * live turn on staging failed `model_output_invalid` on BOTH providers because
+   * nothing declared the shape, so the model guessed keys the schema rejects.
+   */
+  inputShape: string;
   describe(input: unknown): string;
   parseInput(value: unknown): { ok: true; input: Record<string, unknown> } | { ok: false };
   preview(voice: VoiceConfig, input: unknown): ProposablePreview;
@@ -85,6 +93,8 @@ function defineProposable<T extends Record<string, unknown>>(spec: {
   labelKind: LabelKind;
   summary: string;
   inputSchema: z.ZodType<T>;
+  /** Must spell exactly the keys `inputSchema` accepts — the validator is strict. */
+  inputShape: string;
   describe: (input: T) => string;
   /**
    * The ONE spelling of what this operation changes. `preview` derives the
@@ -101,6 +111,7 @@ function defineProposable<T extends Record<string, unknown>>(spec: {
     labelKind: spec.labelKind,
     scopeRule: 'location',
     summary: spec.summary,
+    inputShape: spec.inputShape,
     parseInput(value) {
       const parsed = spec.inputSchema.safeParse(value);
       return parsed.success ? { ok: true, input: parsed.data } : { ok: false };
@@ -165,6 +176,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     labelKind: 'fact',
     summary: 'Set the reply tone',
     inputSchema: ToneInput,
+    inputShape: '{"tone": string}',
     describe: (input) => `Set the reply tone to "${input.tone}"`,
     writerFields: (input) => ({ tone: input.tone }),
   }),
@@ -173,6 +185,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     labelKind: 'fact',
     summary: 'Update the products and services the replies may mention',
     inputSchema: ProductsServicesInput,
+    inputShape: '{"productsServices": string | null}',
     describe: (input) => input.productsServices === null
       ? 'Clear the products and services the replies may mention'
       : 'Update the products and services the replies may mention',
@@ -183,6 +196,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     labelKind: 'fact',
     summary: 'Set what to keep out of every reply',
     inputSchema: AvoidFactsInput,
+    inputShape: '{"avoidFacts": string[]}',
     describe: (input) => `Keep ${input.avoidFacts.length} thing(s) out of every reply`,
     writerFields: (input) => ({ avoidFacts: input.avoidFacts }),
   }),
@@ -191,6 +205,7 @@ export const CATALOG: Readonly<Record<CatalogOperationId, CatalogOperation>> = {
     labelKind: 'fact',
     summary: 'Set what to highlight when a reply fits',
     inputSchema: HighlightFactsInput,
+    inputShape: '{"highlightFacts": string[]}',
     describe: (input) => `Highlight ${input.highlightFacts.length} thing(s) when a reply fits`,
     writerFields: (input) => ({ highlightFacts: input.highlightFacts }),
   }),
@@ -206,6 +221,8 @@ export interface ModelVisibleOperation {
   kind: CatalogOperation['kind'];
   labelKind: LabelKind | null;
   describe: string;
+  /** Proposables only: the `input` shape the model must emit, verbatim from the catalog. */
+  input?: string;
 }
 
 /**
@@ -223,6 +240,9 @@ export function modelVisibleOperations(
     labelKind: op.kind === 'proposable' ? op.labelKind : null,
     // `summary`, never `describe({})`: the prompt list has no input to describe.
     describe: op.kind === 'proposable' ? op.summary : op.describe,
+    // The input shape rides the operation it belongs to, so the prompt never
+    // carries a second, wider list of ids (see the prompt's own note).
+    ...(op.kind === 'proposable' ? { input: op.inputShape } : {}),
   }));
 }
 
