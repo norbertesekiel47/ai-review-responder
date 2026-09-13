@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **RUNS A + B MERGED (#1270 `d8e3f334f` 2026-09-12; #1273 `34857b73b` 2026-09-13); migration 120 on staging and production; `OWNER_OPERATOR_ENABLED` off everywhere** (the turn pipeline, the voice-scope proposal, Apply, Decline, receipts and the Operator screen exist; T8 — Sentry rule 11, the staging flip, p50/p95, §12.1 — is the follow-up PR) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
+_Status: **RUNS A + B + T8 MERGED (#1270 `d8e3f334f` 2026-09-12; #1273 `34857b73b` 2026-09-13; #1276 `099409ae2` 2026-09-13); migration 120 on staging and production; `OWNER_OPERATOR_ENABLED` ON in staging (both lanes, since 2026-09-13 03:04Z), OFF in production; Sentry rule 11 in both projects; §12.1 checkpoint report recorded** (the turn pipeline, the voice-scope proposal, Apply, Decline, receipts and the Operator screen exist and work live on staging; the auto-approval Apply path is estimated in §13 and open) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 

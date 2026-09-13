@@ -9,7 +9,17 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-13 (Owner Operator Run B merged, #1273; flag still off everywhere).
+Last updated: 2026-09-13 (Owner Operator T8 merged, #1276; the Operator is ON in staging, off in production).
+
+## Quick summary — Owner Operator T8: LIVE on staging, first live turn fixed, §12.1 checkpoint recorded (2026-09-13, #1276)
+
+`OWNER_OPERATOR_ENABLED=true` on staging on both lanes since 03:04Z (Railway worker + the Vercel `staging` Custom Environment); **production stays off**. Sentry rule 11 (`subsystem:worker_job` AND `queue:agent_turn` → Discord) exists in both projects: staging `3984512`, production `3984518`.
+
+**What the first live turn taught.** It failed `model_output_invalid` on both pinned models: the LLM seam declares no output schema to any provider and validates only after the completion arrives, and the Operator prompt said "the declared schema" without declaring one. Fixed the same hour: the system prompt spells `OperatorModelOutputSchema` (prompt `2026-09-13.1`) and every proposable's `inputShape` rides its `allowedOperations` entry; `prompt.test.ts` and `catalog.test.ts` pin both to the schema. Two open follow-ups in spec §14: hand the schema to the provider per task (`response_format` / tool input) so the shape is a provider guarantee, and give the keyless eval harness one live case per structured task.
+
+**Checkpoint (§12.1, in the spec).** Driven on staging after the fix: a tone Proposal → Apply → accurate Receipt with `businesses.tone` read back; reload resumes the turn, repeat Apply returns the same Receipt, resend returns the same ids; a concurrent settings write → `stale` with Refresh plan, an unknown id → 404, a bumped contract → `contract_changed`. Five completed turns: p50 8.38 s, p95 9.5 s (3 to 5 s of it the outbox poller's claim wait). Constants unchanged with the floors recorded. Waiting on review traffic, a second location and the owner: the next-draft tone check, the secondary-location turn, the COO-roster owner. The auto-approval Apply path is estimated in §13 (14–16 h). Red-team RT-B8 is closed.
+
+**The new shape:** unchanged from Run B, plus `src/lib/agents/operator/__tests__/prompt.test.ts` and the `inputShape` field on every proposable in `catalog.ts`.
 
 ## Quick summary — Owner Operator Run B MERGED: Apply, Decline, receipts, the Operator screen — flag still off everywhere (2026-09-13, #1273)
 
