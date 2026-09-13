@@ -1,6 +1,14 @@
 /**
  * Owner Operator timing (plan decision L2). Provisional per spec §14 — tune
  * from staging p50/p95 at the checkpoint, not from a hunch.
+ *
+ * T8 checkpoint read (2026-09-13, staging, five completed turns after the
+ * output-shape fix): p50 8.38 s, p95 9.5 s, max 9.64 s, of which 3.3–5.5 s is
+ * the outbox poller's claim wait. Floors: the lease must exceed
+ * max(p95 × 1.5 = 14.3 s, 2 × 30 s provider timeout = 60 s) — 180 stands; the
+ * stall window must exceed the 900 s watchdog — 1200 stands; the predecessor
+ * wait is lowered only when p50 is well under 10 s — 8.38 on five turns is
+ * not that. Nothing moved (spec §12.1 report).
  */
 
 /**
