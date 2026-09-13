@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **RUN A MERGED (#1270, squash `d8e3f334f`, 2026-09-12); migration 120 on staging and production; `OWNER_OPERATOR_ENABLED` off everywhere** (the turn pipeline and the voice-scope proposal; the screen, Apply, Decline and receipts are Run B) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
+_Status: **RUNS A + B MERGED (#1270 `d8e3f334f` 2026-09-12; #1273 `34857b73b` 2026-09-13); migration 120 on staging and production; `OWNER_OPERATOR_ENABLED` off everywhere** (the turn pipeline, the voice-scope proposal, Apply, Decline, receipts and the Operator screen exist; T8 — Sentry rule 11, the staging flip, p50/p95, §12.1 — is the follow-up PR) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 
@@ -703,3 +703,13 @@ scope.
   recorded in `docs/superpowers/plans/feat-owner-operator-run-b-deviations.md`:
   the page route (top-level → under `dashboard/`) and the nav-section test's
   home (a new file → the existing `active-nav.test.ts`).
+- 2026-09-13, **Run B MERGED** (#1273, squash `34857b73b`) after a flag-off staging
+  ride proved build and boot. Before the merge a fresh three-round red-team run
+  covered the two post-review CI fixes (`fallow`, React Doctor) and closed CLEAR
+  at `e11aeceda`: its P0 was the **Receipt**'s `before` being unmeasured (the only
+  assertion was an absence-of-key proxy); three P1 oracle gaps (the gate order on
+  a malformed id, the card repaint from the returned row, a late read across
+  `finishTurn`) each earned a discriminating case. Open for T8: red-team RT-B8
+  (the refetch on a second message in an adopted conversation is unmeasured),
+  Sentry rule 11 (NOT BUILT), the staging flip, p50/p95, the constants tune,
+  §12.1.
