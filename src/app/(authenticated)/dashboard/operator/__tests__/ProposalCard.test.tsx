@@ -241,8 +241,8 @@ describe('autonomy cards', () => {
       onDecline={vi.fn()} onRefreshPlan={vi.fn()} cardBusyId={null} cardErrors={{}} />);
     const group = screen.getByRole('group', { name: 'Changes that expand auto-reply' });
     expect(within(group).getAllByRole('button', { name: 'Confirm and apply' })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: 'Apply', exact: true })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: 'Not now', exact: true })).toHaveLength(4);
+    expect(screen.getAllByRole('button', { name: 'Apply' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Not now' })).toHaveLength(4);
     expect(screen.queryByRole('button', { name: /apply[\s-]*all/i })).not.toBeInTheDocument();
     expect(screen.getAllByRole('heading', { name: 'Change auto-reply scope' })).toHaveLength(2);
     expect(screen.getByRole('heading', { name: DESCRIBE }).compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
