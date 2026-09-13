@@ -415,6 +415,16 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 10 | Admin home configuration failure → Discord **REQUIRED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE** | Source Next.js project; exception type Error and message equal to the constant below, scoped to the affected deployment environment | **every event**, action throttle 60 minutes per issue | error |
 | 11 | `agent-turn-exhausted → discord` (Owner Operator, red-team P1-3) **BUILT 2026-09-13, staging rule `3984512`, production rule `3984518`** (`Prod — agent-turn-exhausted → discord`, tags `repworth-prod`) — built in the Sentry UI (the new alert builder at `/monitors/alerts/new/`) after Run B's API attempt was refused for want of an `alerts:write` scope; both verified through the API: trigger every event, filters `subsystem = worker_job` AND `queue = agent_turn`, Discord integration 443670 to the same channels as rules 3 (staging) and 9 (production), throttle 60 min. REQUIRED BEFORE `OWNER_OPERATOR_ENABLED` GOES ON in that project's environment | `subsystem` equals `worker_job` **AND** `queue` equals `agent_turn` | **every event**, throttled to 1/hour | `error` (the `captureException` default) |
 
+**Rule 12 — Operator retained-veto invariant failure (Run C). REQUIRED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE.**
+
+| Rule name | Emitted identity and filter | Level and grouping | Trigger and destination |
+|---|---|---|---|
+| `operator-retained-veto-invariant → discord` | Next.js `reportCaughtError`, tag `endpoint` equals `api/operator/proposals/[id]/apply POST`, exception message contains `auto_approved_by_policy audit row with a valid veto_window_minutes`; scope to the deployment environment | `error`; default exception-stack grouping, no custom fingerprint or title; the exception text includes the affected response count | Every event, action throttle 60 minutes per issue; the environment's existing Discord alerts channel via integration 443670 |
+
+`readRetainedVetoCount` in `src/lib/agents/operator/policy-state.ts` throws when an in-scope approved auto-policy response lacks a valid latest approval grant. The Apply route reports that exception after its transaction rolls back: policy, audit and receipt changes are not committed, and the proposal stays pending. Rule 11's worker tags do not match this Next.js event. Before deploying the policy Apply path, configure and read back this rule in staging; repeat for production before enabling Owner Operator there. Staging delivery remains a separate runbook check.
+
+Operator action: inspect the affected response's approval-audit history under its account and diagnose the missing or invalid grant. Do not fabricate a historical veto grant or repeatedly retry Apply before the inconsistency is resolved. Use the captured proposal ID to correlate the failed action; keep review text and credentials out of the incident record.
+
 **Rule 10 — Admin home configuration failure (#1192).** The emitted identity is
 Error with the exact message:
 

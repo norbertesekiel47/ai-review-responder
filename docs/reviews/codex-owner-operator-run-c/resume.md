@@ -1,5 +1,19 @@
 # Run C resume checkpoint
 
+## Current continuation boundary — 2026-09-13 12:24 UTC
+
+All eight implementation tracers are complete. Candidate `5f2c201769ba982f49b9ecbd82678b45e75b19b1` passed the full review gate; the full-suite command passed15,842 tests with11 skipped. Spec and security/tenancy reviews found no actionable defect. Review reports are committed in `8ffb8ee1`. Root corrected the one maintainability comment and three red-team findings; focused card/context tests passed16/16. Check the current Git HEAD and gate fingerprint after the correction commit rather than treating the older gate as current.
+
+Red-team round1 is `INCOMPLETE_BUDGET`: 683 in-scope cases,15 measured/killed,668 unmeasured,30 supervised launches used. All mutations, subprocesses and dotenv swaps are restored. The canonical record is `docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/`. It truthfully retains its original pins and open findings until follow-up verification. Do not hand-edit it to claim current verification. The concrete pending request in `evidence.md` is a Run C-only next-pass limit of1,500 local launches covering the remaining inventory and corrections; no approval or runner change exists yet. Do not spend round2 under the unchanged30-launch cap.
+
+Staging worker currently runs the earlier `f32dd15c7060e134dd926fb0e64df988c5456d0f` build; worker and Redis were healthy, no staged infrastructure patch. No Run C push, PR, deployment or merge. Configure the newly documented alerting rule12 on staging before deploying C, then verify a real provider-backed worker turn, merge via PR, re-sync staging and repeat a scope card, then merge closeout docs. D/E remain unstarted. Never flip production Owner Operator.
+
+Use Codex development/review agents only. The owner rejected external Opus development delegates; historical artifacts and shared `.claude/` instruction paths do not authorize restarting them. Eight saved synthetic app-provider attempts include Anthropic; the resumed review/fix work made no external LLM calls. Browser substitution to Chrome DevTools and the other recorded delta approvals persist.
+
+Commands that may load `.env.local` MUST use the existing private local-check helper and localhost:5499/test_ws4; ordinary DATABASE_POOL_URL is production. Red-team additionally requires the runner's allowlist and atomic dotenv swap. The earlier browser campaign is fully torn down; there is no fixture to resume and no local dev listener on3000. Start any new staging campaign with an evidence/teardown ledger.
+
+## Historical implementation checkpoint — superseded
+
 **Resumed 2026-09-13 after the owner decision in `map-gap.md` (ACCEPT, ingestion origin).** Root revision 3 is approved by independent plan verification (round 3). Root recorded surface amendment 1 with the owner's reason. Preserve the current worktree and uncommitted changes. Do not restart the run or re-ask the approved deltas.
 
 Current: T5.0 ingestion-origin writers are integrated and their four targeted suites pass 95/95 on the disposable local database. T5 consequence reader and policy Apply integration are in progress. The T7 structured runner is integrated; all four tasks passed both live providers (eight attempts), with sanitized evidence in `evidence/live-structured.json`. No full tracer or gate is newly complete.

@@ -116,7 +116,12 @@ describe('autonomy cards', () => {
     }));
     expect(screen.getByText(/creates a location rule/)).toBeInTheDocument();
     expect(screen.getByText('Off — you approve every reply')).toBeInTheDocument();
-    expect(screen.getAllByText('Platform default (10 per day)')).toHaveLength(2);
+    const currentState = within(screen.getByText('Now').parentElement!);
+    const proposedState = within(screen.getByText('After this change').parentElement!);
+    expect(currentState.getByText('Daily limit').nextElementSibling)
+      .toHaveTextContent('Platform default (10 per day)');
+    expect(proposedState.getByText('Daily limit').nextElementSibling)
+      .toHaveTextContent('Platform default (10 per day)');
     expect(screen.getByText('Each auto-post waits 15 minutes for you first.')).toBeInTheDocument();
     expect(screen.getByText(/Under this rule, 3 of your 5 reviews/))
       .toHaveTextContent('would have been eligible to auto-post. 2 would have waited for you.');

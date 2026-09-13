@@ -1,6 +1,20 @@
 # Run C evidence
 
-## Current verification checkpoint — 2026-09-13 11:56 UTC
+## Review checkpoint — 2026-09-13 12:24 UTC
+
+Run C is implemented but unmerged. The full review gate passed at `5f2c201769ba982f49b9ecbd82678b45e75b19b1`; its explicit full-suite command recorded 15,842 passing tests and 11 skipped, while the base test row separately skips the broad live-database lane and runs the six declared integration suites. Independent spec/correctness and security/tenancy reviews reported no findings. The maintainability review found one misleading inheritance-owner comment. Reports were committed in `8ffb8ee1`.
+
+Root accepted all four review findings and made the scoped corrections: the context comment now identifies the separate snapshot reader, the UI test checks each state's labeled Daily limit, current plan references use module/function names, and alerting rule 12 describes the actual retained-veto invariant emitter and paging contract. The focused card/context suites passed all16 tests. Rule12 is explicitly not configured or delivery-proven; it must be configured on staging before the candidate deployment and on production before any eventual Owner Operator enablement. No production flag action is authorized here.
+
+The [red-team report](../red-team/codex-owner-operator-run-c-14b9e1/findings.md) remains an immutable round-1 record: 683 in-scope candidates, 15 killed mutants, 668 skipped by the hard budget, and 27 explicitly excluded inventory rows. All30 supervised launches were used. Every mutation and dotenv swap was restored by the root finalizer; no mutation process remains. The three original P1 dispositions and old HEAD in that report have not been relabeled as verified fixes. A further pass must verify the fixes and remaining inventory before `reviewed` can pass.
+
+**Concrete pending continuation request:** authorize the Run C verifier's next pass to cover the remaining668 candidates plus these review corrections, with a ceiling of1,500 supervised local test launches. The unmeasured candidates require at least1,336 launches (baseline plus mutant); the remainder allows the fix checks and bounded retries. Keep the120-second per-launch timeout, two-mutations-per-test limit, complete inventory, local-only scrubbed environment, root restoration and fail-closed result rules. The exception must be restricted to this branch, its pinned next-pass commit and recorded inventory; other branches keep the30-launch default. This requires a narrowly scoped runner change and matching source/mirror documentation/tests under the red-team workflow paths. No limit or runner has been changed, and no authorization is recorded for this proposal yet.
+
+Development and review agents now use Codex only, following the owner's instruction against external Opus delegates. The saved synthetic app-provider test report includes OpenAI and Anthropic attempts; it is product integration evidence, not a development delegation. Do not infer the instruction/test chronology from this checkpoint. The resumed review and correction work made no external LLM calls.
+
+Remaining release work: a fresh final gate over the corrections, completed red-team verification, staging alert setup and candidate worker/provider journey, PR/merge, post-merge scope-card verification, and the closeout docs PR. Runs D and E remain unstarted and must follow C's merge and closeout.
+
+## Earlier verification checkpoint — 2026-09-13 11:56 UTC
 
 Implementation is complete for the Run C backend and Console cards; independent final review, deployed staging-worker evidence, merge and closeout remain outstanding. The sections below this checkpoint are dated implementation history, including failures that have since been resolved.
 

@@ -7,7 +7,7 @@
 
 ## 0. Checks of the brief against the spec and intake
 
-1. **Lock name.** Intake invariant and spec §6.4 step 1 say "`lockAccount` first". `lockAccount` is private in `settings.ts:379`. Apply reuses `lockAutonomyAccount(tx, accountId)` from `src/lib/auto-approval/account-lock.ts` to lock the identical guaranteed parent row before the proposal; it does not pretend the private settings helper is exported. The shared writer then reacquires that row in the same transaction and loads its own entitlement fields. This preserves the specified account-before-proposal order.
+1. **Lock name.** Intake invariant and spec §6.4 step 1 say "`lockAccount` first". `lockAccount` is private in `src/lib/auto-approval/settings.ts`. Apply reuses `lockAutonomyAccount(tx, accountId)` from `src/lib/auto-approval/account-lock.ts` to lock the identical guaranteed parent row before the proposal; it does not pretend the private settings helper is exported. The shared writer then reacquires that row in the same transaction and loads its own entitlement fields. This preserves the specified account-before-proposal order.
 2. **Veto phrase.** Spec §3.5 says "Each auto-post waits 30 minutes for you first." The draft brief supplied an incorrect alternate sentence; the user never approved that copy change. Preserve the spec phrase, using the proposed 15 or 30 minutes.
 3. **Confirmation.** Spec §6.4 step 4 matches the owner answer. First, Apply checks the typed phrase exactly. Then Apply maps it to `standard`. Then the writer's `assertConfirmationProvided` runs without change.
 4. **Gate list.** Spec §12.2 also lists `ci:outbox-seam` and `ci:outbox-status`, but the intake command list does not. Add both to the final gate.
@@ -205,10 +205,10 @@ Owner-approved supporting surface amendment 2 (2026-09-13): add `scripts/ci/tena
 
 **Contract.**
 - Marker: key `ingestion_origin`, closed enum `live | imported | unknown`. It lives in the existing `agent_run_steps.detail` JSONB of the `review_ingested` step. Write it through the run-spine single writer (`src/lib/agents/run-spine.ts`) in the same transaction as the actual first review insertion. No migration. No run-spine production edits.
-- `processReview` (`src/lib/reviews/process-review.ts:40`): the default lane or `LIVE_INGEST_NEW` writes `live`. `BACKFILL` writes `imported`. Any other explicit lane on a new insert writes `unknown`.
-- `importReview` (`process-review.ts:552`) writes `imported`.
+- `processReview` (`src/lib/reviews/process-review.ts`): the default lane or `LIVE_INGEST_NEW` writes `live`. `BACKFILL` writes `imported`. Any other explicit lane on a new insert writes `unknown`.
+- `importReview` in the same module writes `imported`.
 - Only the winning insert writes a marker. A duplicate or retry that loses `ON CONFLICT … DO NOTHING` writes none. Later updates (`review_updated`) and on-demand generation never create, backfill or relabel an origin.
-- Answered import `insertImportedReview` (`worker/jobs/zernio/zernio-ingest-shared.ts:483`):
+- Answered import `insertImportedReview` (`worker/jobs/zernio/zernio-ingest-shared.ts`):
   1. Mint a new UUID before the insert.
   2. Keep `ON CONFLICT … DO UPDATE … RETURNING id`.
   3. Treat the row as inserted only when the returned id equals the minted UUID.

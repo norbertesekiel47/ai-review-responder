@@ -71,10 +71,10 @@ export interface PolicyStatesProjection {
 }
 
 /**
- * `AutoApprovalSettingsResponse` → both scopes' full `PolicyState`. THE single
- * owner of the inheritance rule: `projectOperatingRules` (snapshot and summary
- * panel) derives from it, and policy previews start from it, so the next dial
- * has one place to change.
+ * `AutoApprovalSettingsResponse` → both scopes' full `PolicyState` for
+ * `projectOperatingRules`, used by the context snapshot and summary panel.
+ * Policy proposal preparation and Apply instead use `readPolicySnapshot` in
+ * policy-state.ts, which reads policy state and its versions together.
  *
  * The LOCATION reads `effective`, never `override`: a location with no
  * override row still has operating rules, inherited from the account, and
