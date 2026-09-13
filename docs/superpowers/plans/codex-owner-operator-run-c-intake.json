@@ -123,6 +123,10 @@
     "the keyed eval case loaded by tests/llm-eval/load.ts"
   ],
   "allowed_edit_surface": [
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+    ".agents/skills/red-team/SKILL.md",
+    ".claude/skills/red-team/SKILL.md",
     "src/__tests__/cost-guard-contract.test.ts",
     "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
@@ -239,6 +243,7 @@
     "zero included reviews keep the dated consequence, origin exclusions and actual zero receipt counts visible"
   ],
   "verification_commands": [
+    "pnpm exec vitest run scripts/ci/__tests__/red-team-mutation-runner.test.ts",
     "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "pnpm ci:tenant-scope",
     "pnpm ci:rls-audit",

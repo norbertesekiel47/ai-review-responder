@@ -5011,7 +5011,14 @@
       "reason": "The new missing_grants invariant throws from readRetainedVetoCount inside recordPolicyApplied, rolls back Apply and remains unresolved on retry until the retained grant data is repaired. The Apply route at src/app/api/operator/proposals/[id]/apply/route.ts:108 reports the caught Error via report-caught-error.ts:27, emitting endpoint=api/operator/proposals/[id]/apply POST with default error level and exception-stack grouping. beta-launch-alerting.md contains no matching endpoint/invariant rule, cadence or destination action. Its rule 11 requires subsystem=worker_job AND queue=agent_turn, which this Next.js Apply event does not carry. Add a rule for the actual emitted failure and document grouping, repeat cadence/throttle and operator action; do not claim staging delivery from this static comparison."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-run-c-budget-next-pass",
+      "date": "2026-09-13",
+      "finding_ids": ["RT-P1-1", "RT-P1-2", "RT-P1-3"],
+      "text": "Question: May I make a Run C-only change to the verifier’s limit, allowing up to 1,500 local test runs to finish those checks?\nOwner: I'll finish everything from C, D, and E. I give you the approval."
+    }
+  ],
   "counts": {
     "inventory_total": 710,
     "killed": 15,

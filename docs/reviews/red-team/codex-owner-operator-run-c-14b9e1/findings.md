@@ -1245,4 +1245,10 @@ CSS: `src/app/(authenticated)/dashboard/operator/operator.css` belongs to the re
 
 ## Authorizations
 
-None. This section is rendered from the empty JSON authorizations array. No open finding is simultaneously accepted-risk.
+- `owner-run-c-budget-next-pass` (2026-09-13); finding IDs: `RT-P1-1`, `RT-P1-2`, `RT-P1-3`. This authorizes the verifier budget needed to check their corrections and the remaining inventory, not acceptance of any finding as risk. All three dispositions remain open pending verification.
+
+  Question: May I make a Run C-only change to the verifier’s limit, allowing up to 1,500 local test runs to finish those checks?
+
+  Owner: I'll finish everything from C, D, and E. I give you the approval.
+
+This section is rendered from the JSON authorizations array. The round-1 measurements, pins and findings remain historical evidence; adding this approval does not change their result to CLEAR.

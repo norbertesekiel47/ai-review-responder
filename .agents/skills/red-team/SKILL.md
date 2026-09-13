@@ -217,6 +217,18 @@ nor acceptance of unmeasured coverage.
 Live-DB candidates use the existing lock protocol and are still bounded by the
 same budget.
 
+**Owner-approved Run C next pass (2026-09-13).** On
+`codex/owner-operator-run-c` only, authorization
+`owner-run-c-budget-next-pass` permits round 2 to finish the unmeasured original
+inventory and verify the accepted fixes, directly affected callers and scoped
+verifier change, with at most 1,500 supervised local launches. The runner pins
+the original report/inventory, corrected product baseline and next-pass HEAD;
+the verbatim approval lives in the JSON sidecar. See
+`codex-owner-operator-run-c-deviations.md` D1. Other branches keep 30 launches.
+Timeouts, mutation limits, environment isolation, root restoration and
+incomplete-status rules are unchanged. This grants no third round or
+accepted-risk disposition.
+
 ## Duty 2 — fragile assertions
 
 Scan the changed tests for assertions on incidental structure. Each is **P1**,
