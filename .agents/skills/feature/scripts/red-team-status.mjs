@@ -38,6 +38,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { runCFourthAuthorization, validRunCFourthReport } from '../../red-team/scripts/mutation-runner.mjs';
 
 /** Statuses, most-blocking first. The recomputation returns the first that fires. */
 const STATUS_PRECEDENCE = [
@@ -272,7 +273,8 @@ export function validateShape(sidecar) {
   // Rounds 1 and 2 stand on their own. A THIRD is legal only when the sidecar
   // itself carries the owner authorization that opened it — the same condition
   // `mutation-runner.mjs round-start` enforces, re-checked here so a sidecar can
-  // never claim a round the runner would have refused. Nothing past 3.
+  // never claim a round the runner would have refused. The one scoped Run C
+  // fourth round also needs committed admission and journal proof below.
   //
   // The cap moved from 2 to 3 in #1184, after #1178 and #1186 hit the same wall:
   // a round-2 finding whose fix touches the tree makes the sidecar stale by
@@ -284,7 +286,8 @@ export function validateShape(sidecar) {
     if (!authorizations.some((entry) => /third round/i.test(String(entry?.text ?? '')))) {
       errors.push('round 3 requires an authorizations entry whose text names the third round');
     }
-  } else if (sidecar.round !== 1 && sidecar.round !== 2) {
+  } else if (sidecar.round !== 1 && sidecar.round !== 2
+    && !(sidecar.round === 4 && runCFourthAuthorization(sidecar))) {
     errors.push('round must be 1, 2, or an authorized 3 (hard cap)');
   }
   if (!nonEmptyString(sidecar.generated_at)) errors.push('generated_at must be a non-empty string');
@@ -375,6 +378,11 @@ export function validateShape(sidecar) {
   }
 
   const authorizationIds = new Set();
+  // This exact grant authorizes verification work, not accepting any finding.
+  // Its owner-recorded empty list must remain empty; risk links still reject it.
+  const fourthRoundGrant = sidecar.round === 3 || sidecar.round === 4
+    ? runCFourthAuthorization(sidecar)
+    : null;
   for (const [index, authorization] of sidecar.authorizations.entries()) {
     const scope = `authorizations[${index}]`;
     if (!isPlainObject(authorization)) {
@@ -394,7 +402,7 @@ export function validateShape(sidecar) {
     }
     if (
       !Array.isArray(authorization.finding_ids)
-      || authorization.finding_ids.length === 0
+      || (authorization.finding_ids.length === 0 && authorization !== fourthRoundGrant)
       || authorization.finding_ids.some((id) => !nonEmptyString(id))
     ) {
       errors.push(`${scope}.finding_ids must be a non-empty array of finding ids`);
@@ -682,6 +690,9 @@ function main(argv) {
 
   const shapeErrors = validateShape(sidecar);
   if (shapeErrors.length > 0) fail([...errors, ...shapeErrors]);
+  if (sidecar.round === 4 && !validRunCFourthReport(root, sidecar, sidecarPath, readJournal(root))) {
+    errors.push('Run C round 4 requires committed admission, unchanged historical evidence, and the matching 150-launch journal grant');
+  }
 
   // --- run binding -------------------------------------------------------
   if (sidecar.mode !== parsed.mode) {

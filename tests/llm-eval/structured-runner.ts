@@ -7,7 +7,8 @@
 // neither. run.ts loads it through a dynamic import only for that flag, so
 // the offline default and the existing --live lane never import it.
 //
-// One synthetic case per registered structured task. Each case runs twice:
+// Synthetic cases cover every registered structured task and observed Operator
+// planning regressions. Each case runs twice:
 //   1. primary  — the real runLlmTask path. The answer MUST come from openai;
 //      an anthropic answer means the primary failed and the fallback hid it
 //      (for example, an OpenAI wire schema the API rejects).
@@ -186,6 +187,89 @@ const OPERATOR_SNAPSHOT: Snapshot = {
   },
 };
 
+// Matches the failed staging journey: two locations, configured automatic
+// replies, no pending drafts, and runtime posting disabled. Each case starts
+// fresh so a previous model mistake cannot supply its expected classification.
+const OPERATOR_CAFE_ID = '00000000-0000-7000-8000-00000000b102';
+const OPERATOR_BLOCKED_SNAPSHOT: Snapshot = {
+  ...OPERATOR_SNAPSHOT,
+  locationName: 'Salon',
+  locations: [{ id: OPERATOR_LOCATION_ID, name: 'Salon' }, { id: OPERATOR_CAFE_ID, name: 'Cafe' }],
+  operatingRules: {
+    account: { threshold: 4, vetoWindowMinutes: 15, dailyCap: 2 },
+    location: { threshold: 4, vetoWindowMinutes: 15, dailyCap: 2 },
+    locationOverrideExists: false,
+  },
+  allowedOperations: modelVisibleOperations({ blockReasons: ['auto_approval_disabled'] }),
+};
+
+function checkOperatorSemantics(output: z.infer<typeof OperatorModelOutputSchema>, snapshot: Snapshot): string[] {
+  const verdict = validateModelOutput(output, snapshot);
+  return verdict.ok ? [] : verdict.reasons.map((reason) => `operator validator: ${reason.split(':')[0]}`);
+}
+
+const OPERATOR_REGRESSION_CASES: StructuredCase[] = [
+  ...[
+    ['owner-operator-all-locations-off', 'Turn automatic replies off for all locations.'],
+    ['owner-operator-account-default-off', "Turn auto-posting off in my account's default rule. Keep the veto window and daily cap unchanged."],
+  ].map(([id, message]) => defineCase({
+    id: id!, task: 'owner_operator', promptKind: 'production_prompt', schema: OperatorModelOutputSchema,
+    prompt: buildOperatorPrompt(OPERATOR_BLOCKED_SNAPSHOT, message!),
+    check: (output) => {
+      const failures = checkOperatorSemantics(output, OPERATOR_BLOCKED_SNAPSHOT);
+      if (output.proposals.length !== 1) failures.push('expected exactly 1 account-off proposal');
+      const proposal = output.proposals[0];
+      if (proposal?.operation !== 'set_auto_reply_scope' || proposal.input.threshold !== null) {
+        failures.push('expected set_auto_reply_scope with threshold null');
+      }
+      if (proposal?.scope.accountId !== OPERATOR_ACCOUNT_ID || proposal.scope.locationId !== null) {
+        failures.push('expected the snapshot account default');
+      }
+      if (output.unsupported.length !== 0) failures.push('supported contraction classified as unsupported');
+      if (!output.segments.some((s) => s.type === 'proposal_ref' && s.index === 0)) {
+        failures.push('no proposal_ref segment points at proposal 0');
+      }
+      if (output.segments.some((s) => s.type === 'scope_check' || s.type === 'question')) {
+        failures.push('unexpected scope chooser or confirmation question');
+      }
+      return failures;
+    },
+  })),
+  defineCase({
+    id: 'owner-operator-cafe-scope-check', task: 'owner_operator', promptKind: 'production_prompt',
+    schema: OperatorModelOutputSchema,
+    prompt: buildOperatorPrompt(OPERATOR_BLOCKED_SNAPSHOT, 'turn off auto-reply for the cafe'),
+    check: (output) => {
+      const failures = checkOperatorSemantics(output, OPERATOR_BLOCKED_SNAPSHOT);
+      if (output.proposals.length !== 0) failures.push('named other location produced a proposal');
+      if (output.unsupported.length !== 0) failures.push('scope mismatch classified as unsupported');
+      if (output.segments.length !== 1 || output.segments[0]?.type !== 'scope_check' ||
+          output.segments[0].locationId !== OPERATOR_CAFE_ID) failures.push('expected only the named Cafe chooser');
+      return failures;
+    },
+  }),
+  defineCase({
+    id: 'owner-operator-weekend-unsupported', task: 'owner_operator', promptKind: 'production_prompt',
+    schema: OperatorModelOutputSchema,
+    prompt: buildOperatorPrompt(OPERATOR_BLOCKED_SNAPSHOT, 'Stop replying on weekends'),
+    check: (output) => {
+      const failures = checkOperatorSemantics(output, OPERATOR_BLOCKED_SNAPSHOT);
+      if (output.proposals.length !== 0) failures.push('unsupported schedule produced a proposal');
+      if (output.unsupported.length !== 1) failures.push('expected exactly 1 unsupported request');
+      // Count alone accepts an unrelated refusal (for example ordinary policy
+      // off). Bind this fixture's stored request to the unsupported day scope.
+      if (!/\b(?:weekends?|weekdays?|saturdays?|sundays?|days? of (?:the )?week)\b/i
+        .test(output.unsupported[0]?.request ?? '')) {
+        failures.push('unsupported request does not identify weekday or weekend scheduling');
+      }
+      if (output.segments.some((s) => s.type === 'scope_check' || s.type === 'proposal_ref')) {
+        failures.push('unsupported schedule produced a scope chooser or proposal reference');
+      }
+      return failures;
+    },
+  }),
+];
+
 const URL_PATTERN = /https?:\/\//i;
 const CONSIDERATION_PATTERN = /\b(?:discount|coupon|gift card)\b/i;
 
@@ -307,6 +391,7 @@ export const STRUCTURED_CASES: readonly StructuredCase[] = [
       return failures;
     },
   }),
+  ...OPERATOR_REGRESSION_CASES,
 ];
 
 // ── Sanitization ────────────────────────────────────────────────────────────

@@ -48,11 +48,31 @@ const VALID: Record<string, unknown> = {
   },
 };
 
+function validForPrompt(task: string, user: string): unknown {
+  if (task !== 'owner_operator') return VALID[task];
+  const message = (JSON.parse(user) as { ownerMessage: string }).ownerMessage;
+  if (message === 'turn off auto-reply for the cafe') return {
+    segments: [{ type: 'scope_check', locationId: '00000000-0000-7000-8000-00000000b102' }],
+    proposals: [], unsupported: [],
+  };
+  if (message === 'Stop replying on weekends') return {
+    segments: [{ type: 'text', text: 'RepWorth cannot schedule by weekday yet.' }],
+    proposals: [], unsupported: [{ request: message, context: 'Weekday scheduling is unavailable.' }],
+  };
+  if (message.startsWith('Turn auto')) return {
+    segments: [{ type: 'proposal_ref', index: 0 }],
+    proposals: [{ operation: 'set_auto_reply_scope', scope: { accountId: ACCOUNT, locationId: null },
+      input: { threshold: null }, rationale: 'Turn off the account default.' }],
+    unsupported: [],
+  };
+  return VALID[task];
+}
+
 function primaryOk(task: string, structured: unknown = VALID[task]) {
   return { text: '{}', provider: 'openai', model: OPENAI_MODEL, usage: USAGE, structured };
 }
 
-function fallbackOk(request: LLMRequest, value: unknown = VALID[request.structuredOutput!.name]) {
+function fallbackOk(request: LLMRequest, value: unknown = validForPrompt(request.structuredOutput!.name, request.user)) {
   return { text: JSON.stringify(value), provider: 'anthropic', model: request.model, usage: USAGE };
 }
 
@@ -61,7 +81,7 @@ beforeEach(() => {
   anthropicCompleteMock.mockReset();
   process.env.OPENAI_API_KEY = 'sk-test';
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
-  runLlmTaskMock.mockImplementation(async (task: string) => primaryOk(task));
+  runLlmTaskMock.mockImplementation(async (task: string, prompt: { user: string }) => primaryOk(task, validForPrompt(task, prompt.user)));
   anthropicCompleteMock.mockImplementation(async (request: LLMRequest) => fallbackOk(request));
 });
 
@@ -70,16 +90,17 @@ afterEach(() => {
 });
 
 describe('runStructuredEval', () => {
-  it('runs every structured task through the primary seam and the registered fallback (4 x 2)', async () => {
+  it('runs every structured task and Operator regression through both registered providers (8 x 2)', async () => {
     const report = await runStructuredEval();
 
     expect(report.mode).toBe('structured');
-    expect(report.total).toBe(4);
+    expect(report.total).toBe(8);
     expect(report.failed).toBe(0);
-    expect(report.results.map((r) => r.task)).toEqual(['triage', 'judge', 'solicitation_ask', 'owner_operator']);
+    expect(report.results.map((r) => r.task)).toEqual(['triage', 'judge', 'solicitation_ask',
+      'owner_operator', 'owner_operator', 'owner_operator', 'owner_operator', 'owner_operator']);
 
-    expect(runLlmTaskMock).toHaveBeenCalledTimes(4);
-    expect(anthropicCompleteMock).toHaveBeenCalledTimes(4);
+    expect(runLlmTaskMock).toHaveBeenCalledTimes(8);
+    expect(anthropicCompleteMock).toHaveBeenCalledTimes(8);
     STRUCTURED_CASES.forEach((testCase, i) => {
       const primaryOrder = runLlmTaskMock.mock.invocationCallOrder[i]!;
       const fallbackOrder = anthropicCompleteMock.mock.invocationCallOrder[i]!;
@@ -231,8 +252,8 @@ describe('runStructuredEval', () => {
       failures: ['fallback threw RateLimitError'],
     });
     expect(report.results.slice(1).every((result) => result.passed)).toBe(true);
-    expect(runLlmTaskMock).toHaveBeenCalledTimes(4);
-    expect(anthropicCompleteMock).toHaveBeenCalledTimes(4);
+    expect(runLlmTaskMock).toHaveBeenCalledTimes(8);
+    expect(anthropicCompleteMock).toHaveBeenCalledTimes(8);
     expect(JSON.stringify(report)).not.toContain('SENTINEL-FALLBACK-MESSAGE');
   });
 
@@ -241,6 +262,67 @@ describe('runStructuredEval', () => {
     await expect(runStructuredEval()).rejects.toThrow(new RegExp(name));
     expect(runLlmTaskMock).not.toHaveBeenCalled();
     expect(anthropicCompleteMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('Operator deployed-regression fixtures', () => {
+  const CAFE = '00000000-0000-7000-8000-00000000b102';
+  const off = {
+    segments: [{ type: 'proposal_ref', index: 0 }],
+    proposals: [{ operation: 'set_auto_reply_scope', scope: { accountId: ACCOUNT, locationId: null },
+      input: { threshold: null }, rationale: 'Turn off the account default.' }],
+    unsupported: [],
+  };
+
+  it.each(['owner-operator-all-locations-off', 'owner-operator-account-default-off'])(
+    '%s requires an account contraction despite blocked readiness and no pending reviews', (id) => {
+      const testCase = STRUCTURED_CASES.find((c) => c.id === id)!;
+      expect(testCase, id).toBeDefined();
+      const { snapshot } = JSON.parse(testCase.prompt.user);
+      expect(snapshot.turns).toEqual([]);
+      expect(snapshot.locations).toHaveLength(2);
+      expect(snapshot.operatingRules.account).toEqual({ threshold: 4, vetoWindowMinutes: 15, dailyCap: 2 });
+      expect(snapshot.metrics.pendingCount).toBe(0);
+      expect(snapshot.allowedOperations.find((op: { id: string }) => op.id === 'set_auto_reply_scope')
+        .expansionBlockedBy).toContain('auto_approval_disabled');
+      expect(testCase.check(off)).toEqual([]);
+      // Schema-valid outputs seen on staging must fail this semantic oracle.
+      expect(testCase.check({ segments: [{ type: 'scope_check', locationId: CAFE }], proposals: [],
+        unsupported: [{ request: 'Turn automatic replies off', context: 'Unsupported' }] })).not.toEqual([]);
+      expect(testCase.check({ ...off, proposals: [{ ...off.proposals[0],
+        scope: { accountId: ACCOUNT, locationId: LOCATION } }] })).not.toEqual([]);
+      expect(testCase.check({ ...off, proposals: [{ ...off.proposals[0], input: { threshold: 5 } }] })).not.toEqual([]);
+      expect(testCase.check({ ...off, segments: [{ type: 'question', text: 'Should I turn it off?' }] })).not.toEqual([]);
+    },
+  );
+
+  it('requires only a Cafe scope chooser for the exact named-other-location request', () => {
+    const testCase = STRUCTURED_CASES.find((c) => c.id === 'owner-operator-cafe-scope-check')!;
+    expect(testCase).toBeDefined();
+    expect(JSON.parse(testCase.prompt.user).ownerMessage).toBe('turn off auto-reply for the cafe');
+    const chooser = { segments: [{ type: 'scope_check', locationId: CAFE }], proposals: [], unsupported: [] };
+    expect(testCase.check(chooser)).toEqual([]);
+    expect(testCase.check({ ...chooser, unsupported: [{ request: 'Turn off Cafe replies', context: 'Unsupported' }] })).not.toEqual([]);
+    expect(testCase.check(off)).not.toEqual([]);
+  });
+
+  it('requires unsupported without a scope chooser or proposal for the exact weekend request', () => {
+    const testCase = STRUCTURED_CASES.find((c) => c.id === 'owner-operator-weekend-unsupported')!;
+    expect(testCase).toBeDefined();
+    expect(JSON.parse(testCase.prompt.user).ownerMessage).toBe('Stop replying on weekends');
+    const unsupported = { segments: [{ type: 'text', text: 'RepWorth cannot schedule by weekday yet.' }],
+      proposals: [], unsupported: [{ request: 'Stop replying on weekends', context: 'Weekday scheduling is unavailable.' }] };
+    expect(testCase.check(unsupported)).toEqual([]);
+    for (const request of ['Pause replies on Saturdays and Sundays', 'Schedule automatic replies by day of the week']) {
+      expect(testCase.check({ ...unsupported, unsupported: [{ request, context: 'Scheduling is unavailable.' }] })).toEqual([]);
+    }
+    expect(testCase.check({
+      segments: [{ type: 'text', text: 'RepWorth cannot turn automatic replies off yet.' }],
+      proposals: [], unsupported: [{ request: 'Turn automatic replies off', context: 'Automatic policy changes are unavailable.' }],
+    })).toContain('unsupported request does not identify weekday or weekend scheduling');
+    expect(testCase.check({ ...unsupported, segments: [{ type: 'scope_check', locationId: CAFE }] })).not.toEqual([]);
+    expect(testCase.check({ ...unsupported, unsupported: [] })).not.toEqual([]);
+    expect(testCase.check(off)).not.toEqual([]);
   });
 });
 

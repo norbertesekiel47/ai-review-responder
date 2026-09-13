@@ -123,6 +123,8 @@
     "the keyed eval case loaded by tests/llm-eval/load.ts"
   ],
   "allowed_edit_surface": [
+    ".agents/skills/feature/scripts/red-team-status.mjs",
+    "scripts/ci/__tests__/red-team-status.test.ts",
     ".agents/skills/red-team/scripts/mutation-runner.mjs",
     "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
     ".agents/skills/red-team/SKILL.md",

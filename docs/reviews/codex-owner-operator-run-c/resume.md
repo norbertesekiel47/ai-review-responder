@@ -1,5 +1,19 @@
 # Run C resume checkpoint
 
+## Active boundary — 2026-09-13 17:44 UTC
+
+Update after review round19: RC-FOURTH-HISTORY is independently verified APPROVED. The corrected full gate passed with15,911 tests/11 skipped, fingerprint2f10dbd978b60ff9120d947df5b0477be41a9c5acef5d70ab7c1576d634a692b. The default-concurrency attempt had two unchanged admin CLI5-second timeouts; all7 admin cases passed alone, then the complete gate passed with MAX_PARALLEL=2 VITEST_WORKERS=2. Preserve all logs and use those documented concurrency settings for later full gates. Commit the corrected candidate with these review records, rerun the full gate at that commit, then obtain the fresh full fourth-round inventory before opening any round. All150 launches remain unused.
+
+PR1278 remains draft at committed candidate fb536c09711ec331262f5efc64ff42f066bec3ba. No C merge/closeout; D/E have not started. All earlier checkpoints below are historical. No staging fixtures or mutation round are currently active.
+
+The uncommitted prompt/evaluator correction and owner-approved fourth-round verifier extension passed a full gate with15,906 tests passed/11 skipped, fingerprint973a6655ce4ad4f38464414dc54d1d23568d27b195d322bbdb096c0dd8991a78. Prompt correctness, maintainability and safety reviews approved. The five authorized OpenAI probes passed5/5 on the unchanged prompt2026-09-13.4; the stronger weekend assertion and corrected staging journey still need their own evidence.
+
+The extension's independent correctness review found RC-FOURTH-HISTORY: historical Markdown was not protected alongside JSON. Root accepted and corrected it within the already approved paths. Both guard suites now pass168/168, including42 new expanded extension cases. Historical Markdown is pinned at admission and must be retained as an exact byte prefix of the final report. Independent verification of that correction and a fresh full gate are next; the earlier fingerprint is stale. All150 fourth-round launches remain unused. Preserve all785 historical JSON rows and the complete historical Markdown; append new round4 evidence only after actual measurement and root restoration. No fifth round or further direct provider probe is authorized.
+
+The corrected real staging campaign is prepared in /private/tmp/run-c-corrected-staging-plan.md; run it only after committed reviewed fourth-round proof and the final gate. Keep failed-campaign evidence and cleanup results for the separate C closeout docs PR. Production OWNER_OPERATOR_ENABLED remains off, and pilot owner/window remain BLOCKED-human.
+
+## Historical checkpoints
+
 ## Round 2 completed; corrections under verification — 2026-09-13 14:23 UTC
 
 The sections below are historical. The canonical second-pass report was committed separately in `14c24897` after root finalization: 766 launches, 785 inventory rows, no unmeasured scoped cases, two open P0 groups and two open P1 oracle groups. Its pins and measurements are preserved. All four findings are root-ACCEPT in review round 10.
@@ -16,7 +30,19 @@ Extension commit `5c3c19568dd65ca7dd672ff3d95b8540742c7d7f` passed the full gate
 
 Sentry login is still pending. GitHub's automatic Claude review is already disabled; do not enable it. Independent static inventory scope audits are retaining original identities and attaching explicit proofs to excluded cases; no scope reduction alone proves coverage.
 
-## Current continuation boundary — 2026-09-13 12:24 UTC
+## Current continuation boundary — 2026-09-13 17:20 UTC
+
+PR1278 is DRAFT: https://github.com/RepWorth/ai-review-responder/pull/1278 . Candidate fb536c09711ec331262f5efc64ff42f066bec3ba passed the final round3/local gate and deployed to both staging UI and worker, but actual account-default/off planning failed. No merge or C closeout has happened; D/E remain unstarted. Do not treat the earlier local green gate as deployed acceptance.
+
+Four real OpenAI worker turns completed on the synthetic account; both account-off phrasings produced no proposal and wrong unsupported/chooser responses. Exact Cafe/weekend checks had extraneous classifications. No Apply, policy change, response or posting occurred. Browser390/1440and reload plus exact SQL IDs/costs are saved in the main checkout's `docs/runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md` for the separately authorized closeout PR. All fixture SQL/Auth data and four terminal BullMQ jobs were removed, with25zero checks and unchanged staging worker flags. No fixture/session/dev server is live. Sentry staging rule3985600 is enabled and retained; authenticated in-app Browser is the user-selected tool.
+
+The pending correction changes only the existing prompt and semantic evaluator. Prompt2026-09-13.4/hash9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032clarifies accountdefault/null/off, named-location and readiness rules. The owner approved five synthetic OpenAI checks;5/5passed through the direct registered adapter, with no Anthropic call or external delegate. The full gate passed at17:06Z, fingerprintd20f81ecbb86113488cfe2981ccf88c51a21e7b68bf33ef5043b60f422f8d361, fulltest15869pass11skip. Subsequent evaluator P2fix strengthened scheduling relevance;21focused tests and native reviewer verification pass, but the full fingerprint is stale until rerun. The old live report does not cover that later assertion. Native Codex spec/maintainability/safety reviews are approved and recorded in rounds12–15.
+
+The owner explicitly approved the one-off **fourth** verification round, max150local launches, per `/private/tmp/run-c-fourth-round-proposal.md`. Amendment6adds only statuschecker/test paths; exact grant is appended to the canonical historical sidecar without changing any785inventory rows/findings/counts. A Codex delegate is implementing the six approved verifier/skill/test files; root owns integration, fresh independent review, commits, exact inventory, mutation execution/finalizer and renewed final gate. No fourth round has opened yet; fifth remains forbidden. Existing1500/30grants remain historical. Never reset the journal or rewrite historical measured SHAs.
+
+After new current verification, redeploy the corrected candidate and run `/private/tmp/run-c-corrected-staging-plan.md`: three seeded EMPTY conversations keep required browser requests fresh; all turns still use the real authenticated route/worker. Scope-card8included/2excluded, eligible5→0and held3→8, two inheriting locations, retainedveto0, preserved15-minute veto/cap2, selector pinning, real Apply+second-tab replay, exact Cafe/weekend responses, both widths, and complete teardown are required. After merge, realign staging and repeat the scope-card proof, then CcloseoutdocsPR before D. Production OWNER_OPERATOR stays off; human pilot owner/window stays BLOCKED-human.
+
+## Historical continuation boundary — 2026-09-13 12:24 UTC
 
 All eight implementation tracers are complete. Candidate `5f2c201769ba982f49b9ecbd82678b45e75b19b1` passed the full review gate; the full-suite command passed15,842 tests with11 skipped. Spec and security/tenancy reviews found no actionable defect. Review reports are committed in `8ffb8ee1`. Root corrected the one maintainability comment and three red-team findings; focused card/context tests passed16/16. Check the current Git HEAD and gate fingerprint after the correction commit rather than treating the older gate as current.
 

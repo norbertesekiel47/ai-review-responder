@@ -1,5 +1,13 @@
 # Run C evidence
 
+## Deployed prompt correction — 2026-09-13 17:20 UTC
+
+Candidatefb536c09deployed to staging UI/worker but failed account-default off planning. The preserved main-checkout deployment evidence records four real turns, wrong classifications, all runtime IDs, actual390/1440screens and25zero cleanup checks. No policy Apply or posting occurred; PR1278 remains draft.
+
+The targeted prompt2026-09-13.4correction passed five owner-approved synthetic OpenAI checks through the registered model/schema. This is one attempt/case through the direct adapter, not deployed worker/Apply proof; no Anthropic calls or external delegates were used. Full gate thenpassed with15869tests/11skips, fingerprintd20f81ecbb86113488cfe2981ccf88c51a21e7b68bf33ef5043b60f422f8d361. Independent correctness review found an evaluator P2: unsupported count did not bind the weekend capability. Root reproduced red, added bounded scheduling relevance plus two positive paraphrases, then21focused tests passed; the same reviewer verified the fix. Maintainability and safety reviews approved. The5/5report predates the stricter assertion and is not retroactive proof for it. Subsequent edits require a new final gate.
+
+The owner approved the Run C-only fourth verifier round, maximum150local launches. D2and the exact appended sidecar grant record the scope; all historical785rows/findings remain intact. The six-file runner/checker/test/skill extension is in progress, with independent review and actual mutation measurement still required before any current CLEAR claim or redeployment. See resume.md for the explicit remaining staging/merge/closeout sequence.
+
 ## Round 2 corrections — 2026-09-13 14:23 UTC
 
 The completed second pass is preserved in report-only commit `14c24897`, measured against `4127714519b253e4a0560b9cf561a987af8cf70c`. It used 766 of 1,500 supervised launches. Its 785-row inventory records 379 kills, 396 evidence-backed exclusions, three confirmed survivors across two P0 findings, and seven inconclusive oracle rows across two P1 findings. No scoped case remains unmeasured or budget-skipped. Root's finalizer confirmed every recorded process group empty and all source/dotenv state restored before either report was written. The report remains OPEN_P0; corrections do not retroactively change those measurements.

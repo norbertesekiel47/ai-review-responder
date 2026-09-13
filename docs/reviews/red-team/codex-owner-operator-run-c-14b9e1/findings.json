@@ -5595,6 +5595,12 @@
         "RT-ORACLE-2"
       ],
       "text": "Request presented: Approve the third mutation-verification round, using Codex only, with a maximum of 30 local test launches. Owner reply: [@Browser](plugin://browser@openai-bundled) I approve and sign in to sentry using in app browser. This authorizes the third round for the eleven corrected cases I0228, I0229, I0394, I0403, I0592, I0677, I0679, I0685, I0686, I0704 and I0706: 22 required launches, maximum 30, no fourth round, no external Claude/Opus delegates and no accepted-risk disposition. Historical round-2 measurements and findings remain unchanged until fresh verification is completed."
+    },
+    {
+      "id": "owner-run-c-fourth-round-prompt-regression",
+      "date": "2026-09-13",
+      "finding_ids": [],
+      "text": "Question: May I make the Run C-only verifier change described in /private/tmp/run-c-fourth-round-proposal.md and run a fourth verification round, capped at 150 local test launches? It covers the prompt fix and the verifier’s own safeguards, preserves all earlier evidence, uses Codex only, and keeps further rounds blocked.\nOwner: Yes, approve the scoped fourth round"
     }
   ],
   "counts": {

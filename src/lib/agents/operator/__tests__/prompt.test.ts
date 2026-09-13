@@ -8,7 +8,7 @@
 // two models each invented keys the strict schema rejects. Nothing offline had
 // caught it: the eval harness is keyless and the unit suites mock the model.
 import { describe, it, expect } from 'vitest';
-import { buildOperatorPrompt, OWNER_OPERATOR_PROMPT_VERSION } from '../prompt';
+import { buildOperatorPrompt, operatorSystemPromptHash, OWNER_OPERATOR_PROMPT_VERSION } from '../prompt';
 import { OperatorModelOutputSchema, STATUS_METRICS } from '../schema';
 import { modelVisibleOperations } from '../catalog';
 import type { Snapshot } from '../context';
@@ -43,6 +43,21 @@ const snapshot: Snapshot = {
 };
 
 describe('operator prompt', () => {
+  it('its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity', () => {
+    const { system } = buildOperatorPrompt(snapshot, 'Turn automatic replies off for all locations.');
+    const exampleLine = system.split('\n').find((line) => line.startsWith('{"segments":['));
+    expect(exampleLine).toBeDefined();
+    const example = OperatorModelOutputSchema.parse(JSON.parse(exampleLine!.replace('<snapshot.accountId>', ACCOUNT)));
+    expect(example.proposals).toEqual([{
+      operation: 'set_auto_reply_scope', scope: { accountId: ACCOUNT, locationId: null },
+      input: { threshold: null }, rationale: expect.any(String),
+    }]);
+    expect(example.segments).toEqual([{ type: 'proposal_ref', index: 0 }]);
+    expect(example.unsupported).toEqual([]);
+    expect(OWNER_OPERATOR_PROMPT_VERSION).toBe('2026-09-13.4');
+    expect(operatorSystemPromptHash()).not.toBe('3f280d00e307c2148b9138dbf8c51ed5f4d70ca84dd63c1057535c4ba32da81a');
+  });
+
   it('the system prompt declares every top-level key and every segment type OperatorModelOutputSchema accepts', () => {
     const { system } = buildOperatorPrompt(snapshot, 'Set the reply tone to warm and brief');
 
