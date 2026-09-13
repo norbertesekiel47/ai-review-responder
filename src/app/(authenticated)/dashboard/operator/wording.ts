@@ -15,6 +15,7 @@
 // for a shared, directive-free module both sides import.
 import type { LabelKind } from '@/lib/agents/operator/catalog';
 import type { VoiceState } from '@/lib/agents/operator/schema';
+import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types';
 
 export const OPERATOR_TITLE = 'Operator';
 export const OPERATOR_SUBTITLE = 'Tell RepWorth what to change. Nothing happens until you approve it.';
@@ -27,7 +28,7 @@ export const START_NEW_CONVERSATION = 'Start a new conversation';
 export const NOT_AVAILABLE = 'The Operator is not available right now. Nothing was changed.';
 
 export const ALL_LOCATIONS_HINT =
-  'Pick one location to talk about. A plan always belongs to a single location.';
+  'Pick one location to start. Each card names the scope it changes.';
 export const COMPOSER_PLACEHOLDER = 'Ask for a change, or ask what needs you.';
 export const SEND = 'Send';
 export const SENDING = 'Sending…';
@@ -137,6 +138,18 @@ export const APPLY = 'Apply';
 export const NOT_NOW = 'Not now';
 export const AFFECTS_FUTURE_DRAFTS =
   'Future drafts only. Existing drafts and pending approvals are not rewritten.';
+export const AFFECTS_FUTURE_ELIGIBLE_REVIEWS =
+  'Future eligible reviews. Drafts already granted a veto window keep it.';
+export const READINESS_WORDING: Readonly<Record<AutoApprovalReadinessBlockReason, string>> = {
+  auto_approval_disabled: 'Auto-reply is not enabled yet.',
+  autopilot_unavailable: 'Autopilot must be available on this account before auto-reply can expand.',
+  provider_moderation_disabled: 'Reply safety checks must be enabled before auto-reply can expand.',
+  provider_moderation_not_validated: 'Reply safety checks have not finished verification yet.',
+  subscription_not_writable: 'This account cannot change its auto-reply settings right now.',
+  policy_suspended: 'Auto-reply is paused for this scope. It cannot expand while paused.',
+  preview_environment: 'Auto-reply cannot expand in this preview environment.',
+  impersonation_not_allowed: 'You are viewing this account as an admin, so you cannot apply changes.',
+};
 export const CANNOT_DO_YET = 'RepWorth cannot do this yet. Nothing changed.';
 
 /**
@@ -152,6 +165,8 @@ const ACCOUNT_OFFBOARDING =
   'This account is closing, so changes are not accepted. Nothing was applied.';
 
 const PROPOSAL_FAILURE_WORDING: Readonly<Record<string, string>> = {
+  expansion_blocked: 'Auto-reply could not expand because a readiness check was not met. Nothing was applied.',
+  location_inactive: 'That location is archived, so this change cannot be applied.',
   version_mismatch: PROPOSAL_STALE,
   contract_changed: 'RepWorth changed since this plan was prepared, so it must be prepared again. Nothing was applied.',
   unauthorized: ACTOR_UNAUTHORIZED,
@@ -178,6 +193,9 @@ export const LOCATION_UNAVAILABLE =
 
 /** Route error codes the card and the composer have to speak. */
 export const ROUTE_ERROR_WORDING: Readonly<Record<string, string>> = {
+  confirmation_mismatch: 'Type the scope exactly as shown on the card, then confirm again. Nothing was applied.',
+  expansion_blocked: PROPOSAL_FAILURE_WORDING.expansion_blocked!,
+  location_inactive: PROPOSAL_FAILURE_WORDING.location_inactive!,
   operator_disabled: NOT_AVAILABLE,
   impersonation_not_allowed: 'You are viewing this account as an admin, so you cannot apply changes.',
   // The two 409 reasons `apply/route.ts` returns when the ACTOR can no longer

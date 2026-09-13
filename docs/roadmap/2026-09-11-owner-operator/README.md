@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **RUNS A + B + T8 MERGED (#1270 `d8e3f334f` 2026-09-12; #1273 `34857b73b` 2026-09-13; #1276 `099409ae2` 2026-09-13); migration 120 on staging and production; `OWNER_OPERATOR_ENABLED` ON in staging (both lanes, since 2026-09-13 03:04Z), OFF in production; Sentry rule 11 in both projects; §12.1 checkpoint report recorded** (the turn pipeline, the voice-scope proposal, Apply, Decline, receipts and the Operator screen exist and work live on staging; the auto-approval Apply path is estimated in §13 and open) · written 2026-09-11 · revised 2026-09-11 after design review (ten findings) and after the ADHD ideation pass (five gap fixes, two additions, two post-checkpoint items); see §15_
+_Status: **RUNS A + B + T8 MERGED (#1270 `d8e3f334f` 2026-09-12; #1273 `34857b73b` 2026-09-13; #1276 `099409ae2` 2026-09-13); migration 120 on staging and production; `OWNER_OPERATOR_ENABLED` ON in staging (both lanes, since 2026-09-13 03:04Z), OFF in production; Sentry rule 11 in both projects; §12.1 checkpoint report recorded** (the turn pipeline, the voice-scope proposal, Apply, Decline, receipts and the Operator screen exist and work live on staging). **Run C is in progress and unmerged**: the three auto-approval operations, transaction-aware Apply, historical consequences and provider schema delivery are implemented on its branch; the UI, full verification, staging ride and merge are not signed off. The §13 T8 estimate remains historical; see §15 for Run C progress. · written 2026-09-11 · revised 2026-09-13_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 
@@ -146,8 +146,12 @@ for <location>".
 module's exposure classification says `expansion`) has no plain Apply
 button. The owner types the scope in words into a field on the card ("4 and
 5 star", "5 star only", "all locations") and the server checks the typed
-value equals the proposal's `after`. That typed value is the existing
-`confirmationLevel` collection. A card that narrows autonomy or changes a
+value equals the phrase derived from the proposal's stored `after` and
+scope. **Run C clarification, owner-approved 2026-09-13:** the card sends
+that phrase as `confirmationLevel`; Operator validates an exact match,
+then passes `standard` to the shared settings writer. The settings form's
+existing confirmation vocabulary is unchanged. A mismatch leaves the
+proposal pending and writes no policy change. A card that narrows autonomy or changes a
 fact applies with one click. Expansion cards render last in the reply and
 visually separated. There is no Apply-all.
 
@@ -207,6 +211,16 @@ schema has no field for it; the §3.4 validator already blocks model-emitted
 counts. Imported reviews (never auto-eligible) are excluded. The word is
 always "eligible", never "would have posted": the live gate also needs
 moderation, triage, Judge availability, and an active connection.
+
+**Run C clarification, owner-approved 2026-09-13:** the cohort includes only
+reviews whose initial `review_ingested` run-spine marker confirms live
+ingestion. Imported reviews and reviews with missing, invalid or conflicting
+origin evidence are excluded, with separate imported and unknown counts
+carried to the card and receipt. Older rows are not relabeled from indirect
+evidence. `policy-state.ts` reads policy values, opaque row tokens, active
+locations and the 30-day cohort in one SQL statement. At Apply it reads under
+the account lock; old-rule and new-rule consequences use the same captured
+cohort. An account-default change preserves each location's own override.
 
 ### 3.6 Policy-refused card (post-checkpoint)
 
@@ -403,7 +417,7 @@ Inside `sql.begin`:
 1. **Lock in the module's order.** Auto-approval scope: `lockAccount(tx, accountId)` first, exactly as `updatePolicyInTransaction` does, then `SELECT … FOR UPDATE` the proposal. Voice scope: `SELECT … FOR UPDATE` the `businesses` row, then the proposal. Locks are taken before any freshness read so no writer can slip between the check and the write.
 2. **Ownership and state.** Proposal belongs to the actor's account; status is `pending`. A repeat Apply on an `applied` proposal returns the stored receipt and executes nothing.
 3. **Revalidate** with the lock held: actor still writable, subscription writable, account not offboarding-blocked, tier still allows the operation, readiness for an expansion, and the current version token (computed now from the locked rows) equals both `prepared_version_token` and the client's `expectedVersionToken`. Any miss: `stale` or `rejected` with the reason, no mutation, transaction commits the state change only.
-4. **Confirmation.** Auto-approval expansions use the existing `assertConfirmationProvided`; the server checks the `confirmationLevel` the card collected.
+4. **Confirmation.** Operator compares the collected `confirmationLevel` exactly with the phrase derived from the stored policy `after` and scope. Only after a match does it pass `standard` to the shared writer's existing `assertConfirmationProvided` path. A mismatch leaves the proposal pending without a policy or audit write.
 5. **Execute** through the operation's executor with `tx`: the voice writer, or `patchAutoApprovalSettingsInTransaction(tx, input)` (§10), which keeps the module's lock, exposure classification, archived-policy rule, readiness, confirmation, and `writeAccountAuditLog` behavior.
 6. **Receipt.** Read the committed-to-be state back from the locked rows, write the receipt and `status='applied'` and `decided_by_user_id`. The stored `after` must equal what commits; if it does not (a seeded override differs from the prepared preview), the receipt shows the actual state and flags the difference.
 
@@ -418,7 +432,12 @@ that keep their previously granted veto window (read from the locked rows,
 not a sentence), the consequence result under old and new dials (§3.5),
 what remains blocked (readiness reasons, if any), applied_at, actor, the
 verbatim `owner_text` of the turn that produced the proposal, and the turn
-id as correlation id. The reply may reference the receipt through a
+id as correlation id. The retained-veto count is stamped with its read time:
+it counts approved auto-policy drafts against their latest immutable
+approval grant, including drafts still waiting after that window elapsed.
+For an account-default change, the count covers active inheriting locations.
+The reader locks only those audit rows, not businesses, reviews or responses
+after the account lock. The reply may reference the receipt through a
 `proposal_ref`. Only the receipt establishes that something changed.
 
 ### 6.6 Undo from receipts (post-checkpoint)
@@ -663,7 +682,9 @@ card.
 MCP is not scheduled after v1. It needs a named external user and its own
 scope.
 
-**Auto-approval Apply path — T8 estimate (§12.1 item 8, 2026-09-13).** What
+**Auto-approval Apply path — historical T8 estimate (§12.1 item 8, 2026-09-13).**
+This records the pre-Run-C estimate, not the current implementation inventory;
+the in-progress Run C entry in §15 owns that status. What
 exists: the Apply transaction (lock-before-check, three-way **Version token**,
 the operation's own fields through a shared writer, the server-written
 **Receipt**), the catalog's `defineProposable` seam, and the settings side's
@@ -699,7 +720,7 @@ not in that row.
 - **Run B open item — the predecessor wait outlives the watchdog window** (review round 1, CA4). Two clocks disagree by design: `AGENT_TURN_PREDECESSOR_STALL_SECONDS` is 1200 s (20 min) while the outbox watchdog re-dispatches after 900 000 ms (15 min), so a turn waiting on a slow predecessor can be dispatched a second time mid-wait. Accepted as a tradeoff for Run A — a redundant dispatch is safe by construction (the **Turn claim** serialises; the loser exits without touching the outbox row) and at the default watchdog it happens at most once per wait. Removing it needs either a durable waiting state or sequence-aware dispatch, both of which change `OutboxPoller`. Revisit with the checkpoint's staging p50/p95, alongside the lease and stall numbers above.
 - **Go-live alerting — the `agent_turn` lane's domain terminals emit structured logs only; its failure rows are watched** (review round 2, R9; corrected by the fresh red-team rounds 1 and 3, P1-4/P1-5/P2-2). `TURN_FAILURE_REASON` has seven members. Six are DOMAIN terminals the worker itself writes through a fenced status update, and they do not log uniformly: `predecessor_stalled`, `unauthorized` (the reauthorization arm and the vanished-voice-row arm), `account_offboarding` (the other outcome of that same reauthorization arm), `model_output_invalid` and `budget_exceeded` emit a `logger.warn` line; `operator_disabled` emits `logger.log` (info — an orderly flag-off skip, not an incident). The seventh, `exhausted`, is written by the failed-hook after BullMQ retry exhaustion, not by the worker. One more exit is NOT a terminal: a lease lost before completion emits `logger.warn` and resolves nothing — the attempt that owns the lease completes the turn and the outbox row. None of the six domain terminals calls Sentry, and that is ONE go-live decision — whether they get a Sentry rule row, and at what rate, given that `operator_disabled` is a flag-off skip and `budget_exceeded` is a per-account terminal — to be taken with the rest of Run A's alerting before the pilot, not path by path. What IS alerted today, after the fresh red-team round: (a) a `job_outbox` row for topic `agent_turn` that lands `failed` — by `OutboxPoller` dispatch exhaustion or by the watchdog terminalising a long-`dispatched` row — raises `outbox_failed:agent_turn` from `checkFailedOutboxByTopic` (the topic was missing from that closed allowlist; P1-2) and pages through runbook rule 1; (b) BullMQ retry exhaustion reaches Sentry through `worker/job-failure-sink.ts` tagged `subsystem:worker_job`, `queue:agent_turn`, with its own rule row in `docs/runbooks/beta-launch-alerting.md` (P1-3). The orphaned-lease case named in the intake's observability section is therefore alerted only on its TERMINAL half: a stuck `dispatched` row the watchdog re-pends produces one count-only log line in `runOutboxWatchdogRecovery` (`Watchdog recovered stale entries` with `recovered`, `failed` and `stale_dispatching` counts — no topic field, no Sentry event), and it stays that way by design — the re-dispatch is the recovery.
 - **Go-live alerting for the six DOMAIN terminal reasons — settled 2026-09-12 (Run B, decision D6): structured logs only, no Sentry rule.** `operator_disabled` is an orderly flag-off skip and `budget_exceeded` is a per-account terminal; neither is an incident, and a rule that pages on both would train the operator to ignore the lane. The two paths that ARE alerted stay alerted: a `job_outbox` row for topic `agent_turn` landing `failed` raises `outbox_failed:agent_turn` through runbook rule 1, and BullMQ retry exhaustion reaches Sentry through `worker/job-failure-sink.ts` under runbook **rule 11** — BUILT 2026-09-13 in both Sentry projects (staging `3984512`, production `3984518`; `docs/runbooks/beta-launch-alerting.md` row 11), through the Sentry UI after the API had refused the build for want of an `alerts:write` token; the T8 staging flip gated on it. The distribution is read from the rows instead, on staging with the flag on: `SELECT failure_reason, count(*) FROM agent_turns WHERE created_at > now() - interval '7 days' GROUP BY 1`. **Revisit trigger: the §12.1 checkpoint.** If any domain reason is materially represented there, it earns its own rule then — with a real rate to set the threshold from, which is the thing this decision was missing. **T8 read (2026-09-13, 7 days, 6 turns): completed 5, `model_output_invalid` 1 — the one before the shape fix; no domain reason earned a rule.**
-- **T8 finding — the LLM seam declares no structured-output contract to any provider (2026-09-13).** `runLlmTask` sends system + user text and validates the completion with the task's zod schema only after it arrives; no JSON schema reaches OpenAI (`response_format`) or Anthropic (a tool input schema). The triage, judge and solicitation tasks survive on trivial schemas; the Operator's did not — the first live turn failed on both providers until the prompt spelled the shape (`2026-09-13.1`) and the catalog projected each proposable's `inputShape`. The prompt promise holds today (`prompt.test.ts` pins it against the schema). **Open:** hand the schema to the provider per task so the shape becomes a provider guarantee; and give the eval harness one live, keyed case per structured task, because nothing offline could have caught this. Recorded for the next architecture pass in the arch-review log.
+- **T8 finding — the LLM seam declared no structured-output contract to any provider (2026-09-13).** At T8, `runLlmTask` sent system + user text and validated the completion only after it arrived. The first live Operator turn failed on both providers until the prompt spelled the shape (`2026-09-13.1`) and the catalog projected each proposable's `inputShape`. **Run C implementation, not yet merged:** the registered task schema now reaches OpenAI (`response_format`) and Anthropic (`output_config.format`); the original Zod schema and Operator's semantic validator still run locally. Refusals and truncations retain billed usage. The eval harness has a live structured-task mode; its evidence and remaining release checks are recorded in `docs/reviews/codex-owner-operator-run-c/evidence.md`. This replaces the implementation gap without declaring Run C verified or deployed.
 
 ## 15. Review log
 
@@ -786,3 +807,19 @@ not in that row.
   constants unchanged with the floors recorded. Left open: the auto-approval
   Apply path (§13 estimate 14–16 h), and the seam's missing structured-output
   contract (§14).
+- 2026-09-13, **Run C implementation in progress, UNMERGED**
+  (`codex/owner-operator-run-c`). The branch adds three policy proposables,
+  full effective-state previews and strict account/location version tokens;
+  a caller-owned transaction entry into the existing policy writer; and the
+  policy Apply path with account-before-proposal locking, typed expansion
+  confirmation, readiness checks and atomic receipts. The shared policy read
+  supplies confirmed-live 30-day consequences, explicit imported/unknown
+  exclusions and immutable-grant retained-veto counts. Initial ingestion
+  markers record provenance for new reviews without relabeling history.
+  The LLM seam now delivers registered output schemas to both providers.
+  Console (Harbor) remains the locked visual system. UI work and the full
+  test, browser, staging, review and merge sequence remain in progress;
+  no §12.2 acceptance item or §12.1 checkpoint result is completed by this
+  entry, and no production flag changes. Implementation evidence lives in
+  `docs/reviews/codex-owner-operator-run-c/evidence.md`; the execution plan is
+  `docs/superpowers/plans/codex-owner-operator-run-c-plan.md`.

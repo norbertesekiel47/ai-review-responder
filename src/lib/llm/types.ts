@@ -33,12 +33,35 @@ export interface LLMCallResult {
   usage: { promptTokens: number; completionTokens: number };
   /** Validated output for tasks that declare an outputSchema; absent otherwise. */
   structured?: unknown;
+  /**
+   * Set by a provider ONLY for a structured request whose completion was
+   * refused or cut off at maxTokens. The attempt is still billed: runLlmTask
+   * turns it into an LLMStructuredOutputError carrying this usage. Absent on
+   * every unstructured result, so those stay byte-identical.
+   */
+  incomplete?: 'refused' | 'truncated';
+}
+
+/**
+ * A task's structured-output contract as it crosses the provider seam. Built
+ * by runLlmTask from LLMTaskDescriptor.outputSchema — the same Zod object, not
+ * a copy — so there is no second schema registry. Each provider derives its
+ * own wire schema from it with its SDK's installed helper.
+ */
+export interface LLMStructuredOutput {
+  /** Provider-facing schema name. The task id already satisfies OpenAI's
+   *  `^[a-zA-Z0-9_-]{1,64}$` name rule. */
+  name: LLMTaskId;
+  schema: z.ZodTypeAny;
 }
 
 export interface LLMRequest extends ChatPrompt {
   model: string;
   maxTokens: number;
   temperature?: number;
+  /** Present only for tasks that declare an outputSchema. Key ABSENT (not
+   *  undefined) for unstructured tasks. */
+  structuredOutput?: LLMStructuredOutput;
 }
 
 export interface LLMProvider {

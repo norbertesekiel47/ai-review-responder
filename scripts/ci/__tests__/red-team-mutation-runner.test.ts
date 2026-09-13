@@ -27,6 +27,7 @@ const GIT_FREE_ENV = Object.fromEntries(
 ) as NodeJS.ProcessEnv;
 
 let repo: string;
+let runner = RUNNER;
 
 function git(...args: string[]): string {
   const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
@@ -47,7 +48,7 @@ function read(relativePath: string): string {
 interface RunResult { status: number; stdout: string; stderr: string }
 
 function run(...args: string[]): RunResult {
-  const result = spawnSync('node', [RUNNER, ...args], {
+  const result = spawnSync('node', [runner, ...args], {
     cwd: repo,
     encoding: 'utf8',
     env: { ...GIT_FREE_ENV, SUPER_SECRET_TOKEN: 'do-not-leak' },
@@ -114,6 +115,7 @@ function adoptLiveGroup(overrides: { startedAt?: string }): { pid: number; pgid:
 const HOME_FLAG = () => ['--tmp-home', join(repo, 'red-team-home')];
 
 beforeEach(() => {
+  runner = RUNNER;
   repo = spawnSync('python3', [
     '-c', 'import os,sys;print(os.path.realpath(sys.argv[1]))',
     mkdtempSync(join(tmpdir(), 'red-team-runner-')),
@@ -134,6 +136,172 @@ afterEach(() => {
     }
   }
   rmSync(repo, { recursive: true, force: true });
+});
+
+describe('the owner-approved Run C fourth round', () => {
+  const report = 'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/findings.json';
+  const markdown = report.replace('.json', '.md');
+  const approval = {
+    id: 'owner-run-c-fourth-round-prompt-regression', date: '2026-09-13', finding_ids: [],
+    text: 'Question: May I make the Run C-only verifier change described in /private/tmp/run-c-fourth-round-proposal.md and run a fourth verification round, capped at 150 local test launches? It covers the prompt fix and the verifier’s own safeguards, preserves all earlier evidence, uses Codex only, and keeps further rounds blocked.\nOwner: Yes, approve the scoped fourth round',
+  };
+
+  function prepare(approve = true): string {
+    git('branch', '-m', 'codex/owner-operator-run-c');
+    const inventory = JSON.parse(readFileSync(resolve(process.cwd(), report), 'utf8')).inventory
+      .slice(0, 785).map(({ id, file, test }: { id: string; file: string; test: string }) => (
+        { id, file, test, outcome: 'excluded', reason: 'Historical fixture evidence, retained verbatim.' }
+      ));
+    const historical = {
+      mode: 'feature', branch: 'codex/owner-operator-run-c', round: 3,
+      head_sha: '2565c78585d6b08837e01dbb2a4a3ba3c265eff0', inventory,
+      findings: [{ id: 'historical', reason: 'original evidence' }],
+      authorizations: [{ id: 'third', text: 'third round authorized' }],
+    };
+    write(report, JSON.stringify(historical));
+    write(markdown, '# Historical duty evidence\n\nSibling search used fixture scope.\n');
+    git('add', report, markdown);
+    git('commit', '-qm', 'historical third round');
+    const baseline = git('rev-parse', 'HEAD');
+    const blob = git('rev-parse', `HEAD:${report}`);
+    const markdownBlob = git('rev-parse', `HEAD:${markdown}`);
+    // Private immutable fixture pins: no CLI/environment bypass in the real runner.
+    runner = join(repo, 'fixture-fourth-runner.mjs');
+    writeFileSync(runner, readFileSync(RUNNER, 'utf8')
+      .replace("const RUN_C_FOURTH_BASELINE = 'fb536c09711ec331262f5efc64ff42f066bec3ba';", `const RUN_C_FOURTH_BASELINE = '${baseline}';`)
+      .replace("const RUN_C_HISTORY_BLOB = 'd2de690d9154e591d83cbb9e9591db8d0567d318';", `const RUN_C_HISTORY_BLOB = '${blob}';`)
+      .replace("const RUN_C_HISTORY_MARKDOWN_BLOB = 'caae5b4d877e254033485a73f38f56b074c8910e';", `const RUN_C_HISTORY_MARKDOWN_BLOB = '${markdownBlob}';`));
+    if (approve) {
+      write(report, JSON.stringify({ ...historical, authorizations: [...historical.authorizations, approval] }));
+      git('add', report);
+      git('commit', '-qm', 'commit exact fourth-round approval');
+    }
+    write('.feature/red-team-journal.json', JSON.stringify({
+      version: 1, round: 3, runs: 22, mutations: [], dotenv: { open: false, files: [] }, supervisors: [],
+    }));
+    return baseline;
+  }
+
+  function fourthJournal(): void {
+    write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 4, runs: 0 }));
+  }
+
+  it('opens only the committed canonical third-to-fourth transition', () => {
+    prepare();
+    expect(run('round-start').status).toBe(0);
+    expect(JSON.parse(read('.feature/red-team-journal.json'))).toMatchObject({ round: 4, runs: 0 });
+  });
+
+  it.each(['deleted', 'replaced'])(
+    'refuses admission when committed historical Markdown is %s', (change) => {
+      prepare();
+      if (change === 'deleted') git('rm', '-q', markdown);
+      else {
+        write(markdown, '# A replacement report without the historical duties\n');
+        git('add', markdown);
+      }
+      git('commit', '-qm', 'discard historical Markdown');
+      expect(run('round-start').status).toBe(1);
+      expect(JSON.parse(read('.feature/red-team-journal.json'))).toMatchObject({ round: 3, runs: 22 });
+    },
+  );
+
+  it.each(['missing', 'uncommitted', 'branch', 'path', 'third text', 'second text', 'date', 'identity', 'history', 'ancestry', 'product', 'dirty', 'staged'])(
+    'refuses fourth-round admission for %s without resetting round three', (mismatch) => {
+      const baseline = prepare(mismatch !== 'missing' && mismatch !== 'uncommitted');
+      const sidecar = JSON.parse(read(report));
+      if (mismatch === 'uncommitted') {
+        sidecar.authorizations.push(approval);
+        write(report, JSON.stringify(sidecar));
+      }
+      if (mismatch === 'branch') git('branch', '-m', 'codex/other');
+      if (mismatch === 'path') {
+        write('docs/reviews/red-team/foreign/findings.json', read(report));
+        git('rm', '-q', report);
+        git('add', 'docs/reviews/red-team/foreign/findings.json');
+        git('commit', '-qm', 'foreign report');
+      }
+      if (['third text', 'second text', 'date', 'identity', 'history'].includes(mismatch)) {
+        if (mismatch === 'third text') sidecar.authorizations.at(-1).text = 'third round authorized';
+        if (mismatch === 'second text') sidecar.authorizations.at(-1).id = 'owner-run-c-budget-next-pass';
+        if (mismatch === 'date') sidecar.authorizations.at(-1).date = '2026-09-14';
+        if (mismatch === 'identity') sidecar.inventory[0].test = 'rewritten test';
+        if (mismatch === 'history') sidecar.findings[0].reason = 'rewritten evidence';
+        write(report, JSON.stringify(sidecar));
+        git('add', report);
+        git('commit', '-qm', 'mismatched admission');
+      }
+      if (mismatch === 'ancestry') {
+        writeFileSync(runner, readFileSync(runner, 'utf8').replace(
+          `const RUN_C_FOURTH_BASELINE = '${baseline}';`, `const RUN_C_FOURTH_BASELINE = '${'1'.repeat(40)}';`,
+        ));
+      }
+      if (['product', 'dirty', 'staged'].includes(mismatch)) {
+        write('src/gate.ts', 'export const allow = () => true;\n');
+        if (mismatch !== 'dirty') git('add', 'src/gate.ts');
+        if (mismatch === 'product') git('commit', '-qm', 'unapproved product path');
+      }
+      expect(run('round-start').status).toBe(1);
+      expect(JSON.parse(read('.feature/red-team-journal.json'))).toMatchObject({ round: 3, runs: 22 });
+    },
+  );
+
+  it('pins the grant before releasing the first supervisor', () => {
+    prepare();
+    fourthJournal();
+    const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+      'const j=JSON.parse(require("node:fs").readFileSync(".feature/red-team-journal.json","utf8"));process.exit(j.runs===1&&j.budgetAuthorization?.maxRuns===150&&j.budgetAuthorization?.firstRun===1&&j.supervisors.at(-1)?.active===true?0:9)');
+    expect(result.status).toBe(0);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toMatchObject({
+      id: approval.id, maxRuns: 150, firstRun: 1, headSha: git('rev-parse', 'HEAD'),
+    });
+  });
+
+  it('refuses an ungranted first launch without executing its child', () => {
+    prepare(false);
+    fourthJournal();
+    const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e', 'require("node:fs").writeFileSync("launched","yes")');
+    expect(result.status).toBe(1);
+    expect(journal().runs).toBe(0);
+    expect(existsSync(join(repo, 'launched'))).toBe(false);
+  });
+
+  it.each(['approval', 'head', 'grant'])(
+    'refuses %s drift between launches and preserves the count', (mismatch) => {
+      prepare();
+      fourthJournal();
+      expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+      if (mismatch === 'approval') {
+        const sidecar = JSON.parse(read(report));
+        sidecar.authorizations.at(-1).text = 'edited approval';
+        write(report, JSON.stringify(sidecar));
+        git('add', report);
+        git('commit', '-qm', 'change approval');
+      } else if (mismatch === 'head') git('commit', '--allow-empty', '-qm', 'change head');
+      else {
+        const value = JSON.parse(read('.feature/red-team-journal.json'));
+        expect(value.budgetAuthorization).toMatchObject({ maxRuns: 150, firstRun: 1 });
+        value.budgetAuthorization.maxRuns = 151;
+        writeJournal(value);
+      }
+      expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(1);
+      expect(journal().runs).toBe(1);
+    },
+  );
+
+  it('permits launch 150, refuses 151, and never opens a fifth round', () => {
+    prepare();
+    fourthJournal();
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    writeJournal({ ...journal(), runs: 149 });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('budget exhausted (150');
+    expect(journal().runs).toBe(150);
+    expect(run('round-start').status).toBe(1);
+    expect(journal().runs).toBe(150);
+  });
 });
 
 describe('the vitest oracle helpers', () => {
@@ -532,6 +700,179 @@ describe('the mutation budget', () => {
       expect(journal().runs).toBe(30);
     },
   );
+
+  const runCReport = 'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/findings.json';
+
+  function authorizeRunC(): string {
+    git('branch', '-m', 'codex/owner-operator-run-c');
+    const baseline = git('rev-parse', 'HEAD');
+    // The fixture has its own immutable product commit. Substitute only that
+    // SHA in a private copy, so these executable tests survive squash merges
+    // without retaining the feature branch's Git objects or adding a runtime override.
+    runner = join(repo, 'fixture-mutation-runner.mjs');
+    writeFileSync(runner, readFileSync(RUNNER, 'utf8').replace(
+      "const RUN_C_BASELINE = '72cc51abd5d45b10cd7abf3c993f9039c5e63f65';",
+      `const RUN_C_BASELINE = '${baseline}';`,
+    ));
+    const inventory = JSON.parse(readFileSync(resolve(process.cwd(), runCReport), 'utf8')).inventory
+      .slice(0, 710).map(({ id, file, test }: { id: string; file: string; test: string }) => ({ id, file, test }));
+    write(runCReport, JSON.stringify({
+      mode: 'feature', branch: 'codex/owner-operator-run-c', round: 1,
+      head_sha: '5f2c201769ba982f49b9ecbd82678b45e75b19b1', inventory,
+      authorizations: [{
+        id: 'owner-run-c-budget-next-pass', date: '2026-09-13',
+        finding_ids: ['RT-P1-1', 'RT-P1-2', 'RT-P1-3'],
+        text: "Question: May I make a Run C-only change to the verifier’s limit, allowing up to 1,500 local test runs to finish those checks?\nOwner: I'll finish everything from C, D, and E. I give you the approval.",
+      }],
+    }));
+    git('add', runCReport);
+    git('commit', '-qm', 'record the approved Run C extension');
+    write('.feature/red-team-journal.json', JSON.stringify({
+      version: 1, round: 2, runs: 30, mutations: [], dotenv: { open: false, files: [] }, supervisors: [],
+    }));
+    return baseline;
+  }
+
+  it('continues only the approved Run C next pass and durably pins its committed HEAD', () => {
+    authorizeRunC();
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expect(journal().runs).toBe(31);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toMatchObject({
+      id: 'owner-run-c-budget-next-pass', maxRuns: 1500, firstRun: 31,
+      headSha: git('rev-parse', 'HEAD'),
+    });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expect(journal().runs).toBe(32);
+  });
+
+  it('pins the approved Run C candidate on its first launch from zero', () => {
+    authorizeRunC();
+    writeJournal({ ...journal(), runs: 0 });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expect(journal().runs).toBe(1);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toMatchObject({
+      id: 'owner-run-c-budget-next-pass', firstRun: 1, headSha: git('rev-parse', 'HEAD'),
+    });
+  });
+
+  it.each(['another branch', 'another round'])(
+    'retains the ordinary first launch and 30-run limit for %s', (scope) => {
+      authorizeRunC();
+      write('.feature/red-team-journal.json', JSON.stringify({
+        ...journal(), runs: 0, round: scope === 'another round' ? 1 : 2,
+      }));
+      if (scope === 'another branch') git('branch', '-m', 'codex/another-task');
+      expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+      expect(journal().runs).toBe(1);
+      expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+      writeJournal({ ...journal(), runs: 30 });
+      const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain('budget exhausted (30');
+    },
+  );
+
+  it('permits Run C launch 1500 and refuses launch 1501 without resetting the counter', () => {
+    authorizeRunC();
+    writeJournal({ ...journal(), runs: 1499 });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('budget exhausted (1500');
+    expect(journal().runs).toBe(1500);
+  });
+
+  it.each(['branch', 'round', 'report-round', 'head', 'inventory', 'identity', 'text', 'date', 'missing', 'malformed', 'product', 'ancestry'])(
+    'refuses a %s mismatch before launching the scoped Run C pass', (mismatch) => {
+      authorizeRunC();
+      const ordinaryScope = mismatch === 'branch' || mismatch === 'round';
+      if (!ordinaryScope) writeJournal({ ...journal(), runs: 0 });
+      const sidecar = JSON.parse(read(runCReport));
+      if (mismatch === 'branch') git('branch', '-m', 'codex/other');
+      if (mismatch === 'round') write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 3 }));
+      if (mismatch === 'report-round') sidecar.round = 2;
+      if (mismatch === 'head') sidecar.head_sha = '1'.repeat(40);
+      if (mismatch === 'inventory') sidecar.inventory.pop();
+      if (mismatch === 'identity') sidecar.inventory[0].test = 'another test';
+      if (mismatch === 'text') sidecar.authorizations[0].text = 'I approve another task';
+      if (mismatch === 'date') sidecar.authorizations[0].date = '2026-09-14';
+      if (mismatch === 'missing') sidecar.authorizations = [];
+      write(runCReport, mismatch === 'malformed' ? '{' : JSON.stringify(sidecar));
+      git('add', runCReport);
+      if (mismatch === 'product') {
+        write('src/gate.ts', 'export const allow = () => true;');
+        git('add', 'src/gate.ts');
+      }
+      git('commit', '--allow-empty', '-qm', 'fixture mismatch');
+      if (mismatch === 'ancestry') {
+        const unrelated = git('commit-tree', git('rev-parse', 'HEAD^{tree}'), '-m', 'unrelated history');
+        git('update-ref', 'HEAD', unrelated);
+      }
+      const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain(ordinaryScope ? 'budget exhausted (30' : 'Run C startup preconditions failed');
+      expect(journal().runs).toBe(ordinaryScope ? 30 : 0);
+      expect(journal().supervisors).toEqual([]);
+      expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+    },
+  );
+
+  it('refuses even documentation-only HEAD drift after the Run C first launch', () => {
+    authorizeRunC();
+    writeJournal({ ...journal(), runs: 0 });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    write('docs/reviews/codex-owner-operator-run-c/evidence.md', 'another report commit');
+    git('add', 'docs/reviews/codex-owner-operator-run-c/evidence.md');
+    git('commit', '-qm', 'drift after the candidate was pinned');
+    const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('pinned HEAD changed');
+    expect(journal().runs).toBe(1);
+  });
+
+  it('does not treat an uncommitted Run C approval as authorization', () => {
+    const baseline = authorizeRunC();
+    writeJournal({ ...journal(), runs: 0 });
+    git('update-ref', 'HEAD', baseline);
+    const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('Run C startup preconditions failed');
+    expect(journal().runs).toBe(0);
+    expect(journal().supervisors).toEqual([]);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+  });
+
+  it.each(['unstaged', 'staged'])(
+    'rejects an unexpected %s product edit before the first Run C launch', (kind) => {
+      authorizeRunC();
+      writeJournal({ ...journal(), runs: 0 });
+      write('src/gate.ts', 'export const allow = () => true;');
+      if (kind === 'staged') git('add', 'src/gate.ts');
+      const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain('Run C startup preconditions failed');
+      expect(journal().runs).toBe(0);
+      expect(journal().supervisors).toEqual([]);
+      expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+    },
+  );
+
+  it('allows only the journaled Run C mutant and denies an unrelated edit after pinning', () => {
+    authorizeRunC();
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    write('mutant.ts', 'export const allow = () => true;');
+    expect(run('mutate', '--file', 'src/gate.ts', '--mutant', join(repo, 'mutant.ts')).status).toBe(0);
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    write('src/gate.ts', 'export const allow = () => false;');
+    const refused = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('pinned HEAD changed');
+    expect(journal().runs).toBe(32);
+    // Restore the exact journaled mutant so the real finalizer can undo it.
+    write('src/gate.ts', read('mutant.ts'));
+    expect(run('finalize').status).toBe(0);
+    expect(read('src/gate.ts')).toBe('export const allow = (n: number) => n > 0;\n');
+  });
 
   // The budget is per ROUND, and the journal outlives a round. Without a reset
   // the second round would open already exhausted, having executed nothing.

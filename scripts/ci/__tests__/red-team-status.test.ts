@@ -32,6 +32,7 @@ const GIT_FREE_ENV = Object.fromEntries(
 const BRANCH = 'feat-red-team-fixture';
 
 let repo: string;
+let checker = CHECKER;
 
 function git(...args: string[]): string {
   const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV });
@@ -54,7 +55,7 @@ interface CheckResult {
 }
 
 function check(...args: string[]): CheckResult {
-  const result = spawnSync('node', [CHECKER, ...args], {
+  const result = spawnSync('node', [checker, ...args], {
     cwd: repo,
     encoding: 'utf8',
     env: GIT_FREE_ENV,
@@ -210,6 +211,7 @@ function rewriteSidecar(reportDir: string, mutate: (sidecar: Sidecar) => void): 
 }
 
 beforeEach(() => {
+  checker = CHECKER;
   // realpath: macOS $TMPDIR is a symlink and `git rev-parse --show-toplevel`
   // answers with the resolved path, which the checker's path joins rely on.
   repo = mkdtempSync(join(tmpdir(), 'red-team-status-'));
@@ -220,6 +222,135 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
+});
+
+describe('the committed Run C fourth-round proof', () => {
+  const reportDir = 'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1';
+  const report = `${reportDir}/findings.json`;
+  const markdown = `${reportDir}/findings.md`;
+  const historicalMarkdown = '# Historical duty evidence\n\nSibling search used fixture scope.\n';
+  const approval = {
+    id: 'owner-run-c-fourth-round-prompt-regression', date: '2026-09-13', finding_ids: [],
+    text: 'Question: May I make the Run C-only verifier change described in /private/tmp/run-c-fourth-round-proposal.md and run a fourth verification round, capped at 150 local test launches? It covers the prompt fix and the verifier’s own safeguards, preserves all earlier evidence, uses Codex only, and keeps further rounds blocked.\nOwner: Yes, approve the scoped fourth round',
+  };
+
+  function prepare(committedApproval = true): { head: string; baseline: string } {
+    const { sidecar } = seedRepo({ intake: { risk: 'high' } });
+    git('branch', '-m', 'codex/owner-operator-run-c');
+    sidecar.branch = 'codex/owner-operator-run-c';
+    sidecar.run_id = 'feature-codex-owner-operator-run-c-14b9e1';
+    sidecar.risk = 'high';
+    sidecar.round = 3;
+    sidecar.head_sha = '2565c78585d6b08837e01dbb2a4a3ba3c265eff0';
+    sidecar.inventory = JSON.parse(readFileSync(resolve(process.cwd(), report), 'utf8')).inventory
+      .slice(0, 785).map(({ id, file, test }: { id: string; file: string; test: string }) => (
+        { id, file, test, outcome: 'excluded', reason: 'Historical fixture evidence, retained verbatim.' }
+      ));
+    sidecar.findings = [{
+      id: 'HISTORICAL', severity: 'P2', title: 'Historical resolved finding',
+      at: 'src/thing.ts:1', duty: 2, disposition: 'fixed', reason: 'Historical correction retained.',
+    }];
+    sidecar.authorizations = [{ id: 'third', date: '2026-09-13', finding_ids: ['HISTORICAL'], text: 'third round authorized' }];
+    sidecar.counts = countsFor(sidecar);
+    write(report, JSON.stringify(sidecar));
+    write(markdown, historicalMarkdown);
+    git('add', reportDir);
+    git('commit', '-qm', 'immutable historical evidence');
+    const baseline = git('rev-parse', 'HEAD');
+    const blob = git('rev-parse', `HEAD:${report}`);
+    const markdownBlob = git('rev-parse', `HEAD:${markdown}`);
+    const runnerPath = '.agents/skills/red-team/scripts/mutation-runner.mjs';
+    write('fixture-fourth-runner.mjs', readFileSync(resolve(process.cwd(), runnerPath), 'utf8')
+      .replace("const RUN_C_FOURTH_BASELINE = 'fb536c09711ec331262f5efc64ff42f066bec3ba';", `const RUN_C_FOURTH_BASELINE = '${baseline}';`)
+      .replace("const RUN_C_HISTORY_BLOB = 'd2de690d9154e591d83cbb9e9591db8d0567d318';", `const RUN_C_HISTORY_BLOB = '${blob}';`)
+      .replace("const RUN_C_HISTORY_MARKDOWN_BLOB = 'caae5b4d877e254033485a73f38f56b074c8910e';", `const RUN_C_HISTORY_MARKDOWN_BLOB = '${markdownBlob}';`));
+    checker = join(repo, 'fixture-fourth-checker.mjs');
+    writeFileSync(checker, readFileSync(CHECKER, 'utf8').replace(
+      '../../red-team/scripts/mutation-runner.mjs', './fixture-fourth-runner.mjs',
+    ));
+    if (committedApproval) {
+      sidecar.authorizations.push(approval);
+      write(report, JSON.stringify(sidecar));
+      git('add', report);
+      git('commit', '-qm', 'commit approval before measurement');
+    }
+    const head = git('rev-parse', 'HEAD');
+    if (!committedApproval) sidecar.authorizations.push(approval);
+    sidecar.round = 4;
+    sidecar.head_sha = head;
+    sidecar.inventory.push({ ...KILLED_ROW, id: 'R4-NEW' });
+    sidecar.counts = countsFor(sidecar);
+    write(report, JSON.stringify(sidecar));
+    write(markdown, `${historicalMarkdown}\n## Round 4\nFresh results appended after the preserved duties.\n`);
+    git('add', report, markdown);
+    git('commit', '-qm', 'append fourth-round results after measurement');
+    write('.feature/red-team-journal.json', JSON.stringify({
+      round: 4, runs: 2, mutations: [], supervisors: [], dotenv: { open: false, files: [] },
+      budgetAuthorization: { id: approval.id, headSha: head, maxRuns: 150, firstRun: 1, sha256: sha256(JSON.stringify(approval)) },
+    }));
+    return { head, baseline };
+  }
+
+  it('accepts appended fourth-round results only with committed admission and launch proof', () => {
+    prepare();
+    const result = check();
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('round 4');
+  });
+
+  it('rejects approval first written in the final report after measurement', () => {
+    prepare(false);
+    expect(check().status).toBe(1);
+  });
+
+  it.each(['deleted', 'rewritten', 'trailing newline removed'])(
+    'rejects final evidence when historical Markdown is %s', (change) => {
+      prepare();
+      if (change === 'deleted') git('rm', '-q', markdown);
+      else {
+        write(markdown, change === 'rewritten' ? '# Replacement round 4 results\n' : historicalMarkdown.trimEnd());
+        git('add', markdown);
+      }
+      git('commit', '-qm', 'discard historical narrative bytes');
+      expect(check().status).toBe(1);
+    },
+  );
+
+  it.each(['missing approval', 'foreign branch', 'wrong text', 'wrong date', 'measured head', 'identity', 'history', 'intake', 'dirty', 'unrestored', 'grant', 'missing journal', 'budget', 'fifth', 'accepted risk'])(
+    'rejects fourth-round evidence with %s', (mismatch) => {
+      const { baseline } = prepare();
+      if (['missing approval', 'foreign branch', 'wrong text', 'wrong date', 'measured head', 'identity', 'history', 'fifth', 'accepted risk'].includes(mismatch)) {
+        rewriteSidecar(reportDir, (sidecar) => {
+          if (mismatch === 'missing approval') sidecar.authorizations.pop();
+          if (mismatch === 'foreign branch') sidecar.branch = 'codex/other';
+          if (mismatch === 'wrong text') sidecar.authorizations.at(-1)!.text = 'third round authorized';
+          if (mismatch === 'wrong date') sidecar.authorizations.at(-1)!.date = '2026-09-14';
+          if (mismatch === 'measured head') sidecar.head_sha = baseline;
+          if (mismatch === 'identity') sidecar.inventory[0]!.test = 'rewritten identity';
+          if (mismatch === 'history') sidecar.inventory[0]!.reason = 'rewritten historical evidence';
+          if (mismatch === 'fifth') sidecar.round = 5;
+          if (mismatch === 'accepted risk') {
+            sidecar.findings.push({
+              id: 'R4-RISK', severity: 'P2', title: 'Unapproved risk', at: 'src/thing.ts:1', duty: 2,
+              disposition: 'accepted-risk', authorization: approval.id,
+            });
+            sidecar.counts = countsFor(sidecar);
+          }
+        });
+      } else if (mismatch === 'intake') write('.feature/intake.json', JSON.stringify({ risk: 'high', edited: true }));
+      else if (mismatch === 'dirty') write('src/thing.ts', 'export const thing = 99;\n');
+      else if (mismatch === 'missing journal') rmSync(join(repo, '.feature/red-team-journal.json'));
+      else {
+        const journal = JSON.parse(readFileSync(join(repo, '.feature/red-team-journal.json'), 'utf8'));
+        if (mismatch === 'unrestored') journal.mutations = [{ path: 'src/thing.ts', state: 'applied' }];
+        if (mismatch === 'grant') journal.budgetAuthorization.sha256 = '0'.repeat(64);
+        if (mismatch === 'budget') journal.runs = 151;
+        write('.feature/red-team-journal.json', JSON.stringify(journal));
+      }
+      expect(check().status).toBe(1);
+    },
+  );
 });
 
 describe('the CLI contract', () => {

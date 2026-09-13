@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ChatPrompt, LLMRequest } from '../types';
+import { z } from 'zod';
+import type { ChatPrompt, LLMRequest, LLMStructuredOutput } from '../types';
 import { llmCircuitBreaker } from '../circuit-breaker';
 
 // ── Mock the raw SDK — the unit under test is the provider's request
@@ -23,9 +24,10 @@ vi.mock('../openai-provider', () => ({
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function sdkResponse(text = 'Merci, Jane!') {
+function sdkResponse(text = 'Merci, Jane!', stopReason: string | null = 'end_turn') {
   return {
     content: [{ type: 'text', text }],
+    stop_reason: stopReason,
     usage: { input_tokens: 100, output_tokens: 50 },
   };
 }
@@ -44,6 +46,26 @@ const prompt: ChatPrompt = {
   system: 'You are a helpful assistant.',
   user: 'Say thanks.',
 };
+
+// A transport fixture, not a registered task: a discriminated union (Zod 4
+// renders it as `oneOf`) plus a length bound the API does not accept.
+const structuredOutput: LLMStructuredOutput = {
+  name: 'owner_operator',
+  schema: z.strictObject({
+    segments: z
+      .array(
+        z.discriminatedUnion('type', [
+          z.strictObject({ type: z.literal('text'), text: z.string().min(1).max(40) }),
+          z.strictObject({ type: z.literal('ref'), index: z.number().int().min(0).max(4) }),
+        ]),
+      )
+      .max(3),
+  }),
+};
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 describe('anthropicProvider', () => {
   beforeEach(() => {
@@ -84,6 +106,111 @@ describe('anthropicProvider', () => {
     // Key absence (not `temperature: undefined`) is the contract: the SDK
     // default must remain in force for temperature-less tasks.
     expect(messagesCreate.mock.calls[0]![0]).not.toHaveProperty('temperature');
+    // Unstructured requests carry no output_config at all.
+    expect(messagesCreate.mock.calls[0]![0]).not.toHaveProperty('output_config');
+  });
+
+  it('sends output_config.format derived from the request schema by the installed helper', async () => {
+    messagesCreate.mockResolvedValueOnce(sdkResponse('{"segments":[]}'));
+
+    const { anthropicProvider } = await import('../anthropic-provider');
+    await anthropicProvider.complete(request({ structuredOutput }));
+
+    const body: unknown = messagesCreate.mock.calls[0]![0];
+    expect(body).toMatchObject({ output_config: { format: { type: 'json_schema' } } });
+    const format = isJsonObject(body) && isJsonObject(body.output_config)
+      ? body.output_config.format
+      : undefined;
+    if (!isJsonObject(format)) throw new Error('expected output_config.format');
+    // Wire fields only: the helper's parse() closure never reaches the request.
+    expect(Object.keys(format).sort()).toEqual(['schema', 'type']);
+    if (!isJsonObject(format.schema)) throw new Error('expected a schema object');
+    expect(format.schema.additionalProperties).toBe(false);
+    const serialized = JSON.stringify(format.schema);
+    expect(serialized).not.toContain('"oneOf"');
+    expect(serialized).toContain('"anyOf"');
+    // The length bound is folded into a description, not sent as a keyword.
+    // runLlmTask's Zod validation remains the authority for it.
+    expect(serialized).not.toContain('"maxLength":');
+  });
+
+  it('keeps UUID checks in the registered validator without compiling UUID grammar at the provider', async () => {
+    const { getLlmTask } = await import('../tasks');
+    const schema = getLlmTask('owner_operator').outputSchema!;
+    messagesCreate.mockResolvedValueOnce(sdkResponse('{}'));
+    const { anthropicProvider } = await import('../anthropic-provider');
+    await anthropicProvider.complete(request({ structuredOutput: { name: 'owner_operator', schema } }));
+    const wire = messagesCreate.mock.calls[0]![0].output_config.format.schema;
+    expect(JSON.stringify(wire)).not.toContain('"format":"uuid"');
+    expect(JSON.stringify(wire)).toContain('UUID');
+    const valid = {
+      segments: [{ type: 'proposal_ref', index: 0 }],
+      proposals: [{ operation: 'set_auto_reply_scope', scope: {
+        accountId: '00000000-0000-7000-8000-00000000ac01',
+        locationId: '00000000-0000-7000-8000-00000000b101',
+      }, input: { threshold: 4 }, rationale: 'Include positive reviews.' }],
+      unsupported: [],
+    };
+    expect(schema.safeParse(valid).success).toBe(true);
+    valid.proposals[0]!.scope.accountId = 'not-a-uuid';
+    expect(schema.safeParse(valid).success).toBe(false);
+  });
+
+  it('preserves application properties named format and type while translating UUID schema nodes', async () => {
+    messagesCreate.mockResolvedValueOnce(sdkResponse('{}'));
+    const { anthropicProvider } = await import('../anthropic-provider');
+    await anthropicProvider.complete(request({ structuredOutput: {
+      name: 'owner_operator',
+      schema: z.strictObject({ format: z.literal('uuid'), type: z.string(), id: z.uuid() }),
+    } }));
+    const wire = messagesCreate.mock.calls[0]![0].output_config.format.schema;
+    expect(Object.keys(wire.properties)).toEqual(['format', 'type', 'id']);
+    expect(wire.properties.format.type).toBe('string');
+    expect(wire.properties.id).toMatchObject({ type: 'string', description: expect.stringContaining('UUID') });
+    expect(wire.properties.id).not.toHaveProperty('format');
+  });
+
+  it('returns a refused structured completion with its usage and no text, instead of throwing unbilled', async () => {
+    messagesCreate.mockResolvedValueOnce({
+      content: [],
+      stop_reason: 'refusal',
+      usage: { input_tokens: 80, output_tokens: 3 },
+    });
+
+    const { anthropicProvider } = await import('../anthropic-provider');
+    const result = await anthropicProvider.complete(request({ structuredOutput }));
+
+    expect(result).toStrictEqual({
+      text: '',
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      usage: { promptTokens: 80, completionTokens: 3 },
+      incomplete: 'refused',
+    });
+  });
+
+  it('marks a max_tokens structured completion truncated and keeps its usage', async () => {
+    messagesCreate.mockResolvedValueOnce(sdkResponse('{"segments":[{"ty', 'max_tokens'));
+
+    const { anthropicProvider } = await import('../anthropic-provider');
+    const result = await anthropicProvider.complete(request({ structuredOutput }));
+
+    expect(result.incomplete).toBe('truncated');
+    expect(result.usage).toEqual({ promptTokens: 100, completionTokens: 50 });
+  });
+
+  it('keeps the unstructured contract: empty throws, a max_tokens reply is returned unmarked', async () => {
+    const { anthropicProvider } = await import('../anthropic-provider');
+
+    messagesCreate.mockResolvedValueOnce(sdkResponse(''));
+    await expect(anthropicProvider.complete(request())).rejects.toThrow(
+      'Anthropic returned empty response',
+    );
+
+    messagesCreate.mockResolvedValueOnce(sdkResponse('Merci, Ja', 'max_tokens'));
+    const result = await anthropicProvider.complete(request());
+    expect(result).not.toHaveProperty('incomplete');
+    expect(result.text).toBe('Merci, Ja');
   });
 
   // SPEC §9 fallback-regression pin: before #628 the Anthropic provider

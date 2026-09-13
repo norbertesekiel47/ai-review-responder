@@ -34,6 +34,11 @@ function proposal(overrides: Record<string, unknown> = {}): ProposalView {
     receipt: null,
     appliedAt: null,
     failureReason: null,
+    requiresConfirmation: false,
+    confirmationPhrase: null,
+    readinessBlockReasons: [],
+    consequence: null,
+    affectedLocationCount: null,
     ...overrides,
   } as ProposalView;
 }
@@ -61,6 +66,20 @@ beforeEach(() => { vi.clearAllMocks(); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('useProposalWrites', () => {
+  it('sends the typed phrase unchanged and explains a mismatch without losing the pending proposal', async () => {
+    const row = proposal({ requiresConfirmation: true, confirmationPhrase: 'all locations', locationId: null,
+      preparedVersionToken: { accountDefaultRow: { id: 'absent' } } });
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 400,
+      json: async () => ({ error: 'confirmation_mismatch', proposal: row }),
+    } as Response));
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, patchProposal, reloadTranscript } = harness();
+    await act(async () => { await result.current.write(row, 'apply', 'all locations '); });
+    expect(postBodies(fetchMock)[0]!.body).toEqual({ expectedVersionToken: row.preparedVersionToken, confirmationLevel: 'all locations ' });
+    expect(patchProposal).toHaveBeenCalledWith(row);
+    expect(result.current.errors[row.id]).toMatch(/exactly/);
+    expect(reloadTranscript).not.toHaveBeenCalled();
+  });
   it('Apply posts the prepared version token and repaints the card from the returned row', async () => {
     const applied = proposal({ status: 'applied', appliedAt: '2026-09-12T10:00:00.000Z' });
     const fetchMock = vi.fn(async () => ({

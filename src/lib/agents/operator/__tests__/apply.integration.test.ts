@@ -276,6 +276,7 @@ describeWithDb(
 
       const receipt = result.proposal.receipt;
       expect(receipt).not.toBeNull();
+      if (receipt?.affects !== 'future_drafts') throw new Error('expected a voice receipt');
       expect(receipt!.version).toBe(1);
       expect(receipt!.operation).toBe('set_tone');
       expect(receipt!.scope).toEqual({ accountId: tenant.accountId, locationId });
@@ -387,6 +388,7 @@ describeWithDb(
     });
 
     it('applyProposal rejects a pending proposal whose location was archived after preparation', async () => {
+      const toneBefore = await readTone(locationId);
       // RT-04 / RT-08. The `archived_at IS NULL` clause in the businesses lock
       // was pinned only by the SQL TEXT of a unit test; this is the live proof
       // that an archived location refuses the Apply and writes nothing to the
@@ -428,7 +430,7 @@ describeWithDb(
 
       // NO VOICE WRITE — asserted after the un-archive, so the read is not
       // itself filtered out by the archival it is testing.
-      expect(await readTone(locationId)).toBeNull();
+      expect(await readTone(locationId)).toBe(toneBefore);
       // The refusal COMMITTED as a terminal state, so the card says why.
       const stored = await readProposalForAccount(db, { proposalId, accountId: tenant.accountId });
       expect(stored!.status).toBe(PROPOSAL_STATUS.REJECTED);
@@ -479,6 +481,7 @@ describeWithDb(
     });
 
     it('applyProposal rolls back the receipt when the voice write throws', async () => {
+      const toneBefore = await readTone(locationId);
       const turn = await seedTurn(locationId, 'Make my replies warmer.');
       const { proposalId, token } = await seedProposal({
         conversationId: turn.conversationId,
@@ -507,7 +510,7 @@ describeWithDb(
       expect(row!.status).toBe(PROPOSAL_STATUS.PENDING);
       expect(row!.receipt).toBeNull();
       expect(row!.appliedAt).toBeNull();
-      expect(await readTone(locationId)).toBeNull();
+      expect(await readTone(locationId)).toBe(toneBefore);
 
       // And a retry finds it still applicable (intake edge case).
       const retry = await applyProposal(db, {
@@ -546,6 +549,7 @@ describeWithDb(
       // ONE Receipt, byte for byte, whichever call won.
       expect(a.proposal.receipt).toEqual(b.proposal.receipt);
       expect(a.proposal.receipt).not.toBeNull();
+      if (a.proposal.receipt?.affects !== 'future_drafts') throw new Error('expected a voice receipt');
 
       // ONE voice write: the second Apply did not re-stamp `updated_at`.
       expect(await currentUpdatedAt(locationId))
@@ -615,6 +619,7 @@ describeWithDb(
       expect(result.proposal.receipt!.before)
         .toEqual(parseVoiceState(view!.before, 'agent_proposals.before'));
       expect(result.proposal.receipt!.after).not.toHaveProperty('updatedAt');
+      if (result.proposal.receipt?.affects !== 'future_drafts') throw new Error('expected a voice receipt');
       expect(result.proposal.receipt!.versionToken.before.updatedAt).toBe(voice.updatedAt);
       expect(await readTone(locationId)).toBe('warm and brief');
     });

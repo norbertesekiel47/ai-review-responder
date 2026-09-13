@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
-import type { ChatPrompt, LLMCallResult, LLMProviderId, LLMTaskDescriptor } from '../types';
+import type {
+  ChatPrompt,
+  LLMCallResult,
+  LLMProviderId,
+  LLMRequest,
+  LLMTaskDescriptor,
+  LLMTaskId,
+} from '../types';
 import { llmCircuitBreaker } from '../circuit-breaker';
 
 // ── Mock the provider seam (not the raw SDKs) — run-task.ts resolves
@@ -393,6 +400,117 @@ describe('runLlmTask', () => {
       const result = await runLlmTask('reply_generation', prompt);
 
       expect(result.structured).toBeUndefined();
+    });
+
+    it('passes THE registered schema to the primary and the fallback, named for the task', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      openaiComplete.mockResolvedValueOnce(callResult({ text: 'not json' }));
+      anthropicComplete.mockResolvedValueOnce(
+        callResult({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001', text: '{"severity":"low"}' }),
+      );
+
+      const { runLlmTask } = await import('../run-task');
+      await runLlmTask('triage', prompt);
+
+      const primaryRequest: LLMRequest = openaiComplete.mock.calls[0]![0];
+      const fallbackRequest: LLMRequest = anthropicComplete.mock.calls[0]![0];
+      // Identity, not equality: providers derive their wire schema from the
+      // registered Zod object itself, never from a copy.
+      expect(primaryRequest.structuredOutput?.schema).toBe(schema);
+      expect(primaryRequest.structuredOutput?.name).toBe('triage');
+      expect(fallbackRequest.structuredOutput?.schema).toBe(schema);
+      expect(fallbackRequest.structuredOutput?.name).toBe('triage');
+    });
+
+    it.each(['triage', 'judge', 'solicitation_ask', 'owner_operator'] as const satisfies readonly LLMTaskId[])(
+      'registered %s: the request carries the registry outputSchema by identity',
+      async (taskId) => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        openaiComplete.mockResolvedValueOnce(callResult({ text: 'not json' }));
+        anthropicComplete.mockResolvedValueOnce(callResult({ provider: 'anthropic', text: 'not json' }));
+
+        const { runLlmTask, LLMStructuredOutputError } = await import('../run-task');
+        await expect(runLlmTask(taskId, prompt)).rejects.toBeInstanceOf(LLMStructuredOutputError);
+
+        const registered = getLlmTask(taskId).outputSchema;
+        expect(registered).toBeDefined();
+        const primaryRequest: LLMRequest = openaiComplete.mock.calls[0]![0];
+        const fallbackRequest: LLMRequest = anthropicComplete.mock.calls[0]![0];
+        expect(primaryRequest.structuredOutput).toEqual({ name: taskId, schema: registered });
+        expect(primaryRequest.structuredOutput?.schema).toBe(registered);
+        expect(fallbackRequest.structuredOutput?.schema).toBe(registered);
+      },
+    );
+
+    it('sends an unstructured task the same request as before — no structuredOutput key', async () => {
+      openaiComplete.mockResolvedValueOnce(callResult());
+
+      const { runLlmTask } = await import('../run-task');
+      await runLlmTask('reply_generation', prompt);
+
+      expect(openaiComplete.mock.calls[0]![0]).toStrictEqual({
+        system: prompt.system,
+        user: prompt.user,
+        maxTokens: 300,
+        temperature: 0.7,
+        model: 'gpt-4o-mini-2024-07-18',
+      });
+    });
+
+    it('turns a refused primary and a truncated fallback into one billed terminal error with both usages', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      // The refused attempt carries text that WOULD validate: `incomplete` must win.
+      openaiComplete.mockResolvedValueOnce(
+        callResult({
+          text: '{"severity":"high"}',
+          incomplete: 'refused',
+          usage: { promptTokens: 90, completionTokens: 12 },
+        }),
+      );
+      anthropicComplete.mockResolvedValueOnce(
+        callResult({
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5-20251001',
+          text: '{"severity":"hi',
+          incomplete: 'truncated',
+          usage: { promptTokens: 110, completionTokens: 200 },
+        }),
+      );
+
+      const { runLlmTask, LLMStructuredOutputError } = await import('../run-task');
+      const { TransientLLMError } = await import('../error-classifier');
+
+      try {
+        await runLlmTask('triage', prompt);
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(LLMStructuredOutputError);
+        expect(err).not.toBeInstanceOf(TransientLLMError);
+        expect((err as InstanceType<typeof LLMStructuredOutputError>).billedAttempts).toEqual([
+          { provider: 'openai', model: 'gpt-4o-mini-2024-07-18', usage: { promptTokens: 90, completionTokens: 12 } },
+          { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', usage: { promptTokens: 110, completionTokens: 200 } },
+        ]);
+        const cause = (err as Error).cause;
+        expect(cause).toBeInstanceOf(Error);
+        expect((cause as Error).message).toBe('provider output truncated');
+      }
+    });
+
+    it('fails over to a valid fallback after a refused primary', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      getLlmTask.mockReturnValueOnce(structuredTask);
+      openaiComplete.mockResolvedValueOnce(callResult({ text: '', incomplete: 'refused' }));
+      anthropicComplete.mockResolvedValueOnce(
+        callResult({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001', text: '{"severity":"medium"}' }),
+      );
+
+      const { runLlmTask } = await import('../run-task');
+      const result = await runLlmTask('triage', prompt);
+
+      expect(result.provider).toBe('anthropic');
+      expect(result.structured).toEqual({ severity: 'medium' });
     });
   });
 

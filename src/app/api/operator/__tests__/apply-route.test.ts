@@ -188,14 +188,54 @@ describe('POST /api/operator/proposals/[id]/apply', () => {
     expect(malformed.status).toBe(404);
     expect(await malformed.json()).toEqual({ error: 'proposal_not_found' });
 
-    // A body with no token, or one carrying slice 2's `confirmationLevel`, is
-    // 400: the schema is `.strict()` and no Run B operation takes confirmation.
+    // A body with no token, an unknown key, a non-string or over-long typed
+    // scope is 400 at the body parse.
     const noToken = await POST(request({}), params());
     expect(noToken.status).toBe(400);
-    const extra = await POST(
-      request({ expectedVersionToken: TOKEN, confirmationLevel: '5 star only' }),
+    const unknownKey = await POST(request({ expectedVersionToken: TOKEN, confirmation: 'yes' }), params());
+    expect(unknownKey.status).toBe(400);
+    const notString = await POST(request({ expectedVersionToken: TOKEN, confirmationLevel: 4 }), params());
+    expect(notString.status).toBe(400);
+    const tooLong = await POST(request({ expectedVersionToken: TOKEN, confirmationLevel: 'x'.repeat(101) }), params());
+    expect(tooLong.status).toBe(400);
+  });
+
+  it('POST apply passes a policy token and the typed scope through verbatim and maps confirmation_mismatch to 400 and expansion_blocked to 409', async () => {
+    const policyToken = {
+      locationRow: { id: 'absent' },
+      accountDefaultRow: { id: '00000000-0000-7000-8000-0000000000aa', updatedAt: '2026-09-12 09:00:00.1+00' },
+    };
+    mockApply.mockResolvedValue({ kind: 'confirmation_mismatch', proposal: { id: PROPOSAL, status: 'pending' } });
+
+    const mismatch = await POST(
+      request({ expectedVersionToken: policyToken, confirmationLevel: ' 5 star only' }),
       params(),
     );
-    expect(extra.status).toBe(400);
+    expect(mismatch.status).toBe(400);
+    expect(await mismatch.json()).toEqual({
+      error: 'confirmation_mismatch',
+      proposal: { id: PROPOSAL, status: 'pending' },
+    });
+    // VERBATIM: the leading space reaches Apply untrimmed.
+    expect(mockApply.mock.calls[0]![1]).toEqual({
+      proposalId: PROPOSAL,
+      accountId: ACCOUNT,
+      actorUserId: 'user-1',
+      expectedVersionToken: policyToken,
+      confirmationLevel: ' 5 star only',
+    });
+
+    mockApply.mockResolvedValue({
+      kind: 'blocked',
+      blockReasons: ['autopilot_unavailable'],
+      proposal: { id: PROPOSAL, status: 'rejected' },
+    });
+    const blocked = await POST(request({ expectedVersionToken: policyToken, confirmationLevel: '5 star only' }), params());
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toEqual({
+      error: 'expansion_blocked',
+      blockReasons: ['autopilot_unavailable'],
+      proposal: { id: PROPOSAL, status: 'rejected' },
+    });
   });
 });

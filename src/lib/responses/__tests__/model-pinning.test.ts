@@ -78,6 +78,8 @@ describe('LLM model pinning', () => {
     expect(task.fallback).toEqual({ provider: 'anthropic', model: ANTHROPIC_MODEL });
     expect(task.maxTokens).toBe(1200);
     expect(task.temperature).toBe(0.2);
-    expect(task.outputSchema).toBe(OperatorModelOutputSchema);
+    // Compare the canonical schema by identity without asking the failure
+    // formatter to traverse Zod's multi-literal getters.
+    expect(task.outputSchema === OperatorModelOutputSchema).toBe(true);
   });
 });

@@ -155,6 +155,8 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
   });
 
   it('importReview leaves the agent run terminal, not running', async () => {
+    await importReview(sql(), makeMonitored(), businessId, 'corr-import-terminal');
+
     const [run] = await sql()<{ id: string; status: string; ended_at: Date | null }[]>`
       SELECT id, status, ended_at
       FROM agent_runs
@@ -172,10 +174,14 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
     // src/lib/agents/run-spine.ts:304). `run_id` is the name used for the local
     // variable in the run-spine writers, which is what makes this an easy
     // mistake — and exactly the kind of error only a live-DB suite catches.
-    const steps = await sql()<{ step_key: string }[]>`
-      SELECT step_key FROM agent_run_steps WHERE agent_run_id = ${run!.id}::uuid
+    const steps = await sql()<{ step_key: string; origin: string | null }[]>`
+      SELECT step_key, detail->>'ingestion_origin' AS origin
+      FROM agent_run_steps WHERE agent_run_id = ${run!.id}::uuid
     `;
     expect(steps.map((s) => s.step_key)).toContain('review_ingested');
+    // Run C: the persisted JSONB marker, read with ->> so the assertion is on
+    // what Postgres stored, not on a JS-side object.
+    expect(steps.find((s) => s.step_key === 'review_ingested')?.origin).toBe('imported');
   });
 
   it('importReview writes no job_outbox row against the live database', async () => {
@@ -195,6 +201,7 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
   });
 
   it('importReview is idempotent on a second call for the same review', async () => {
+    await importReview(sql(), makeMonitored(), businessId, 'corr-import-idempotent-first');
     const result = await importReview(sql(), makeMonitored(), businessId, 'corr-import-2');
 
     // ON CONFLICT (provider, provider_review_name) DO NOTHING really dedupes.
@@ -211,5 +218,14 @@ describeWithDb('importReview against live Postgres', { timeout: 30_000 }, () => 
       WHERE account_id = ${tenant!.accountId}::uuid AND kind = 'review_handler'
     `;
     expect(runs).toHaveLength(1);
+
+    // …and exactly one ingestion marker: the duplicate did not add or relabel one.
+    const markers = await sql()<{ origin: string | null }[]>`
+      SELECT s.detail->>'ingestion_origin' AS origin
+      FROM agent_run_steps s
+      JOIN agent_runs r ON r.id = s.agent_run_id
+      WHERE r.account_id = ${tenant!.accountId}::uuid AND s.step_key = 'review_ingested'
+    `;
+    expect(markers).toEqual([{ origin: 'imported' }]);
   });
 });

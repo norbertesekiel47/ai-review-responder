@@ -68,8 +68,9 @@ Stop and report rather than proceed if any of these is false:
    `node .agents/skills/red-team/scripts/mutation-runner.mjs round-start`
    It refuses over an unclean journal, resets the per-round run budget, and caps
    the rounds: two open on their own, a THIRD opens only when the sidecar already
-   carries an owner authorization whose text names the third round, and a fourth
-   never opens. `red-team-status.mjs` re-checks that same condition, so a sidecar
+   carries an owner authorization whose text names the third round. A fourth
+   opens only for the owner-approved Run C exception below; a fifth never opens.
+   `red-team-status.mjs` re-checks that same condition, so a sidecar
    can never claim a round the runner would have refused.
 
    The exception exists because a round-2 finding whose fix touches the tree makes
@@ -216,6 +217,38 @@ nor acceptance of unmeasured coverage.
 
 Live-DB candidates use the existing lock protocol and are still bounded by the
 same budget.
+
+**Owner-approved Run C next pass (2026-09-13).** On
+`codex/owner-operator-run-c` only, authorization
+`owner-run-c-budget-next-pass` permits round 2 to finish the unmeasured original
+inventory and verify the accepted fixes, directly affected callers and scoped
+verifier change, with at most 1,500 supervised local launches. The runner pins
+the original report/inventory, corrected product baseline and next-pass HEAD;
+the verbatim approval lives in the JSON sidecar. See
+`codex-owner-operator-run-c-deviations.md` D1. Other branches keep 30 launches.
+Timeouts, mutation limits, environment isolation, root restoration and
+incomplete-status rules are unchanged. This grants no third round or
+accepted-risk disposition.
+
+**Owner-approved Run C fourth round (2026-09-13).** Only
+`codex/owner-operator-run-c`, with the exact committed authorization
+`owner-run-c-fourth-round-prompt-regression`, may open closed round 3 into
+round 4, capped at **150 supervised local launches**. This covers the prompt
+regression fix, its evaluators and the verifier safeguards in the finite path
+set enforced by the runner. The admission report must retain the complete
+historical round-3 evidence, the original 785 inventory identities and the
+prior findings/authorizations; only new authorizations may append before
+measurement. Committed admission Markdown must match its pinned historical
+blob exactly. Final Markdown must retain those historical bytes as an exact
+prefix, including trailing newlines, with fresh round-4 results appended.
+Admission descends from `fb536c09711ec331262f5efc64ff42f066bec3ba`
+and requires a clean committed tree. Every launch validates the committed
+grant and HEAD; the first pins them before supervisor release, and later
+launches permit only exact journaled mutations. Final reports append fresh
+results while retaining the history; the status checker corroborates their
+committed admission and matching launch journal. This grants no fifth round,
+extra provider calls, accepted-risk disposition or exception to isolation,
+restoration, timeouts, per-test mutation limits or incomplete-status rules.
 
 ## Duty 2 — fragile assertions
 

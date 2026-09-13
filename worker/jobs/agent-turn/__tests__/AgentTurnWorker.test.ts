@@ -11,7 +11,7 @@ import type { AgentTurnPayload } from '@/lib/shared/worker-types';
 
 const {
   mockOwnerOperatorEnabled, mockBuildSnapshot, mockGenerate, mockReauthorize,
-  mockClaimTurn, mockReadVoiceConfig,
+  mockClaimTurn, mockReadVoiceConfig, mockReadPolicySnapshot, mockConsequence, mockGetSettings,
 } = vi.hoisted(() => ({
   mockOwnerOperatorEnabled: vi.fn(),
   mockBuildSnapshot: vi.fn(),
@@ -19,8 +19,17 @@ const {
   mockReauthorize: vi.fn(),
   mockClaimTurn: vi.fn(),
   mockReadVoiceConfig: vi.fn(),
+  mockReadPolicySnapshot: vi.fn(),
+  mockConsequence: vi.fn(),
+  mockGetSettings: vi.fn(),
 }));
 
+vi.mock('@/lib/agents/operator/policy-state', () => ({
+  readPolicySnapshot: mockReadPolicySnapshot,
+  consequenceForPolicy: mockConsequence,
+  readRetainedVetoCount: vi.fn(),
+}));
+vi.mock('@/lib/auto-approval/settings', () => ({ getAutoApprovalSettings: mockGetSettings }));
 vi.mock('@/lib/agents/operator/flags', () => ({ ownerOperatorEnabled: mockOwnerOperatorEnabled }));
 vi.mock('@/lib/agents/operator/context', () => ({ buildSnapshot: mockBuildSnapshot }));
 vi.mock('@/lib/agents/operator/model-call', () => ({ generateOperatorReply: mockGenerate }));
@@ -42,6 +51,7 @@ vi.mock('@/lib/responses/voice-settings', async (importOriginal) => ({
 }));
 
 import { handleAgentTurn } from '../AgentTurnWorker';
+import { proposableOperation } from '@/lib/agents/operator/catalog';
 
 type Recorded = { text: string; values: unknown[]; inTransaction: boolean };
 
@@ -157,7 +167,7 @@ describe('AgentTurnWorker flag gate', () => {
       turnId: payload.turn_id,
       conversationId: payload.conversation_id,
       accountId: payload.account_id,
-      actorUserId: '00000000-0000-7000-8000-00000000us01',
+      actorUserId: '00000000-0000-7000-8000-00000000e001',
       locationId: '00000000-0000-7000-8000-00000000b101',
       sequence: 1,
       ownerText: 'Make my replies warmer.',
@@ -205,5 +215,110 @@ describe('AgentTurnWorker flag gate', () => {
     expect(calls.some((call) => call.text.includes('agent_proposals'))).toBe(false);
     expect(calls.some((call) => call.text.includes('agent_unsupported_requests'))).toBe(false);
     expect(calls.some((call) => call.values.includes('completed'))).toBe(false);
+  });
+});
+
+describe('AgentTurnWorker policy preparation', () => {
+  const LOCATION = '00000000-0000-7000-8000-00000000b101';
+  const OTHER_LOCATION = '00000000-0000-7000-8000-00000000b102';
+  const ATTEMPT = '00000000-0000-7000-8000-00000000a701';
+  const ACCOUNT_STATE = {
+    domain: 'policy', threshold: null, vetoWindowMinutes: 30, dailyAutoPostCap: null, effectiveDailyCap: 10, rowExists: true,
+  };
+  const TOKEN = { accountDefaultRow: { id: '00000000-0000-7000-8000-0000000000aa', updatedAt: '2026-09-12 09:00:00.1+00' } };
+  const LINE = {
+    total: 0, eligible: 0, held: { below_threshold: 0, cap_reached: 0, manual: 0 }, byDay: [], busiestDay: 0,
+    windowStart: '2026-08-14 03:00:00+00', windowEnd: '2026-09-13 03:00:00+00', asOf: '2026-09-13 03:00:00+00',
+    source: 'reviews_received_30d', excludedImported: 1, excludedUnknown: 3,
+  };
+  const VALUE = { locationId: 5, before: 9, after: 10, token: 13, requiresConfirmation: 14 } as const;
+
+  function primeTurn(proposals: unknown[]) {
+    mockOwnerOperatorEnabled.mockReturnValue(true);
+    mockClaimTurn.mockResolvedValue({
+      turnId: payload.turn_id, conversationId: payload.conversation_id, accountId: payload.account_id,
+      actorUserId: '00000000-0000-7000-8000-00000000e001', locationId: LOCATION, sequence: 1,
+      ownerText: 'Let the good ones post.', attempt: 1, attemptToken: ATTEMPT,
+    });
+    mockReauthorize.mockResolvedValue({ ok: true, locationName: 'Salon', subscriptionTier: 'autopilot' });
+    mockBuildSnapshot.mockResolvedValue({ metrics: { asOf: '2026-09-13T03:00:00.000Z' } });
+    mockReadVoiceConfig.mockResolvedValue({
+      tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [],
+      updatedAt: '2026-09-12 09:00:00.111111+00',
+    });
+    mockGenerate.mockResolvedValue({
+      ok: true, attempts: 1, proposals,
+      output: { segments: [{ type: 'proposal_ref', index: 0 }], unsupported: [] },
+    });
+    mockGetSettings.mockResolvedValue({ readiness: { blockReasons: ['autopilot_unavailable'] } });
+    mockConsequence.mockReturnValue(LINE);
+  }
+
+  function parsed(id: string, input: Record<string, unknown>, scope: Record<string, unknown>) {
+    const operation = proposableOperation(id);
+    if (!operation) throw new Error(`${id} left the catalog`);
+    return { operation, input, scope: { accountId: payload.account_id, ...scope }, rationale: 'r' };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadPolicySnapshot.mockReset();
+  });
+
+  it('worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find', async () => {
+    primeTurn([parsed('set_veto_window', { minutes: 30 }, { locationId: OTHER_LOCATION })]);
+    mockReadPolicySnapshot.mockResolvedValue(null);
+
+    const calls: Recorded[] = [];
+    await handleAgentTurn(makeSql(calls) as never, job);
+
+    expect(mockReadPolicySnapshot).toHaveBeenCalledWith(expect.anything(), {
+      accountId: payload.account_id, locationId: OTHER_LOCATION,
+    });
+    const statements = statementsOf(calls);
+    expect(statements[0]!.text).toContain('UPDATE agent_turns');
+    expect(statements[0]!.values).toContain('unauthorized');
+    expect(calls.some((call) => call.text.includes('agent_proposals'))).toBe(false);
+  });
+
+  it('worker stamps a policy proposal from the snapshot of its own target, not the turn location', async () => {
+    primeTurn([parsed('set_auto_reply_scope', { threshold: 4 }, {})]);
+    mockReadPolicySnapshot.mockResolvedValue({
+      accountId: payload.account_id, locationId: null, target: { scope: 'account' },
+      state: { accountDefault: ACCOUNT_STATE, location: null }, versionToken: TOKEN,
+      targetArchived: false, policySuspended: true, locations: [], reviews: [],
+      windowStart: LINE.windowStart, windowEnd: LINE.windowEnd, asOf: LINE.asOf,
+      source: 'reviews_received_30d', excludedImported: 1, excludedUnknown: 3,
+    });
+
+    const calls: Recorded[] = [];
+    await handleAgentTurn(makeSql(calls) as never, job);
+
+    // Account target: the reader is asked for null, although the turn is on LOCATION.
+    expect(mockReadPolicySnapshot).toHaveBeenCalledTimes(1);
+    expect(mockReadPolicySnapshot.mock.calls[0]![1]).toEqual({ accountId: payload.account_id, locationId: null });
+    expect(mockGetSettings.mock.calls[0]![1]).toEqual({ accountId: payload.account_id, impersonated: false });
+
+    const insert = calls.find((call) => call.text.includes('INSERT INTO agent_proposals'));
+    expect(insert).toBeDefined();
+    expect(insert!.values[VALUE.locationId]).toBeNull();
+    expect(insert!.values[VALUE.before]).toEqual({ ...ACCOUNT_STATE, consequence: LINE, affectedLocationCount: 0 });
+    expect(insert!.values[VALUE.after]).toMatchObject({
+      threshold: 4, consequence: LINE, expansionBlockedBy: ['autopilot_unavailable', 'policy_suspended'],
+    });
+    expect(insert!.values[VALUE.token]).toEqual(TOKEN);
+    expect(insert!.values[VALUE.requiresConfirmation]).toBe(true);
+  });
+
+  it('a voice-only turn issues no policy read', async () => {
+    primeTurn([parsed('set_tone', { tone: 'warm' }, { locationId: LOCATION })]);
+
+    const calls: Recorded[] = [];
+    await handleAgentTurn(makeSql(calls) as never, job);
+
+    expect(mockReadPolicySnapshot).not.toHaveBeenCalled();
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    const insert = calls.find((call) => call.text.includes('INSERT INTO agent_proposals'));
+    expect(insert!.values[VALUE.token]).toEqual({ businessId: LOCATION, updatedAt: '2026-09-12 09:00:00.111111+00' });
   });
 });

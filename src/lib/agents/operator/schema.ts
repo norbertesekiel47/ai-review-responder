@@ -2,7 +2,15 @@
 // parse sites. Nothing here touches the database; the parsers take already-read
 // column values.
 import { z } from 'zod';
-import { VoiceVersionTokenSchema } from './version-token';
+import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types';
+import {
+  DailyCapValueSchema,
+  OPERATION_INPUT_SCHEMAS,
+  ThresholdValueSchema,
+  VetoWindowValueSchema,
+  type ProposableOperationId,
+} from './operation-inputs';
+import { AutoApprovalVersionTokenSchema, VoiceVersionTokenSchema } from './version-token';
 
 export const TURN_STATUS = {
   ACCEPTED: 'accepted',
@@ -87,22 +95,27 @@ export type TurnFailureReason =
   (typeof TURN_FAILURE_REASON)[keyof typeof TURN_FAILURE_REASON];
 
 /**
- * Every reason a **Proposal** can carry in `failure_reason`. Six members, and
- * the split between them is the whole lifecycle (spec §6.3):
+ * Every reason a **Proposal** can carry in `failure_reason`. The split between
+ * them is the whole lifecycle (spec §6.3):
  *
  *  - `version_mismatch` → `stale`. The settings moved. Offer **Refresh plan**.
  *  - `contract_changed` → `rejected`. The CODE moved, not the settings; the
  *    plan must be regenerated, not retried.
  *  - `unauthorized` / `account_offboarding` → `rejected`. The actor lost the
  *    right between preparation and the click.
- *  - `location_not_found` → `rejected`. The location was archived.
+ *  - `location_not_found` → `rejected`. The location is gone, or a voice
+ *    location was archived.
+ *  - `location_inactive` → `rejected`. A policy change the shared archived
+ *    rule refuses on an archived location (a new override, or any expansion).
+ *  - `expansion_blocked` → `rejected`. Readiness blocked a policy expansion;
+ *    the reasons ride the Apply response, not this column.
  *  - `write_failed` → `failed`. The executor DETERMINISTICALLY refused. A
  *    THROWN executor is not this: the transaction rolls back and the row stays
  *    `pending` (plan decision D12).
  *
- * An owner decline stores NO reason — `decided_by_user_id` alone says who, and
- * a reason column filled with `owner_declined` would make "the owner said no"
- * look like a failure in every read that counts non-NULL reasons (D5).
+ * A typed-scope mismatch stores NOTHING: the proposal stays pending so the
+ * owner can correct the field. An owner decline stores NO reason either —
+ * `decided_by_user_id` alone says who (D5).
  */
 export const PROPOSAL_FAILURE_REASON = {
   VERSION_MISMATCH: 'version_mismatch',
@@ -110,6 +123,8 @@ export const PROPOSAL_FAILURE_REASON = {
   UNAUTHORIZED: 'unauthorized',
   ACCOUNT_OFFBOARDING: 'account_offboarding',
   LOCATION_NOT_FOUND: 'location_not_found',
+  LOCATION_INACTIVE: 'location_inactive',
+  EXPANSION_BLOCKED: 'expansion_blocked',
   WRITE_FAILED: 'write_failed',
 } as const;
 export type ProposalFailureReason =
@@ -238,17 +253,48 @@ const StoredSegmentSchema = z.discriminatedUnion('type', [
 ]);
 export type StoredSegment = z.infer<typeof StoredSegmentSchema>;
 
-const ProposedOperationSchema = z.object({
-  operation: z.string().trim().min(1).max(60),
-  scope: z.object({
-    accountId: z.uuid(),
-    locationId: z.uuid().optional(),
-  }).strict(),
-  // A record, not z.unknown(): the operation's own schema narrows it in the
-  // catalog, and a record keeps the key required instead of optional.
-  input: z.record(z.string(), z.unknown()),
-  rationale: z.string().trim().min(1).max(500),
+/**
+ * `locationId` is NULLABLE AND OPTIONAL. A strict provider schema requires
+ * every field and represents "may be absent" only as null (the installed
+ * OpenAI helper refuses `.optional()` without `.nullable()`), while absence
+ * stays legal for every other caller. Null and absent both mean the account
+ * default; `validateModelOutput` normalizes null to absence once, before any
+ * consumer reads it.
+ *
+ * The wire does not encode tenancy. A shape-valid uuid for another account or
+ * location is refused by the semantic validator, never here.
+ */
+const ProposalScopeSchema = z.object({
+  accountId: z.uuid(),
+  locationId: z.uuid().nullable().optional(),
 }).strict();
+
+/**
+ * One operation's proposal: its id as a literal, beside exactly that
+ * operation's input schema from the leaf module the catalog parses with. The
+ * input is therefore finite on the wire — an unknown key, another operation's
+ * input, or an out-of-domain value fails shape validation. The semantic
+ * validator still runs `parseInput` and every catalog, scope and prose rule.
+ */
+function proposalSchemaFor<Operation extends ProposableOperationId>(operation: Operation) {
+  return z.object({
+    operation: z.literal(operation),
+    scope: ProposalScopeSchema,
+    input: OPERATION_INPUT_SCHEMAS[operation],
+    rationale: z.string().trim().min(1).max(500),
+  }).strict();
+}
+
+// Exhaustive over `OPERATION_INPUT_SCHEMAS`; schema.test.ts pins the member set.
+const ProposedOperationSchema = z.union([
+  proposalSchemaFor('set_tone'),
+  proposalSchemaFor('set_products_services'),
+  proposalSchemaFor('set_avoid_facts'),
+  proposalSchemaFor('set_highlight_facts'),
+  proposalSchemaFor('set_auto_reply_scope'),
+  proposalSchemaFor('set_veto_window'),
+  proposalSchemaFor('set_daily_cap'),
+]);
 
 const UnsupportedRequestSchema = z.object({
   request: z.string().trim().min(1).max(500),
@@ -322,22 +368,18 @@ export type VoiceState = z.infer<typeof VoiceStateSchema>;
  * fields PLUS `updatedAt`, and that extra key is not an accident to be
  * tightened away.
  *
- * `AgentTurnWorker` reads the voice config with `readVoiceConfig`
- * (`worker/jobs/agent-turn/AgentTurnWorker.ts:211-214`), whose return type is
- * `VoiceConfig & { updatedAt: string }`; `defineProposable`'s `preview` returns
- * that object as `before` and spreads it into `after`
- * (`src/lib/agents/operator/catalog.ts:96-98`); and `buildProposalRows` stores
- * both with `{ ...before }` / `{ ...after }`
- * (`src/lib/agents/operator/proposals.ts:77-78`). **Every Proposal Run A has
- * ever written therefore carries SIX keys.** A five-field `.strict()` parse
- * would reject all of them — crashing the card and rolling back Apply on real
- * data while every hand-typed fixture passed.
+ * `AgentTurnWorker` reads the voice config with `readVoiceConfig`, whose return
+ * type is `VoiceConfig & { updatedAt: string }`; `defineVoice`'s `preview`
+ * returns that object as `before` and spreads it into `after`; and
+ * `buildProposalRows` stores both with `{ ...before }` / `{ ...after }`.
+ * **Every voice Proposal ever written therefore carries SIX keys.** A
+ * five-field `.strict()` parse would reject all of them — crashing the card
+ * and rolling back Apply on real data while every hand-typed fixture passed.
  *
  * So the parser ACCEPTS `updatedAt` and DROPS it: the `updatedAt` inside a
  * preview is the **Version token**'s own value at preparation time, which the
- * Receipt already records under `versionToken.before`. Carrying it a second
- * time inside `before`/`after` would put two copies of one fact in one
- * document. Any OTHER unknown key is still a hard rejection.
+ * Receipt already records under `versionToken.before`. Any OTHER unknown key is
+ * still a hard rejection.
  */
 const StoredVoiceStateSchema = VoiceStateSchema.extend({
   updatedAt: z.string().optional(),
@@ -362,7 +404,145 @@ export function parseVoiceState(value: unknown, column: string): VoiceState {
   return state;
 }
 
-const ReceiptSchema = z.object({
+/**
+ * The FULL effective auto-approval state of one target scope — what a policy
+ * **Proposal** stores in `before`/`after` (spec §4, §6.1): the three dials, the
+ * cap actually enforced, and whether the target ROW exists.
+ *
+ * `domain: 'policy'` is the discriminant. Voice states have no such key and
+ * must keep parsing exactly as Run A stored them (six keys, `updatedAt`
+ * included), so the policy side carries the tag, and `.strict()` on both sides
+ * keeps either shape from parsing as the other.
+ *
+ * Both cap fields are kept. `dailyAutoPostCap` is the stored value (null =
+ * platform default), which exposure classification needs: removing a cap
+ * widens even when the default is lower. `effectiveDailyCap` is the enforced
+ * number the owner reads.
+ */
+const PolicyStateSchema = z.object({
+  domain: z.literal('policy'),
+  threshold: ThresholdValueSchema,
+  vetoWindowMinutes: VetoWindowValueSchema,
+  dailyAutoPostCap: DailyCapValueSchema,
+  effectiveDailyCap: z.number().int().min(1),
+  rowExists: z.boolean(),
+}).strict();
+export type PolicyState = z.infer<typeof PolicyStateSchema>;
+
+/**
+ * The settings readiness vocabulary as a CLOSED value set. A mapped type over
+ * `AutoApprovalReadinessBlockReason`, so adding a reason there fails typecheck
+ * here until it is listed — the stored metadata can never carry a reason the
+ * settings module does not know, nor miss one it does.
+ */
+const READINESS_BLOCK_REASONS: { readonly [Reason in AutoApprovalReadinessBlockReason]: Reason } = {
+  auto_approval_disabled: 'auto_approval_disabled',
+  autopilot_unavailable: 'autopilot_unavailable',
+  provider_moderation_disabled: 'provider_moderation_disabled',
+  provider_moderation_not_validated: 'provider_moderation_not_validated',
+  subscription_not_writable: 'subscription_not_writable',
+  policy_suspended: 'policy_suspended',
+  preview_environment: 'preview_environment',
+  impersonation_not_allowed: 'impersonation_not_allowed',
+};
+const ReadinessBlockReasonSchema = z.enum(READINESS_BLOCK_REASONS);
+
+const CountSchema = z.number().int().min(0);
+
+/**
+ * The **Consequence line** a policy Proposal and its Receipt carry: the pure
+ * simulator's result over the reader's 30-day received cohort, plus the window
+ * and the exclusions that make it honest (spec §3.5, plan T5). SERVER metadata:
+ * the model output schema has no field for any of it.
+ *
+ * `eligible` and the three `held` reasons partition `total`; a stored line
+ * that does not is a writer this codebase does not have.
+ */
+const PolicyConsequenceSchema = z.object({
+  total: CountSchema,
+  eligible: CountSchema,
+  held: z.object({
+    below_threshold: CountSchema,
+    cap_reached: CountSchema,
+    manual: CountSchema,
+  }).strict(),
+  byDay: z.array(z.object({
+    day: z.string().min(1),
+    total: CountSchema,
+    eligible: CountSchema,
+    held: CountSchema,
+  }).strict()),
+  busiestDay: CountSchema,
+  windowStart: z.string().min(1),
+  windowEnd: z.string().min(1),
+  asOf: z.string().min(1),
+  source: z.literal('reviews_received_30d'),
+  excludedImported: CountSchema,
+  excludedUnknown: CountSchema,
+}).strict().refine(
+  (line) => line.eligible + line.held.below_threshold + line.held.cap_reached + line.held.manual === line.total,
+  { message: 'eligible and held must partition total' },
+);
+export type StoredPolicyConsequence = z.infer<typeof PolicyConsequenceSchema>;
+
+/**
+ * What a policy Proposal STORES in `before`/`after`: the pure state plus
+ * optional server-only metadata keys. `consequence` rides both sides;
+ * `expansionBlockedBy` rides only an expansion's `after`, recording the
+ * readiness reasons at preparation. The card's confirmation phrase is NOT
+ * stored — it is derived from the stored `after` through the catalog at read.
+ */
+const StoredPolicyStateSchema = PolicyStateSchema.extend({
+  consequence: PolicyConsequenceSchema.optional(),
+  affectedLocationCount: CountSchema.optional(),
+  expansionBlockedBy: z.array(ReadinessBlockReasonSchema).optional(),
+}).strict();
+export type StoredPolicyState = z.infer<typeof StoredPolicyStateSchema>;
+
+/**
+ * `agent_proposals.before` / `.after` of a policy Proposal, metadata included.
+ * NOT a JSONB parse site: the column was already through `parseJsonbObject`.
+ */
+export function parseStoredPolicyState(value: unknown, column: string): StoredPolicyState {
+  const validated = StoredPolicyStateSchema.safeParse(value);
+  if (!validated.success) {
+    throw new Error(`agents/operator: ${column} holds a policy state no writer produces`);
+  }
+  return validated.data;
+}
+
+/**
+ * The same column → the PURE `PolicyState` the catalog previews and classifies.
+ * The metadata is dropped here so `catalog.preview`, `exposure` and
+ * `confirmationPhrase` never see a count.
+ */
+export function parsePolicyState(value: unknown, column: string): PolicyState {
+  const {
+    consequence: _consequence,
+    affectedLocationCount: _affectedLocationCount,
+    expansionBlockedBy: _expansionBlockedBy,
+    ...state
+  } = parseStoredPolicyState(value, column);
+  return state;
+}
+
+/** A consequence line about to be stored, validated so no reader can refuse it later. */
+export function parsePolicyConsequence(value: unknown, column: string): StoredPolicyConsequence {
+  const validated = PolicyConsequenceSchema.safeParse(value);
+  if (!validated.success) {
+    throw new Error(`agents/operator: ${column} holds a consequence line no writer produces`);
+  }
+  return validated.data;
+}
+
+/** A policy Receipt's `before`/`after`: the full state, always with its line. */
+const PolicyStateWithConsequenceSchema = PolicyStateSchema.extend({
+  consequence: PolicyConsequenceSchema,
+  affectedLocationCount: CountSchema,
+}).strict();
+export type PolicyStateWithConsequence = z.infer<typeof PolicyStateWithConsequenceSchema>;
+
+const VoiceReceiptSchema = z.object({
   /** Bumped only when a stored Receipt's SHAPE changes. Run B writes 1. */
   version: z.literal(1),
   operation: z.string().min(1),
@@ -379,7 +559,7 @@ const ReceiptSchema = z.object({
   differsFromPreview: z.boolean(),
   /** Voice changes take effect at once. A literal, not a boolean: no Run B operation is scheduled. */
   effectiveNow: z.literal(true),
-  /** Spec §8.4, the tone/facts row: future drafts only. */
+  /** Spec §8.4, the tone/facts row: future drafts only. The receipt union's discriminant. */
   affects: z.literal('future_drafts'),
   /** Readiness reasons still blocking something. Always `[]` for voice (P7). */
   remainingBlocked: z.array(z.string()),
@@ -387,14 +567,12 @@ const ReceiptSchema = z.object({
   actorUserId: z.uuid(),
   /**
    * WHO the owner reads on the card: `users.name`, or the account email when
-   * the name is null. Server-written under the same lock as `actorUserId`,
-   * frozen at the Apply — a later rename must not rewrite history.
+   * the name is null. Frozen at the Apply — a later rename must not rewrite
+   * history.
    *
    * OPTIONAL ON READ, defaulted to `null`. Receipts written before this field
    * existed carry fifteen keys, and a `.strict()` schema that required the
-   * sixteenth would throw on every one of them — crashing the card for the
-   * exact owners who already applied something. The WRITER always supplies it;
-   * the default is for the rows that predate it.
+   * sixteenth would throw on every one of them. The WRITER always supplies it.
    */
   actorName: z.string().nullable().default(null),
   /** The VERBATIM `owner_text` of the turn that produced the Proposal (§6.5). */
@@ -406,6 +584,55 @@ const ReceiptSchema = z.object({
     after: VoiceVersionTokenSchema,
   }).strict(),
 }).strict();
+export type VoiceReceipt = z.infer<typeof VoiceReceiptSchema>;
+
+/**
+ * A policy **Receipt** (Run C). `version: 1` because it is a new ARM, not a
+ * change to the voice arm's shape; `affects` tells the two apart.
+ *
+ * `before` is the ACTUAL pre-write state read under the account lock, not the
+ * card's stored `before`: a policy Proposal's token covers every row the state
+ * depends on, so the two can only differ by clock and cohort drift, and the
+ * Receipt records what the write actually moved. Both consequence lines come
+ * from ONE pre-write review cohort, so a review that arrived between the two
+ * reads never appears on one side only.
+ */
+const PolicyReceiptSchema = z.object({
+  version: z.literal(1),
+  operation: z.string().min(1),
+  /** `locationId` null = the account default. */
+  scope: z.object({ accountId: z.uuid(), locationId: z.uuid().nullable() }).strict(),
+  before: PolicyStateWithConsequenceSchema,
+  after: PolicyStateWithConsequenceSchema,
+  /** True when the committed dials or row existence differ from the stored `after`. */
+  differsFromPreview: z.boolean(),
+  effectiveNow: z.literal(true),
+  /** Spec §8.4: future eligible reviews; a draft already granted a veto window keeps it. */
+  affects: z.literal('future_eligible_reviews'),
+  /** Readiness reasons that still block a further expansion after this write. */
+  remainingBlocked: z.array(ReadinessBlockReasonSchema),
+  appliedAt: z.string().min(1),
+  actorUserId: z.uuid(),
+  actorName: z.string().nullable(),
+  ownerText: z.string(),
+  turnId: z.uuid(),
+  versionToken: z.object({
+    before: AutoApprovalVersionTokenSchema,
+    after: AutoApprovalVersionTokenSchema,
+  }).strict(),
+  /**
+   * Auto-approved replies already inside a granted veto window in this scope,
+   * counted in the Apply transaction at `asOf`. They keep their granted window.
+   */
+  retainedVeto: z.object({
+    count: CountSchema,
+    asOf: z.string().min(1),
+  }).strict(),
+}).strict();
+export type PolicyReceipt = z.infer<typeof PolicyReceiptSchema>;
+
+/** Disjoint by `affects`; each arm is `.strict()`, so neither parses as the other. */
+const ReceiptSchema = z.discriminatedUnion('affects', [VoiceReceiptSchema, PolicyReceiptSchema]);
 export type Receipt = z.infer<typeof ReceiptSchema>;
 
 /**

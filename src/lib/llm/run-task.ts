@@ -69,6 +69,20 @@ function validateStructured(
   schema: z.ZodTypeAny,
   result: LLMCallResult,
 ): LLMCallResult {
+  const billed: BilledLlmAttempt[] = [
+    { provider: result.provider, model: result.model, usage: result.usage },
+  ];
+  // Checked BEFORE parsing: a refusal or a truncation is a billed invalid
+  // attempt even when its text happens to parse. The cause names only the
+  // outcome, never the completion text.
+  if (result.incomplete !== undefined) {
+    throw new LLMStructuredOutputError(
+      taskId,
+      result.provider,
+      new Error(`provider output ${result.incomplete}`),
+      billed,
+    );
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripCodeFences(result.text));
@@ -81,14 +95,12 @@ function validateStructured(
       taskId,
       result.provider,
       new Error(`JSON.parse failed: ${err instanceof Error ? err.name : 'unknown'}`),
-      [{ provider: result.provider, model: result.model, usage: result.usage }],
+      billed,
     );
   }
   const validated = schema.safeParse(parsed);
   if (!validated.success) {
-    throw new LLMStructuredOutputError(taskId, result.provider, validated.error, [
-      { provider: result.provider, model: result.model, usage: result.usage },
-    ]);
+    throw new LLMStructuredOutputError(taskId, result.provider, validated.error, billed);
   }
   return { ...result, structured: validated.data };
 }
@@ -202,10 +214,25 @@ async function attemptProvider(
  * LLMStructuredOutputError carries every billed completion in
  * `billedAttempts` so cost-guarded callers finalize the real spend instead of
  * releasing the reservation (codex #628 round-2 finding 1).
+ * A provider refusal or maxTokens truncation on a structured task is the same
+ * billed-invalid attempt (LLMCallResult.incomplete), never an unbilled throw.
+ *
+ * SCHEMA TRANSPORT: a structured task's registered outputSchema rides the
+ * request as `structuredOutput` to the primary AND the fallback; each provider
+ * derives its wire schema from it. The Zod validation here stays the authority
+ * — provider schemas are a transport hint that may omit keywords.
  */
 export async function runLlmTask(taskId: LLMTaskId, prompt: ChatPrompt): Promise<LLMCallResult> {
   const task = getLlmTask(taskId);
-  const request = { ...prompt, maxTokens: task.maxTokens, temperature: task.temperature };
+  const request: Omit<LLMRequest, 'model'> = {
+    ...prompt,
+    maxTokens: task.maxTokens,
+    temperature: task.temperature,
+    // Key absent for unstructured tasks: their provider requests stay byte-identical.
+    ...(task.outputSchema
+      ? { structuredOutput: { name: task.taskId, schema: task.outputSchema } }
+      : {}),
+  };
 
   // Only real thrown attempt errors enter this array — a `blocked` result never
   // does (see Attempt). `sawBlocked` makes any all-failure outcome retryable.

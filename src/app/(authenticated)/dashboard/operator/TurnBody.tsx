@@ -12,7 +12,7 @@ export interface TurnBodyProps {
   locationLabel: (id: string) => string;
   currentScope: string;
   onChooseLocation: (id: string) => void;
-  onApply: (proposal: ProposalView) => void;
+  onApply: (proposal: ProposalView, confirmationLevel?: string) => void;
   onDecline: (proposal: ProposalView) => void;
   onRefreshPlan: (proposal: ProposalView) => void;
   cardBusyId: string | null;
@@ -45,6 +45,7 @@ export function TurnBody({
 }: TurnBodyProps) {
   const byId = new Map(turn.proposals.map((proposal) => [proposal.id, proposal]));
   const placed = new Set<string>();
+  const expansions: ProposalView[] = [];
 
   const card = (proposal: ProposalView) => {
     placed.add(proposal.id);
@@ -107,7 +108,13 @@ export function TurnBody({
         // A reference whose row is not in this turn's list is a transcript the
         // reader cannot act on; it is skipped rather than throwing, and the
         // card list below still shows anything that WAS returned.
-        return proposal === undefined ? null : card(proposal);
+        if (proposal === undefined || placed.has(proposal.id)) return null;
+        if (proposal.requiresConfirmation) {
+          placed.add(proposal.id);
+          expansions.push(proposal);
+          return null;
+        }
+        return card(proposal);
       }
       default: {
         // Exhaustiveness guard: a new RenderedSegment member fails typecheck
@@ -118,13 +125,18 @@ export function TurnBody({
     }
   });
 
+  const expansionCards = [...expansions, ...turn.proposals.filter((proposal) => proposal.requiresConfirmation && !placed.has(proposal.id))];
   return (
     <>
       {rendered}
-      {turn.proposals.filter((proposal) => !placed.has(proposal.id)).map(card)}
+      {turn.proposals.filter((proposal) => !proposal.requiresConfirmation && !placed.has(proposal.id)).map(card)}
       {turn.unsupported.map((row) => (
         <RequestedCapabilityCard key={row.id} request={row.request} />
       ))}
+      {expansionCards.length > 0 && <div className="op-expansions" role="group" aria-label="Changes that expand auto-reply">
+        <h2 className="card-h2">Changes that expand auto-reply</h2>
+        {expansionCards.map(card)}
+      </div>}
     </>
   );
 }

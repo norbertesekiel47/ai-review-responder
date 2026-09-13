@@ -34,6 +34,8 @@ import { classifySentiment } from '../../../src/lib/reviews/sentiment';
 import { detectLikelyPhi, redactPhiForLog } from '../../../src/lib/security/phi-scanner';
 import type { PhiDetection } from '../../../src/lib/security/phi-scanner';
 import { nextResponseVersion } from '../../../src/lib/responses/generation-state';
+import { completeRun, recordStep, startOrGetActiveRun } from '../../../src/lib/agents/run-spine';
+import { INGESTION_ORIGIN } from '../../../src/lib/reviews/process-review';
 
 type TxClient = postgres.TransactionSql;
 type SqlExecutor = postgres.Sql | TxClient;
@@ -479,6 +481,13 @@ export async function reconcileExternallyAnsweredReview(
  * The PHI screen deliberately keeps reading `fromZernioReview`'s UNSANITIZED
  * trimmed text: the caller screens the same value to build the exception row's
  * `reasons`, and the two must not disagree about whether a review is PHI.
+ *
+ * Ingestion provenance (Run C). `accountId` here is the PROVIDER (Zernio)
+ * account, used only for normalization — never the billing tenant. Because the
+ * DO UPDATE arm RETURNs the existing row too, the id is pre-minted and compared
+ * with RETURNING: only a genuine insertion records `imported` provenance. A
+ * duplicate, or a conflict with a row the live lane just inserted, returns the
+ * existing id and touches neither its marker nor its run.
  */
 async function insertImportedReview(
   tx: TxClient,
@@ -495,6 +504,7 @@ async function insertImportedReview(
 
   const { review, identity, contentHash } = buildZernioMonitoredReview(target, accountId, locationId);
   const sentiment = classifySentiment(review.starRating);
+  const mintedReviewId = uuidv7();
 
   const rows = await tx<{ id: string }[]>`
     INSERT INTO reviews (
@@ -505,7 +515,7 @@ async function insertImportedReview(
       sentiment_score, sentiment_label, sentiment_classified_at, sentiment_source
     )
     VALUES (
-      gen_random_uuid(), ${businessId}, ${identity.provider}, ${identity.providerReviewId},
+      ${mintedReviewId}, ${businessId}, ${identity.provider}, ${identity.providerReviewId},
       ${identity.providerReviewName}, ${identity.providerLocationName},
       ${identity.googleReviewName},
       ${review.reviewerName}, ${review.starRating},
@@ -520,7 +530,57 @@ async function insertImportedReview(
           google_review_name = COALESCE(reviews.google_review_name, EXCLUDED.google_review_name)
     RETURNING id
   `;
-  return rows[0]!.id;
+  const reviewId = rows[0]!.id;
+  if (reviewId === mintedReviewId) {
+    await recordImportedIngestion(tx, reviewId, businessId);
+  }
+  return reviewId;
+}
+
+/**
+ * Run-spine provenance for a review this lane GENUINELY inserted: open its
+ * review_handler run under the billing account, record `review_ingested` with
+ * `ingestion_origin: imported`, and complete the run (an imported answered
+ * review has no draft or publish to complete it later). Runs inside the
+ * caller's transaction after the INSERT owns the row and before the imported
+ * response write, so a failure rolls the review back with it.
+ */
+async function recordImportedIngestion(
+  tx: TxClient,
+  reviewId: string,
+  businessId: string,
+): Promise<void> {
+  const [business] = await tx<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}
+  `;
+  // The INSERT above just referenced this row through reviews.business_id.
+  if (!business) {
+    throw new Error(
+      `zernio-ingest-shared: invariant violated — inserted review ${reviewId} has no businesses row ${businessId}`,
+    );
+  }
+
+  const { runId, created } = await startOrGetActiveRun(tx, {
+    kind: 'review_handler',
+    subjectType: 'review',
+    subjectId: reviewId,
+    accountId: business.account_id,
+    businessId,
+  });
+  // A provably new review cannot already have an active run. Throw rather than
+  // mark or terminate someone else's run.
+  if (!created) {
+    throw new Error(
+      `zernio-ingest-shared: invariant violated — newly inserted review ${reviewId} already has active run ${runId}`,
+    );
+  }
+
+  await recordStep(tx, {
+    runId,
+    stepKey: 'review_ingested',
+    detail: { ingestion_origin: INGESTION_ORIGIN.IMPORTED },
+  });
+  await completeRun(tx, runId, 'completed');
 }
 
 /**

@@ -67,7 +67,194 @@ export const RUN_TIMEOUT_MS = 120_000;
 const CONTINUATION_AUTHORIZATION = 'owner-1185-budget-continuation';
 const CONTINUATION_TEXT = 'Question: Approve the ticket-scoped verifier change needed to finish those 439 cases—at least 878 additional test runs? The red-team skill limits verification to “30 mutation runs per round,” which is the remaining blocker.\nOwner: I approve';
 
+const RUN_C_BASELINE = '72cc51abd5d45b10cd7abf3c993f9039c5e63f65';
+const RUN_C_AUTHORIZATION = 'owner-run-c-budget-next-pass';
+const RUN_C_TEXT = "Question: May I make a Run C-only change to the verifier’s limit, allowing up to 1,500 local test runs to finish those checks?\nOwner: I'll finish everything from C, D, and E. I give you the approval.";
+const RUN_C_REPORT = 'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/findings.json';
+const RUN_C_EXTENSION_PATHS = new Set([
+  '.agents/skills/red-team/scripts/mutation-runner.mjs',
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  '.agents/skills/red-team/SKILL.md',
+  '.claude/skills/red-team/SKILL.md',
+  'docs/superpowers/plans/codex-owner-operator-run-c-intake.json',
+  'docs/superpowers/plans/codex-owner-operator-run-c-deviations.md',
+  RUN_C_REPORT,
+  'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/findings.md',
+  'docs/reviews/codex-owner-operator-run-c/evidence.md',
+  'docs/reviews/codex-owner-operator-run-c/resume.md',
+  'docs/reviews/finding-checklists/spec-correctness.md',
+  'docs/reviews/codex-owner-operator-run-c/budget-extension-review.md',
+]);
+
+const RUN_C_FOURTH_BASELINE = 'fb536c09711ec331262f5efc64ff42f066bec3ba';
+const RUN_C_HISTORY_BLOB = 'd2de690d9154e591d83cbb9e9591db8d0567d318';
+const RUN_C_HISTORY_MARKDOWN_BLOB = 'caae5b4d877e254033485a73f38f56b074c8910e';
+const RUN_C_MARKDOWN = 'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/findings.md';
+const RUN_C_FOURTH_AUTHORIZATION = 'owner-run-c-fourth-round-prompt-regression';
+const RUN_C_FOURTH_TEXT = 'Question: May I make the Run C-only verifier change described in /private/tmp/run-c-fourth-round-proposal.md and run a fourth verification round, capped at 150 local test launches? It covers the prompt fix and the verifier’s own safeguards, preserves all earlier evidence, uses Codex only, and keeps further rounds blocked.\nOwner: Yes, approve the scoped fourth round';
+const RUN_C_FOURTH_PATHS = new Set([
+  '.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/feature/scripts/red-team-status.mjs',
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  'scripts/ci/__tests__/red-team-status.test.ts',
+  '.agents/skills/red-team/SKILL.md',
+  '.claude/skills/red-team/SKILL.md',
+  'src/lib/agents/operator/prompt.ts',
+  'src/lib/agents/operator/__tests__/prompt.test.ts',
+  'tests/llm-eval/structured-runner.ts',
+  'tests/llm-eval/__tests__/structured-runner.test.ts',
+  'docs/superpowers/plans/codex-owner-operator-run-c-intake.json',
+  'docs/superpowers/plans/codex-owner-operator-run-c-deviations.md',
+  RUN_C_REPORT,
+  'docs/reviews/red-team/codex-owner-operator-run-c-14b9e1/findings.md',
+  'docs/reviews/codex-owner-operator-run-c/evidence.md',
+  'docs/reviews/codex-owner-operator-run-c/resume.md',
+  'docs/reviews/codex-owner-operator-run-c/fourth-round-extension-review.md',
+  'docs/reviews/finding-checklists/spec-correctness.md',
+]);
+
+/** Pure shape check shared with the checker; matching prose alone grants nothing. */
+export function runCFourthAuthorization(sidecar) {
+  if (sidecar?.mode !== 'feature' || sidecar.branch !== 'codex/owner-operator-run-c'
+    || !Array.isArray(sidecar.inventory) || sidecar.inventory.length < 785
+    || !Array.isArray(sidecar.authorizations)) return null;
+  const identities = sidecar.inventory.slice(0, 785).map((row) => (
+    { id: row?.id, file: row?.file, test: row?.test }
+  ));
+  if (sha256(JSON.stringify(identities)) !== '58454909c7c79f1f7b71c6a261fb3deab104d7bc36d5a0fa3ff6958e0a353c3b') return null;
+  const matches = sidecar.authorizations.filter((entry) => entry?.id === RUN_C_FOURTH_AUTHORIZATION);
+  const authorization = matches[0];
+  if (matches.length !== 1 || authorization.date !== '2026-09-13'
+    || authorization.text !== RUN_C_FOURTH_TEXT
+    || Object.keys(authorization).sort().join(',') !== 'date,finding_ids,id,text'
+    || !Array.isArray(authorization.finding_ids) || authorization.finding_ids.length !== 0) return null;
+  return authorization;
+}
+
+function unchangedPrefix(original, current) {
+  return Array.isArray(original) && Array.isArray(current) && current.length >= original.length
+    && JSON.stringify(current.slice(0, original.length)) === JSON.stringify(original);
+}
+
+function sameGrant(previous, grant) {
+  return previous?.id === grant.id && previous.sha256 === grant.sha256
+    && previous.headSha === grant.headSha && previous.maxRuns === grant.maxRuns;
+}
+
+/** Read committed admission evidence, never the final report's self-asserted permission. */
+function runCFourthProof(root, headSha) {
+  try {
+    if (git(root, ['branch', '--show-current']) !== 'codex/owner-operator-run-c'
+      || git(root, ['merge-base', RUN_C_FOURTH_BASELINE, headSha]) !== RUN_C_FOURTH_BASELINE
+      || git(root, ['merge-base', headSha, 'HEAD']) !== headSha) return null;
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_C_FOURTH_BASELINE, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !RUN_C_FOURTH_PATHS.has(path))) return null;
+    if (git(root, ['rev-parse', `${RUN_C_FOURTH_BASELINE}:${RUN_C_REPORT}`]) !== RUN_C_HISTORY_BLOB) return null;
+    if (git(root, ['rev-parse', `${RUN_C_FOURTH_BASELINE}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB
+      || git(root, ['rev-parse', `${headSha}:${RUN_C_MARKDOWN}`]) !== RUN_C_HISTORY_MARKDOWN_BLOB) return null;
+    // Keep raw bytes: the usual git helper trims trailing newlines, which are
+    // part of the historical narrative that the final report must preserve.
+    const historicalMarkdown = execFileSync('git', ['cat-file', 'blob', RUN_C_HISTORY_MARKDOWN_BLOB], {
+      cwd: root, maxBuffer: 64 * 1024 * 1024,
+    });
+    const historical = JSON.parse(git(root, ['show', RUN_C_HISTORY_BLOB]));
+    const admission = JSON.parse(git(root, ['show', `${headSha}:${RUN_C_REPORT}`]));
+    const authorization = runCFourthAuthorization(admission);
+    if (!authorization || admission.round !== 3
+      || admission.head_sha !== '2565c78585d6b08837e01dbb2a4a3ba3c265eff0'
+      || admission.inventory.length !== 785
+      || !unchangedPrefix(historical.authorizations, admission.authorizations)) return null;
+    // Retain the entire measured report, including attempts and narrative evidence.
+    const { authorizations: _historicalAuthorizations, ...historicalEvidence } = historical;
+    const { authorizations: _admissionAuthorizations, ...admissionEvidence } = admission;
+    if (JSON.stringify(historicalEvidence) !== JSON.stringify(admissionEvidence)) return null;
+    return {
+      admission,
+      historicalMarkdown,
+      grant: { id: authorization.id, maxRuns: 150, sha256: sha256(JSON.stringify(authorization)), headSha },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function authorizedRunCFourthBudget(root, journal) {
+  if (journal.round !== 4) return null;
+  try {
+    const proof = runCFourthProof(root, git(root, ['rev-parse', 'HEAD']));
+    if (!proof || !onlyJournaledChanges(root, journal)
+      || (journal.runs > 0 && !journal.budgetAuthorization)
+      || (journal.budgetAuthorization && (!sameGrant(journal.budgetAuthorization, proof.grant)
+        || journal.budgetAuthorization.firstRun !== 1))) return null;
+    return proof.grant;
+  } catch {
+    return null;
+  }
+}
+
+/** Final evidence may append results, but must corroborate the committed admission and launch pin. */
+export function validRunCFourthReport(root, sidecar, sidecarPath, journal) {
+  if (sidecarPath !== RUN_C_REPORT || sidecar?.round !== 4 || !runCFourthAuthorization(sidecar)) return false;
+  const proof = runCFourthProof(root, sidecar.head_sha);
+  if (!proof || journal?.round !== 4 || !sameGrant(journal.budgetAuthorization, proof.grant)
+    || journal.budgetAuthorization.firstRun !== 1
+    || !Number.isInteger(journal.runs) || journal.runs < 1 || journal.runs > 150) return false;
+  try {
+    const markdown = readFileSync(join(root, RUN_C_MARKDOWN));
+    if (!markdown.subarray(0, proof.historicalMarkdown.length).equals(proof.historicalMarkdown)) return false;
+  } catch {
+    return false;
+  }
+  return ['inventory', 'findings', 'authorizations'].every((key) => unchangedPrefix(proof.admission[key], sidecar[key]))
+    && ['mode', 'branch', 'run_id', 'fork_sha', 'merge_base_sha'].every((key) => sidecar[key] === proof.admission[key]);
+}
+
+function onlyJournaledChanges(root, journal) {
+  if (git(root, ['diff', '--cached', '--name-only'])) return false;
+  const changed = git(root, ['diff', '--name-only', 'HEAD']).split('\n').filter(Boolean);
+  return changed.every((path) => {
+    const mutation = journal.mutations?.findLast((entry) => entry.path === path);
+    return mutation?.state === 'applied'
+      && mutation.originalOid === git(root, ['rev-parse', `HEAD:${path}`])
+      && mutation.mutantOid === git(root, ['hash-object', '--', path]);
+  });
+}
+
+function authorizedRunCBudget(root, journal) {
+  if (journal.round !== 2) return null;
+  try {
+    if (git(root, ['branch', '--show-current']) !== 'codex/owner-operator-run-c') return null;
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    if (git(root, ['merge-base', RUN_C_BASELINE, headSha]) !== RUN_C_BASELINE) return null;
+    const changedPaths = git(root, ['diff', '--name-only', '--no-renames', RUN_C_BASELINE, headSha]);
+    if (changedPaths.split('\n').filter(Boolean).some((path) => !RUN_C_EXTENSION_PATHS.has(path))) return null;
+    if (!onlyJournaledChanges(root, journal)) return null;
+    // Approval must already be committed; an uncommitted sidecar cannot grant a budget.
+    const sidecar = JSON.parse(git(root, ['show', `${headSha}:${RUN_C_REPORT}`]));
+    if (sidecar.mode !== 'feature' || sidecar.branch !== 'codex/owner-operator-run-c'
+      || sidecar.round !== 1 || sidecar.head_sha !== '5f2c201769ba982f49b9ecbd82678b45e75b19b1'
+      || !Array.isArray(sidecar.inventory) || sidecar.inventory.length !== 710
+      || !Array.isArray(sidecar.authorizations)) return null;
+    const identities = sidecar.inventory.map(({ id, file, test }) => ({ id, file, test }));
+    if (sha256(JSON.stringify(identities)) !== '0bf987c7d6f389894e1d23d7d221f1690933f600b37a235efb11af6f3685a35a') return null;
+    const authorization = sidecar.authorizations.find((entry) => (
+      entry?.id === RUN_C_AUTHORIZATION && entry.date === '2026-09-13' && entry.text === RUN_C_TEXT
+    ));
+    if (!authorization) return null;
+    const grant = { id: authorization.id, maxRuns: 1500, sha256: sha256(JSON.stringify(authorization)), headSha };
+    const previous = journal.budgetAuthorization;
+    if (previous && (previous.id !== grant.id || previous.sha256 !== grant.sha256
+      || previous.headSha !== headSha || previous.maxRuns !== grant.maxRuns)) return null;
+    return grant;
+  } catch {
+    // Missing ancestry, malformed evidence or a changed inventory fails closed.
+    return null;
+  }
+}
+
 function authorizedBudget(root, journal) {
+  if (journal.round === 4) return authorizedRunCFourthBudget(root, journal);
+  if (journal.round === 2) return authorizedRunCBudget(root, journal);
   if (journal.round !== 1) return null;
   try {
     if (git(root, ['branch', '--show-current']) !== 'feat/1185') return null;
@@ -477,8 +664,8 @@ function cmdRoundStart(root) {
   }
   const round = (journal.round ?? 0) + 1;
   // Two rounds is still what a run reaches on its own. A THIRD opens only on an
-  // owner authorization already recorded in the sidecar, and nothing past three
-  // opens at all.
+  // owner authorization already recorded in the sidecar. Only the explicitly
+  // approved Run C fourth-round contract below extends that ceiling.
   //
   // Why the exception exists (#1184, after the same wall on #1178 and #1186): a
   // round-2 finding whose fix touches the tree makes the sidecar stale by
@@ -487,7 +674,10 @@ function cmdRoundStart(root) {
   // provenance. The escape is deliberately not free: the authorization must ALREADY
   // be in the sidecar before the round opens, so a third round is something the
   // owner granted rather than something a stuck agent decided for itself.
-  if (round > 3) {
+  const fourthGrant = round === 4
+    ? authorizedRunCFourthBudget(root, { ...journal, round: 4, runs: 0, budgetAuthorization: undefined })
+    : null;
+  if (round > 3 && !fourthGrant) {
     console.error(`round-start: REFUSED — round ${round} exceeds the hard cap of 3`);
     return 1;
   }
@@ -498,7 +688,7 @@ function cmdRoundStart(root) {
     return 1;
   }
   writeJournal(root, emptyJournal(round));
-  console.log(`round-start: round ${round} open, ${MAX_RUNS_PER_ROUND} mutation runs available`);
+  console.log(`round-start: round ${round} open, ${fourthGrant?.maxRuns ?? MAX_RUNS_PER_ROUND} mutation runs available`);
   return 0;
 }
 
@@ -588,6 +778,20 @@ async function cmdRun(root, parsed) {
   if (argv.length === 0) usage('run needs the command after `--`');
   const journal = readJournal(root);
   const authorization = authorizedBudget(root, journal);
+  if ((journal.round >= 4 || journal.budgetAuthorization?.id === RUN_C_FOURTH_AUTHORIZATION)
+    && (!authorization || journal.round !== 4 || !Number.isInteger(journal.runs) || journal.runs < 0)) {
+    console.error('run: Run C fourth-round authorization or pinned HEAD invalid; refusing launch');
+    return 1;
+  }
+  if (journal.budgetAuthorization?.id === RUN_C_AUTHORIZATION && !authorization) {
+    console.error('run: Run C budget authorization or pinned HEAD changed; refusing another launch');
+    return 1;
+  }
+  if (!authorization && journal.round === 2
+    && git(root, ['branch', '--show-current']) === 'codex/owner-operator-run-c') {
+    console.error('run: Run C startup preconditions failed; refusing the first launch');
+    return 1;
+  }
   const maxRuns = authorization?.maxRuns ?? MAX_RUNS_PER_ROUND;
   if (journal.runs >= maxRuns) {
     console.error(`run: mutation budget exhausted (${maxRuns} runs this round)`);

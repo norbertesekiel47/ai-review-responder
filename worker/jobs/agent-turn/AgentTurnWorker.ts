@@ -5,8 +5,14 @@ import { reauthorizeTurn } from '@/lib/agents/operator/authorize';
 import { buildSnapshot } from '@/lib/agents/operator/context';
 import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { generateOperatorReply } from '@/lib/agents/operator/model-call';
-import { buildProposalRows, type UnsupportedRow } from '@/lib/agents/operator/proposals';
-import { materializeReply, scrubPastedReview } from '@/lib/agents/operator/render';
+import { readPolicySnapshot } from '@/lib/agents/operator/policy-state';
+import {
+  buildProposalRows,
+  type PolicyPreparation,
+  type PolicyPreparations,
+  type UnsupportedRow,
+} from '@/lib/agents/operator/proposals';
+import { materializeReply, scrubPastedReview, type ParsedProposal } from '@/lib/agents/operator/render';
 import { TURN_FAILURE_REASON, type StoredSegment } from '@/lib/agents/operator/schema';
 import {
   claimTurn,
@@ -19,6 +25,7 @@ import {
   releaseTurnClaim,
   type ClaimedTurn,
 } from '@/lib/agents/operator/turns';
+import { getAutoApprovalSettings } from '@/lib/auto-approval/settings';
 import { readVoiceConfig } from '@/lib/responses/voice-settings';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxCompletedIfOwned } from '@/lib/shared/outbox';
@@ -147,6 +154,49 @@ async function waitOrFailOnPredecessor(
  * Returns null when the turn has been FAILED (every such exit is fenced and
  * settles the outbox row itself) and the handler must stop.
  */
+/**
+ * The policy snapshot for each DISTINCT target the policy proposals name,
+ * keyed the way `buildProposalRows` looks it up (location id, or null for the
+ * account default). Each snapshot is one coherent read of values, tokens and
+ * the review cohort; the model supplies none of it.
+ *
+ * `undefined` when there is no policy proposal, so a voice-only turn issues no
+ * policy read. `null` when a target is missing or not this account's.
+ */
+async function preparePolicyTargets(
+  sql: Sql,
+  accountId: string,
+  proposals: readonly ParsedProposal[],
+): Promise<PolicyPreparations | null | undefined> {
+  const targets = [...new Set(proposals.flatMap((proposal) =>
+    proposal.operation.domain === 'policy' ? [proposal.scope.locationId ?? null] : []))];
+  if (targets.length === 0) return undefined;
+
+  const { readiness } = await getAutoApprovalSettings(sql, { accountId, impersonated: false });
+  const preparations = new Map<string | null, PolicyPreparation>();
+  for (const locationId of targets) {
+    const snapshot = await readPolicySnapshot(sql, { accountId, locationId });
+    if (snapshot === null) return null;
+    preparations.set(locationId, { snapshot, blockReasons: readiness.blockReasons });
+  }
+  return preparations;
+}
+
+/** The fenced `unauthorized` failure every lost-scope exit shares. */
+async function failTurnUnauthorized(
+  sql: Sql,
+  claimed: ClaimedTurn,
+  outbox: OutboxHandle,
+): Promise<void> {
+  await failTurnFenced(sql, {
+    turnId: claimed.turnId,
+    accountId: claimed.accountId,
+    attemptToken: claimed.attemptToken,
+    reason: TURN_FAILURE_REASON.UNAUTHORIZED,
+    ...outbox,
+  });
+}
+
 async function generateAndAssemble(
   sql: Sql,
   claimed: ClaimedTurn,
@@ -219,16 +269,19 @@ async function generateAndAssemble(
     // its `updated_at` **Version token**, so there is nothing honest to
     // store. Failing here is what keeps the turn from completing with a
     // reply whose cards were all silently dropped.
-    await failTurnFenced(sql, {
-      turnId: claimed.turnId,
-      accountId: claimed.accountId,
-      attemptToken: claimed.attemptToken,
-      reason: TURN_FAILURE_REASON.UNAUTHORIZED,
-      ...outbox,
-    });
+    await failTurnUnauthorized(sql, claimed, outbox);
     logger.warn('agent_turn location voice row vanished after authorization', {
       turn_id: claimed.turnId,
     });
+    return null;
+  }
+
+  // A policy target the reader cannot find is the same authorization change
+  // as a vanished voice row: nothing honest to prepare against.
+  const policy = await preparePolicyTargets(sql, claimed.accountId, generated.proposals);
+  if (policy === null) {
+    await failTurnUnauthorized(sql, claimed, outbox);
+    logger.warn('agent_turn policy target not found', { turn_id: claimed.turnId });
     return null;
   }
 
@@ -244,6 +297,7 @@ async function generateAndAssemble(
     // parse already happened there, once.
     generated.proposals,
     voice,
+    policy,
   );
   const unsupported: UnsupportedRow[] = generated.output.unsupported.map((u) => ({
     id: uuidv7(),
@@ -381,4 +435,3 @@ export async function handleAgentTurn(sql: Sql, job: Job<AgentTurnPayload>): Pro
     await handleTurnError(sql, error, claimed, outbox, logger);
   }
 }
-

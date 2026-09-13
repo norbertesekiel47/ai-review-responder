@@ -2,22 +2,37 @@
 // account_id.
 import type postgres from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types';
 import type { VoiceConfig } from '@/lib/responses/voice-settings';
-import { proposableOperation, type LabelKind } from './catalog';
+import {
+  CATALOG,
+  proposableOperation,
+  type LabelKind,
+  type PolicyProposableOperation,
+  type PolicyTarget,
+  type ProposableOperation,
+} from './catalog';
+import { consequenceForPolicy, type PolicySnapshot } from './policy-state';
 import type { ParsedProposal } from './render';
 import {
   PROPOSAL_FAILURE_REASON,
   PROPOSAL_STATUS,
   asProposalStatus,
   parseJsonbObject,
+  parsePolicyConsequence,
+  parsePolicyState,
   parseReceipt,
+  parseStoredPolicyState,
+  type PolicyState,
+  type PolicyStateWithConsequence,
   type ProposalStatus,
   type Receipt,
+  type StoredPolicyConsequence,
 } from './schema';
 import {
   computeVoiceVersionToken,
   parseVersionToken,
-  type VoiceVersionToken,
+  type VersionToken,
 } from './version-token';
 
 type Db = postgres.Sql | postgres.TransactionSql;
@@ -39,12 +54,11 @@ export interface ProposalRow {
   labelKind: LabelKind;
   /**
    * The **Version token** this row is stamped with, as the TYPE the reader
-   * parses back out (`parseVersionToken`). A `Record<string, unknown>` here
-   * let the producer write any object at all — including one the reader's
-   * `.strict()` schema refuses — and the mismatch would only surface on the
-   * Apply that reads the row back.
+   * parses back out (`parseVersionToken`): a voice token, or an auto-approval
+   * token whose rows came from the same read as the stored states.
    */
-  preparedVersionToken: VoiceVersionToken;
+  preparedVersionToken: VersionToken;
+  /** True only for a policy expansion, classified by the SERVER at preparation. */
   requiresConfirmation: boolean;
   status: ProposalStatus;
   // No `describe` field, deliberately: the INSERT below does not write one, and
@@ -58,50 +72,155 @@ export interface ProposalTurnContext {
   turnId: string;
   accountId: string;
   actorUserId: string;
-  /** The turn's STORED location — the **Version token**'s scope. */
+  /** The turn's STORED location — the VOICE **Version token**'s scope. */
   locationId: string;
 }
 
 /**
+ * Everything one policy target needs at preparation, read by the worker: the
+ * coherent snapshot (values, token and review cohort from one statement) and
+ * the account's shared readiness reasons.
+ */
+export interface PolicyPreparation {
+  snapshot: PolicySnapshot;
+  blockReasons: readonly AutoApprovalReadinessBlockReason[];
+}
+
+/**
+ * Keyed by the proposal's STORED target: its location id, or `null` for the
+ * account default. Never the browser's selector — an account proposal made
+ * while a location is selected is still keyed `null`.
+ */
+export type PolicyPreparations = ReadonlyMap<string | null, PolicyPreparation>;
+
+/** A stored scope → the policy row it targets. */
+export function policyTargetOf(locationId: string | null): PolicyTarget {
+  return locationId === null ? { scope: 'account' } : { scope: 'location', locationId };
+}
+
+/**
+ * The shared readiness reasons plus the TARGET's own suspension. The settings
+ * readiness reads only the account default's suspension, and a suspended
+ * location row blocks expansion too (settings.ts `assertExpansionReady` reads
+ * the target's effective flag), so both preparation and Apply add it here.
+ */
+export function composeReadinessBlockReasons(
+  shared: readonly AutoApprovalReadinessBlockReason[],
+  policySuspended: boolean,
+): AutoApprovalReadinessBlockReason[] {
+  return policySuspended && !shared.includes('policy_suspended')
+    ? [...shared, 'policy_suspended']
+    : [...shared];
+}
+
+/**
+ * One full state with its **Consequence line** over the snapshot's own review
+ * cohort. Both halves are VALIDATED on the way out, so a state the strict
+ * reader would refuse is never stored — and a reader that returned an extra
+ * key fails here, at the writer, rather than on the owner's next read.
+ */
+export function policyStateWithConsequence(
+  snapshot: PolicySnapshot,
+  state: PolicyState,
+): PolicyStateWithConsequence {
+  return {
+    ...parsePolicyState(state, 'policy snapshot state'),
+    consequence: parsePolicyConsequence(consequenceForPolicy(snapshot, state), 'policy consequence'),
+    affectedLocationCount: snapshot.locationId === null
+      ? snapshot.locations.filter((location) => !location.state.rowExists).length
+      : Number(!snapshot.targetArchived),
+  };
+}
+
+type PolicyRowFields = Pick<
+  ProposalRow,
+  'locationId' | 'before' | 'after' | 'preparedVersionToken' | 'requiresConfirmation'
+>;
+
+/**
+ * A policy proposal's server-stamped half. Everything comes from the prepared
+ * snapshot for the proposal's STORED target and from the catalog: the full
+ * before/after, a consequence line on each side, the token, and the exposure
+ * class. The model supplied only the operation, the target and the input.
+ */
+function policyRowFields(
+  operation: PolicyProposableOperation,
+  proposal: ParsedProposal,
+  policy: PolicyPreparations | undefined,
+): PolicyRowFields {
+  const locationId = proposal.scope.locationId ?? null;
+  const prepared = policy?.get(locationId);
+  if (prepared === undefined) {
+    throw new Error('agents/operator: a policy proposal has no prepared policy snapshot for its target');
+  }
+  const { snapshot } = prepared;
+  const target = policyTargetOf(locationId);
+  const preview = operation.preview(snapshot.state, target, proposal.input);
+  const expansion = operation.exposure(preview, target) === 'expansion';
+  return {
+    locationId,
+    before: policyStateWithConsequence(snapshot, preview.before),
+    after: {
+      ...policyStateWithConsequence(snapshot, preview.after),
+      ...(expansion
+        ? { expansionBlockedBy: composeReadinessBlockReasons(prepared.blockReasons, snapshot.policySuspended) }
+        : {}),
+    },
+    preparedVersionToken: snapshot.versionToken,
+    requiresConfirmation: expansion,
+  };
+}
+
+/**
  * Validated proposals → storable rows. `before`/`after` are the FULL effective
- * voice state of the location, computed server-side from the catalog's own
- * preview, never from anything the model said. `requires_confirmation` is
- * always false in Run A: no registered operation widens autonomy (L5).
+ * state of the target, computed server-side from the catalog's own preview,
+ * never from anything the model said.
+ *
+ * `policy` is required only when a policy proposal is present: a voice-only
+ * turn reads no policy state. A policy proposal whose target has no prepared
+ * snapshot is an invariant failure, not a card to drop.
  *
  * It consumes the validator's `ParsedProposal`s, so the catalog lookup and the
- * input parse happen once on the path and there is no unreachable branch here
- * to re-handle what the validator already rejected.
+ * input parse happen once on the path.
  */
 export function buildProposalRows(
   turn: ProposalTurnContext,
   proposals: readonly ParsedProposal[],
   voice: VoiceConfig & { updatedAt: string },
+  policy?: PolicyPreparations,
 ): ProposalRow[] {
-  return proposals.map((proposal) => {
-    const { before, after } = proposal.operation.preview(voice, proposal.input);
-    return {
+  return proposals.map((proposal): ProposalRow => {
+    const { operation } = proposal;
+    const common = {
       id: uuidv7(),
       conversationId: turn.conversationId,
       turnId: turn.turnId,
       accountId: turn.accountId,
       actorUserId: turn.actorUserId,
-      locationId: proposal.scope.locationId ?? null,
-      operation: proposal.operation.id,
-      contractVersion: proposal.operation.contractVersion,
+      operation: operation.id,
+      contractVersion: operation.contractVersion,
       input: proposal.input,
+      rationale: proposal.rationale,
+      labelKind: operation.labelKind,
+      status: PROPOSAL_STATUS.PENDING,
+    };
+    if (operation.domain === 'policy') {
+      return { ...common, ...policyRowFields(operation, proposal, policy) };
+    }
+    const { before, after } = operation.preview(voice, proposal.input);
+    return {
+      ...common,
+      locationId: proposal.scope.locationId ?? null,
       before: { ...before },
       after: { ...after },
-      rationale: proposal.rationale,
-      labelKind: proposal.operation.labelKind,
-      // Through the helper, never a fourth literal `{ businessId, updatedAt }`:
-      // this is the token Apply compares against, and the module that owns its
-      // shape is the one that should build it.
+      // Through the helper, never a literal `{ businessId, updatedAt }`: this is
+      // the token Apply compares against, and the module that owns its shape is
+      // the one that should build it.
       preparedVersionToken: computeVoiceVersionToken({
         businessId: turn.locationId,
         updatedAt: voice.updatedAt,
       }),
       requiresConfirmation: false,
-      status: PROPOSAL_STATUS.PENDING,
     };
   });
 }
@@ -147,11 +266,8 @@ export async function insertProposals(tx: Tx, rows: readonly ProposalRow[]): Pro
  *
  * `turn_id <> ${turnId}` rather than `id <> ${replacement.proposalId}`: EARLIER
  * pending proposals is what supersession means, and the whole current turn is
- * one reply. Excluding only the replacement itself let a single turn that
- * proposed two same-scope changes supersede its own sibling — the owner would
- * be shown one card and one already-dead card from the same sentence, and
- * whichever one died depended on the loop order. This predicate also subsumes
- * the id check: a row of another turn can never be the replacement.
+ * one reply. This predicate also subsumes the id check: a row of another turn
+ * can never be the replacement.
  */
 export async function supersedePendingProposals(
   tx: Tx,
@@ -184,8 +300,6 @@ type StoredRow = {
   id: string; operation: string; contract_version: number; label_kind: LabelKind;
   location_id: string | null; status: string; rationale: string;
   input: unknown; before: unknown; after: unknown;
-  // Run B. `prepared_version_token` was written in Run A and read by nobody;
-  // Apply is its first reader.
   prepared_version_token: unknown;
   receipt: unknown;
   applied_at: Date | string | null;
@@ -208,8 +322,23 @@ export interface ProposalView {
   after: Record<string, unknown>;
   /** The card's words, recomputed from the catalog on read. */
   describe: string;
+  /**
+   * The card's friction, DERIVED on read from the stored before/after and the
+   * input through the catalog's exposure classifier. Never the
+   * `requires_confirmation` column and never anything the model or a browser
+   * said. False for every voice proposal.
+   */
+  requiresConfirmation: boolean;
+  /** The exact words the owner types on an expansion card, or `null`. */
+  confirmationPhrase: string | null;
+  /** Readiness reasons recorded at preparation for an expansion; `[]` otherwise. */
+  readinessBlockReasons: AutoApprovalReadinessBlockReason[];
+  /** The stored `after` consequence line of a policy proposal; `null` for voice. */
+  consequence: StoredPolicyConsequence | null;
+  /** Active locations affected at preparation; account defaults exclude overrides. */
+  affectedLocationCount: number | null;
   /** The **Version token** recorded at preparation. Apply compares against it. */
-  preparedVersionToken: VoiceVersionToken;
+  preparedVersionToken: VersionToken;
   /** Server-written, `null` until applied. Never supplied by the client. */
   receipt: Receipt | null;
   /** ISO-8601, or `null`. */
@@ -221,26 +350,75 @@ export interface ProposalView {
  * The projection every `agent_proposals` read shares — the exact column set
  * `StoredRow` names and `mapStored` consumes.
  *
- * A nested tagged template, composed by postgres.js into the outer query the
- * same way `importConsentStateSql` and `dateFilter` are
- * (`src/lib/reviews/import-consent.ts:202`, `src/lib/admin/cost-report-service.ts:110`).
- * It carries no value, so there is no bind parameter to reorder. Five copies of
- * a fifteen-column list is five places to forget `receipt` in — and a read that
- * silently omits a column returns `undefined` through a mapper that expects it.
- *
- * The WHERE clauses stay at each call site, deliberately: the `account_id`
- * predicate is the tenant proof `ci:tenant-scope` reads, and it must be visible
- * in the statement it guards.
+ * A nested tagged template, composed by postgres.js into the outer query. It
+ * carries no value, so there is no bind parameter to reorder. The WHERE
+ * clauses stay at each call site, deliberately: the `account_id` predicate is
+ * the tenant proof `ci:tenant-scope` reads.
  */
 function proposalColumns(db: Db) {
   return db`turn_id, id, operation, contract_version, label_kind, location_id, status, rationale,
             input, before, after, prepared_version_token, receipt, applied_at, failure_reason`;
 }
 
+type CardFacts = Pick<
+  ProposalView,
+  'describe' | 'requiresConfirmation' | 'confirmationPhrase' | 'readinessBlockReasons' | 'consequence' | 'affectedLocationCount'
+>;
+
+function withoutFriction(describe: string): CardFacts {
+  return {
+    describe,
+    requiresConfirmation: false,
+    confirmationPhrase: null,
+    readinessBlockReasons: [],
+    consequence: null,
+    affectedLocationCount: null,
+  };
+}
+
+/**
+ * The card's words and friction for a row whose operation parsed. A policy
+ * card is classified from its STORED before/after, pure: the metadata is
+ * stripped before the catalog sees either state.
+ */
+function cardFacts(
+  operation: ProposableOperation,
+  input: Record<string, unknown>,
+  stored: { locationId: string | null; before: Record<string, unknown>; after: Record<string, unknown> },
+): CardFacts {
+  if (operation.domain === 'voice') return withoutFriction(operation.describe(input));
+
+  const target = policyTargetOf(stored.locationId);
+  const storedAfter = parseStoredPolicyState(stored.after, 'agent_proposals.after');
+  const preview = {
+    before: parsePolicyState(stored.before, 'agent_proposals.before'),
+    after: parsePolicyState(storedAfter, 'agent_proposals.after'),
+  };
+  const expansion = operation.exposure(preview, target) === 'expansion';
+  return {
+    describe: operation.describeChange(input, preview, target),
+    requiresConfirmation: expansion,
+    confirmationPhrase: expansion ? operation.confirmationPhrase(preview.after, target) : null,
+    readinessBlockReasons: expansion ? [...(storedAfter.expansionBlockedBy ?? [])] : [],
+    consequence: storedAfter.consequence ?? null,
+    affectedLocationCount: storedAfter.affectedLocationCount ?? null,
+  };
+}
+
 function mapStored(row: StoredRow): ProposalView {
   const input = parseJsonbObject(row.input, 'agent_proposals.input');
+  const before = parseJsonbObject(row.before, 'agent_proposals.before');
+  const after = parseJsonbObject(row.after, 'agent_proposals.after');
   const operation = proposableOperation(row.operation);
   const parsed = operation?.parseInput(input);
+  // The card's words come from the CATALOG at read time, never from a stored
+  // string. A row whose operation left the catalog (or whose stored input no
+  // longer parses under a bumped contract) falls back to its rationale with no
+  // friction rather than throwing — the card is still readable and Apply is
+  // what refuses it.
+  const card = operation && parsed?.ok
+    ? cardFacts(operation, parsed.input, { locationId: row.location_id, before, after })
+    : withoutFriction(row.rationale);
   return {
     id: row.id,
     turnId: row.turn_id,
@@ -251,20 +429,14 @@ function mapStored(row: StoredRow): ProposalView {
     status: asProposalStatus(row.status),
     rationale: row.rationale,
     input,
-    before: parseJsonbObject(row.before, 'agent_proposals.before'),
-    after: parseJsonbObject(row.after, 'agent_proposals.after'),
-    // The card's words come from the CATALOG at read time, never from a stored
-    // string, so a copy edit ships without a data migration. A row whose
-    // operation left the catalog (or whose stored input no longer parses under
-    // a bumped contract) falls back to its rationale rather than throwing — the
-    // card is still readable and Apply is what refuses it.
-    describe: operation && parsed?.ok ? operation.describe(parsed.input) : row.rationale,
+    before,
+    after,
+    ...card,
     preparedVersionToken: parseVersionToken(row.prepared_version_token),
     receipt: parseReceipt(row.receipt),
-    // ISO, not the raw driver value: `applied_at` crosses as a JS `Date` and a
-    // Date does not survive `JSON.stringify` in a route body as anything the
-    // card can format. Unlike the **Version token** this value is never
-    // COMPARED, so the millisecond truncation is cosmetic here.
+    // ISO, not the raw driver value: `applied_at` crosses as a JS `Date`. Unlike
+    // the **Version token** this value is never COMPARED, so the millisecond
+    // truncation is cosmetic here.
     appliedAt: row.applied_at == null ? null : new Date(row.applied_at).toISOString(),
     failureReason: row.failure_reason,
   };
@@ -285,12 +457,8 @@ export async function listProposalsForTurn(
 }
 
 /**
- * Every turn's proposals in ONE `turn_id = ANY(...)` read, keyed by turn.
- *
- * The per-turn alternative is an N+1 across a whole transcript — one query per
- * turn, on every poll, over a conversation that grows without bound. An empty
- * id list issues no statement at all rather than a query that can match
- * nothing.
+ * Every turn's proposals in ONE `turn_id = ANY(...)` read, keyed by turn. An
+ * empty id list issues no statement at all.
  */
 export async function listProposalsForTurns(
   db: Db,
@@ -375,13 +543,8 @@ export async function listUnsupportedForTurn(
 
 /**
  * Every turn's **Requested capability** rows in ONE `turn_id = ANY(...)` read,
- * keyed by turn — the same shape, and the same reason, as
- * `listProposalsForTurns`.
- *
- * The TRANSCRIPT needs these, not only the polled turn. An unsupported row is
- * durable (`agent_unsupported_requests`), so a screen that rendered it only
- * from the in-flight poll lost the card on the next reload or the next send
- * while the row sat in the table. An empty id list issues no statement at all.
+ * keyed by turn. The TRANSCRIPT needs these, not only the polled turn. An empty
+ * id list issues no statement at all.
  */
 export async function listUnsupportedForTurns(
   db: Db,
@@ -408,12 +571,8 @@ export async function listUnsupportedForTurns(
 
 /**
  * One **Proposal**, account-scoped, WITHOUT a lock. The pre-transaction read
- * Apply uses for the **Contract version** check (spec §6.4, "before the
- * transaction"), and the read both POST routes use to render a result.
- *
- * A row of another account returns null, which both routes render as 404 —
- * indistinguishable from one that does not exist, so the read cannot be used
- * to probe for other tenants' ids.
+ * Apply uses for the **Contract version** check, and the read both POST routes
+ * use to render a result. A row of another account returns null.
  */
 export async function readProposalForAccount(
   db: Db,
@@ -431,8 +590,7 @@ export async function readProposalForAccount(
 /**
  * The same read WITH `FOR UPDATE`. Callers must be inside `sql.begin()` for the
  * lock to hold — outside a transaction PgBouncer drops the row lock the instant
- * the SELECT returns (CLAUDE.md, `SELECT … FOR UPDATE` gotcha), and the status
- * branch this feeds would then race a concurrent Apply.
+ * the SELECT returns.
  */
 export async function lockProposalForAccount(
   tx: Tx,
@@ -448,28 +606,61 @@ export async function lockProposalForAccount(
   return row ? mapStored(row) : null;
 }
 
+function proposableIdsFor(domain: ProposableOperation['domain']): string[] {
+  return Object.values(CATALOG).flatMap((operation) =>
+    operation.kind === 'proposable' && operation.domain === domain ? [operation.id] : []);
+}
+
+/** Derived from the catalog, never a second hand-written list. */
+const VOICE_OPERATION_IDS = proposableIdsFor('voice');
+const POLICY_OPERATION_IDS = proposableIdsFor('policy');
+
 /**
- * Spec §8.3: after one Apply, every OTHER pending **Proposal** on the same
- * location is stale, because the write it just committed moved
- * `businesses.updated_at` and therefore every sibling's **Version token**.
+ * Spec §8.3: after one Apply, every OTHER pending **Proposal** whose
+ * **Version token** that write moved is stale — and ONLY those. The sweep
+ * follows the token, not the location:
  *
- * Runs in the SAME transaction as the mutation (D11), so there is no window in
- * which the owner can click a card whose token the previous click already
- * invalidated.
+ *  - `voice` → voice operations on that business (`businesses.updated_at`).
+ *  - `policy` + a location → policy operations on that location: their token
+ *    carries the location row. Voice proposals there are untouched.
+ *  - `policy` + null (the account default) → EVERY policy operation of the
+ *    account, account-scope and location-scope alike, because a location token
+ *    always carries the parent row too.
  *
- * `location_id = ${locationId}` rather than `IS NOT DISTINCT FROM`: this sweep
- * is voice-scope only and a voice Proposal always names a location (P8), so a
- * NULL-matching predicate here could only ever reach an account-default
- * Proposal that this write did NOT invalidate.
+ * It never reaches the other domain's proposals, so a voice Apply never takes
+ * a policy proposal's row lock and vice versa: each domain's parent-lock
+ * order stays independent.
  *
- * No `conversation_id` predicate, deliberately: a sibling prepared in ANOTHER
- * conversation is just as stale, and scoping the sweep to one conversation
- * would leave it pending with a token that can never match again.
+ * Runs in the SAME transaction as the mutation (D11). No `conversation_id`
+ * predicate, deliberately: a sibling prepared in another conversation is just
+ * as stale.
  */
 export async function markSiblingProposalsStale(
   tx: Tx,
-  input: { accountId: string; locationId: string; excludeProposalId: string },
+  input: {
+    accountId: string;
+    domain: ProposableOperation['domain'];
+    locationId: string | null;
+    excludeProposalId: string;
+  },
 ): Promise<void> {
+  if (input.domain === 'policy' && input.locationId === null) {
+    await tx`
+      UPDATE agent_proposals
+      SET status = ${PROPOSAL_STATUS.STALE},
+          failure_reason = ${PROPOSAL_FAILURE_REASON.VERSION_MISMATCH},
+          updated_at = NOW()
+      WHERE account_id = ${input.accountId}::uuid
+        AND operation = ANY(${POLICY_OPERATION_IDS}::text[])
+        AND status = ${PROPOSAL_STATUS.PENDING}
+        AND id <> ${input.excludeProposalId}::uuid
+    `;
+    return;
+  }
+  if (input.locationId === null) {
+    throw new Error('agents/operator: a voice write always names a location');
+  }
+  const operations = input.domain === 'voice' ? VOICE_OPERATION_IDS : POLICY_OPERATION_IDS;
   await tx`
     UPDATE agent_proposals
     SET status = ${PROPOSAL_STATUS.STALE},
@@ -477,6 +668,7 @@ export async function markSiblingProposalsStale(
         updated_at = NOW()
     WHERE account_id = ${input.accountId}::uuid
       AND location_id = ${input.locationId}::uuid
+      AND operation = ANY(${operations}::text[])
       AND status = ${PROPOSAL_STATUS.PENDING}
       AND id <> ${input.excludeProposalId}::uuid
   `;
@@ -490,21 +682,13 @@ export type DeclineResult =
 /**
  * "Not now" (spec §6.3): the owner declined. THE ACTOR IS THE WHOLE RECORD —
  * `status='rejected'` and `decided_by_user_id`, with `failure_reason` left
- * NULL (D5). There is deliberately no reason field on the button: a stored
- * `owner_declined` token would make a human decision indistinguishable from a
- * server refusal in every read that counts non-NULL reasons, and the intake
- * puts a Decline reason out of scope.
+ * NULL (D5).
  *
- * IDEMPOTENT. A second click, a double-submit or a retried POST finds a row
- * that is already `rejected` WITH NO REASON — the signature of an owner
- * decline — and returns it unchanged with `repeated: true`. A row rejected by
- * the SERVER carries a reason and is therefore not this; it answers
- * `not_pending`, so the card says "the plan was refused" rather than "you
- * declined it".
+ * IDEMPOTENT. A second click finds a row that is already `rejected` WITH NO
+ * REASON and returns it unchanged with `repeated: true`. A row rejected by the
+ * SERVER carries a reason and answers `not_pending`.
  *
- * Inside `sql.begin` with the row locked (`lockProposalForAccount`, the same
- * locked read Apply uses), so the status read and the write cannot be
- * separated by a concurrent Apply. No `businesses` lock: nothing outside
+ * Inside `sql.begin` with the row locked. No parent lock: nothing outside
  * `agent_proposals` changes.
  */
 export async function declineProposal(

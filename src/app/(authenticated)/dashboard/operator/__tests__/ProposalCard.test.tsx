@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
 import { ProposalCard } from '../ProposalCard';
 import { RequestedCapabilityCard } from '../RequestedCapabilityCard';
+import { TurnBody } from '../TurnBody';
 import {
   AFFECTS_FUTURE_DRAFTS,
   APPLY,
@@ -52,9 +53,209 @@ function proposal(overrides: Record<string, unknown> = {}) {
     receipt: null,
     appliedAt: null,
     failureReason: null,
+    requiresConfirmation: false,
+    confirmationPhrase: null,
+    readinessBlockReasons: [],
+    consequence: null,
+    affectedLocationCount: null,
     ...overrides,
   };
 }
+
+const POLICY_BEFORE = { domain: 'policy', threshold: null, vetoWindowMinutes: 30, dailyAutoPostCap: null, effectiveDailyCap: 10, rowExists: true };
+const POLICY_AFTER = { ...POLICY_BEFORE, threshold: 4 };
+const LINE = {
+  total: 5, eligible: 3, held: { below_threshold: 1, cap_reached: 1, manual: 0 },
+  byDay: [], busiestDay: 4, windowStart: '2026-08-14T12:00:00Z', windowEnd: '2026-09-13T12:00:00Z',
+  asOf: '2026-09-13T12:00:00Z', source: 'reviews_received_30d' as const, excludedImported: 2, excludedUnknown: 7,
+};
+const policy = (overrides: Record<string, unknown> = {}) => ({
+  operation: 'set_auto_reply_scope', labelKind: 'rule', locationId: null,
+  before: POLICY_BEFORE, after: POLICY_AFTER, input: { threshold: 4 },
+  describe: 'Allow 4 and 5 star reviews', requiresConfirmation: true,
+  confirmationPhrase: 'all locations', readinessBlockReasons: [], consequence: LINE, affectedLocationCount: 2,
+  preparedVersionToken: { accountDefaultRow: { id: 'absent' } }, ...overrides,
+});
+
+describe('autonomy cards', () => {
+  it('pins account scope and requires the exact phrase, never a plain Apply', async () => {
+    const user = userEvent.setup();
+    const { onApply } = renderCard(policy(), { scopeMoved: true });
+    expect(screen.getByText('Account default')).toBeInTheDocument();
+    expect(screen.getByText(/Affects 2 locations/)).toBeInTheDocument();
+    expect(screen.queryByText('Salon')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
+    expect(screen.getByText(/3 of your 5 reviews/)).toHaveTextContent('eligible to auto-post');
+    expect(screen.queryByText(/would have (?:auto-)?posted/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Excluded 2 imported reviews and 7 reviews whose origin is unknown/)).toBeInTheDocument();
+    const input = screen.getByRole('textbox', { name: /Type.*all locations/ });
+    const confirm = screen.getByRole('button', { name: 'Confirm and apply' });
+    expect(confirm).toBeDisabled();
+    await user.type(input, 'all locations ');
+    expect(confirm).toBeDisabled();
+    await user.clear(input); await user.type(input, 'all locations');
+    await user.click(confirm);
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ locationId: null }), 'all locations');
+  });
+
+  it('readiness explains and blocks an expansion while leaving Not now available', async () => {
+    const user = userEvent.setup();
+    renderCard(policy({ readinessBlockReasons: ['policy_suspended'] }));
+    await user.type(screen.getByRole('textbox'), 'all locations');
+    expect(screen.getByRole('button', { name: 'Confirm and apply' })).toBeDisabled();
+    expect(screen.getByText(/Auto-reply is paused/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Not now' })).toBeEnabled();
+  });
+
+  it('a new manual location rule shows every dial, creation, veto wording and one-click Apply', async () => {
+    const user = userEvent.setup();
+    const { onApply } = renderCard(policy({
+      operation: 'set_veto_window', locationId: SALON, requiresConfirmation: false, confirmationPhrase: null,
+      before: { ...POLICY_AFTER, rowExists: false }, after: { ...POLICY_BEFORE, vetoWindowMinutes: 15 },
+      affectedLocationCount: 1,
+    }));
+    expect(screen.getByText(/creates a location rule/)).toBeInTheDocument();
+    expect(screen.getByText('Off — you approve every reply')).toBeInTheDocument();
+    const currentState = within(screen.getByText('Now').parentElement!);
+    const proposedState = within(screen.getByText('After this change').parentElement!);
+    expect(currentState.getByText('Daily limit').nextElementSibling)
+      .toHaveTextContent('Platform default (10 per day)');
+    expect(proposedState.getByText('Daily limit').nextElementSibling)
+      .toHaveTextContent('Platform default (10 per day)');
+    expect(screen.getByText('Each auto-post waits 15 minutes for you first.')).toBeInTheDocument();
+    expect(screen.getByText(/Under this rule, 3 of your 5 reviews/))
+      .toHaveTextContent('would have been eligible to auto-post. 2 would have waited for you.');
+    expect(screen.getByText('Waiting for you: 1 below the rating threshold, 1 over the daily limit, 0 under manual approval.')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ operation: 'set_veto_window' }));
+  });
+
+  it('cap cards show busiest day and policy receipts show actual old/new counts and retained drafts', () => {
+    const before = { ...POLICY_BEFORE, affectedLocationCount: 2, consequence: { ...LINE, eligible: 0, held: { manual: 5, cap_reached: 0, below_threshold: 0 } } };
+    const after = { ...POLICY_AFTER, affectedLocationCount: 2, consequence: LINE };
+    renderCard(policy({ operation: 'set_daily_cap', status: 'applied', receipt: {
+      ...RECEIPT, operation: 'set_daily_cap', affects: 'future_eligible_reviews',
+      scope: { accountId: ACCOUNT, locationId: null }, before, after, retainedVeto: { count: 6, asOf: LINE.asOf },
+    } }));
+    expect(screen.getByText('Your busiest day had 4 reviews.')).toBeInTheDocument();
+    expect(screen.getByText(/Old rule: 0 of 5 eligible; new rule: 3 of 5/)).toBeInTheDocument();
+    expect(screen.getByText(/6 drafts keep their granted veto window/)).toBeInTheDocument();
+    expect(screen.queryByText('Salon')).not.toBeInTheDocument();
+  });
+
+  it('location receipts show saved counts, retained-window time and remaining restrictions separately from the preview', () => {
+    const countedAt = '2026-09-13T11:59:57.000000Z';
+    renderCard(policy({ locationId: SALON, status: 'applied', receipt: {
+      ...RECEIPT, operation: 'set_auto_reply_scope', affects: 'future_eligible_reviews',
+      differsFromPreview: true, remainingBlocked: ['policy_suspended'],
+      before: { ...POLICY_BEFORE, affectedLocationCount: 1,
+        consequence: { ...LINE, eligible: 0, held: { manual: 5, cap_reached: 0, below_threshold: 0 } } },
+      after: { ...POLICY_AFTER, threshold: 5, dailyAutoPostCap: 2, effectiveDailyCap: 2, affectedLocationCount: 1,
+        consequence: { ...LINE, eligible: 2, held: { manual: 0, cap_reached: 1, below_threshold: 2 } } },
+      retainedVeto: { count: 4, asOf: countedAt },
+    } }), { scopeMoved: true });
+    const receipt = screen.getByText('Applied at').closest<HTMLElement>('.op-receipt')!;
+    const saved = within(receipt);
+    expect(saved.getByText('Old rule: 0 of 5 eligible; new rule: 2 of 5 eligible.')).toBeInTheDocument();
+    expect(saved.getByText('5 star reviews')).toBeInTheDocument();
+    expect(saved.getByText('2 per day')).toBeInTheDocument();
+    expect(saved.getByText(/not exactly what the plan previewed/)).toBeInTheDocument();
+    expect(saved.getByText(/Auto-reply is paused/)).toBeInTheDocument();
+    expect(saved.queryByText('policy_suspended')).not.toBeInTheDocument();
+    expect(saved.getByText('4 drafts keep their granted veto window.')).toBeInTheDocument();
+    expect(saved.getByText(/Counted as of/).querySelector('time')).toHaveAttribute('datetime', countedAt);
+    expect(saved.getByText('Location').nextElementSibling).toHaveTextContent('Salon');
+    expect(saved.queryByText(/locations inheriting the account default/)).not.toBeInTheDocument();
+    expect(saved.getByText(/Excluded 2 imported reviews and 7 reviews whose origin is unknown/)).toBeInTheDocument();
+    expect(screen.getByText('Prepared for Salon')).toBeInTheDocument();
+  });
+
+  it('zero included reviews keep the dated consequence, origin exclusions and actual zero receipt counts visible', () => {
+    const emptyLine = {
+      ...LINE, total: 0, eligible: 0, busiestDay: 0,
+      held: { manual: 0, cap_reached: 0, below_threshold: 0 },
+    };
+    const retainedAsOf = '2026-09-13T12:00:03.000000Z';
+    renderCard(policy({ status: 'applied', consequence: emptyLine, receipt: {
+      ...RECEIPT, operation: 'set_auto_reply_scope', affects: 'future_eligible_reviews',
+      scope: { accountId: ACCOUNT, locationId: null },
+      before: { ...POLICY_BEFORE, affectedLocationCount: 2, consequence: emptyLine },
+      after: { ...POLICY_AFTER, affectedLocationCount: 2, consequence: emptyLine },
+      retainedVeto: { count: 0, asOf: retainedAsOf },
+    } }));
+
+    const consequence = screen.getByText(
+      'Under this rule, 0 of your 0 reviews since 2026-08-14 would have been eligible to auto-post. 0 would have waited for you.',
+    ).closest<HTMLElement>('.op-policy-consequence')!;
+    const preview = within(consequence);
+    expect(preview.getByText('Waiting for you: 0 below the rating threshold, 0 over the daily limit, 0 under manual approval.')).toBeInTheDocument();
+    expect(preview.getByText('Excluded 2 imported reviews and 7 reviews whose origin is unknown.')).toBeInTheDocument();
+    const previewClock = preview.getByText(/^Reviews received 2026-08-14 to 2026-09-13\. As of/);
+    expect(previewClock.querySelector('time')).toHaveAttribute('datetime', LINE.asOf);
+
+    const receipt = within(screen.getByText('Applied at').closest<HTMLElement>('.op-receipt')!);
+    expect(receipt.getByText('Old rule: 0 of 0 eligible; new rule: 0 of 0 eligible.')).toBeInTheDocument();
+    expect(receipt.getByText('Reviews received 2026-08-14 to 2026-09-13. Excluded 2 imported reviews and 7 reviews whose origin is unknown.')).toBeInTheDocument();
+    expect(receipt.getByText('0 drafts keep their granted veto window.')).toBeInTheDocument();
+    expect(receipt.getByText(/^Counted as of/).querySelector('time')).toHaveAttribute('datetime', retainedAsOf);
+    expect(screen.queryByText(/would have (?:auto-)?posted/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the typed phrase and error association while a pending request is busy and then refused', async () => {
+    const user = userEvent.setup();
+    const row = asProposal(proposal(policy()));
+    const handlers = { onApply: vi.fn(), onDecline: vi.fn(), onRefreshPlan: vi.fn() };
+    const props = { proposal: row, turnLocationId: SALON, locationLabel, scopeMoved: false, ...handlers };
+    const { rerender } = render(<ProposalCard {...props} busy={false} error={null} />);
+    await user.type(screen.getByRole('textbox'), 'all locations');
+    rerender(<ProposalCard {...props} busy error={null} />);
+    expect(screen.getByRole('textbox')).toHaveValue('all locations');
+    expect(screen.getByRole('textbox')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Confirm and apply' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Not now' })).toBeDisabled();
+
+    const message = 'Type the scope exactly as shown on the card, then confirm again. Nothing was applied.';
+    rerender(<ProposalCard {...props} busy={false} error={message} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(message);
+    expect(screen.getByRole('textbox')).toHaveValue('all locations');
+    expect(screen.getByRole('textbox')).toHaveAttribute('aria-describedby', alert.id);
+    const apply = screen.getByRole('button', { name: 'Confirm and apply' });
+    expect(apply).toHaveAttribute('aria-describedby', alert.id);
+    await user.click(apply);
+    expect(handlers.onApply).toHaveBeenCalledWith(row, 'all locations');
+  });
+
+  it('renders expansions once, after ordinary cards, text and unsupported requests', () => {
+    const expanding = asProposal(proposal(policy()));
+    const ordinary = asProposal(proposal({ id: 'ordinary' }));
+    const contraction = asProposal(proposal(policy({
+      id: 'contraction', operation: 'set_daily_cap', locationId: SALON,
+      before: POLICY_AFTER, after: { ...POLICY_AFTER, dailyAutoPostCap: 2, effectiveDailyCap: 2 },
+      input: { cap: 2 }, requiresConfirmation: false, confirmationPhrase: null,
+    })));
+    const unreferenced = asProposal(proposal(policy({ id: 'unreferenced', describe: 'Another expansion' })));
+    render(<TurnBody turn={{ id: TURN, sequence: 1, status: 'completed', failureReason: null,
+      locationId: SALON, ownerText: 'Change my rules',
+      proposals: [expanding, ordinary, contraction, unreferenced], unsupported: [{ id: 'unsupported', request: 'A requested extra', context: '' }],
+      segments: [{ type: 'proposal', proposalId: expanding.id }, { type: 'proposal', proposalId: ordinary.id },
+        { type: 'proposal', proposalId: contraction.id },
+        { type: 'text', text: 'Last explanation' }, { type: 'proposal', proposalId: expanding.id }],
+    }} locationLabel={locationLabel} currentScope={CAFE} onChooseLocation={vi.fn()} onApply={vi.fn()}
+      onDecline={vi.fn()} onRefreshPlan={vi.fn()} cardBusyId={null} cardErrors={{}} />);
+    const group = screen.getByRole('group', { name: 'Changes that expand auto-reply' });
+    expect(within(group).getAllByRole('button', { name: 'Confirm and apply' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Apply' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Not now' })).toHaveLength(4);
+    expect(screen.queryByRole('button', { name: /apply[\s-]*all/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { name: 'Change auto-reply scope' })).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: DESCRIBE }).compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Change the daily auto-reply limit' }).compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('A requested extra').compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Last explanation').compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
 
 const RECEIPT = {
   version: 1 as const,

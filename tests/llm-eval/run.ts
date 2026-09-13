@@ -13,6 +13,7 @@ import type {
   JudgeLiveGenerator,
 } from './judge-types';
 import type { EvalReport, EvalResult, EvalRow } from './types';
+import type { StructuredAttemptReport } from './structured-runner';
 
 export interface RunOptions {
   live: boolean;
@@ -106,8 +107,87 @@ function printLaneResults(lane: string, results: PrintableEvalResult[]): void {
   }
 }
 
+export type RunMode = 'offline' | 'live' | 'structured';
+
+/**
+ * `--structured-only` is an opt-in KEYED lane, never a default: it requires
+ * `--live` because it calls both real providers.
+ */
+export function parseRunMode(argv: readonly string[]): RunMode {
+  const live = argv.includes('--live');
+  if (argv.includes('--structured-only')) {
+    if (!live) {
+      throw new Error(
+        '--structured-only requires --live: it calls both real providers ' +
+          '(OPENAI_API_KEY and ANTHROPIC_API_KEY). Run `pnpm eval:llm --live --structured-only`.',
+      );
+    }
+    return 'structured';
+  }
+  return live ? 'live' : 'offline';
+}
+
+function writeReport(report: { startedAt: string; failed: number }): void {
+  mkdirSync(REPORTS_DIR, { recursive: true });
+  const reportPath = resolve(
+    REPORTS_DIR,
+    `${report.startedAt.replace(/[:.]/g, '-')}.json`,
+  );
+  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  console.log(`report written: ${reportPath}`);
+
+  if (report.failed > 0) {
+    process.exitCode = 1;
+  }
+}
+
+function printStructuredAttempt(id: string, attempt: StructuredAttemptReport): void {
+  const usage = attempt.usage
+    ? `${attempt.usage.promptTokens}+${attempt.usage.completionTokens} tokens`
+    : 'no usage';
+  let error = '';
+  if (attempt.error) {
+    const status = attempt.error.status === undefined ? '' : `/${attempt.error.status}`;
+    error = ` error=${attempt.error.kind}${status}`;
+  }
+  console.log(
+    `      ${id} ${attempt.lane}: ${attempt.provider ?? '-'} ${attempt.model ?? '-'} ` +
+      `${usage} ${attempt.latencyMs}ms schema=${attempt.schemaPassed ? 'pass' : 'fail'}${error}`,
+  );
+}
+
+async function runStructuredMain(): Promise<void> {
+  // The keyed lane loads only here, behind a dynamic import, so the offline
+  // default and the existing --live lane never import it.
+  const { runStructuredEval } = await import('./structured-runner');
+  const structuredReport = await runStructuredEval();
+
+  printLaneResults('structured', structuredReport.results);
+  for (const result of structuredReport.results) {
+    for (const attempt of result.attempts) {
+      printStructuredAttempt(result.id, attempt);
+    }
+  }
+
+  const report = {
+    startedAt: structuredReport.startedAt,
+    mode: structuredReport.mode,
+    total: structuredReport.total,
+    passed: structuredReport.passed,
+    failed: structuredReport.failed,
+    lanes: { structured: structuredReport },
+  };
+  console.log(`\n${report.passed}/${report.total} passed (${report.mode} mode)`);
+  writeReport(report);
+}
+
 async function main(): Promise<void> {
-  const live = process.argv.includes('--live');
+  const mode = parseRunMode(process.argv);
+  if (mode === 'structured') {
+    await runStructuredMain();
+    return;
+  }
+  const live = mode === 'live';
   const rows = loadEvalSet();
   const judgeRows = loadJudgeEvalSet();
 
@@ -139,18 +219,7 @@ async function main(): Promise<void> {
     },
   };
   console.log(`\n${report.passed}/${report.total} passed (${report.mode} mode)`);
-
-  mkdirSync(REPORTS_DIR, { recursive: true });
-  const reportPath = resolve(
-    REPORTS_DIR,
-    `${report.startedAt.replace(/[:.]/g, '-')}.json`,
-  );
-  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-  console.log(`report written: ${reportPath}`);
-
-  if (report.failed > 0) {
-    process.exitCode = 1;
-  }
+  writeReport(report);
 }
 
 // Run only when invoked directly (`tsx tests/llm-eval/run.ts`), never on import.

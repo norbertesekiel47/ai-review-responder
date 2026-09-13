@@ -479,7 +479,7 @@ function Transcript({
           locationLabel={locationLabel}
           currentScope={currentScope}
           onChooseLocation={onChooseLocation}
-          onApply={(row) => void cards.write(row, 'apply')}
+          onApply={(row, confirmationLevel) => void cards.write(row, 'apply', confirmationLevel)}
           onDecline={(row) => void cards.write(row, 'decline')}
           onRefreshPlan={() => onRefreshPlan(turn)}
           cardBusyId={cards.busyId}

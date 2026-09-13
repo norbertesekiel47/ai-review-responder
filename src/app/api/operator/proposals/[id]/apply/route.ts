@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { applyProposal } from '@/lib/agents/operator/apply';
-import { VoiceVersionTokenSchema } from '@/lib/agents/operator/version-token';
+import { VersionTokenSchema } from '@/lib/agents/operator/version-token';
 import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -22,14 +22,20 @@ import { requireOperatorProposalWriter } from '@/app/api/operator/gate';
 export const dynamic = 'force-dynamic';
 
 /**
- * `.strict()` and no `confirmationLevel`. Spec §5.1 lists an optional
- * `confirmationLevel` for the auto-approval expansion cards — those operations
- * are slice 2 and are not registered in the catalog, so accepting the field now
- * would mean silently ignoring a confirmation the caller believes was checked.
- * A 400 is the honest answer until an operation exists that reads it.
+ * `.strict()`. `expectedVersionToken` is any shape a writer produces (voice or
+ * auto-approval); Apply refuses one that is not the stored token.
+ *
+ * `confirmationLevel` is the owner's TYPED scope on an expansion card, as free
+ * text. An enum would turn a mistyped phrase into a generic 400 body error
+ * instead of the `confirmation_mismatch` the card explains. Apply compares it
+ * byte for byte and ignores it everywhere else. The bound only keeps an absurd
+ * body out; every real phrase is a few words.
  */
+const CONFIRMATION_LEVEL_MAX_LENGTH = 100;
+
 const ApplyBodySchema = z.object({
-  expectedVersionToken: VoiceVersionTokenSchema,
+  expectedVersionToken: VersionTokenSchema,
+  confirmationLevel: z.string().max(CONFIRMATION_LEVEL_MAX_LENGTH).optional(),
 }).strict();
 
 async function postApply(
@@ -57,6 +63,7 @@ async function postApply(
       accountId: owner.accountId,
       actorUserId: owner.user.id,
       expectedVersionToken: parsed.data.expectedVersionToken,
+      confirmationLevel: parsed.data.confirmationLevel,
     });
 
     // Every non-404 body carries `proposal`, so the card re-renders from the
@@ -69,6 +76,15 @@ async function postApply(
         return jsonResponse({ error: 'proposal_stale', proposal: result.proposal }, 409);
       case 'rejected':
         return jsonResponse({ error: result.reason, proposal: result.proposal }, 409);
+      case 'confirmation_mismatch':
+        // Nothing was written and the proposal is still pending: the owner
+        // corrects the typed scope and tries again.
+        return jsonResponse({ error: 'confirmation_mismatch', proposal: result.proposal }, 400);
+      case 'blocked':
+        return jsonResponse(
+          { error: 'expansion_blocked', blockReasons: result.blockReasons, proposal: result.proposal },
+          409,
+        );
       case 'not_pending':
         return jsonResponse({ error: 'proposal_not_pending', proposal: result.proposal }, 409);
       case 'failed':

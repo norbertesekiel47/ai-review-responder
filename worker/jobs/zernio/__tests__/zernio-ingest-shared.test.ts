@@ -14,6 +14,14 @@ vi.mock('@sentry/node', () => ({
 vi.mock('@/lib/responses/generation-state', () => ({
   nextResponseVersion: vi.fn(async () => 2),
 }));
+// Run-spine writers are mocked at the seam: assertions target the writer
+// contract. The existing import cases RETURN an id that differs from the
+// minted one, so they exercise the conflict arm and never reach these.
+vi.mock('@/lib/agents/run-spine', () => ({
+  startOrGetActiveRun: vi.fn(),
+  recordStep: vi.fn(),
+  completeRun: vi.fn(),
+}));
 
 import {
   handleZernioIngestError,
@@ -33,6 +41,7 @@ import { resetWorkerConfigForTests } from '@/lib/config/worker';
 import { buildZernioMonitoredReview } from '@/lib/reviews/zernio-normalize';
 import { computeContentHash } from '@/lib/reviews/types';
 import type { WorkerLogger } from '@/lib/shared/logger';
+import { completeRun, recordStep, startOrGetActiveRun } from '@/lib/agents/run-spine';
 
 const mkLogger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const ctx = { business_id: 'B', zernio_account_id: 'A', zernio_location_id: 'L' };
@@ -412,7 +421,8 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     const { tx, calls } = mkRecordingTx([
       // 1. SELECT matched rows → none.
       () => [],
-      // 2. INSERT INTO reviews … RETURNING id.
+      // 2. INSERT may conflict with a concurrent winner after SELECT found no
+      // match. The response must reference RETURNING id, not the minted id.
       () => [{ id: 'new-review-uuid' }],
       // 3. INSERT INTO responses … RETURNING 1 (rowcount=1 means actually inserted).
       () => [{}],
@@ -439,6 +449,7 @@ describe('reconcileExternallyAnsweredReview — flag-gated import branches', () 
     expect(calls[2]!.sql).toContain('response_text');
     expect(calls[2]!.sql).toContain('approved_text');
     expect(calls[2]!.sql).toContain('original_draft_text');
+    expect(calls[2]!.values[0]).toBe('new-review-uuid');
     expect(calls[2]!.values).toContain(2);
     // Counter bump.
     expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
@@ -755,6 +766,8 @@ describe('reconcileExternallyAnsweredReview — consentedImport option (#675)', 
     const sql = makeSqlMock();
     const { tx, calls } = mkRecordingTx([
       () => [],                          // 1. SELECT matched rows → none.
+      // A concurrent winner can supply the returned ID; consent does not
+      // change which review the imported response must reference.
       () => [{ id: 'new-review-uuid' }], // 2. INSERT INTO reviews … RETURNING id.
       () => [{}],                        // 3. INSERT INTO responses … RETURNING 1.
       () => [],                          // 4. UPDATE zernio_backfill_runs (counter bump).
@@ -770,6 +783,7 @@ describe('reconcileExternallyAnsweredReview — consentedImport option (#675)', 
     expect(calls[1]!.sql).toContain('INSERT INTO reviews');
     expect(calls[2]!.sql).toContain('INSERT INTO responses');
     expect(calls[2]!.sql).toContain("'posted'");
+    expect(calls[2]!.values[0]).toBe('new-review-uuid');
     expect(calls[3]!.sql).toContain('UPDATE zernio_backfill_runs');
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Imported external reply'));
   });
@@ -997,6 +1011,9 @@ describe('insertImportedReview — content hash parity with the live lane (#762)
     // Full-array equality: any future hand-derivation or reordering of a bound
     // column fails here rather than silently diverging from the live lane.
     expect(values).toEqual([
+      // The pre-minted review id (Run C) — compared with RETURNING to tell a
+      // genuine insert from the DO UPDATE arm.
+      expect.any(String),
       'B',
       identity.provider,
       identity.providerReviewId,
@@ -1077,5 +1094,113 @@ describe('insertImportedReview — content hash parity with the live lane (#762)
       expect(importedValues, `content hash diverged for comment=${JSON.stringify(comment)}`)
         .toContain(liveHash);
     }
+  });
+});
+
+// ── Run C: answered-import ingestion provenance ───────────────────────────
+//
+// Only a GENUINE insertion records `imported` provenance, under the billing
+// account resolved from businesses — not the Zernio account id ('A') used for
+// normalization. The live proof of the actual ON CONFLICT behavior is
+// ingestion-origin.integration.test.ts; these pin the branching.
+describe('insertImportedReview — ingestion provenance (Run C)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(startOrGetActiveRun).mockResolvedValue({ runId: 'run-imp', created: true });
+  });
+
+  // A genuine insert RETURNs the id this call bound first.
+  const echoMintedId = (rec: RecordedCall): unknown[] => [{ id: rec.values[0] }];
+
+  const runConsentedImport = async (handlers: Array<(rec: RecordedCall) => unknown[]>) => {
+    const sql = makeSqlMock();
+    const recording = mkRecordingTx(handlers);
+    Object.assign(sql, { begin: vi.fn(async (cb: (tx: postgres.TransactionSql) => Promise<unknown>) => cb(recording.tx as unknown as postgres.TransactionSql)) });
+    const outcome = reconcileExternallyAnsweredReview(
+      sql, mkReview(), 'B', 'A', 'L', mkLogger(), { consentedImport: true },
+    );
+    return { ...recording, outcome };
+  };
+
+  it('a genuine insert records imported provenance under the billing account before the response write', async () => {
+    const { tx, calls, outcome } = await runConsentedImport([
+      () => [],                               // 0. SELECT matched rows → none.
+      echoMintedId,                           // 1. INSERT INTO reviews → genuine insert.
+      () => [{ account_id: 'billing-acct' }], // 2. SELECT businesses.account_id.
+      () => [{}],                             // 3. INSERT INTO responses.
+      () => [],                               // 4. counter bump.
+    ]);
+    await outcome;
+
+    const mintedId = calls[1]!.values[0];
+    expect(calls[2]!.sql).toContain('FROM businesses');
+    expect(calls[2]!.values).toEqual(['B']);
+    expect(startOrGetActiveRun).toHaveBeenCalledWith(tx, {
+      kind: 'review_handler',
+      subjectType: 'review',
+      subjectId: mintedId,
+      accountId: 'billing-acct',
+      businessId: 'B',
+    });
+    expect(recordStep).toHaveBeenCalledWith(tx, {
+      runId: 'run-imp',
+      stepKey: 'review_ingested',
+      detail: { ingestion_origin: 'imported' },
+    });
+    expect(completeRun).toHaveBeenCalledWith(tx, 'run-imp', 'completed');
+
+    expect(calls[3]!.sql).toContain('INSERT INTO responses');
+    expect(calls[3]!.values).toContain(mintedId);
+    // The run is completed before the imported response is written.
+    expect(vi.mocked(completeRun).mock.invocationCallOrder[0]!)
+      .toBeLessThan(tx.mock.invocationCallOrder[3]!);
+  });
+
+  it('a conflict returns the existing row and writes no provenance for it', async () => {
+    const { calls, outcome } = await runConsentedImport([
+      () => [],                                // 0. SELECT matched rows → none (snapshot missed the winner).
+      () => [{ id: 'existing-live-review' }],  // 1. INSERT … DO UPDATE → existing row's id.
+      () => [{}],                              // 2. INSERT INTO responses.
+      () => [],                                // 3. counter bump.
+    ]);
+    await outcome;
+
+    expect(calls).toHaveLength(4);
+    expect(calls[1]!.sql).toContain(
+      'google_review_name = COALESCE(reviews.google_review_name, EXCLUDED.google_review_name)',
+    );
+    expect(calls.every((c) => !c.sql.includes('FROM businesses'))).toBe(true);
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(completeRun).not.toHaveBeenCalled();
+    // The external reply still attaches to the row that already existed.
+    expect(calls[2]!.sql).toContain('INSERT INTO responses');
+    expect(calls[2]!.values).toContain('existing-live-review');
+  });
+
+  it('a genuine insert with no businesses row throws before any response write', async () => {
+    const { calls, outcome } = await runConsentedImport([
+      () => [],
+      echoMintedId,
+      () => [],  // 2. SELECT businesses.account_id → missing.
+    ]);
+
+    await expect(outcome).rejects.toThrow(/no businesses row/);
+    expect(calls).toHaveLength(3);
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+  });
+
+  it('an unexpected active run on a genuinely new review throws without marking or terminating it', async () => {
+    vi.mocked(startOrGetActiveRun).mockResolvedValueOnce({ runId: 'run-foreign', created: false });
+    const { calls, outcome } = await runConsentedImport([
+      () => [],
+      echoMintedId,
+      () => [{ account_id: 'billing-acct' }],
+    ]);
+
+    await expect(outcome).rejects.toThrow(/already has active run run-foreign/);
+    expect(recordStep).not.toHaveBeenCalled();
+    expect(completeRun).not.toHaveBeenCalled();
+    expect(calls.every((c) => !c.sql.includes('INSERT INTO responses'))).toBe(true);
   });
 });
