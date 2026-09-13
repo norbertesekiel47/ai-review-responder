@@ -15,6 +15,8 @@ Everything a resumed session needs is on disk. Read in this order; never re-read
 
 ## Where the run is
 
+**CLOSED 2026-09-13.** PR #1273 squash-merged as `34857b73b` (02:13Z, all checks green) after a flag-off staging ride at `f96b1a879` (Railway worker SUCCESS, `/ready` green; Vercel staging READY). `staging` realigned to `main`. Worktree removed by `scripts/feature-cleanup.sh`; the `.feature/` ledgers were archived first. Post-merge docs sweep in the `docs/run-b-closeout` PR. **What the T8 follow-up PR owes:** Sentry rule 11 in both projects, the staging flip through `flag-flip`, p50/p95, the constants tune, spec §12.1 and §15, and red-team RT-B8's test. The lines below describe the state at the merge pause and stay as history.
+
 - Worktree `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-owner-operator-run-b`, branch `feat/owner-operator-run-b`, base `6edacd0b0` (origin/main). Enforcement ARMED.
 - Step 3 (plan): **LOCKED 2026-09-12 by owner call after round 3** (`phase=plan_approved`). Drafted by an Opus subagent, revised once by the root (page path → `/dashboard/operator`, nav test in the existing suite, `recordTerminal` status predicate), then three Codex rounds through `grill-me-codex/scripts/runner.py`: round 1 plan-skeptic REVISE (11, all accepted), round 2 fresh verification REVISE (7 fix-introduced defects, all accepted), round 3 resumed REVISE (1 race, accepted). Ledger: `docs/reviews/feat-owner-operator-run-b/plan-review.md`; raw artifacts under `~/.claude/grill-codex/run-b-2026-09-12/`. 51 test titles in the intake (40 + 11 from review). PREVALIDATE: PASS at the lock.
 - Codex thread: 01a0960d-4387-7f72-be06-e1d2f82c8a0c
@@ -59,3 +61,13 @@ Console (Harbor) visual system, inside the authenticated shell · page at `/dash
 | total | 120.3M | 265K | 487 min |
 
 Most expensive step: review (four axes, three red-team rounds, two fix waves). The thing to trim next: run `pnpm ci:fallow:coverage` and React Doctor (`npx react-doctor@<pinned> --scope changed --base origin/main --blocking error`) BEFORE the review wave on any UI-bearing branch — the two CI failures after `reviewed` cost a fix wave, a voided sidecar and this second session.
+
+## Phase cost (session 2, `phase-cost.mjs` at close; deltas over session 1)
+
+| Step | Input tokens | Output | Wall |
+|---|---|---|---|
+| review (fresh red-team run: 3 rounds, 2 fix waves, 3 gate runs) | +43.3M | +114K | +371 min |
+| review-ready (sidecar close, PR body, staging ride, merge, re-sync) | +3.1M | +10K | +21 min |
+| total, both sessions | 280.0M | 573K | 879 min |
+
+Caveat on the ledger: `/feature-resume` re-ran `arm-check.sh`, which re-stamped the `armed` step, so the script attributes the resumed session's reconciliation and the fixer/red-team dispatches (≈134M in, ≈405 min) to "worktree armed" and prints a negative "plan approved" duration. The two rows above are the steps whose stamps stayed honest; session 2 in total was ≈160M input / 308K output / 6.5 h. Most expensive item, again: adversarial verification after a post-`reviewed` code change — the lesson above stands.
