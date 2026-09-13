@@ -872,6 +872,82 @@ describe('OperatorClient', () => {
     expect(afterAdopting.aborted).toBe(true);
   });
 
+  it('a conversation read that answers after the turn finished resumes the turn it says is still running', async () => {
+    // THE THIRD LAYER OF RB3-01, and the one neither sibling case above reaches.
+    //
+    // `finishTurn` releases the turn in state AND in `loadRef`, and asks for a
+    // refetch — but it does NOT bump `loadRef.current.epoch`, because it is not
+    // a submission and nothing it did invalidates the answer already in flight.
+    // So that answer passes the epoch guard (`useOperatorConversation.ts:314`)
+    // and the only thing left that knows a turn is no longer being waited on is
+    // the REF: the `turnId` its own render captured still names the turn that
+    // has since finished.
+    //
+    // Reading that capture instead says "a turn is already running, resume
+    // nothing", and a turn the answer reports as still running — started in
+    // another tab while this one waited — is never polled. The screen sits
+    // silent while the worker works, which is the failure the resume arm exists
+    // to prevent (`useOperatorConversation.ts:158-177`).
+    const TURN_A = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const TURN_B = TURN;
+    const releases: Array<() => void> = [];
+    /** Turn A is still running until the case says otherwise. */
+    let turnAStatus = 'accepted';
+    // What the slow read finally answers: the turn this screen was waiting on
+    // is done, and a LATER one is running.
+    const conversationBody = conversationWith([
+      storedTurn({ id: TURN_A, sequence: 1, status: 'completed', ownerText: 'An older question.' }),
+      storedTurn({ id: TURN_B, sequence: 2, status: 'running', ownerText: 'A newer question.' }),
+    ]);
+
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('/api/operator/conversation')) {
+        // EVERY conversation read is held, and only the FIRST is ever released:
+        // the refetch `finishTurn` asked for is still outstanding when the older
+        // answer lands, which is exactly the window under test.
+        await new Promise<void>((resolve) => { releases.push(resolve); });
+        return { ok: true, status: 200, json: async () => conversationBody } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => (href.includes(TURN_A)
+          ? turnBody({ id: TURN_A, status: turnAStatus })
+          : turnBody({ id: TURN_B, status: 'running' })),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    searchParamsMock.value = new URLSearchParams({ conversationId: CONVERSATION, turnId: TURN_A });
+
+    render(<OperatorClient />);
+    // The wait the URL asked for, and the read issued beside it.
+    expect(await screen.findByText(PREPARING)).toBeInTheDocument();
+    await waitFor(() => expect(releases).toHaveLength(1));
+
+    // THE TURN FINISHES. The poll's terminal answer ends the wait, drops the
+    // turn from the URL, and asks for a refetch — the second read, which never
+    // answers.
+    turnAStatus = 'completed';
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    await waitFor(() => expect(screen.queryByText(PREPARING)).not.toBeInTheDocument());
+    await waitFor(() => expect(releases).toHaveLength(2));
+    expect(String(replaceMock.mock.calls.at(-1)![0])).not.toContain('turnId=');
+
+    // NOW the first read answers, inside its own epoch.
+    releases[0]!();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    // Its transcript is committed…
+    expect(screen.getByText('A newer question.')).toBeInTheDocument();
+    // …and the turn it reports as still running is waited on, not abandoned.
+    const pollsForB = () =>
+      fetchMock.mock.calls.filter(([u]) => String(u).includes(`/api/operator/turns/${TURN_B}`)).length;
+    await waitFor(() => expect(pollsForB()).toBeGreaterThan(0));
+    expect(String(replaceMock.mock.calls.at(-1)![0])).toContain(`turnId=${TURN_B}`);
+    expect(screen.getByText(PREPARING)).toBeInTheDocument();
+  });
+
   // Round-1 addition RB-03, converted by T4 (it wires Refresh plan).
   it('Refresh plan preserves the original instruction and location after scope changes', async () => {
     // A STALE plan prepared for the Salon, while the browser now points at the
