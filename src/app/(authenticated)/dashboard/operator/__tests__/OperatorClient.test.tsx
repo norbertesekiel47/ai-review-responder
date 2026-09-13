@@ -948,6 +948,84 @@ describe('OperatorClient', () => {
     expect(screen.getByText(PREPARING)).toBeInTheDocument();
   });
 
+  it('a second Operator turn in an existing conversation refetches the transcript and shows the owner\'s new message while preparing', async () => {
+    // S3, AND THE ONLY CASE THAT CAN SEE IT (RT-B8).
+    //
+    // `adoptAcceptedTurn` bumps `reloadEpoch` (`useOperatorConversation.ts:354`)
+    // so an accepted POST re-reads the transcript. Every other case that sends
+    // starts the FIRST Operator turn of a NEW conversation, where the same
+    // callback also moves `conversationId` (null → C) and `fresh` (true →
+    // false) — both dependencies of the load effect
+    // (`useOperatorConversation.ts:335`) — so the read re-runs whether the epoch
+    // moved or not, and deleting the bump changes nothing those cases observe.
+    //
+    // HERE THE SCREEN IS ALREADY ON CONVERSATION C. The POST answers with the
+    // SAME `conversationId` and a new turn id, so `conversationId`, `fresh` and
+    // `scopedLocationId` all stay put and the epoch bump is the ONLY thing that
+    // can re-read. The composer empties on send, there is no optimistic bubble,
+    // and the poll answers `running` forever — so `finishTurn` never fires its
+    // own refetch — which leaves the owner's own words off every part of the
+    // screen for the twenty to sixty seconds the turn takes.
+    const TURN_A = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const TURN_B = TURN;
+    const FIRST_MESSAGE = 'Make my replies warmer.';
+    const SECOND_MESSAGE = 'And make them shorter.';
+    /** Flipped by the POST: the stored transcript now carries the second turn. */
+    let accepted = false;
+    const firstTurn = storedTurn({ id: TURN_A, sequence: 1, ownerText: FIRST_MESSAGE });
+    const secondTurn = storedTurn({
+      id: TURN_B, sequence: 2, status: 'running', ownerText: SECOND_MESSAGE,
+    });
+    const fetchMock = routeFetch([
+      [/^GET .*\/api\/operator\/conversation/, () => ({
+        status: 200,
+        body: conversationWith(accepted ? [firstTurn, secondTurn] : [firstTurn]),
+      })],
+      [/^POST .*\/api\/operator\/turns$/, () => {
+        accepted = true;
+        return { status: 202, body: { conversationId: CONVERSATION, turnId: TURN_B } };
+      }],
+      [/^GET .*\/api\/operator\/turns\//, () => ({
+        status: 200, body: turnBody({ id: TURN_B, status: 'running' }),
+      })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    // AN EXISTING CONVERSATION, no turn in flight: the state a reload leaves
+    // behind once the previous Operator turn has finished.
+    searchParamsMock.value = new URLSearchParams({ conversationId: CONVERSATION });
+
+    const conversationReads = () =>
+      fetchMock.mock.calls.filter(
+        ([url, init]) => (init?.method ?? 'GET') === 'GET'
+          && String(url).includes('/api/operator/conversation'),
+      ).length;
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<OperatorClient />);
+
+    // The first exchange, read exactly once — nothing about this mount asks for
+    // a second transcript read, which is what makes the count below meaningful.
+    expect(await screen.findByText(FIRST_MESSAGE)).toBeInTheDocument();
+    await waitFor(() => expect(conversationReads()).toBe(1));
+    const before = conversationReads();
+
+    await user.type(screen.getByRole('textbox', { name: /message/i }), SECOND_MESSAGE);
+    await user.click(screen.getByRole('button', { name: /^send$/i }));
+
+    await waitFor(() => expect(postBodies(fetchMock)).toHaveLength(1));
+    // The SAME conversation, which is the whole premise: no identity moved.
+    expect(postBodies(fetchMock)[0].conversationId).toBe(CONVERSATION);
+
+    // THE REFETCH the accepted POST asked for…
+    await waitFor(() => expect(conversationReads()).toBeGreaterThan(before));
+    // …and the second Operator turn's `ownerText` rendered from it, beside the
+    // wait it is still under.
+    expect(await screen.findByText(SECOND_MESSAGE)).toBeInTheDocument();
+    expect(screen.getByText(PREPARING)).toBeInTheDocument();
+    // The earlier exchange is still there: a refetch, not a replacement.
+    expect(screen.getByText(FIRST_MESSAGE)).toBeInTheDocument();
+  });
+
   // Round-1 addition RB-03, converted by T4 (it wires Refresh plan).
   it('Refresh plan preserves the original instruction and location after scope changes', async () => {
     // A STALE plan prepared for the Salon, while the browser now points at the
