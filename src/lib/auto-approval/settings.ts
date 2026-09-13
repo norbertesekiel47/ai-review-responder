@@ -204,13 +204,26 @@ export async function patchAutoApprovalSettings(
     throw new AutoApprovalExpansionBlockedError(['impersonation_not_allowed']);
   }
 
-  return sql.begin(async (tx) => {
-    const lockedAccount = await updatePolicyInTransaction(tx, input);
-    return loadAutoApprovalSettings(tx, {
-      accountId: input.accountId,
-      impersonated: input.impersonated,
-    }, lockedAccount);
-  });
+  return sql.begin(async (tx) => patchAutoApprovalSettingsInTransaction(tx, input));
+}
+
+// The same lock -> gate -> write -> audit -> reload sequence on the CALLER's
+// transaction, so a caller that composes it with its own writes commits or
+// rolls back all of them together. It repeats the impersonation rejection
+// because a caller can reach it without the wrapper above.
+export async function patchAutoApprovalSettingsInTransaction(
+  tx: TransactionSql,
+  input: PatchAutoApprovalSettingsInput,
+): Promise<AutoApprovalSettingsResponse> {
+  if (input.impersonated) {
+    throw new AutoApprovalExpansionBlockedError(['impersonation_not_allowed']);
+  }
+
+  const lockedAccount = await updatePolicyInTransaction(tx, input);
+  return loadAutoApprovalSettings(tx, {
+    accountId: input.accountId,
+    impersonated: input.impersonated,
+  }, lockedAccount);
 }
 
 async function updatePolicyInTransaction(

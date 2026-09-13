@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { resetServerConfigForTests } from '@/lib/config/server';
+import type { TransactionSql } from 'postgres';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import type { PatchAutoApprovalSettingsInput } from '../settings';
 import type { AutoApprovalThreshold } from '../types';
 
 const { mockWriteAccountAuditLog } = vi.hoisted(() => ({
@@ -1804,6 +1806,254 @@ describe('auto-approval settings service', () => {
       vetoWindowMinutes: 15,
       dailyAutoPostCap: 25,
     });
+  });
+});
+
+// Run C T1: the transaction-aware writer. Both seams run the same
+// lock -> gate -> write -> audit -> reload sequence, so the behavioral cases
+// run against each; only the transaction boundary differs. Rollback and real
+// lock blocking need Postgres and live in settings.integration.test.ts.
+type SettingsSeam = 'wrapper' | 'tx export';
+const SETTINGS_SEAMS: SettingsSeam[] = ['wrapper', 'tx export'];
+
+const SEAM_BASE = {
+  accountId: ACCOUNT_ID,
+  actorUserId: ACTOR_USER_ID,
+  impersonated: false,
+} as const;
+
+async function runSeam(seam: SettingsSeam, input: PatchAutoApprovalSettingsInput) {
+  const settings = await import('../settings');
+  return seam === 'wrapper'
+    ? settings.patchAutoApprovalSettings(mockSql, input)
+    : settings.patchAutoApprovalSettingsInTransaction(mockSql, input);
+}
+
+function policyInserts() {
+  return sqlCalls.filter((call) => call.text.includes('INSERT INTO auto_approval_policies'));
+}
+
+const LOCK_ORDER_CASES: { name: string; input: PatchAutoApprovalSettingsInput }[] = [
+  { name: 'an account threshold write', input: { ...SEAM_BASE, operation: 'set_account_manual' } },
+  {
+    name: 'an account dial write',
+    input: { ...SEAM_BASE, operation: 'set_account_veto_window', minutes: 30 },
+  },
+  {
+    name: 'a location threshold write',
+    input: { ...SEAM_BASE, operation: 'set_location_manual', locationId: LOCATION_1 },
+  },
+  {
+    name: 'a location dial write',
+    input: { ...SEAM_BASE, operation: 'set_location_daily_cap', locationId: LOCATION_1, cap: 3 },
+  },
+];
+
+describe('transaction-aware settings writer seam (Run C T1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlCalls.length = 0;
+    resetDb();
+    enableReadiness();
+    mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
+  });
+
+  it.each(
+    SETTINGS_SEAMS.flatMap((seam) => LOCK_ORDER_CASES.map((entry) => ({ seam, ...entry }))),
+  )('$seam: the account FOR UPDATE precedes the first policy statement for $name', async ({ seam, input }) => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 4 };
+
+    await runSeam(seam, input);
+
+    // Ordered indices in the one SQL call log. Moving readBeforeState (or any
+    // other auto_approval_policies read) above lockAccount fails this test.
+    const lockIndex = sqlCalls.findIndex(
+      (call) => call.text.includes('FROM accounts') && call.text.includes('FOR UPDATE'),
+    );
+    const firstPolicyIndex = sqlCalls.findIndex((call) => call.text.includes('auto_approval_policies'));
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(firstPolicyIndex).toBeGreaterThan(lockIndex);
+  });
+
+  it.each(SETTINGS_SEAMS)('%s rejects an impersonated actor before any statement or audit', async (seam) => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 4 };
+
+    // A contraction: readiness alone would allow it, so only the seam's own
+    // early rejection stops it. The tx case never passes through the wrapper.
+    await expect(runSeam(seam, {
+      ...SEAM_BASE,
+      impersonated: true,
+      operation: 'set_account_manual',
+    })).rejects.toMatchObject({
+      name: 'AutoApprovalExpansionBlockedError',
+      blockReasons: ['impersonation_not_allowed'],
+    });
+
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(sqlCalls).toHaveLength(0);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+    expect(dbState.accountDefault?.threshold).toBe(4);
+  });
+
+  it('the tx export runs every statement and the audit on the caller transaction without opening its own', async () => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    };
+    // A distinct caller handle: mockSql is reachable ONLY through it, so the
+    // call counts prove no statement ran on another executor.
+    const callerTx = vi.fn(
+      (strings: TemplateStringsArray, ...values: unknown[]) => mockSql(strings, ...values),
+    );
+    const { patchAutoApprovalSettingsInTransaction } = await import('../settings');
+
+    const result = await patchAutoApprovalSettingsInTransaction(callerTx as unknown as TransactionSql, {
+      ...SEAM_BASE,
+      operation: 'set_location_veto_window',
+      locationId: LOCATION_1,
+      minutes: 15,
+    });
+
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(sqlCalls.length).toBeGreaterThan(0);
+    expect(callerTx).toHaveBeenCalledTimes(sqlCalls.length);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog.mock.calls[0]?.[0]).toBe(callerTx);
+    expect(result.locations.find((entry) => entry.locationId === LOCATION_1)?.override)
+      .toMatchObject({ exists: true, threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: 2 });
+  });
+
+  it.each(SETTINGS_SEAMS)(
+    '%s seeds a first location dial write as manual with the other dial inherited (complete-disable contraction)',
+    async (seam) => {
+      dbState.accountDefault = {
+        id: 'policy-default',
+        threshold: 4,
+        vetoWindowMinutes: 30,
+        dailyAutoPostCap: 2,
+      };
+
+      // cap 2 -> 5 alone would widen; creating the rowless override switches
+      // the location to manual, so the whole write is a contraction.
+      const result = await runSeam(seam, {
+        ...SEAM_BASE,
+        operation: 'set_location_daily_cap',
+        locationId: LOCATION_1,
+        cap: 5,
+      });
+
+      expect(dbState.overrides.get(LOCATION_1)).toEqual({
+        id: '019dc366-29ce-7000-a000-000000000123',
+        threshold: null,
+        vetoWindowMinutes: 30,
+        dailyAutoPostCap: 5,
+      });
+      expect(result.locations.find((entry) => entry.locationId === LOCATION_1)?.effective)
+        .toMatchObject({
+          source: 'location_override',
+          threshold: null,
+          vetoWindowMinutes: 30,
+          dailyAutoPostCap: 5,
+        });
+      expect(dbState.accountDefault).toMatchObject({
+        threshold: 4,
+        vetoWindowMinutes: 30,
+        dailyAutoPostCap: 2,
+      });
+      expect(policyInserts()).toHaveLength(1);
+      expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+      expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+        mockSql,
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            exposureClassification: 'contraction',
+            expansion: false,
+            requiredConfirmationLevel: null,
+          }),
+        }),
+      );
+      expect(mockSql.begin).toHaveBeenCalledTimes(seam === 'wrapper' ? 1 : 0);
+    },
+  );
+
+  it.each(SETTINGS_SEAMS)('%s preserves untouched fields when a dial write hits an existing override', async (seam) => {
+    dbState.accountDefault = {
+      id: 'policy-default',
+      threshold: 4,
+      vetoWindowMinutes: 15,
+      dailyAutoPostCap: 9,
+    };
+    dbState.overrides.set(LOCATION_1, {
+      id: 'policy-location',
+      threshold: 5,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 3,
+    });
+
+    const result = await runSeam(seam, {
+      ...SEAM_BASE,
+      operation: 'set_location_daily_cap',
+      locationId: LOCATION_1,
+      cap: 2,
+    });
+
+    expect(dbState.overrides.get(LOCATION_1)).toEqual({
+      id: 'policy-location',
+      threshold: 5,
+      vetoWindowMinutes: 30,
+      dailyAutoPostCap: 2,
+    });
+    expect(result.locations.find((entry) => entry.locationId === LOCATION_1)?.override)
+      .toMatchObject({ policyId: 'policy-location', threshold: 5, vetoWindowMinutes: 30, dailyAutoPostCap: 2 });
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          exposureClassification: 'contraction',
+          afterRow: expect.objectContaining({
+            policyId: 'policy-location',
+            threshold: 5,
+            vetoWindowMinutes: 30,
+            dailyAutoPostCap: 2,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it.each(SETTINGS_SEAMS)('%s refuses set_location_override on an archived location before any write', async (seam) => {
+    dbState.locations = [
+      { id: LOCATION_1, name: 'Old Cafe', displayLabel: 'Old', archivedAt: new Date('2026-01-01T00:00:00Z') },
+    ];
+
+    await expect(runSeam(seam, {
+      ...SEAM_BASE,
+      operation: 'set_location_override',
+      locationId: LOCATION_1,
+      threshold: 5,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({ name: 'AutoApprovalSettingsError', code: 'location_inactive', status: 409 });
+
+    expect(policyInserts()).toHaveLength(0);
+    expect(dbState.overrides.has(LOCATION_1)).toBe(false);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+  });
+
+  it.each(SETTINGS_SEAMS)('%s requires standard confirmation for an expansion and writes nothing', async (seam) => {
+    dbState.accountDefault = { id: 'policy-default', threshold: 5 };
+
+    await expect(runSeam(seam, {
+      ...SEAM_BASE,
+      operation: 'set_account_default',
+      threshold: 4,
+    })).rejects.toMatchObject({ confirmationLevel: 'standard' });
+
+    expect(policyInserts()).toHaveLength(0);
+    expect(dbState.accountDefault?.threshold).toBe(5);
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
   });
 });
 

@@ -4,12 +4,17 @@ import type postgresType from 'postgres';
 import { randomUUID } from 'node:crypto';
 import {
   cleanupTenantAccount,
+  cleanupLocation,
+  seedLocation,
   seedTenantAccount,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { applyMigration074IfMissing } from '@/lib/shared/__tests__/helpers/apply-migration-074';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import { resetServerConfigForTests } from '@/lib/config/server';
-import { patchAutoApprovalSettings } from '../settings';
+import {
+  patchAutoApprovalSettings,
+  patchAutoApprovalSettingsInTransaction,
+} from '../settings';
 import { POLICY_ACTION_POSTING, POLICY_PERSONA_REPLY } from '../types';
 
 // Live-DB suite for the WS4 Task 12 settings writers: migration 074 rebuilt
@@ -18,6 +23,12 @@ import { POLICY_ACTION_POSTING, POLICY_PERSONA_REPLY } from '../types';
 // inference (documented apply-window breakage in 074's header). These tests
 // run the REAL upserts against the rebuilt indexes — insert AND the
 // DO UPDATE conflict path for both scopes — proving the breakage is over.
+//
+// Run C T1 adds the transaction-aware writer cases at the end. Each one seeds
+// its own scratch location, resets the account default it reads, and deletes
+// its policy + audit rows + location in `finally`, so it assumes nothing from
+// the earlier chained tests. The lock case uses the suite connection as its
+// holder/probe and one extra writer connection.
 //
 // Gated on TEST_DATABASE_POOL_URL; skips cleanly without one.
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
@@ -47,6 +58,123 @@ const actor = {
   actorUserId: null,
   impersonated: false,
 } as const;
+
+type SqlExecutor = postgresType.Sql | postgresType.TransactionSql;
+
+const WRITER_APPLICATION_NAME = 'run_c_t1_settings_writer';
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function seedScratchLocation(): Promise<string> {
+  const { businessId } = await seedLocation(sql(), tenant.accountId, {
+    name: 'Run C T1 Scratch Location',
+    isPrimary: false,
+  });
+  return businessId;
+}
+
+async function cleanupScratchLocation(locationId: string): Promise<void> {
+  await sql()`
+    DELETE FROM auto_approval_policies
+    WHERE account_id = ${tenant.accountId}::uuid AND location_id = ${locationId}::uuid
+  `;
+  // account_audit_log.location_id references businesses without a cascade.
+  await sql()`
+    DELETE FROM account_audit_log
+    WHERE account_id = ${tenant.accountId}::uuid AND location_id = ${locationId}::uuid
+  `;
+  await cleanupLocation(sql(), locationId);
+}
+
+async function resetAccountDefault(dials: {
+  threshold: 4 | 5 | null;
+  vetoWindowMinutes: 15 | 30;
+  dailyAutoPostCap: number | null;
+}): Promise<void> {
+  await sql()`
+    INSERT INTO auto_approval_policies (
+      id, account_id, location_id, persona, action_class,
+      auto_approve_min_star, veto_window_minutes, daily_auto_post_cap
+    ) VALUES (
+      ${randomUUID()}::uuid, ${tenant.accountId}::uuid, NULL,
+      ${POLICY_PERSONA_REPLY}, ${POLICY_ACTION_POSTING},
+      ${dials.threshold}, ${dials.vetoWindowMinutes}, ${dials.dailyAutoPostCap}
+    )
+    ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL
+    DO UPDATE SET
+      auto_approve_min_star = EXCLUDED.auto_approve_min_star,
+      veto_window_minutes = EXCLUDED.veto_window_minutes,
+      daily_auto_post_cap = EXCLUDED.daily_auto_post_cap,
+      suspended_at = NULL,
+      suspended_reason = NULL
+  `;
+}
+
+async function countScratchRows(
+  executor: SqlExecutor,
+  locationId: string,
+): Promise<{ policies: number; audits: number }> {
+  const [row] = await executor<{ policies: number; audits: number }[]>`
+    SELECT
+      (SELECT COUNT(*)::int FROM auto_approval_policies
+        WHERE account_id = ${tenant.accountId}::uuid
+          AND location_id = ${locationId}::uuid) AS policies,
+      (SELECT COUNT(*)::int FROM account_audit_log
+        WHERE account_id = ${tenant.accountId}::uuid
+          AND location_id = ${locationId}::uuid
+          AND event_type = 'auto_approval_policy_changed') AS audits
+  `;
+  return { policies: row?.policies ?? -1, audits: row?.audits ?? -1 };
+}
+
+async function readScratchOverride(locationId: string) {
+  const [row] = await sql()<{
+    id: string;
+    auto_approve_min_star: number | null;
+    veto_window_minutes: number;
+    daily_auto_post_cap: number | null;
+  }[]>`
+    SELECT id, auto_approve_min_star, veto_window_minutes, daily_auto_post_cap
+    FROM auto_approval_policies
+    WHERE account_id = ${tenant.accountId}::uuid AND location_id = ${locationId}::uuid
+  `;
+  return row ?? null;
+}
+
+// Observes the writer backend parked on a lock that the holder backend owns
+// (pg_blocking_pids). The holder transaction also probes, so only two
+// connections are needed. The deadline bounds failure; the observed lock is
+// the proof, with no sleep establishing the race.
+async function waitForWriterBlockedBy(tx: postgresType.TransactionSql, holderPid: number): Promise<string> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    // pg_stat_activity is cached within a transaction. Refresh its statistics
+    // snapshot so this holder can observe the writer entering its lock wait.
+    await tx`SELECT pg_stat_clear_snapshot()`;
+    const [blocked] = await tx<{ query: string }[]>`
+      SELECT query
+      FROM pg_stat_activity
+      WHERE application_name = ${WRITER_APPLICATION_NAME}
+        AND wait_event_type = 'Lock'
+        AND ${holderPid}::int = ANY(pg_blocking_pids(pid))
+      LIMIT 1
+    `;
+    if (blocked) return blocked.query;
+  }
+  throw new Error('settings writer never blocked on the holder-owned lock');
+}
 
 describeWithDb('auto-approval settings writers — live upserts against the 074 indexes', { timeout: 30_000 }, () => {
   beforeAll(async () => {
@@ -285,6 +413,181 @@ describeWithDb('auto-approval settings writers — live upserts against the 074 
         SET subscription_tier = 'autopilot'
         WHERE id = ${tenant.accountId}::uuid
       `;
+    }
+  });
+
+  it('tx writer: a caller throw after the writer returns rolls back both the policy row and its audit row', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 7 });
+
+    try {
+      await expect(sql().begin(async (tx) => {
+        const result = await patchAutoApprovalSettingsInTransaction(tx, {
+          ...actor,
+          operation: 'set_location_veto_window',
+          locationId,
+          minutes: 15,
+        });
+        expect(result.locations.find((entry) => entry.locationId === locationId)?.override)
+          .toMatchObject({ exists: true, threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: 7 });
+        // Both writes are visible on the caller's transaction before the throw.
+        expect(await countScratchRows(tx, locationId)).toEqual({ policies: 1, audits: 1 });
+        throw new Error('run-c-t1 deliberate caller failure');
+      })).rejects.toThrow('run-c-t1 deliberate caller failure');
+
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 0, audits: 0 });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it('tx writer: a first dial write seeds manual + the inherited dial with one audit; a later dial write keeps untouched fields', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 7 });
+
+    try {
+      const created = await sql().begin((tx) => patchAutoApprovalSettingsInTransaction(tx, {
+        ...actor,
+        operation: 'set_location_daily_cap',
+        locationId,
+        cap: 2,
+      }));
+      const createdOverride = created.locations.find((entry) => entry.locationId === locationId)?.override;
+      expect(createdOverride).toMatchObject({
+        exists: true,
+        threshold: null,
+        vetoWindowMinutes: 30,
+        dailyAutoPostCap: 2,
+      });
+      expect(await readScratchOverride(locationId)).toMatchObject({
+        id: createdOverride?.policyId,
+        auto_approve_min_star: null,
+        veto_window_minutes: 30,
+        daily_auto_post_cap: 2,
+      });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 1, audits: 1 });
+
+      // A non-null threshold on the existing row makes its preservation observable.
+      await sql()`
+        UPDATE auto_approval_policies
+        SET auto_approve_min_star = 5
+        WHERE account_id = ${tenant.accountId}::uuid AND location_id = ${locationId}::uuid
+      `;
+
+      const updated = await sql().begin((tx) => patchAutoApprovalSettingsInTransaction(tx, {
+        ...actor,
+        operation: 'set_location_daily_cap',
+        locationId,
+        cap: 1,
+      }));
+      expect(updated.locations.find((entry) => entry.locationId === locationId)?.override)
+        .toMatchObject({
+          policyId: createdOverride?.policyId,
+          threshold: 5,
+          vetoWindowMinutes: 30,
+          dailyAutoPostCap: 1,
+        });
+      expect(await readScratchOverride(locationId)).toMatchObject({
+        id: createdOverride?.policyId,
+        auto_approve_min_star: 5,
+        veto_window_minutes: 30,
+        daily_auto_post_cap: 1,
+      });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 1, audits: 2 });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it('tx writer: an impersonated actor is rejected on the caller transaction with zero writes', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 7 });
+
+    try {
+      await expect(sql().begin((tx) => patchAutoApprovalSettingsInTransaction(tx, {
+        ...actor,
+        impersonated: true,
+        operation: 'set_location_manual',
+        locationId,
+      }))).rejects.toMatchObject({ blockReasons: ['impersonation_not_allowed'] });
+
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 0, audits: 0 });
+    } finally {
+      await cleanupScratchLocation(locationId);
+    }
+  });
+
+  it('tx writer: waits on an owner-held account row lock, then reads the account default the holder committed', async () => {
+    const locationId = await seedScratchLocation();
+    await resetAccountDefault({ threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 7 });
+    const writer = postgres(testDatabaseUrl!, {
+      max: 1,
+      prepare: false,
+      connection: { application_name: WRITER_APPLICATION_NAME },
+    });
+    const holderReady = deferred<{ pid: number; tx: postgresType.TransactionSql }>();
+    const releaseHolder = deferred<void>();
+    const pending: Promise<unknown>[] = [];
+
+    try {
+      const holderTx = sql().begin(async (tx) => {
+        await tx`SET LOCAL statement_timeout = '15s'`;
+        await tx`SELECT id FROM accounts WHERE id = ${tenant.accountId}::uuid FOR UPDATE`;
+        // Changed under the lock and committed on release: a writer that read
+        // the account default BEFORE taking the lock would seed cap 7, not 3.
+        await tx`
+          UPDATE auto_approval_policies
+          SET daily_auto_post_cap = 3, updated_at = NOW()
+          WHERE account_id = ${tenant.accountId}::uuid
+            AND location_id IS NULL
+            AND persona = ${POLICY_PERSONA_REPLY}
+            AND action_class = ${POLICY_ACTION_POSTING}
+        `;
+        const [backend] = await tx<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+        if (!backend) throw new Error('holder backend pid unavailable');
+        holderReady.resolve({ pid: backend.pid, tx });
+        await releaseHolder.promise;
+      });
+      pending.push(holderTx);
+      void holderTx.catch((error: unknown) => holderReady.reject(error));
+
+      const locked = await holderReady.promise;
+
+      const writerTx = writer.begin(async (tx) => {
+        await tx`SET LOCAL lock_timeout = '10s'`;
+        return patchAutoApprovalSettingsInTransaction(tx, {
+          ...actor,
+          operation: 'set_location_veto_window',
+          locationId,
+          minutes: 15,
+        });
+      });
+      // Observe rejection immediately and rethrow it when the writer is
+      // joined below; cleanup can safely await this outcome on either path.
+      const writerOutcome = writerTx.then(
+        (result) => ({ ok: true, result } as const),
+        (error: unknown) => ({ ok: false, error } as const),
+      );
+      pending.push(writerOutcome);
+
+      const blockedQuery = await waitForWriterBlockedBy(locked.tx, locked.pid);
+      expect(blockedQuery).toMatch(/FROM\s+accounts/i);
+      expect(blockedQuery).toMatch(/FOR\s+UPDATE/i);
+
+      releaseHolder.resolve();
+      await holderTx;
+      const outcome = await writerOutcome;
+      if (!outcome.ok) throw outcome.error;
+      const result = outcome.result;
+
+      expect(result.locations.find((entry) => entry.locationId === locationId)?.override)
+        .toMatchObject({ exists: true, threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: 3 });
+      expect(await countScratchRows(sql(), locationId)).toEqual({ policies: 1, audits: 1 });
+    } finally {
+      releaseHolder.resolve();
+      await Promise.allSettled(pending);
+      await writer.end({ timeout: 5 });
+      await cleanupScratchLocation(locationId);
     }
   });
 });
