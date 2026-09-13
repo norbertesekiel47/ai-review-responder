@@ -77,6 +77,19 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `channels/whatsapp/cancel/route.ts` | POST: cancel pending enrollment. |
 | `channels/whatsapp/disable/route.ts` | POST: disable active enrollment. |
 
+#### `operator/`
+
+The **Owner Operator** API, gated by `OWNER_OPERATOR_ENABLED` (404 `operator_disabled` before auth when off) and inside `isProtectedOwnerApiRoute`, so proxy branch 6 applies the owner AAL2 gate. Glossary: `docs/context/owner-operator.md`.
+
+| Route | What it does |
+|-------|--------------|
+| `gate.ts` | Not a route. `requireOperatorWriter(sql, request)` — the one copy of the write gate the three mutation routes share: flag → `requireWritableOwner` → impersonation 409, in that order. `requireOperatorProposalWriter` adds the `proposals/:id/*` id resolution (malformed = the same 404 a foreign id gets). Bodies stay in the handlers. |
+| `turns/route.ts` | POST: **Run A.** One transaction — upsert the conversation, insert the `accepted` **Operator turn**, enqueue the `agent_turn` outbox row. Idempotent on `(account_id, client_turn_key)`; same payload returns the ids, different payload is 409. Impersonated sessions are refused 409. |
+| `turns/[id]/route.ts` | GET: **Run A.** The polled turn, account-scoped. Status, rendered **Reply segment**s, `proposals` and `unsupported` under separate keys. A malformed id is the same 404 a foreign one gets. |
+| `conversation/route.ts` | GET: **Run A**, deepened in Run B. The transcript (50 most recent turns) plus the live summary panel. `?id=` selects a conversation; **Run B's `?locationId=` scopes the summary when the conversation has no turns yet**, so an owner with no conversation at all gets the empty view with a scoped summary rather than a 404, and the summary carries the location's `connectionStatus`. |
+| `proposals/[id]/apply/route.ts` | POST: **Run B.** `withSameOrigin` → flag → `requireWritableOwner` → impersonation → `{ expectedVersionToken }` (`.strict()`, no `confirmationLevel` — that is slice 2) → `applyProposal`. Maps six result kinds: applied 200, stale 409 `proposal_stale`, rejected 409 `<reason>`, not-pending 409, failed 500 `apply_failed`, not-found 404. Every non-404 body carries the **Proposal** row. |
+| `proposals/[id]/decline/route.ts` | POST: **Run B.** Same gates, no body. `declineProposal` records the actor only and is idempotent; an already-decided **Proposal** answers 409 `proposal_not_pending`. |
+
 #### `contact/route.ts` / `demo-request/route.ts` / `feedback/route.ts`
 
 Public form submission handlers. Write to DB and optionally send an internal notification email.

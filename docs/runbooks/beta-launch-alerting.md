@@ -347,6 +347,10 @@ email shares the Resend provider with the product.
   stuck `dispatched` row is one count-only log line (`Watchdog recovered stale
   entries`: `recovered`, `failed`, `stale_dispatching` — no topic field). `OWNER_OPERATOR_ENABLED`
   is off in production until go-live, so this rule pages nothing before then.
+  **Response:** walk `outbox_id` → `job_outbox.payload` → `agent_turns.status`
+  (the Rule 11 note in §1a-do carries the two queries). An `exhausted` turn is
+  the expected end state; a non-terminal turn beside a terminal outbox row is
+  the stranded-turn case and the owner must start a new conversation.
 
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 
@@ -409,7 +413,7 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 8 | `refusal-vocabulary-overflow → discord` | `fault` equals `unmapped_block_reason_overflow` | **every event** | `error` |
 | 9 | `stripe-out-of-order-ack → discord` **BUILT 2026-09-04, rule `3946648`** | `feature` equals `stripe_subscription_out_of_order` **AND** the issue has happened at least **4** times | **every event**, throttled to 1/hour | any |
 | 10 | Admin home configuration failure → Discord **REQUIRED; NOT CONFIGURED OR DELIVERY-PROVEN BY THIS CHANGE** | Source Next.js project; exception type Error and message equal to the constant below, scoped to the affected deployment environment | **every event**, action throttle 60 minutes per issue | error |
-| 11 | `agent-turn-exhausted → discord` (Owner Operator Run A, red-team P1-3) **REQUIRED BEFORE `OWNER_OPERATOR_ENABLED` GOES ON; NOT CONFIGURED BY THIS CHANGE** | `subsystem` equals `worker_job` **AND** `queue` equals `agent_turn` | **every event** | `error` (the `captureException` default) |
+| 11 | `agent-turn-exhausted → discord` (Owner Operator, red-team P1-3) **REQUIRED BEFORE `OWNER_OPERATOR_ENABLED` GOES ON; NOT BUILT AS OF 2026-09-12** — Run B's build attempt was refused by the Sentry API (`You do not have permission`: the org token in the env has no `alerts:write` scope; the Sentry MCP can only read rules). The build happens with a scoped token, staging first, then production, and this cell gets both rule ids in the rule-9 form; the T8 staging flip gates on it | `subsystem` equals `worker_job` **AND** `queue` equals `agent_turn` | **every event** | `error` (the `captureException` default) |
 
 **Rule 10 — Admin home configuration failure (#1192).** The emitted identity is
 Error with the exact message:
@@ -435,6 +439,53 @@ host; leave role/AAL2 and request-supplied from/next restrictions intact.
 Confirm rule delivery in staging before marking this requirement complete.
 This is a runbook requirement only: no Sentry rule, grouping override,
 destination integration, or delivery drill was installed or executed here.
+
+**Rule 11 — Owner Operator `agent_turn` retry exhaustion (Run B).** The event is
+whatever `worker/job-failure-sink.ts` captures after BullMQ exhausts the job's
+attempts, tagged `subsystem:worker_job` and `queue:agent_turn`. It carries ids
+only — never owner text, a **Reply segment**, a **Proposal** body or a
+**Receipt**.
+
+**Triage — `outbox_id` → `job_outbox.payload` → `agent_turns.status`.** The
+Sentry event names the outbox row, not the turn, so the walk is three steps and
+must be done in this order; skipping to `agent_turns` means guessing which turn
+the alert was about.
+
+```sql
+-- 1. The outbox row the failed dispatch owned. `payload` carries the ids.
+SELECT id, topic, status, attempts, updated_at, payload
+FROM job_outbox
+WHERE id = '<outbox_id from the Sentry event>';
+
+-- 2. The turn that row points at, and where it actually stopped.
+SELECT id, account_id, status, failure_reason, attempt, claimed_at, completed_at
+FROM agent_turns
+WHERE id = (
+  SELECT payload ->> 'turn_id'
+  FROM job_outbox
+  WHERE id = '<outbox_id from the Sentry event>'
+)::uuid;
+```
+
+Read the pair together. A turn that is `failed` with `failure_reason =
+'exhausted'` is the expected end state and the alert is informational. **A turn
+still `accepted` or `running` beside a terminal `job_outbox` row is the
+stranded-turn case (spec §14, CA1)**: nothing will ever complete it, its
+successors in that conversation will fail `predecessor_stalled` after 20
+minutes, and the owner's screen times out after 4 minutes and offers a new
+conversation. The operator's action is to confirm the account and tell the
+owner to start a new conversation; the durable fix is a turn-aware exhaustion
+hook in `OutboxPoller`, which is not built.
+
+Distribution of the six DOMAIN terminal reasons, which have NO Sentry rule by
+decision (spec §14, 2026-09-12):
+
+```sql
+SELECT failure_reason, count(*)
+FROM agent_turns
+WHERE created_at > now() - interval '7 days'
+GROUP BY 1;
+```
 
 > **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
 > This table is the design; these are the rules. Re-read them before assuming a signal

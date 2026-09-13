@@ -11,7 +11,7 @@
  * `reviews`, `/dashboard/requests/contacts` → `requests`. Anything else under
  * `/dashboard` falls back to `dashboard`.
  */
-export type NavSection = 'dashboard' | 'reviews' | 'requests' | 'analytics' | 'settings';
+export type NavSection = 'dashboard' | 'reviews' | 'requests' | 'analytics' | 'operator' | 'settings';
 
 /**
  * Which settings tab the bare `/settings` route means. Single owner of that
@@ -30,6 +30,11 @@ export function deriveNavSection(pathname: string): NavSection | null {
   if (pathname.startsWith('/dashboard/reviews')) return 'reviews';
   if (pathname.startsWith('/dashboard/requests')) return 'requests';
   if (pathname.startsWith('/dashboard/analytics')) return 'analytics';
+  // ORDER-SENSITIVE: this arm MUST sit ABOVE the `/dashboard` catch-all on the
+  // next line. Below it, `/dashboard/operator` folds into `dashboard` and the
+  // Operator row never highlights — the same trap this module's header comment
+  // names for reviews, requests and analytics.
+  if (pathname.startsWith('/dashboard/operator')) return 'operator';
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return 'dashboard';
   return null;
 }

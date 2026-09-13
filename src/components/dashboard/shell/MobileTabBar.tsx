@@ -11,6 +11,10 @@ interface Props {
    *  (authenticated)/layout.tsx. Invariant #13: the browser learns flag state
    *  only through this prop — there is no NEXT_PUBLIC companion. */
   solicitationEnabled: boolean;
+  /** Server-authoritative OWNER_OPERATOR_ENABLED, passed down from
+   *  (authenticated)/layout.tsx. Invariant #13: the browser learns flag state
+   *  only through this prop — there is no NEXT_PUBLIC companion. */
+  operatorEnabled: boolean;
 }
 
 /**
@@ -48,7 +52,7 @@ function MobileTab({
   );
 }
 
-export function MobileTabBar({ solicitationEnabled }: Props) {
+export function MobileTabBar({ solicitationEnabled, operatorEnabled }: Props) {
   const pathname = usePathname() ?? '';
   const pendingCount = usePendingCount();
 
@@ -97,6 +101,24 @@ export function MobileTabBar({ solicitationEnabled }: Props) {
         section="analytics"
         activeNav={activeNav}
       />
+      {/* THE SIXTH TAB. At 390px the bar is flex, nowrap, zero horizontal
+          padding (src/app/(authenticated)/_styles/console.css:2500) and each .mtab is `flex: 1` with 8px/4px
+          padding and an 11px Figtree label (src/app/(authenticated)/_styles/console.css:2509): 390 / 6 =
+          65.0px per tab, a 57.0px content box. "Operator" is 8 characters at
+          ~5.7-6.0px/char = 46-48px, inside the box the existing widest label
+          "Analytics" (~51-54px) already fits. A 10+ character label would NOT:
+          `min-width: auto` blocks shrinking below min-content and the bar does
+          not wrap, so it would overflow rather than truncate. The 44px touch
+          floor still holds (src/app/(authenticated)/_styles/console.css:3245). */}
+      {operatorEnabled && (
+        <MobileTab
+          href="/dashboard/operator"
+          label="Operator"
+          icon="sparkle"
+          section="operator"
+          activeNav={activeNav}
+        />
+      )}
       <MobileTab
         href="/settings"
         label="Settings"

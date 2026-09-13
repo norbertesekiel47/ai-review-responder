@@ -24,7 +24,7 @@ const linkByName = (name: RegExp) => screen.getByRole('link', { name });
 describe('MobileTabBar', () => {
   it('renders Home, Reviews, Settings (no History/Insights/Needs Action)', () => {
     pathnameMock.mockReturnValue('/dashboard');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(linkByName(/home/i)).toHaveAttribute('href', '/dashboard');
     expect(linkByName(/reviews/i)).toHaveAttribute('href', '/dashboard/reviews');
     expect(linkByName(/settings/i)).toBeInTheDocument();
@@ -35,7 +35,7 @@ describe('MobileTabBar', () => {
 
   it('marks Home active on /dashboard', () => {
     pathnameMock.mockReturnValue('/dashboard');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(linkByName(/home/i)).toHaveClass('active');
     expect(linkByName(/reviews/i)).not.toHaveClass('active');
   });
@@ -46,7 +46,7 @@ describe('MobileTabBar', () => {
     'marks Home active on %s, matching the sidebar',
     (pathname) => {
       pathnameMock.mockReturnValue(pathname);
-      render(<MobileTabBar solicitationEnabled={false} />);
+      render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
       expect(linkByName(/home/i)).toHaveClass('active');
       expect(linkByName(/home/i)).toHaveAttribute('aria-current', 'page');
       expect(linkByName(/reviews/i)).not.toHaveClass('active');
@@ -55,13 +55,13 @@ describe('MobileTabBar', () => {
 
   it('renders the Analytics tab (final set: Home · Reviews · Analytics · Settings)', () => {
     pathnameMock.mockReturnValue('/dashboard');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(linkByName(/analytics/i)).toHaveAttribute('href', '/dashboard/analytics');
   });
 
   it('marks Analytics active on /dashboard/analytics', () => {
     pathnameMock.mockReturnValue('/dashboard/analytics');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(linkByName(/analytics/i)).toHaveClass('active');
     expect(linkByName(/home/i)).not.toHaveClass('active');
     expect(linkByName(/reviews/i)).not.toHaveClass('active');
@@ -69,26 +69,26 @@ describe('MobileTabBar', () => {
 
   it('marks Reviews active on /dashboard/reviews', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(linkByName(/reviews/i)).toHaveClass('active');
     expect(linkByName(/home/i)).not.toHaveClass('active');
   });
 
   it('marks Reviews active on /dashboard/reviews/history', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews/history');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(linkByName(/reviews/i)).toHaveClass('active');
   });
 
   it('hides the Requests tab when watch-mode is off', () => {
     pathnameMock.mockReturnValue('/dashboard');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(screen.queryByRole('link', { name: /requests/i })).not.toBeInTheDocument();
   });
 
   it('renders exactly one Requests tab, between Reviews and Analytics, when watch-mode is on', () => {
     pathnameMock.mockReturnValue('/dashboard');
-    render(<MobileTabBar solicitationEnabled />);
+    render(<MobileTabBar solicitationEnabled operatorEnabled={false} />);
     const requests = screen.getAllByRole('link', { name: /requests/i });
     expect(requests).toHaveLength(1);
     expect(requests[0]).toHaveAttribute('href', '/dashboard/requests');
@@ -104,7 +104,7 @@ describe('MobileTabBar', () => {
 
   it('marks Requests active on /dashboard/requests without lighting up Home', () => {
     pathnameMock.mockReturnValue('/dashboard/requests');
-    render(<MobileTabBar solicitationEnabled />);
+    render(<MobileTabBar solicitationEnabled operatorEnabled={false} />);
     const requests = linkByName(/requests/i);
     expect(requests).toHaveClass('active');
     expect(requests).toHaveAttribute('aria-current', 'page');
@@ -113,7 +113,7 @@ describe('MobileTabBar', () => {
 
   it('labels the nav and marks the active tab aria-current=page', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews');
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(screen.getByRole('navigation', { name: /dashboard/i })).toBeInTheDocument();
     expect(linkByName(/reviews/i)).toHaveAttribute('aria-current', 'page');
     expect(linkByName(/settings/i)).not.toHaveAttribute('aria-current');
@@ -125,7 +125,7 @@ describe('MobileTabBar', () => {
 // removed the Settings entry, leaving **Review QR** unreachable on a phone.
 describe('MobileTabBar — Review QR reachability', () => {
   it('offers Review QR in the Requests slot when solicitation is disabled', () => {
-    render(<MobileTabBar solicitationEnabled={false} />);
+    render(<MobileTabBar solicitationEnabled={false} operatorEnabled={false} />);
     expect(screen.getByRole('link', { name: /review qr/i })).toHaveAttribute(
       'href',
       '/dashboard/requests/qr',
@@ -134,17 +134,39 @@ describe('MobileTabBar — Review QR reachability', () => {
   });
 
   it('offers Requests, not Review QR, when solicitation is enabled', () => {
-    render(<MobileTabBar solicitationEnabled />);
+    render(<MobileTabBar solicitationEnabled operatorEnabled={false} />);
     expect(screen.getByRole('link', { name: /^requests$/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /review qr/i })).not.toBeInTheDocument();
   });
 
-  it('stays five tabs wide either way', () => {
+  it('stays five tabs wide either way with the Operator off', () => {
     for (const enabled of [true, false]) {
-      const { container, unmount } = render(<MobileTabBar solicitationEnabled={enabled} />);
+      const { container, unmount } = render(
+        <MobileTabBar solicitationEnabled={enabled} operatorEnabled={false} />,
+      );
       expect(container.querySelectorAll('.mtab')).toHaveLength(5);
       unmount();
     }
+  });
+
+  it('adds a sixth Operator tab when the server says the flag is on', () => {
+    // 390 / 6 = 65.0px per tab, a 57.0px content box after the 8px horizontal
+    // padding. "Operator" is 8 characters of 11px Figtree (~5.7-6.0px/char) =
+    // 46-48px, inside the box the existing widest label "Analytics" already
+    // occupies. Seven would NOT fit: 390 / 7 = 55.7px, a 47.7px box, under
+    // "Analytics" at ~51-54px, and the bar neither wraps nor truncates.
+    const { container } = render(<MobileTabBar solicitationEnabled operatorEnabled />);
+    expect(container.querySelectorAll('.mtab')).toHaveLength(6);
+    expect(screen.getByRole('link', { name: /^Operator$/i })).toHaveAttribute('href', '/dashboard/operator');
+  });
+
+  it('marks Operator active on /dashboard/operator without lighting up Home', () => {
+    pathnameMock.mockReturnValue('/dashboard/operator');
+    render(<MobileTabBar solicitationEnabled operatorEnabled />);
+    const operator = screen.getByRole('link', { name: /^Operator$/i });
+    expect(operator).toHaveClass('active');
+    expect(operator).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /home/i })).not.toHaveClass('active');
   });
 });
 

@@ -1,0 +1,138 @@
+/* Operator screen, Console (Harbor). Loads AFTER console.css and therefore
+   wins at equal specificity — every `.op-*` rule belongs HERE and never in
+   console.css, which loads first and loses (the `.rq-subnav` regression,
+   src/app/(authenticated)/dashboard/requests/requests.css:26-30).
+
+   Tokens only. No literal colour, no shadow that is not a token, no second
+   border on a card. `.panel` and a bare `.stat` do not exist in the Console
+   stylesheets, which is why this file defines `.op-panel` and `.op-kv`. */
+
+.op-head { display: flex; flex-direction: column; gap: 6px; }
+
+.op-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--rw-sp-6);
+  align-items: start;
+}
+
+.op-conversation { display: flex; flex-direction: column; gap: var(--rw-sp-4); min-width: 0; }
+
+.op-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rw-sp-3);
+  padding: 20px 22px;
+  background: var(--rw-card);
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-card);
+  box-shadow: var(--rw-shadow-sm);
+  position: sticky;
+  top: var(--rw-sp-4);
+}
+
+.op-card { display: flex; flex-direction: column; gap: var(--rw-sp-3); }
+
+.op-turn { display: flex; flex-direction: column; gap: var(--rw-sp-3); }
+
+.op-owner-text {
+  margin: 0;
+  align-self: flex-end;
+  max-width: 34rem;
+  padding: 10px 14px;
+  border-radius: var(--rw-radius-core);
+  background: var(--rw-accent-100);
+  color: var(--rw-accent-800);
+  font: var(--rw-app-body);
+  white-space: pre-wrap;
+}
+
+.op-body { margin: 0; font: var(--rw-app-body); color: var(--rw-app-text); max-width: 70ch; }
+.op-label { font: var(--rw-app-label); color: var(--rw-app-text-muted); }
+.op-preparing { margin: 0; font: var(--rw-app-body); color: var(--rw-app-text-muted); }
+
+.op-notice {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--rw-radius-md);
+  background: var(--rw-danger-soft);
+  color: var(--rw-danger);
+  font: var(--rw-app-body);
+}
+
+.op-composer { display: flex; flex-direction: column; gap: var(--rw-sp-2); }
+.op-actions { display: flex; flex-wrap: wrap; gap: var(--rw-sp-3); align-items: center; }
+.op-starters { display: flex; flex-wrap: wrap; gap: var(--rw-sp-2); }
+
+/* console.css's .btn is ~36px tall and carries no focus-visible rule of its
+   own, so every action on this surface opts into the 44px target and a visible
+   ring rather than inheriting a gap (src/app/(authenticated)/dashboard/requests/requests.css:277-289). */
+.op-action { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; }
+.op-action:focus-visible { outline: 2px solid var(--rw-sage-deep); outline-offset: 3px; }
+
+.op-kv { display: flex; flex-direction: column; gap: 2px; }
+.op-kv-label {
+  font: var(--rw-app-micro);
+  color: var(--rw-app-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* `--rw-app-h3` is a `font` shorthand and already carries
+   `var(--rw-font-display)`, so a second `font-family` after it restated the
+   same family and invited the next reader to change one and not the other. */
+.op-kv-value {
+  font: var(--rw-app-h3);
+  color: var(--rw-app-text);
+}
+
+/* The §1 label chip. `.badge` in console.css owns the pill geometry; this adds
+   only the accent wash from the Style Reference's badge pair and pins the pill
+   to the card's start, since `.op-card` is a stretch-aligned flex column. */
+.op-label-chip {
+  align-self: flex-start;
+  background: var(--rw-accent-100);
+  color: var(--rw-accent-800);
+}
+.op-asof { font: var(--rw-app-micro); color: var(--rw-app-text-soft); }
+
+/* The Receipt's record rows, a description list on top of `.op-kv`. A `dl`
+   carries a UA block margin and every `dd` a 40px inline-start indent, and a
+   flex column clears neither — the timeline fact lists reset the same two
+   (src/app/(authenticated)/_styles/console.css:903-905). */
+.op-facts { margin: 0; }
+.op-facts dd { margin: 0; }
+
+.op-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rw-sp-2);
+  padding: 14px 16px;
+  border-radius: var(--rw-radius-core);
+  background: var(--rw-recess);
+}
+
+.op-state-line { margin: 0; font: var(--rw-app-body); color: var(--rw-app-text-muted); }
+.op-note { margin: 0; font: var(--rw-app-micro); color: var(--rw-app-text-soft); }
+
+.op-diff { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--rw-sp-3); }
+.op-diff-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.op-diff-value { font: var(--rw-app-body); color: var(--rw-app-text); overflow-wrap: anywhere; }
+.op-diff-list { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 2px; }
+/* An item that is not on the other side. Weight + a token colour, never colour
+   alone — the change has to survive a colour-blind reader and a grey print. */
+.op-changed { font-weight: 700; color: var(--rw-accent-800); }
+.op-question { font-style: italic; }
+
+@media (max-width: 1024px) {
+  .op-layout { grid-template-columns: minmax(0, 1fr); }
+  .op-panel { position: static; order: -1; }
+}
+
+@media (max-width: 560px) {
+  .op-diff { grid-template-columns: minmax(0, 1fr); }
+  .op-owner-text { max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-surface .section-enter { animation: none; }
+}

@@ -3,11 +3,10 @@
 // seam, the cost guard or the worker queue registry.
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { createTurn } from '@/lib/agents/operator/turns';
-import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
-import { errorResponse, jsonResponse, requireWritableOwner, withSameOrigin } from '@/lib/auth/route-helpers';
+import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
+import { requireOperatorWriter } from '@/app/api/operator/gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 export const dynamic = 'force-dynamic';
@@ -30,21 +29,9 @@ const CreateTurnSchema = z.object({
 }).strict();
 
 async function postTurn(request: NextRequest): Promise<NextResponse> {
-  // Flag first, before auth and before any read: off means the surface does
-  // not exist.
-  if (!ownerOperatorEnabled()) return errorResponse('operator_disabled', 404);
-
-  const owner = await requireWritableOwner(sql, request);
-  if (!owner.ok) return owner.response;
-
-  // An admin impersonating an owner may LOOK, never act — the same rule
-  // `PATCH /api/settings/auto-approval` enforces, and the same 409 token. It
-  // runs before the parse and before any write: a turn is an owner's own
-  // words, recorded under the owner's actor id and answered by a model that
-  // may propose changes to their account.
-  if (hasImpersonationCookie(request)) {
-    return errorResponse('impersonation_not_allowed', 409);
-  }
+  const gate = await requireOperatorWriter(sql, request);
+  if (!gate.ok) return gate.response;
+  const { owner } = gate;
 
   let body: unknown;
   try {
@@ -92,10 +79,6 @@ async function postTurn(request: NextRequest): Promise<NextResponse> {
     });
     return errorResponse('turn_create_failed', 500);
   }
-}
-
-function hasImpersonationCookie(request: NextRequest): boolean {
-  return Boolean(request.cookies.get(IMPERSONATION_COOKIE_NAME)?.value);
 }
 
 export const POST = withSameOrigin()(postTurn);

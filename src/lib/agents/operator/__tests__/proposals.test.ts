@@ -1,12 +1,13 @@
 import type postgres from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockSql, sqlCalls, resetMockSql } = await vi.hoisted(async () => {
+const { mockSql, sqlCalls, sqlReturnQueue, resetMockSql } = await vi.hoisted(async () => {
   const { createMockSql } = await import('../../../../../worker/__tests__/helpers/mock-sql');
   return { ...createMockSql() };
 });
 
-import { insertProposals, type ProposalRow } from '../proposals';
+import { mkTaggedResult } from '../../../../../worker/__tests__/helpers/mock-sql';
+import { declineProposal, insertProposals, listProposalsForTurn, type ProposalRow } from '../proposals';
 import { PROPOSAL_STATUS } from '../schema';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
@@ -121,5 +122,177 @@ describe('operator proposals', () => {
     resetMockSql();
     await insertProposals(mockSql as unknown as postgres.TransactionSql, []);
     expect(sqlCalls).toHaveLength(0);
+  });
+});
+
+describe('declineProposal', () => {
+  const PENDING_ROW = {
+    turn_id: TURN,
+    id: '66666666-6666-4666-8666-666666666666',
+    operation: 'set_tone',
+    contract_version: 1,
+    label_kind: 'fact',
+    location_id: LOCATION,
+    status: 'pending',
+    rationale: 'You asked for shorter replies.',
+    input: { tone: 'warm and brief' },
+    before: { tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+    after: { tone: 'warm and brief', productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+    prepared_version_token: { businessId: LOCATION, updatedAt: '2026-09-12 09:00:00.111111+00' },
+    receipt: null,
+    applied_at: null,
+    failure_reason: null,
+  };
+
+  // The harness's tagged-template double is not a `postgres.Sql`; the cast is
+  // the same one every other case in this file uses.
+  const db = mockSql as unknown as postgres.Sql;
+
+  it('declineProposal sets status rejected and decided_by_user_id with no reason and is idempotent', async () => {
+    resetMockSql();
+    sqlReturnQueue.push(
+      mkTaggedResult([PENDING_ROW]),                                        // lock
+      mkTaggedResult([]),                                                   // UPDATE
+      mkTaggedResult([{ ...PENDING_ROW, status: 'rejected' }]),             // re-read
+    );
+
+    const first = await declineProposal(db, {
+      proposalId: PENDING_ROW.id,
+      accountId: ACCOUNT,
+      actorUserId: ACTOR,
+    });
+
+    expect(first).toEqual({
+      kind: 'rejected',
+      repeated: false,
+      proposal: expect.objectContaining({ status: 'rejected', failureReason: null }),
+    });
+
+    // `includes('UPDATE')` would also match the lock SELECT's trailing `FOR
+    // UPDATE`, so the write is found with a line-anchored match.
+    const update = sqlCalls.find((call) => /^\s*UPDATE\s/m.test(call.text))!;
+    expect(update.text).toContain('account_id = ?');
+    expect(update.values).toContain(ACTOR);
+    // NO REASON (D5). `owner_declined` in `failure_reason` would make "the
+    // owner said no" indistinguishable from a server refusal in every read
+    // that counts non-NULL reasons.
+    expect(update.text).toContain('failure_reason = NULL');
+
+    // Idempotent: a second click on the same card, or a retried POST, finds an
+    // owner-declined row (rejected, no reason) and returns it unchanged.
+    resetMockSql();
+    sqlReturnQueue.push(
+      mkTaggedResult([{ ...PENDING_ROW, status: 'rejected' }]),             // lock
+    );
+    const second = await declineProposal(db, {
+      proposalId: PENDING_ROW.id,
+      accountId: ACCOUNT,
+      actorUserId: ACTOR,
+    });
+    expect(second).toEqual({
+      kind: 'rejected',
+      repeated: true,
+      proposal: expect.objectContaining({ status: 'rejected' }),
+    });
+    expect(sqlCalls.some((call) => /^\s*UPDATE\s/m.test(call.text))).toBe(false);
+  });
+
+  it('declineProposal answers proposal_not_pending for an applied proposal', async () => {
+    resetMockSql();
+    sqlReturnQueue.push(mkTaggedResult([{ ...PENDING_ROW, status: 'applied' }]));
+
+    const result = await declineProposal(db, {
+      proposalId: PENDING_ROW.id,
+      accountId: ACCOUNT,
+      actorUserId: ACTOR,
+    });
+
+    expect(result).toEqual({
+      kind: 'not_pending',
+      status: 'applied',
+      proposal: expect.objectContaining({ status: 'applied' }),
+    });
+    expect(sqlCalls.some((call) => /^\s*UPDATE\s/m.test(call.text))).toBe(false);
+
+    // A row REJECTED BY THE SERVER is not an owner decline: it carries a
+    // reason, so declining it again is `not_pending`, not a silent success.
+    resetMockSql();
+    sqlReturnQueue.push(mkTaggedResult([{
+      ...PENDING_ROW, status: 'rejected', failure_reason: 'contract_changed',
+    }]));
+    const refused = await declineProposal(db, {
+      proposalId: PENDING_ROW.id,
+      accountId: ACCOUNT,
+      actorUserId: ACTOR,
+    });
+    expect(refused).toMatchObject({ kind: 'not_pending', status: 'rejected' });
+  });
+});
+
+describe('proposal view', () => {
+  it('proposal view carries receipt, prepared version token, applied_at and failure_reason', async () => {
+    const receipt = {
+      version: 1,
+      operation: 'set_tone',
+      scope: { accountId: ACCOUNT, locationId: LOCATION },
+      before: { tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      after: { tone: 'warm and brief', productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [] },
+      differsFromPreview: false,
+      effectiveNow: true,
+      affects: 'future_drafts',
+      remainingBlocked: [],
+      appliedAt: '2026-09-12T10:00:00.000Z',
+      actorUserId: ACTOR,
+      ownerText: 'Make my replies warmer.',
+      turnId: TURN,
+      versionToken: {
+        before: { businessId: LOCATION, updatedAt: '2026-09-12 09:00:00.111111+00' },
+        after: { businessId: LOCATION, updatedAt: '2026-09-12 10:00:00.222222+00' },
+      },
+    };
+
+    sqlReturnQueue.push(mkTaggedResult([{
+      turn_id: TURN,
+      id: '66666666-6666-4666-8666-666666666666',
+      operation: 'set_tone',
+      contract_version: 1,
+      label_kind: 'fact',
+      location_id: LOCATION,
+      status: 'applied',
+      rationale: 'You asked for shorter replies.',
+      input: { tone: 'warm and brief' },
+      before: receipt.before,
+      after: receipt.after,
+      // The PgBouncer STRING form on purpose: these two columns are the new
+      // parse sites, and a string is what the pooler can hand back.
+      prepared_version_token: JSON.stringify(receipt.versionToken.before),
+      receipt: JSON.stringify(receipt),
+      applied_at: new Date('2026-09-12T10:00:00.000Z'),
+      failure_reason: null,
+    }]));
+
+    const [view] = await listProposalsForTurn(
+      mockSql as unknown as postgres.Sql,
+      { turnId: TURN, accountId: ACCOUNT },
+    );
+
+    expect(view!.turnId).toBe(TURN);
+    expect(view!.preparedVersionToken).toEqual({
+      businessId: LOCATION,
+      updatedAt: '2026-09-12 09:00:00.111111+00',
+    });
+    // Byte for byte, PLUS the `actorName` the reader defaults: this fixture is
+    // a Receipt written before that field existed and must still parse (S5).
+    expect(view!.receipt).toEqual({ ...receipt, actorName: null });
+    expect(view!.appliedAt).toBe('2026-09-12T10:00:00.000Z');
+    expect(view!.failureReason).toBeNull();
+
+    // The projection has to ASK for the four columns, or the view above would
+    // be built from undefineds that happen to satisfy a loose assertion.
+    const [call] = sqlCalls;
+    for (const column of ['prepared_version_token', 'receipt', 'applied_at', 'failure_reason', 'turn_id']) {
+      expect(call!.text).toContain(column);
+    }
+    expect(call!.text).toContain('account_id = ?');
   });
 });

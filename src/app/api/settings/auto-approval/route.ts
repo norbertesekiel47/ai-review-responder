@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { IMPERSONATION_COOKIE_NAME } from '@/lib/admin/impersonation/cookie';
+import { hasImpersonationCookie } from '@/lib/admin/impersonation/cookie';
 import { jsonResponse, requireSettingsOwner, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -111,10 +111,6 @@ function autoApprovalErrorResponse(error: unknown): NextResponse | null {
     return jsonResponse({ error: error.code }, error.status);
   }
   return null;
-}
-
-function hasImpersonationCookie(request: NextRequest): boolean {
-  return Boolean(request.cookies.get(IMPERSONATION_COOKIE_NAME)?.value);
 }
 
 function requestMetadata(request: NextRequest) {

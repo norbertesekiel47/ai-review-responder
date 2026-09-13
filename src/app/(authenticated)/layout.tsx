@@ -23,6 +23,7 @@ import type { LocationId } from '@/lib/shared/ids';
 import { accountOffboardingEnabled } from '@/lib/account-offboarding/flags';
 import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
+import { ownerOperatorEnabled } from '@/lib/agents/operator/flags';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import {
   ACCOUNT_OFFBOARDING_STATUS_PATH,
@@ -177,6 +178,7 @@ export default async function AuthenticatedLayout({
   // state only from this prop — no NEXT_PUBLIC companion exists, and adding one
   // would fail ci:static-policy.
   const solicitationEnabled = solicitationWatchEnabled();
+  const operatorEnabled = ownerOperatorEnabled();
 
   return (
     <div className={`rw-console ${gabarito.variable} ${figtree.variable}`}>
@@ -194,10 +196,14 @@ export default async function AuthenticatedLayout({
                 <Sidebar
                   businessName={businessName}
                   solicitationEnabled={solicitationEnabled}
+                  operatorEnabled={operatorEnabled}
                 />
                 <main className="main" id="main-content">{children}</main>
               </div>
-              <MobileTabBar solicitationEnabled={solicitationEnabled} />
+              <MobileTabBar
+                solicitationEnabled={solicitationEnabled}
+                operatorEnabled={operatorEnabled}
+              />
             </ToastProvider>
           </OwnerIdentityProvider>
         </PendingCountProvider>

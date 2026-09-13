@@ -77,8 +77,18 @@ autonomy is the vision's stage, and a fake review pollutes the inventory.
 
 ### 3.1 The screen
 
-Route: `src/app/(authenticated)/operator/page.tsx`. Visual system: Island
-(see `repworth-brand-design`). Two regions:
+Route: `src/app/(authenticated)/dashboard/operator/page.tsx`, URL
+`/dashboard/operator`. **Both halves of this line were corrected in Run B
+(2026-09-12):** the route was written as a top-level
+`src/app/(authenticated)/operator/page.tsx`, and it sits under `dashboard/` so
+it rides `src/proxy.ts`'s existing owner-page branch (branch 7, `src/proxy.ts:366-383`
+— login redirect, `role === 'owner'`, AAL2) with no change to the proxy; and
+the visual system was written as "Island", which is wrong — the screen is
+inside the authenticated shell, which already loads `_styles/tokens.css` +
+`_styles/console.css` and wraps everything in `.rw-console`
+(`src/app/(authenticated)/layout.tsx:32-33`, `:184`), so an Island surface
+there would be a second visual system inside one shell. Visual system:
+**Console (Harbor)**; see `repworth-brand-design`. Two regions:
 
 - **Conversation** (main). Message list, composer, the current turn state.
 - **Summary panel** (side on desktop, top on mobile). Three blocks from
@@ -628,7 +638,7 @@ scope.
 ## 14. Open questions
 
 - Which pinned model for `owner_operator`: the reply-generation primary, or a stronger model for planning quality. Decide at the checkpoint from staging transcripts. **2026-09-11 (Run A):** registered at the reply-generation pair (`OPENAI_MODEL` primary, `ANTHROPIC_MODEL` fallback) with `maxTokens: 1200` and `temperature: 0.2` — 1200 because a reply is an ordered segment list plus up to five proposals with rationales, and 0.2 because a proposal is a contract, not prose. **This run pins the numbers only; the MODEL question stays open at the checkpoint.**
-- Whether the summary panel reads should be one aggregated route or reuse the dashboard payload. Default: reuse.
+- Whether the summary panel reads should be one aggregated route or reuse the dashboard payload. **2026-09-12 (Run B): the "reuse" default is REFUTED and the question is closed.** The architecture pass (H1-D) measured the dashboard payload field by field: the rating band buckets ALL rated reviews where the Operator wants pending drafts by star (`readStarBands` is the right reader); the posted count is ABSENT (`totalReviewsHandled` is all-time, `recentReviewCount` a capped *received* sample — `readPosted7d` is the right reader); and the per-location DTO carries no location list. Importing the assembled DTOs would also drag in a 45-second Redis TTL cache plus ranking, velocity and briefs, and two of four fields would still be wrong. Run A's granular helpers — `getPendingApprovalCountsForAccount`, `readPosted7d`, `getAutoApprovalSettings`, `readVoiceConfig`, already wired into `getConversationForOwner` — are the source, and `SummaryPanel.tsx` is a pure renderer over them.
 - Lease length, predecessor-stall limit and wait delay are provisional (plan decision L2, landed in `worker/jobs/agent-turn/constants.ts`); tune from staging p50/p95 at the checkpoint, not from a hunch. **Lease 180 s** — each provider call is bounded at 30 s and `runLlmTask` may attempt primary then fallback, so two providers × two validation attempts fit with headroom; above the model timeout by construction, which is what makes a stale claim mean "crashed", not "slow". **Predecessor stall 1200 s (20 min)** — above one outbox watchdog window (900 000 ms default), so a predecessor that merely needs re-dispatching gets rescued before this turn gives up on it. **Wait delay 10 s** between predecessor re-checks.
 - **Operator speaks first.** An empty conversation could open with a server-rendered line from the summary reads ("You have 3 reviews waiting, 2 under 3 stars. Last week 9 replies posted. Keep handling 4 and 5 stars the same way?"), so the owner's first act is a yes or a correction. Zero model cost. Decide at the checkpoint from the pilot owner's first session.
 - **Receipt retention after purge.** §9 hard-deletes receipts with the account. A regulator view argues settings-change receipts should survive under a separate retention clock. Decide with counsel before the pilot; default stays hard-delete.
@@ -636,6 +646,7 @@ scope.
 - **Run B open item — a turn stranded by outbox dispatch exhaustion** (review round 1, CA1). Five `OutboxPoller` dispatch failures terminalize the `job_outbox` row while the turn is still `accepted`: successors in the conversation fail `predecessor_stalled` after 20 min, but that turn itself never reaches a terminal status, so the screen polls something that will never answer. The reverse case is already closed — a stale attempt's still-`dispatched` row is completed by the next dispatch's terminal-turn branch (`readTerminalTurn` → `markOutboxCompletedIfOwned`), proven live by the claim-race case's third dispatch. The fix belongs in `OutboxPoller` (a turn-aware exhaustion hook, or a sweeper that fails `accepted` turns whose outbox row is terminal), which is outside Run A's surface. Run B's screen must at minimum show a timeout and offer "try again" rather than spinning.
 - **Run B open item — the predecessor wait outlives the watchdog window** (review round 1, CA4). Two clocks disagree by design: `AGENT_TURN_PREDECESSOR_STALL_SECONDS` is 1200 s (20 min) while the outbox watchdog re-dispatches after 900 000 ms (15 min), so a turn waiting on a slow predecessor can be dispatched a second time mid-wait. Accepted as a tradeoff for Run A — a redundant dispatch is safe by construction (the **Turn claim** serialises; the loser exits without touching the outbox row) and at the default watchdog it happens at most once per wait. Removing it needs either a durable waiting state or sequence-aware dispatch, both of which change `OutboxPoller`. Revisit with the checkpoint's staging p50/p95, alongside the lease and stall numbers above.
 - **Go-live alerting — the `agent_turn` lane's domain terminals emit structured logs only; its failure rows are watched** (review round 2, R9; corrected by the fresh red-team rounds 1 and 3, P1-4/P1-5/P2-2). `TURN_FAILURE_REASON` has seven members. Six are DOMAIN terminals the worker itself writes through a fenced status update, and they do not log uniformly: `predecessor_stalled`, `unauthorized` (the reauthorization arm and the vanished-voice-row arm), `account_offboarding` (the other outcome of that same reauthorization arm), `model_output_invalid` and `budget_exceeded` emit a `logger.warn` line; `operator_disabled` emits `logger.log` (info — an orderly flag-off skip, not an incident). The seventh, `exhausted`, is written by the failed-hook after BullMQ retry exhaustion, not by the worker. One more exit is NOT a terminal: a lease lost before completion emits `logger.warn` and resolves nothing — the attempt that owns the lease completes the turn and the outbox row. None of the six domain terminals calls Sentry, and that is ONE go-live decision — whether they get a Sentry rule row, and at what rate, given that `operator_disabled` is a flag-off skip and `budget_exceeded` is a per-account terminal — to be taken with the rest of Run A's alerting before the pilot, not path by path. What IS alerted today, after the fresh red-team round: (a) a `job_outbox` row for topic `agent_turn` that lands `failed` — by `OutboxPoller` dispatch exhaustion or by the watchdog terminalising a long-`dispatched` row — raises `outbox_failed:agent_turn` from `checkFailedOutboxByTopic` (the topic was missing from that closed allowlist; P1-2) and pages through runbook rule 1; (b) BullMQ retry exhaustion reaches Sentry through `worker/job-failure-sink.ts` tagged `subsystem:worker_job`, `queue:agent_turn`, with its own rule row in `docs/runbooks/beta-launch-alerting.md` (P1-3). The orphaned-lease case named in the intake's observability section is therefore alerted only on its TERMINAL half: a stuck `dispatched` row the watchdog re-pends produces one count-only log line in `runOutboxWatchdogRecovery` (`Watchdog recovered stale entries` with `recovered`, `failed` and `stale_dispatching` counts — no topic field, no Sentry event), and it stays that way by design — the re-dispatch is the recovery.
+- **Go-live alerting for the six DOMAIN terminal reasons — settled 2026-09-12 (Run B, decision D6): structured logs only, no Sentry rule.** `operator_disabled` is an orderly flag-off skip and `budget_exceeded` is a per-account terminal; neither is an incident, and a rule that pages on both would train the operator to ignore the lane. The two paths that ARE alerted stay alerted: a `job_outbox` row for topic `agent_turn` landing `failed` raises `outbox_failed:agent_turn` through runbook rule 1, and BullMQ retry exhaustion reaches Sentry through `worker/job-failure-sink.ts` under runbook **rule 11** — the event fires today, but the Sentry → Discord rule is NOT BUILT as of Run B's merge (the API refused the build for want of an `alerts:write` token; `docs/runbooks/beta-launch-alerting.md` row 11 carries the state and both rule ids once it exists) and the T8 staging flip gates on it. The distribution is read from the rows instead, on staging with the flag on: `SELECT failure_reason, count(*) FROM agent_turns WHERE created_at > now() - interval '7 days' GROUP BY 1`. **Revisit trigger: the §12.1 checkpoint.** If any domain reason is materially represented there, it earns its own rule then — with a real rate to set the threshold from, which is the thing this decision was missing.
 
 ## 15. Review log
 
@@ -661,3 +672,34 @@ scope.
   cases pinned; #2 created `docs/directory/lib-owner-operator.md`, because both
   default `src/lib` directory pages were at the 3,000-word cap. Every deviation
   is in `docs/superpowers/plans/feat-owner-operator-run-a-deviations.md`.
+- 2026-09-12, **Run B built** (`feat/owner-operator-run-b`): the **Version token**
+  module and its single JSONB parse site; `applyProposal` — contract check before
+  any lock, then one transaction that locks `businesses` then the proposal,
+  revalidates actor / subscription / tier / ownership under those locks, compares
+  the three tokens text to text, writes only the operation's own fields through
+  the shared voice writer, reads the state back, writes the server-owned
+  **Receipt**, and marks sibling pending Proposals on the location stale;
+  `declineProposal` (actor only, idempotent); the two POST routes and their
+  result-kind map; `?locationId=` and `connectionStatus` on the conversation
+  read — an owner with no conversation yet receives the empty view with a
+  summary scoped to that location, rather than a 404; ONE
+  `hasImpersonationCookie`; `/api/operator` on the owner-API AAL2
+  allowlist; and the Operator screen — Console (Harbor), URL-state polling with
+  back-off and a 4-minute ceiling, per-reason failure wording, the All-locations
+  chooser, the Proposal card with its Receipt and **Refresh plan**, the
+  Requested-capability card, and the summary panel. The screen sits at
+  `/dashboard/operator` (owner decision 2026-09-12) so it rides the existing
+  owner-page proxy branch rather than needing a new one. NOT built, deliberately: the
+  three auto-approval proposables, `patchAutoApprovalSettingsInTransaction`, the
+  consequence line, asymmetric friction, undo from Receipts, and any production
+  flag flip. §3.1's visual system was corrected from Island to Console; §14's
+  dashboard-reuse default was refuted; the domain-terminal alerting question was
+  closed as logs-only; rule 11 stays NOT BUILT until a scoped Sentry token
+  exists (the red team's round-1 P0 caught the draft that said otherwise), and
+  the staging flip gates on it. T8 (the staging
+  flip, p50/p95, the constants tune and the §12.1 checkpoint report) is a
+  follow-up PR — see `docs/superpowers/plans/feat-owner-operator-run-b-plan.md`.
+  Two plan decisions were reversed by the owner before execution and are
+  recorded in `docs/superpowers/plans/feat-owner-operator-run-b-deviations.md`:
+  the page route (top-level → under `dashboard/`) and the nav-section test's
+  home (a new file → the existing `active-nav.test.ts`).

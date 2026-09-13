@@ -50,6 +50,13 @@ export function isProtectedOwnerApiRoute(pathname: string): boolean {
   return (
     normalized === '/api/dashboard' || normalized.startsWith('/api/dashboard/') ||
     normalized === '/api/settings' || normalized.startsWith('/api/settings/') ||
+    // The Owner Operator API (architecture pass 2026-09-12, H1-A). ONE arm, not
+    // a fourth proxy branch: branch 6 already applies getAalGate() to every
+    // path this predicate admits, and a second gate would be a second place for
+    // the MFA posture to drift. Nothing is needed here for the PAGE: it lives
+    // at /dashboard/operator, which the `/dashboard/` prefix below already
+    // admits and which proxy branch 7 already gates.
+    normalized === '/api/operator' || normalized.startsWith('/api/operator/') ||
     PROTECTED_OWNER_ACCOUNT_API_PATHS.has(normalized) ||
     normalized === '/api/account' || normalized.startsWith('/api/account/') ||
     normalized === '/api/billing' || normalized.startsWith('/api/billing/') ||

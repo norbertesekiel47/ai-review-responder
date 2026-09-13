@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { VoiceConfig } from '@/lib/responses/voice-settings';
 import { CATALOG, modelVisibleOperations, proposableOperation } from '../catalog';
 
 /** A valid input for each proposable operation, used by title 35's describer sweep. */
@@ -7,6 +8,28 @@ const SAMPLE_INPUT: Record<string, Record<string, unknown>> = {
   set_products_services: { productsServices: 'espresso, pastries' },
   set_avoid_facts: { avoidFacts: ['never mention the old owner'] },
   set_highlight_facts: { highlightFacts: ['award-winning espresso'] },
+};
+
+/**
+ * The voice column(s) each operation — and ONLY that operation — may write.
+ * Spelled OUT here rather than derived from `writerFields` itself: a test that
+ * asked the implementation what it writes and then asserted it writes that
+ * would pass for every implementation, including one that writes all five.
+ */
+const OWN_FIELDS: Record<string, readonly (keyof VoiceConfig)[]> = {
+  set_tone: ['tone'],
+  set_products_services: ['productsServices'],
+  set_avoid_facts: ['avoidFacts'],
+  set_highlight_facts: ['highlightFacts'],
+};
+
+/** A non-empty state for every voice field, so an overwrite is visible. */
+const VOICE: VoiceConfig = {
+  tone: 'formal',
+  productsServices: 'haircuts',
+  avoidFacts: ['parking'],
+  highlightFacts: ['late opening'],
+  sampleResponses: ['Thanks for visiting!'],
 };
 
 describe('operator catalog', () => {
@@ -80,6 +103,56 @@ describe('operator catalog', () => {
       expect(described.length, `${op.id} describer`).toBeGreaterThan(0);
       expect(described).not.toContain('undefined');
       expect(described).not.toContain('[object Object]');
+    }
+  });
+
+  it('every proposable writes exactly the field its operation names, and its preview is that write laid over the current state', async () => {
+    // RT-05 / F1. Two facts, for EVERY proposable rather than for `set_tone`
+    // alone:
+    //
+    //  1. `writerFields` names this operation's own column(s) and no others.
+    //     A widened bag is how an Apply silently reverts a concurrent edit to
+    //     a field the owner never agreed to change (D10) — and the **Version
+    //     token** cannot catch it, because it proves the ROW did not move, not
+    //     that the write was narrow.
+    //  2. `preview().after` IS the full state with that bag laid over it. The
+    //     two used to be written twice per operation (an `apply` function and
+    //     a `writerFields` function), so a card could promise a state the
+    //     executor would not produce.
+    const proposables = Object.values(CATALOG).filter((op) => op.kind === 'proposable');
+    expect(proposables.length).toBe(4);
+
+    for (const op of proposables) {
+      const own = OWN_FIELDS[op.id];
+      expect(own, `${op.id} needs its own-field list`).toBeDefined();
+      const parsed = op.parseInput(SAMPLE_INPUT[op.id]!);
+      expect(parsed.ok, `${op.id} must accept its own sample input`).toBe(true);
+      if (!parsed.ok) continue;
+
+      const fields = op.writerFields(parsed.input);
+      expect(Object.keys(fields).sort(), `${op.id} writerFields`).toEqual([...own!].sort());
+      // …and the value is the INPUT's, not a constant the sample happens to match.
+      for (const field of own!) {
+        expect(fields[field]).toEqual(SAMPLE_INPUT[op.id]![field]);
+      }
+
+      const preview = op.preview(VOICE, parsed.input);
+      // `before` is the state handed in, untouched — the card shows the real
+      // current state, not a reconstruction.
+      expect(preview.before).toEqual(VOICE);
+      expect(preview.after).toEqual({ ...VOICE, ...fields });
+      // Every OTHER field survives the preview unchanged, which is the half an
+      // `after`-shaped writer would break.
+      for (const key of Object.keys(VOICE) as (keyof VoiceConfig)[]) {
+        if (own!.includes(key)) continue;
+        expect(preview.after[key], `${op.id} must not touch ${key}`).toEqual(VOICE[key]);
+      }
+      // The change really happened: the named field is the input's value and
+      // differs from where it started, so an identity `writerFields` fails.
+      for (const field of own!) {
+        expect(preview.after[field]).toEqual(fields[field]);
+        expect(preview.after[field]).not.toEqual(VOICE[field]);
+      }
     }
   });
 });
