@@ -43,6 +43,11 @@ const CALLER_ALLOWLIST = new Set([
   'worker/jobs/ResponseGeneratorWorker.ts', // in-file reviews FOR UPDATE before terminal draft checkpoint
   'worker/jobs/response-generation/persist.ts', // in-file reviews FOR UPDATE as tx statement #1
   'worker/jobs/WeeklySummaryWorker.ts', // account_week lane — see NON_REVIEW_SUBJECT_CALLERS
+  // Run C imported provenance — only a winning INSERT's freshly owned review
+  // writes the spine, before any response write, in that same transaction.
+  // Existing reviews follow the in-file reviews FOR UPDATE path and never
+  // record a new ingestion marker. No lock-order exception is needed.
+  'worker/jobs/zernio/zernio-ingest-shared.ts',
 ]);
 
 // Files whose reviews lock is owned by their (sole) composition path rather

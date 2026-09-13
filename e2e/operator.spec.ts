@@ -8,12 +8,13 @@
 //     which is false in CI because the staging Supabase secrets never reach a
 //     CI runner. They self-skip there and run locally.
 //  3. The worker is STOOD IN FOR by SQL: e2e/helpers/operator-seed.ts completes
-//     a seeded turn with a `proposal` segment and a pending set_tone Proposal,
+//     a seeded turn with a `proposal` segment and a pending voice or policy Proposal,
 //     so the browser flow does not depend on a running Railway worker or on a
 //     provider key. It completes the turn THROUGH THE PRODUCTION BUILDERS
-//     (`readVoiceConfig` → `buildProposalRows` → `insertProposals`), so the
+//     (`readVoiceConfig` / `readPolicySnapshot` → `buildProposalRows` → `insertProposals`), so the
 //     stored preview carries the six-key shape a real run stores (RB-01).
 import { test, expect } from '@playwright/test';
+import { parseReceipt } from '@/lib/agents/operator/schema';
 import {
   createOwnerUser,
   deleteOwnerUser,
@@ -24,14 +25,17 @@ import {
 import {
   cleanupOperatorSeed,
   completeTurnWithProposal,
+  completeTurnWithPolicyProposal,
   countTurns,
   findAcceptedTurn,
   moveVoiceRow,
   readProposalRow,
   readTone,
+  readPolicyOutcomes,
+  seedPolicyHistory,
 } from './helpers/operator-seed';
 
-const EVIDENCE = 'docs/reviews/feat-owner-operator-run-b/evidence';
+const EVIDENCE = 'docs/reviews/codex-owner-operator-run-c/evidence';
 
 test.describe('Operator screen — unauthenticated', () => {
   test('unauthenticated /dashboard/operator redirects to the owner login', async ({ page }) => {
@@ -100,10 +104,7 @@ test.describe('Operator screen — authenticated', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByRole('button', { name: 'Apply' }).click();
-    // `exact`: the Receipt's record half labels two rows "Applied at" and
-    // "Applied by", so a substring match resolves to three nodes and strict
-    // mode refuses the assertion. The state line is the word on its own.
-    await expect(page.getByText('Applied', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Remembered fact', { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Make my replies warmer.').first()).toBeVisible();
     await page.screenshot({ path: `${EVIDENCE}/receipt-1440.png`, fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -118,6 +119,94 @@ test.describe('Operator screen — authenticated', () => {
     expect(row.decided_by_user_id).toBe(owner.seed.userId);
     expect(await readTone(owner.seed.businessId)).toBe('warm and brief');
     // ONE turn: the send was not duplicated by a retry or a re-render.
+    expect(await countTurns(owner.seed.accountId)).toBe(1);
+  });
+
+  test('e2e: policy expansion requires the exact scope, saves consequence counts and replays one receipt', async ({ page }) => {
+    test.setTimeout(60_000);
+    await seedPolicyHistory({ accountId: owner.seed.accountId, businessId: owner.seed.businessId });
+    await signInViaMagicLink(page, owner.email, '/dashboard/operator');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/dashboard/operator');
+    const instruction = 'Auto-reply to 4 and 5 star reviews at all locations.';
+    await page.getByRole('textbox', { name: /message/i }).fill(instruction);
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('Preparing your plan')).toBeVisible();
+    const completed = await completeTurnWithPolicyProposal({
+      accountId: owner.seed.accountId, userId: owner.seed.userId,
+    });
+    const confirmation = page.getByRole('textbox', { name: 'Type “all locations” to confirm this scope' });
+    const apply = page.getByRole('button', { name: 'Confirm and apply', exact: true });
+    await expect(confirmation).toBeVisible({ timeout: 15_000 });
+    await expect(apply).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Apply', exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Under this rule, 2 of your 3 reviews/)).toBeVisible();
+    // Only the three initial live markers enter the five-review fixture's consequence.
+    await expect(page.getByText('Excluded 1 imported reviews and 1 reviews whose origin is unknown.')).toBeVisible();
+    await expect(page.getByText(/Affects 1 locations that inherit the account default/)).toBeVisible();
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await expect(confirmation).toBeVisible();
+      await page.screenshot({ path: `${EVIDENCE}/policy-proposal-${viewport.width}.png`, fullPage: true });
+    }
+
+    // Client friction rejects a near match. The same-origin route assertion
+    // also proves a caller cannot bypass that friction by submitting directly.
+    await confirmation.fill('all locations ');
+    await expect(apply).toBeDisabled();
+    const applyUrl = `/api/operator/proposals/${completed.proposalId}/apply`;
+    const headers = { origin: new URL(page.url()).origin };
+    const mismatch = await page.request.post(applyUrl, {
+      headers,
+      data: { expectedVersionToken: completed.versionToken, confirmationLevel: 'all locations ' },
+    });
+    expect(mismatch.status()).toBe(400);
+    expect(await mismatch.json()).toMatchObject({ error: 'confirmation_mismatch' });
+    expect(await readProposalRow(completed.proposalId)).toMatchObject({ status: 'pending', receipt: null });
+    expect(await readPolicyOutcomes(owner.seed.accountId)).toEqual({
+      policy_rows: 0, threshold: null, policy_audits: 0, reviews: 5,
+    });
+
+    await confirmation.fill('all locations');
+    await expect(apply).toBeEnabled();
+    await apply.click();
+    await expect(page.getByText('Active rule', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Old rule: 0 of 3 eligible; new rule: 2 of 3 eligible.')).toBeVisible();
+    await expect(page.getByText('0 drafts keep their granted veto window.')).toBeVisible();
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.screenshot({ path: `${EVIDENCE}/policy-receipt-${viewport.width}.png`, fullPage: true });
+    }
+
+    const stored = await readProposalRow(completed.proposalId);
+    expect(stored).toMatchObject({ status: 'applied', failure_reason: null, decided_by_user_id: owner.seed.userId });
+    const receipt = parseReceipt(stored.receipt);
+    expect(receipt).toMatchObject({
+      affects: 'future_eligible_reviews',
+      scope: { accountId: owner.seed.accountId, locationId: null },
+      actorUserId: owner.seed.userId, ownerText: instruction, turnId: completed.turnId,
+      before: { threshold: null, rowExists: false, consequence: {
+        total: 3, eligible: 0, held: { manual: 3, below_threshold: 0, cap_reached: 0 },
+        excludedImported: 1, excludedUnknown: 1,
+      } },
+      after: { threshold: 4, rowExists: true, affectedLocationCount: 1, consequence: {
+        total: 3, eligible: 2, held: { manual: 0, below_threshold: 1, cap_reached: 0 },
+        excludedImported: 1, excludedUnknown: 1,
+      } },
+      retainedVeto: { count: 0 },
+    });
+    expect(await readPolicyOutcomes(owner.seed.accountId)).toEqual({
+      policy_rows: 1, threshold: 4, policy_audits: 1, reviews: 5,
+    });
+    const repeated = await page.request.post(applyUrl, {
+      headers,
+      data: { expectedVersionToken: completed.versionToken, confirmationLevel: 'all locations' },
+    });
+    expect(repeated.status()).toBe(200);
+    expect((await readProposalRow(completed.proposalId)).receipt).toEqual(stored.receipt);
+    expect(await readPolicyOutcomes(owner.seed.accountId)).toEqual({
+      policy_rows: 1, threshold: 4, policy_audits: 1, reviews: 5,
+    });
     expect(await countTurns(owner.seed.accountId)).toBe(1);
   });
 

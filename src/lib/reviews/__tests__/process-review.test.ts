@@ -41,6 +41,11 @@ import { sql } from '@/lib/db/server';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { startOrGetActiveRun, recordStep, completeRun } from '@/lib/agents/run-spine';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
+import {
+  GENERATE_RESPONSE_ORIGIN_LANE,
+  GENERATE_RESPONSE_ORIGIN_LANES,
+  type GenerateResponseOriginLane,
+} from '@/lib/shared/worker-types';
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -979,6 +984,7 @@ describe('importReview', () => {
     expect(recordStep).toHaveBeenCalledWith(tx, {
       runId: 'run-1',
       stepKey: 'review_ingested',
+      detail: { ingestion_origin: 'imported' },
     });
     // An imported review has no draft and no publish, so nothing downstream
     // would ever complete this run — it would read as 'stalled' after 48h
@@ -1066,5 +1072,122 @@ describe('importReview', () => {
       tx,
       expect.objectContaining({ stepKey: 'review_updated' }),
     );
+  });
+});
+
+// ── Ingestion origin (Run C) ─────────────────────────────────────────
+//
+// The initial review_ingested step records how a GENUINELY NEW row arrived.
+// Exact-object assertions on purpose: `objectContaining` would still pass if
+// the marker leaked onto an update step or went missing from an insert.
+
+describe('processReview — ingestion_origin marker', () => {
+  let tx: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedJsonbPayloads.splice(0);
+
+    // Unmocked statements resolve to an empty result, so each case only scripts
+    // the calls that decide its branch.
+    tx = vi.fn().mockResolvedValue(withCount([], 0));
+    (tx as unknown as { json: ReturnType<typeof vi.fn> }).json = vi.fn((v: unknown) => v);
+    (sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin =
+      vi.fn().mockImplementation(async (cb: (t: unknown) => Promise<unknown>) => cb(tx));
+  });
+
+  const newInsertCases: ReadonlyArray<
+    readonly [label: string, expected: string, lane: GenerateResponseOriginLane | undefined]
+  > = [
+    ['omitted options (every production caller)', 'live', undefined],
+    ['explicit live_ingest_new', 'live', GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW],
+    ['explicit backfill', 'imported', GENERATE_RESPONSE_ORIGIN_LANE.BACKFILL],
+    ['explicit live_ingest_update', 'unknown', GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_UPDATE],
+    ['explicit regenerate', 'unknown', GENERATE_RESPONSE_ORIGIN_LANE.REGENERATE],
+    ['explicit on_demand_generate', 'unknown', GENERATE_RESPONSE_ORIGIN_LANE.ON_DEMAND_GENERATE],
+  ];
+
+  it('the case table covers every origin lane', () => {
+    const covered = newInsertCases.flatMap(([, , lane]) => (lane === undefined ? [] : [lane]));
+    expect(new Set(covered)).toEqual(new Set(GENERATE_RESPONSE_ORIGIN_LANES));
+  });
+
+  it.each(newInsertCases)('new review via %s records ingestion_origin=%s', async (_label, expected, lane) => {
+    tx
+      .mockResolvedValueOnce(withCount([], 0))                            // SELECT FOR UPDATE → none
+      .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))            // INSERT reviews → won
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1));   // startReviewRun lookup
+
+    const result = await processReview(
+      sql,
+      makeMonitoredReview(),
+      'biz-1',
+      'corr-1',
+      lane === undefined ? undefined : { originLane: lane },
+    );
+
+    expect(result).toBe('new');
+    expect(recordStep).toHaveBeenCalledTimes(1);
+    expect(recordStep).toHaveBeenCalledWith(tx, {
+      runId: 'run-1',
+      stepKey: 'review_ingested',
+      detail: { ingestion_origin: expected },
+    });
+  });
+
+  it('a race loser whose content changed records review_updated with no origin marker', async () => {
+    tx
+      .mockResolvedValueOnce(withCount([], 0))                            // SELECT FOR UPDATE → none
+      .mockResolvedValueOnce(withCount([], 0))                            // INSERT reviews → lost
+      .mockResolvedValueOnce(withCount([{ id: 'winner-id', review_content_hash: 'old-hash', status: 'new' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))                            // UPDATE reviews
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1));   // startReviewRun lookup
+
+    const result = await processReview(
+      sql,
+      makeMonitoredReview({ contentHash: 'new-hash' }),
+      'biz-1',
+      'corr-1',
+      { originLane: GENERATE_RESPONSE_ORIGIN_LANE.BACKFILL },
+    );
+
+    expect(result).toBe('updated');
+    expect(recordStep).toHaveBeenCalledTimes(1);
+    expect(recordStep).toHaveBeenCalledWith(tx, { runId: 'run-1', stepKey: 'review_updated' });
+  });
+
+  it('a race loser with unchanged content writes no step at all', async () => {
+    tx
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([], 0))
+      .mockResolvedValueOnce(withCount([{ id: 'winner-id', review_content_hash: 'hash-abc', status: 'new' }], 1));
+
+    const result = await processReview(sql, makeMonitoredReview(), 'biz-1', 'corr-1');
+
+    expect(result).toBe('unchanged');
+    expect(startOrGetActiveRun).not.toHaveBeenCalled();
+    expect(recordStep).not.toHaveBeenCalled();
+  });
+
+  it('a deleted review that reappears unchanged is revived without any step', async () => {
+    tx.mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'hash-abc', status: 'deleted' }], 1));
+
+    const result = await processReview(sql, makeMonitoredReview(), 'biz-1', 'corr-1');
+
+    expect(result).toBe('updated');
+    expect(recordStep).not.toHaveBeenCalled();
+  });
+
+  it('a deleted review that reappears edited records review_updated with no origin marker', async () => {
+    tx
+      .mockResolvedValueOnce(withCount([{ id: 'existing-rev', review_content_hash: 'old-hash', status: 'deleted' }], 1))
+      .mockResolvedValueOnce(withCount([], 0))                            // UPDATE reviews (revives + resets detected_at)
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1));   // startReviewRun lookup
+
+    const result = await processReview(sql, makeMonitoredReview({ contentHash: 'new-hash' }), 'biz-1', 'corr-1');
+
+    expect(result).toBe('updated');
+    expect(recordStep).toHaveBeenCalledTimes(1);
+    expect(recordStep).toHaveBeenCalledWith(tx, { runId: 'run-1', stepKey: 'review_updated' });
   });
 });

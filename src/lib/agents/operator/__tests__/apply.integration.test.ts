@@ -276,6 +276,7 @@ describeWithDb(
 
       const receipt = result.proposal.receipt;
       expect(receipt).not.toBeNull();
+      if (receipt?.affects !== 'future_drafts') throw new Error('expected a voice receipt');
       expect(receipt!.version).toBe(1);
       expect(receipt!.operation).toBe('set_tone');
       expect(receipt!.scope).toEqual({ accountId: tenant.accountId, locationId });
@@ -546,6 +547,7 @@ describeWithDb(
       // ONE Receipt, byte for byte, whichever call won.
       expect(a.proposal.receipt).toEqual(b.proposal.receipt);
       expect(a.proposal.receipt).not.toBeNull();
+      if (a.proposal.receipt?.affects !== 'future_drafts') throw new Error('expected a voice receipt');
 
       // ONE voice write: the second Apply did not re-stamp `updated_at`.
       expect(await currentUpdatedAt(locationId))
@@ -615,6 +617,7 @@ describeWithDb(
       expect(result.proposal.receipt!.before)
         .toEqual(parseVoiceState(view!.before, 'agent_proposals.before'));
       expect(result.proposal.receipt!.after).not.toHaveProperty('updatedAt');
+      if (result.proposal.receipt?.affects !== 'future_drafts') throw new Error('expected a voice receipt');
       expect(result.proposal.receipt!.versionToken.before.updatedAt).toBe(voice.updatedAt);
       expect(await readTone(locationId)).toBe('warm and brief');
     });

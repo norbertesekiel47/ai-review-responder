@@ -44,6 +44,9 @@ const CALLER_ALLOWLIST = new Set([
   // the key-gated external harness; tests/llm-eval/live-runner.ts marks the
   // call site as the sanctioned demo/eval exception from llm/types.ts.
   'tests/llm-eval/live-runner.ts',
+  // Run C keyed structured eval — synthetic, explicitly opt-in, no tenant DB
+  // or tenant spend ledger; the same sanctioned eval exception as above.
+  'tests/llm-eval/structured-runner.ts',
 ]);
 
 const SCAN_ROOTS = ['src', 'worker', 'tests/llm-eval'];

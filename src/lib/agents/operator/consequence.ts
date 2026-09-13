@@ -56,6 +56,22 @@ function compareReviews(a: ConsequenceReview, b: ConsequenceReview): number {
   return 0;
 }
 
+function holdReason(
+  review: ConsequenceReview,
+  dial: ConsequenceDials | undefined,
+  accepted: number,
+): keyof ConsequenceResult['held'] | null {
+  if (dial === undefined) {
+    throw new Error(
+      `simulateRule: no auto-approval dials supplied for business ${review.businessId} (review ${review.reviewId})`,
+    );
+  }
+  if (!starMeetsThreshold(review.stars, dial.threshold)) {
+    return dial.threshold === null ? 'manual' : 'below_threshold';
+  }
+  return accepted < resolveDailyCap({ dailyAutoPostCap: dial.dailyCap }) ? null : 'cap_reached';
+}
+
 export function simulateRule(
   reviews: readonly ConsequenceReview[],
   dials: Readonly<Record<string, ConsequenceDials>>,
@@ -65,19 +81,12 @@ export function simulateRule(
   const ordered = reviews.filter((review) => !review.imported).sort(compareReviews);
 
   let eligible = 0;
-  let belowThreshold = 0;
-  let capReached = 0;
-  let manual = 0;
+  const held = { below_threshold: 0, cap_reached: 0, manual: 0 };
   const acceptedByBusinessDay = new Map<string, number>();
   const days = new Map<string, { total: number; eligible: number; held: number }>();
 
   for (const review of ordered) {
     const dial = Object.hasOwn(dials, review.businessId) ? dials[review.businessId] : undefined;
-    if (dial === undefined) {
-      throw new Error(
-        `simulateRule: no auto-approval dials supplied for business ${review.businessId} (review ${review.reviewId})`,
-      );
-    }
     let day = days.get(review.dayKey);
     if (day === undefined) {
       day = { total: 0, eligible: 0, held: 0 };
@@ -85,30 +94,24 @@ export function simulateRule(
     }
     day.total += 1;
 
-    if (!starMeetsThreshold(review.stars, dial.threshold)) {
-      if (dial.threshold === null) manual += 1;
-      else belowThreshold += 1;
+    const key = JSON.stringify([review.businessId, review.dayKey]);
+    const accepted = acceptedByBusinessDay.get(key) ?? 0;
+    const reason = holdReason(review, dial, accepted);
+    if (reason !== null) {
+      held[reason] += 1;
       day.held += 1;
       continue;
     }
-
-    const key = JSON.stringify([review.businessId, review.dayKey]);
-    const accepted = acceptedByBusinessDay.get(key) ?? 0;
-    if (accepted < resolveDailyCap({ dailyAutoPostCap: dial.dailyCap })) {
-      acceptedByBusinessDay.set(key, accepted + 1);
-      eligible += 1;
-      day.eligible += 1;
-    } else {
-      capReached += 1;
-      day.held += 1;
-    }
+    acceptedByBusinessDay.set(key, accepted + 1);
+    eligible += 1;
+    day.eligible += 1;
   }
 
   const byDay = [...days].map(([dayKey, counts]) => ({ day: dayKey, ...counts }));
   return {
     total: ordered.length,
     eligible,
-    held: { below_threshold: belowThreshold, cap_reached: capReached, manual },
+    held,
     byDay,
     busiestDay: byDay.reduce((max, day) => Math.max(max, day.total), 0),
   };

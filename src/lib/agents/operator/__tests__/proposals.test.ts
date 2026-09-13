@@ -6,9 +6,26 @@ const { mockSql, sqlCalls, sqlReturnQueue, resetMockSql } = await vi.hoisted(asy
   return { ...createMockSql() };
 });
 
+const { mockConsequence } = vi.hoisted(() => ({ mockConsequence: vi.fn() }));
+vi.mock('../policy-state', () => ({
+  consequenceForPolicy: (...a: unknown[]) => mockConsequence(...a),
+}));
+
+import { DEFAULT_DAILY_AUTO_POST_CAP } from '@/lib/auto-approval/policy';
 import { mkTaggedResult } from '../../../../../worker/__tests__/helpers/mock-sql';
-import { declineProposal, insertProposals, listProposalsForTurn, type ProposalRow } from '../proposals';
-import { PROPOSAL_STATUS } from '../schema';
+import { proposableOperation } from '../catalog';
+import type { PolicySnapshot } from '../policy-state';
+import {
+  buildProposalRows,
+  declineProposal,
+  insertProposals,
+  listProposalsForTurn,
+  markSiblingProposalsStale,
+  policyStateWithConsequence,
+  type PolicyPreparations,
+  type ProposalRow,
+} from '../proposals';
+import { PROPOSAL_STATUS, type PolicyState } from '../schema';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const ACTOR = '22222222-2222-4222-8222-222222222222';
@@ -294,5 +311,199 @@ describe('proposal view', () => {
       expect(call!.text).toContain(column);
     }
     expect(call!.text).toContain('account_id = ?');
+  });
+});
+
+// ── Policy proposals ──────────────────────────────────────────────────────
+
+const POLICY_ROW_ID = '77777777-7777-4777-8777-777777777777';
+const ACCOUNT_TOKEN = { accountDefaultRow: { id: POLICY_ROW_ID, updatedAt: '2026-09-12 09:00:00.333333+00' } };
+const LINE = (eligible: number) => ({
+  total: 3,
+  eligible,
+  held: { below_threshold: 0, cap_reached: 0, manual: 3 - eligible },
+  byDay: [{ day: '2026-09-01', total: 3, eligible, held: 3 - eligible }],
+  busiestDay: 3,
+  windowStart: '2026-08-14 03:00:00+00',
+  windowEnd: '2026-09-13 03:00:00+00',
+  asOf: '2026-09-13 03:00:00.123456+00',
+  source: 'reviews_received_30d',
+  excludedImported: 0,
+  excludedUnknown: 2,
+});
+
+function policyState(overrides: Partial<PolicyState> = {}): PolicyState {
+  return {
+    domain: 'policy', threshold: null, vetoWindowMinutes: 30, dailyAutoPostCap: null,
+    effectiveDailyCap: DEFAULT_DAILY_AUTO_POST_CAP, rowExists: true, ...overrides,
+  };
+}
+
+function accountSnapshot(accountDefault: PolicyState, policySuspended = false): PolicySnapshot {
+  return {
+    accountId: ACCOUNT, locationId: null, target: { scope: 'account' },
+    state: { accountDefault, location: null }, versionToken: ACCOUNT_TOKEN,
+    targetArchived: false, policySuspended, locations: [], reviews: [],
+    windowStart: '2026-08-14 03:00:00+00', windowEnd: '2026-09-13 03:00:00+00',
+    asOf: '2026-09-13 03:00:00.123456+00', source: 'reviews_received_30d',
+    excludedImported: 0, excludedUnknown: 2,
+  };
+}
+
+describe('frozen policy scope count', () => {
+  it('counts only inheriting active locations for the account default', () => {
+    const snapshot = accountSnapshot(policyState());
+    snapshot.locations = [
+      { id: LOCATION, state: policyState({ rowExists: false }) },
+      { id: '77777777-7777-4777-8777-777777777777', state: policyState({ rowExists: true }) },
+    ];
+    mockConsequence.mockReturnValue(LINE(0));
+    expect(policyStateWithConsequence(snapshot, snapshot.state.accountDefault))
+      .toMatchObject({ affectedLocationCount: 1 });
+  });
+});
+
+const TURN_CONTEXT = {
+  conversationId: CONVERSATION, turnId: TURN, accountId: ACCOUNT, actorUserId: ACTOR, locationId: LOCATION,
+};
+const VOICE = {
+  tone: null, productsServices: null, avoidFacts: [], highlightFacts: [], sampleResponses: [],
+  updatedAt: '2026-09-12 09:00:00.111111+00',
+};
+
+function scopeProposal(input: Record<string, unknown>, locationId?: string) {
+  const operation = proposableOperation('set_auto_reply_scope');
+  if (!operation) throw new Error('set_auto_reply_scope left the catalog');
+  return {
+    operation,
+    input,
+    scope: locationId === undefined ? { accountId: ACCOUNT } : { accountId: ACCOUNT, locationId },
+    rationale: 'You asked to let good reviews post.',
+  };
+}
+
+describe('buildProposalRows policy stamping', () => {
+  beforeEach(() => {
+    resetMockSql();
+    mockConsequence.mockReset();
+    mockConsequence.mockImplementation((_snapshot: unknown, state: PolicyState) =>
+      LINE(state.threshold === null ? 0 : 2));
+  });
+
+  it('buildProposalRows stamps a policy proposal from its STORED target snapshot, never the turn location or the model', () => {
+    const manual = policyState();
+    const snapshot = accountSnapshot(manual, true);
+    const policy: PolicyPreparations = new Map([[null, { snapshot, blockReasons: ['autopilot_unavailable'] }]]);
+
+    // The turn is on LOCATION, but the proposal names no location: account target.
+    const [row] = buildProposalRows(TURN_CONTEXT, [scopeProposal({ threshold: 4 })], VOICE, policy);
+
+    expect(row!.locationId).toBeNull();
+    expect(row!.preparedVersionToken).toEqual(ACCOUNT_TOKEN);
+    expect(row!.requiresConfirmation).toBe(true);
+    expect(row!.before).toEqual({ ...manual, consequence: LINE(0), affectedLocationCount: 0 });
+    expect(row!.after).toEqual({
+      ...policyState({ threshold: 4 }),
+      consequence: LINE(2),
+      affectedLocationCount: 0,
+      expansionBlockedBy: ['autopilot_unavailable', 'policy_suspended'],
+    });
+    for (const call of mockConsequence.mock.calls) expect(call[0]).toBe(snapshot);
+
+    // A contraction carries no readiness metadata and no friction.
+    const fourStar = policyState({ threshold: 4 });
+    const [contraction] = buildProposalRows(
+      TURN_CONTEXT,
+      [scopeProposal({ threshold: null })],
+      VOICE,
+      new Map([[null, { snapshot: accountSnapshot(fourStar), blockReasons: ['autopilot_unavailable'] }]]),
+    );
+    expect(contraction!.requiresConfirmation).toBe(false);
+    expect(contraction!.after).not.toHaveProperty('expansionBlockedBy');
+
+    // A target with no prepared snapshot is an invariant failure, not a dropped card.
+    expect(() => buildProposalRows(TURN_CONTEXT, [scopeProposal({ threshold: 4 }, LOCATION)], VOICE, policy))
+      .toThrow(/no prepared policy snapshot/);
+    expect(() => buildProposalRows(TURN_CONTEXT, [scopeProposal({ threshold: 4 })], VOICE))
+      .toThrow(/no prepared policy snapshot/);
+  });
+
+  it('policy proposal view derives friction from the stored before/after and never from a stored flag', async () => {
+    const storedRow = {
+      turn_id: TURN,
+      id: '66666666-6666-4666-8666-666666666666',
+      operation: 'set_auto_reply_scope',
+      contract_version: 1,
+      label_kind: 'rule',
+      location_id: null,
+      status: 'pending',
+      rationale: 'You asked to let good reviews post.',
+      input: { threshold: 4 },
+      before: { ...policyState(), consequence: LINE(0) },
+      after: {
+        ...policyState({ threshold: 4 }), consequence: LINE(2), expansionBlockedBy: ['autopilot_unavailable'],
+      },
+      prepared_version_token: ACCOUNT_TOKEN,
+      // A stored flag that lies is ignored: the projection does not read it.
+      requires_confirmation: false,
+      receipt: null,
+      applied_at: null,
+      failure_reason: null,
+    };
+    sqlReturnQueue.push(
+      mkTaggedResult([storedRow]),
+      mkTaggedResult([{ ...storedRow, location_id: LOCATION }]),
+    );
+
+    const [account] = await listProposalsForTurn(mockSql as unknown as postgres.Sql, { turnId: TURN, accountId: ACCOUNT });
+    expect(account).toMatchObject({
+      requiresConfirmation: true,
+      confirmationPhrase: 'all locations',
+      readinessBlockReasons: ['autopilot_unavailable'],
+      consequence: LINE(2),
+    });
+    expect(account!.describe).toContain('After Apply');
+
+    const [location] = await listProposalsForTurn(mockSql as unknown as postgres.Sql, { turnId: TURN, accountId: ACCOUNT });
+    expect(location!.confirmationPhrase).toBe('4 and 5 star');
+  });
+
+  it('a voice proposal view carries no friction', async () => {
+    sqlReturnQueue.push(mkTaggedResult([{
+      turn_id: TURN, id: '66666666-6666-4666-8666-666666666666', operation: 'set_tone',
+      contract_version: 1, label_kind: 'fact', location_id: LOCATION, status: 'pending',
+      rationale: 'r', input: { tone: 'warm' }, before: VOICE, after: { ...VOICE, tone: 'warm' },
+      prepared_version_token: { businessId: LOCATION, updatedAt: VOICE.updatedAt },
+      receipt: null, applied_at: null, failure_reason: null,
+    }]));
+    const [view] = await listProposalsForTurn(mockSql as unknown as postgres.Sql, { turnId: TURN, accountId: ACCOUNT });
+    expect(view).toMatchObject({
+      requiresConfirmation: false, confirmationPhrase: null, readinessBlockReasons: [], consequence: null,
+    });
+  });
+
+  it('markSiblingProposalsStale sweeps only the token domain its write moved', async () => {
+    const tx = mockSql as unknown as postgres.TransactionSql;
+    const exclude = '99999999-9999-4999-8999-999999999999';
+
+    await markSiblingProposalsStale(tx, { accountId: ACCOUNT, domain: 'voice', locationId: LOCATION, excludeProposalId: exclude });
+    await markSiblingProposalsStale(tx, { accountId: ACCOUNT, domain: 'policy', locationId: LOCATION, excludeProposalId: exclude });
+    await markSiblingProposalsStale(tx, { accountId: ACCOUNT, domain: 'policy', locationId: null, excludeProposalId: exclude });
+
+    const [voice, location, account] = sqlCalls;
+    expect(voice!.text).toContain('location_id = ?');
+    expect(voice!.values).toContainEqual(['set_tone', 'set_products_services', 'set_avoid_facts', 'set_highlight_facts']);
+    expect(location!.text).toContain('location_id = ?');
+    expect(location!.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']);
+    expect(account!.text).not.toContain('location_id');
+    expect(account!.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']);
+    for (const call of sqlCalls) {
+      expect(call.values).toContain(ACCOUNT);
+      expect(call.values).toContain(exclude);
+    }
+
+    await expect(markSiblingProposalsStale(tx, {
+      accountId: ACCOUNT, domain: 'voice', locationId: null, excludeProposalId: exclude,
+    })).rejects.toThrow(/voice write always names a location/);
   });
 });

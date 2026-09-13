@@ -14,11 +14,29 @@ pnpm eval:llm
 # Live — generates each candidate via the real LLM (demo mode), then scores it.
 # Requires OPENAI_API_KEY or ANTHROPIC_API_KEY in the environment.
 pnpm eval:llm --live
+
+# Structured-only (keyed, opt-in) — one synthetic case per structured task
+# (triage, judge, solicitation_ask, owner_operator). Requires BOTH keys.
+pnpm eval:llm --live --structured-only
 ```
 
 Each run prints a PASS/FAIL line per row and writes a JSON report to
 `tests/llm-eval/reports/<timestamp>.json` (gitignored). The process exits
 non-zero if any row fails.
+
+## Structured-only lane (`structured-runner.ts`)
+
+Each case runs twice. The **primary** attempt goes through the real
+`runLlmTask` and must be answered by `openai`, because an anthropic answer means
+the fallback hid a primary failure. The **fallback** attempt calls
+`anthropicProvider.complete` directly with the registered fallback model and
+`outputSchema`. It must return a complete result that passes that schema. Both
+attempts then run case-specific assertions. The Operator case needs exactly one
+`set_auto_reply_scope` proposal with the snapshot scope and the requested 4-star threshold, and it must
+pass `validateModelOutput`.
+The report holds provider, model, usage, latency, schema issue codes and paths,
+and error kind and status. It never holds completion text, prompts, keys, or
+provider error messages. The lane is not in CI and needs no database.
 
 ## CI gate
 

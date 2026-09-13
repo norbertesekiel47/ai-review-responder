@@ -32,7 +32,7 @@ export interface ProposalWrites {
   busyId: string | null;
   /** The last refusal sentence per proposal id. */
   errors: Record<string, string>;
-  write: (proposal: ProposalView, action: 'apply' | 'decline') => Promise<void>;
+  write: (proposal: ProposalView, action: 'apply' | 'decline', confirmationLevel?: string) => Promise<void>;
 }
 
 export function useProposalWrites({
@@ -56,7 +56,7 @@ export function useProposalWrites({
    * state instead of leaving the browser to guess what a 409 meant.
    */
   const write = useCallback(
-    async (proposal: ProposalView, action: 'apply' | 'decline') => {
+    async (proposal: ProposalView, action: 'apply' | 'decline', confirmationLevel?: string) => {
       if (busyId !== null) return;
       setBusyId(proposal.id);
       setErrors((current) => {
@@ -67,7 +67,10 @@ export function useProposalWrites({
       try {
         const result = await postJson<ProposalWriteBody>(
           `/api/operator/proposals/${proposal.id}/${action}`,
-          action === 'apply' ? { expectedVersionToken: proposal.preparedVersionToken } : undefined,
+          action === 'apply' ? {
+            expectedVersionToken: proposal.preparedVersionToken,
+            ...(confirmationLevel === undefined ? {} : { confirmationLevel }),
+          } : undefined,
         );
         if (result.kind === 'disabled') { onDisabled(); return; }
         if (result.kind === 'aborted') return;

@@ -29,7 +29,7 @@ const snapshot: Snapshot = {
     locationOverrideExists: false,
   },
   facts: { tone: 'professional and friendly', productsServices: null, avoidFacts: [], highlightFacts: [] },
-  allowedOperations: modelVisibleOperations('copilot'),
+  allowedOperations: modelVisibleOperations({ blockReasons: ['autopilot_unavailable'] }),
   locations: [{ id: LOCATION, name: 'Salon' }],
   metrics: {
     pendingCount: 0,
@@ -61,11 +61,16 @@ describe('operator prompt', () => {
     for (const key of ['operation', 'scope', 'accountId', 'locationId', 'input', 'rationale', 'request', 'context']) {
       expect(system).toContain(`"${key}"`);
     }
+    // Run C: the account default is a legal policy target, declared as null.
+    expect(system).toContain('"locationId": uuid | null');
+    expect(system).toContain('scopeRule');
+    expect(system).toContain('expansionBlockedBy');
     for (const metric of STATUS_METRICS) {
       expect(system).toContain(`"${metric}"`);
     }
     // A shape change is a prompt change and must be visible in api_costs.
     expect(OWNER_OPERATOR_PROMPT_VERSION).not.toBe('2026-09-11.2');
+    expect(OWNER_OPERATOR_PROMPT_VERSION).not.toBe('2026-09-13.1');
   });
 
   it('the user envelope carries each proposable input shape on the operation itself, and no shape on reads or captures', () => {
@@ -80,5 +85,41 @@ describe('operator prompt', () => {
         expect(op).not.toHaveProperty('input');
       }
     }
+  });
+
+  it('the user envelope lists every operation the wire schema accepts, with exactly that schema input keys', () => {
+    const { user } = buildOperatorPrompt(snapshot, 'Only auto-post 5 star replies');
+    const envelope = JSON.parse(user) as {
+      snapshot: {
+        allowedOperations: {
+          id: string; kind: string; input?: string; scopeRule?: string; expansionBlockedBy?: string[];
+        }[];
+      };
+    };
+    const byId = new Map(envelope.snapshot.allowedOperations.map((op) => [op.id, op]));
+
+    // Read from the schema, so a new wire operation cannot go unlisted and a
+    // removed shape fails here.
+    const options = OperatorModelOutputSchema.shape.proposals.element.options;
+    expect(options.length).toBe(7);
+    for (const option of options) {
+      const id = option.shape.operation.value;
+      const visible = byId.get(id);
+      expect(visible?.kind, id).toBe('proposable');
+      expect(visible?.input, id).toBeDefined();
+      const shapeKeys = [...visible!.input!.matchAll(/"([A-Za-z]+)"\s*:/g)].map((m) => m[1]).sort();
+      expect(shapeKeys, id).toEqual(Object.keys(option.shape.input.shape).sort());
+    }
+
+    for (const id of ['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']) {
+      expect(byId.get(id), id).toMatchObject({
+        scopeRule: 'account_or_location',
+        expansionBlockedBy: ['autopilot_unavailable'],
+      });
+    }
+    expect(byId.get('set_tone')).toMatchObject({ scopeRule: 'location' });
+    // No typed confirmation phrase ever reaches the model.
+    expect(user).not.toContain('"confirmationPhrase":');
+    expect(user).not.toContain('"requiresConfirmation":');
   });
 });

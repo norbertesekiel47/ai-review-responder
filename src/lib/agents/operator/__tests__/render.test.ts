@@ -6,6 +6,7 @@ import {
   scrubPastedReview,
   validateModelOutput,
 } from '../render';
+import { modelVisibleOperations } from '../catalog';
 import type { Snapshot } from '../context';
 import { parseReplySegments, type Segment } from '../schema';
 
@@ -157,7 +158,7 @@ describe('operator output validator', () => {
 
     // A rejected output carries no proposals at all.
     const rejected = validateModelOutput(
-      output({ proposals: [{ ...toneProposal, operation: 'set_daily_cap' }] }),
+      output({ proposals: [{ ...toneProposal, operation: 'set_business_hours' }] }),
       snapshot,
     );
     expect(rejected.ok).toBe(false);
@@ -217,11 +218,15 @@ describe('operator output validator', () => {
   });
 
   it('validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default', () => {
+    // `set_daily_cap` is registered since Run C, so the outside-the-catalog
+    // fixture is an id no catalog has. The wire schema now refuses it too;
+    // this drives the validator's own branch directly.
     const unknownOperation = validateModelOutput(
-      output({ proposals: [{ ...toneProposal, operation: 'set_daily_cap' }] }),
+      output({ proposals: [{ ...toneProposal, operation: 'set_business_hours' }] }),
       snapshot,
     );
     expect(unknownOperation.ok).toBe(false);
+    expect(unknownOperation.ok === false && unknownOperation.reasons.join(' ')).toContain('outside the catalog');
 
     const foreignLocation = validateModelOutput(
       output({ proposals: [{ ...toneProposal, scope: { accountId: ACCOUNT, locationId: OTHER_LOCATION } }] }),
@@ -246,7 +251,7 @@ describe('operator output validator', () => {
     );
     expect(badInput.ok).toBe(false);
 
-    // Every Run A operation is scopeRule 'location', so an omitted locationId
+    // Every voice operation is scopeRule 'location', so an omitted locationId
     // is a rejection, not an account-default proposal.
     const noLocation = validateModelOutput(
       output({ proposals: [{ ...toneProposal, scope: { accountId: ACCOUNT } }] }),
@@ -304,6 +309,105 @@ describe('operator output validator', () => {
       },
     );
     expect(allowed.ok).toBe(true);
+  });
+});
+
+describe('operator output validator — auto-approval policy proposals', () => {
+  const policySnapshot: Snapshot = {
+    ...snapshot,
+    allowedOperations: modelVisibleOperations({ blockReasons: ['autopilot_unavailable'] }),
+  };
+  const capProposal = {
+    operation: 'set_daily_cap',
+    scope: { accountId: ACCOUNT, locationId: null },
+    input: { cap: 5 },
+    rationale: 'You asked for fewer auto-posts a day.',
+  };
+
+  it('normalizes a wire null locationId to the account default once, before the scope rules and the parsed proposals', () => {
+    const result = validateModelOutput(output({ proposals: [capProposal] }), policySnapshot);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.proposals[0]!.scope).toEqual({ accountId: ACCOUNT });
+    expect('locationId' in result.proposals[0]!.scope).toBe(false);
+    expect(result.proposals[0]!.operation.domain).toBe('policy');
+
+    // Absent and null are the same account default.
+    const absent = validateModelOutput(
+      output({ proposals: [{ ...capProposal, scope: { accountId: ACCOUNT } }] }),
+      policySnapshot,
+    );
+    expect(absent.ok && absent.proposals[0]!.scope).toEqual({ accountId: ACCOUNT });
+
+    // An account-default proposal does not target the stored location, so it
+    // may sit beside a scope_check for another location.
+    expect(validateModelOutput(
+      output({ segments: [{ type: 'scope_check', locationId: OTHER_LOCATION }], proposals: [capProposal] }),
+      policySnapshot,
+    ).ok).toBe(true);
+
+    // The stored location is still a legal policy target.
+    const located = validateModelOutput(
+      output({ proposals: [{ ...capProposal, scope: { accountId: ACCOUNT, locationId: LOCATION } }] }),
+      policySnapshot,
+    );
+    expect(located.ok && located.proposals[0]!.scope).toEqual({ accountId: ACCOUNT, locationId: LOCATION });
+  });
+
+  it('a null locationId never turns a voice operation into an account default', () => {
+    const result = validateModelOutput(
+      output({ proposals: [{ ...toneProposal, scope: { accountId: ACCOUNT, locationId: null } }] }),
+      policySnapshot,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reasons.join(' ')).toContain('must name the stored location');
+  });
+
+  it('refuses a policy proposal for another location, another account, the switched target beside a scope_check, or an out-of-domain input', () => {
+    const foreignLocation = validateModelOutput(
+      output({ proposals: [{ ...capProposal, scope: { accountId: ACCOUNT, locationId: OTHER_LOCATION } }] }),
+      policySnapshot,
+    );
+    expect(foreignLocation.ok === false && foreignLocation.reasons.join(' '))
+      .toContain('neither the stored location nor the account default');
+
+    const foreignAccount = validateModelOutput(
+      output({ proposals: [{ ...capProposal, scope: { accountId: '00000000-0000-7000-8000-00000000ac99', locationId: null } }] }),
+      policySnapshot,
+    );
+    expect(foreignAccount.ok === false && foreignAccount.reasons.join(' ')).toContain('another account');
+
+    const switched = validateModelOutput(
+      output({
+        segments: [{ type: 'scope_check', locationId: OTHER_LOCATION }],
+        proposals: [{ ...capProposal, scope: { accountId: ACCOUNT, locationId: LOCATION } }],
+      }),
+      policySnapshot,
+    );
+    expect(switched.ok === false && switched.reasons.join(' ')).toContain('cannot coexist');
+
+    const badInput = validateModelOutput(
+      output({ proposals: [{ ...capProposal, operation: 'set_veto_window', input: { minutes: 20 } }] }),
+      policySnapshot,
+    );
+    expect(badInput.ok === false && badInput.reasons.join(' ')).toContain('outside the domain for set_veto_window');
+  });
+
+  it('keeps narrowing policy operations available on Copilot: readiness is attached, not a filter', () => {
+    expect(policySnapshot.allowedOperations.map((op) => op.id))
+      .toEqual(expect.arrayContaining(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']));
+    const off = validateModelOutput(
+      output({
+        proposals: [{
+          operation: 'set_auto_reply_scope',
+          scope: { accountId: ACCOUNT, locationId: LOCATION },
+          input: { threshold: null },
+          rationale: 'You asked to stop auto-posting here.',
+        }],
+      }),
+      policySnapshot,
+    );
+    expect(off.ok).toBe(true);
   });
 });
 

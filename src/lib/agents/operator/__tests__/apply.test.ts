@@ -39,9 +39,43 @@ vi.mock('@/lib/responses/voice-settings', async (importOriginal) => {
   };
 });
 
+const {
+  mockReadPolicySnapshot, mockConsequence, mockRetained, mockGetSettings, mockPatchSettings,
+} = vi.hoisted(() => ({
+  mockReadPolicySnapshot: vi.fn(),
+  mockConsequence: vi.fn(),
+  mockRetained: vi.fn(),
+  mockGetSettings: vi.fn(),
+  mockPatchSettings: vi.fn(),
+}));
+
+// The policy reader is its own module's subject; here it is the seam Apply
+// sequences around. `consequenceForPolicy` is reached through proposals.ts.
+vi.mock('../policy-state', () => ({
+  readPolicySnapshot: (...a: unknown[]) => mockReadPolicySnapshot(...a),
+  consequenceForPolicy: (...a: unknown[]) => mockConsequence(...a),
+  readRetainedVetoCount: (...a: unknown[]) => mockRetained(...a),
+}));
+vi.mock('@/lib/auto-approval/settings', () => {
+  class AutoApprovalSettingsError extends Error {
+    constructor(readonly code: string, readonly status = 400) {
+      super(code);
+    }
+  }
+  return {
+    AutoApprovalSettingsError,
+    getAutoApprovalSettings: (...a: unknown[]) => mockGetSettings(...a),
+    patchAutoApprovalSettingsInTransaction: (...a: unknown[]) => mockPatchSettings(...a),
+  };
+});
+
+import { DEFAULT_DAILY_AUTO_POST_CAP } from '@/lib/auto-approval/policy';
+import { AutoApprovalSettingsError } from '@/lib/auto-approval/settings';
+import { AutoApprovalExpansionBlockedError } from '@/lib/auto-approval/settings-guards';
 import { mkTaggedResult } from '../../../../../worker/__tests__/helpers/mock-sql';
 import { applyProposal } from '../apply';
-import { PROPOSAL_FAILURE_REASON, PROPOSAL_STATUS } from '../schema';
+import { proposableOperation, type PolicyTarget } from '../catalog';
+import { PROPOSAL_FAILURE_REASON, PROPOSAL_STATUS, type PolicyState } from '../schema';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const ACTOR = '22222222-2222-4222-8222-222222222222';
@@ -153,6 +187,14 @@ describe('applyProposal', () => {
     mockWritable.mockResolvedValue({ ok: true });
     mockUpdateVoice.mockResolvedValue({ ok: true, updatedAt: WRITTEN_AT });
     mockReadVoice.mockResolvedValue({ ...VOICE_AFTER, updatedAt: WRITTEN_AT });
+  });
+
+  it('refuses impersonation before reading or changing any proposal or settings', async () => {
+    await expect(applyProposal(sql, input({ impersonated: true })))
+      .rejects.toMatchObject({ blockReasons: ['impersonation_not_allowed'] });
+    expect(sqlCalls).toHaveLength(0);
+    expect(mockUpdateVoice).not.toHaveBeenCalled();
+    expect(mockPatchSettings).not.toHaveBeenCalled();
   });
 
   it("applyProposal locks the businesses row before the proposal row and writes only the operation's own fields through updateVoiceConfig", async () => {
@@ -513,5 +555,379 @@ describe('applyProposal invariants', () => {
       }),
       { numRuns: 40 },
     );
+  });
+});
+
+// ── Policy scope ──────────────────────────────────────────────────────────
+
+const POLICY_ROW_ID = '77777777-7777-4777-8777-777777777777';
+const LOCATION_ROW_ID = '88888888-8888-4888-8888-888888888888';
+const POLICY_PREPARED_AT = '2026-09-12 09:00:00.333333+00';
+const POLICY_WRITTEN_AT = '2026-09-12 10:00:00.444444+00';
+const ACCOUNT_TOKEN = { accountDefaultRow: { id: POLICY_ROW_ID, updatedAt: POLICY_PREPARED_AT } };
+const LOCATION_TOKEN = {
+  locationRow: { id: LOCATION_ROW_ID, updatedAt: POLICY_PREPARED_AT },
+  accountDefaultRow: { id: POLICY_ROW_ID, updatedAt: POLICY_PREPARED_AT },
+};
+const CONSEQUENCE = {
+  total: 3,
+  eligible: 2,
+  held: { below_threshold: 1, cap_reached: 0, manual: 0 },
+  byDay: [{ day: '2026-09-01', total: 3, eligible: 2, held: 1 }],
+  busiestDay: 3,
+  windowStart: '2026-08-14 03:00:00+00',
+  windowEnd: '2026-09-13 03:00:00+00',
+  asOf: '2026-09-13 03:00:00.123456+00',
+  source: 'reviews_received_30d',
+  excludedImported: 1,
+  excludedUnknown: 4,
+};
+
+function policyState(overrides: Partial<PolicyState> = {}): PolicyState {
+  return {
+    domain: 'policy',
+    threshold: null,
+    vetoWindowMinutes: 30,
+    dailyAutoPostCap: null,
+    effectiveDailyCap: DEFAULT_DAILY_AUTO_POST_CAP,
+    rowExists: true,
+    ...overrides,
+  };
+}
+
+function targetOf(locationId: string | null): PolicyTarget {
+  return locationId === null ? { scope: 'account' } : { scope: 'location', locationId };
+}
+
+function policySnapshot(options: {
+  locationId: string | null;
+  target: PolicyState;
+  versionToken?: unknown;
+  targetArchived?: boolean;
+  policySuspended?: boolean;
+}) {
+  const account = options.locationId === null;
+  return {
+    accountId: ACCOUNT,
+    locationId: options.locationId,
+    target: targetOf(options.locationId),
+    state: {
+      accountDefault: account ? options.target : policyState(),
+      location: account ? null : options.target,
+    },
+    versionToken: options.versionToken ?? (account ? ACCOUNT_TOKEN : LOCATION_TOKEN),
+    targetArchived: options.targetArchived ?? false,
+    policySuspended: options.policySuspended ?? false,
+    locations: [],
+    reviews: [],
+    windowStart: CONSEQUENCE.windowStart,
+    windowEnd: CONSEQUENCE.windowEnd,
+    asOf: CONSEQUENCE.asOf,
+    source: 'reviews_received_30d',
+    excludedImported: 1,
+    excludedUnknown: 4,
+  };
+}
+
+/** A stored `set_auto_reply_scope` row whose after is the catalog's own preview. */
+function policyRow(options: {
+  locationId: string | null;
+  before: PolicyState;
+  input: Record<string, unknown>;
+  status?: string;
+}) {
+  const operation = proposableOperation('set_auto_reply_scope');
+  if (operation?.domain !== 'policy') throw new Error('set_auto_reply_scope left the policy catalog');
+  const account = options.locationId === null;
+  const preview = operation.preview(
+    { accountDefault: account ? options.before : policyState(), location: account ? null : options.before },
+    targetOf(options.locationId),
+    options.input,
+  );
+  return {
+    turn_id: TURN,
+    id: PROPOSAL,
+    operation: 'set_auto_reply_scope',
+    contract_version: 1,
+    label_kind: 'rule',
+    location_id: options.locationId,
+    status: options.status ?? PROPOSAL_STATUS.PENDING,
+    rationale: 'You asked to let good reviews post.',
+    input: options.input,
+    before: preview.before,
+    after: preview.after,
+    prepared_version_token: account ? ACCOUNT_TOKEN : LOCATION_TOKEN,
+    receipt: null,
+    applied_at: null,
+    failure_reason: null,
+  };
+}
+
+function policyInput(overrides: Record<string, unknown> = {}) {
+  return {
+    proposalId: PROPOSAL,
+    accountId: ACCOUNT,
+    actorUserId: ACTOR,
+    expectedVersionToken: ACCOUNT_TOKEN,
+    ...overrides,
+  };
+}
+
+/**
+ *   0 pre-tx  readProposalForAccount
+ *   1 tx      accounts … FOR UPDATE        (lockAutonomyAccount)
+ *   2 tx      agent_proposals … FOR UPDATE
+ *   3 tx      users … role = 'owner'
+ *   4 tx      accounts … subscription_tier
+ */
+function primePolicyLocks(row: ReturnType<typeof policyRow>) {
+  sqlReturnQueue.push(
+    mkTaggedResult([row]),
+    mkTaggedResult([{ id: ACCOUNT }]),
+    mkTaggedResult([row]),
+    mkTaggedResult([{ id: ACTOR, name: ACTOR_NAME, email: ACTOR_EMAIL }]),
+    mkTaggedResult([{ subscription_tier: 'autopilot' }]),
+  );
+}
+
+/** 5 owner_text, 6 UPDATE applied, 7 re-read, 8 sibling sweep. */
+function primeAppliedTail(row: ReturnType<typeof policyRow>) {
+  sqlReturnQueue.push(
+    mkTaggedResult([{ owner_text: 'Let the good ones post.' }]),
+    mkTaggedResult([]),
+    mkTaggedResult([{ ...row, status: PROPOSAL_STATUS.APPLIED }]),
+    mkTaggedResult([]),
+  );
+}
+
+function receiptOf(): Record<string, unknown> | undefined {
+  return writes()[0]?.values.find(
+    (value): value is Record<string, unknown> =>
+      typeof value === 'object' && value !== null && 'retainedVeto' in value,
+  );
+}
+
+describe('applyProposal policy scope', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMockSql();
+    mockReadPolicySnapshot.mockReset();
+    mockPatchSettings.mockReset();
+    mockWritable.mockResolvedValue({ ok: true });
+    mockGetSettings.mockResolvedValue({ readiness: { blockReasons: [] } });
+    mockPatchSettings.mockResolvedValue({ readiness: { blockReasons: [] } });
+    mockConsequence.mockReturnValue(CONSEQUENCE);
+    mockRetained.mockResolvedValue({ count: 2, asOf: '2026-09-12 10:00:00.5+00' });
+  });
+
+  it('policy Apply locks the account row before the proposal row, reads policy state only after both, and writes one standard-confirmed dial', async () => {
+    const before = policyState();
+    const row = policyRow({ locationId: null, before, input: { threshold: 4 } });
+    const prewrite = policySnapshot({ locationId: null, target: before });
+    const committedToken = { accountDefaultRow: { id: POLICY_ROW_ID, updatedAt: POLICY_WRITTEN_AT } };
+    const committed = policySnapshot({
+      locationId: null, target: policyState({ threshold: 4 }), versionToken: committedToken,
+    });
+    const readAt: number[] = [];
+    mockReadPolicySnapshot.mockImplementation(async () => {
+      readAt.push(sqlCalls.length);
+      return readAt.length === 1 ? prewrite : committed;
+    });
+    primePolicyLocks(row);
+    primeAppliedTail(row);
+
+    const result = await applyProposal(sql, policyInput({ confirmationLevel: 'all locations' }));
+    expect(result.kind).toBe('applied');
+
+    // THE ORDER: account first, proposal second, both inside the transaction.
+    expect(sqlCalls[1]!.inTransaction).toBe(true);
+    expect(sqlCalls[1]!.text).toContain('FROM accounts');
+    expect(sqlCalls[1]!.text).toContain('FOR UPDATE');
+    expect(sqlCalls[2]!.text).toContain('FROM agent_proposals');
+    expect(sqlCalls[2]!.text).toContain('FOR UPDATE');
+    expect(sqlCalls.some((call) => call.text.includes('FROM businesses'))).toBe(false);
+    // The policy read happens after both locks AND the actor checks.
+    expect(readAt[0]).toBe(5);
+
+    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
+    expect(mockPatchSettings.mock.calls[0]![1]).toEqual({
+      operation: 'set_account_default',
+      threshold: 4,
+      confirmationLevel: 'standard',
+      accountId: ACCOUNT,
+      actorUserId: ACTOR,
+      impersonated: false,
+    });
+
+    // Both consequence lines walk the PRE-WRITE cohort.
+    expect(mockConsequence).toHaveBeenCalledTimes(2);
+    for (const call of mockConsequence.mock.calls) expect(call[0]).toBe(prewrite);
+
+    expect(receiptOf()).toMatchObject({
+      affects: 'future_eligible_reviews',
+      scope: { accountId: ACCOUNT, locationId: null },
+      before: { threshold: null, consequence: CONSEQUENCE },
+      after: { threshold: 4, rowExists: true, consequence: CONSEQUENCE },
+      retainedVeto: { count: 2 },
+      versionToken: { before: ACCOUNT_TOKEN, after: committedToken },
+      differsFromPreview: false,
+      remainingBlocked: [],
+    });
+
+    // An account-default write sweeps every policy proposal of the account.
+    const sweep = writes()[1]!;
+    expect(sweep.text).not.toContain('location_id');
+    expect(sweep.values).toContainEqual(['set_auto_reply_scope', 'set_veto_window', 'set_daily_cap']);
+  });
+
+  it('policy Apply leaves an expansion pending and writes nothing unless the typed scope matches byte for byte', async () => {
+    const before = policyState();
+    for (const typed of [undefined, 'All locations', 'all locations ', ' all locations', '4 and 5 star']) {
+      resetMockSql();
+      mockPatchSettings.mockClear();
+      const row = policyRow({ locationId: null, before, input: { threshold: 4 } });
+      mockReadPolicySnapshot.mockResolvedValue(policySnapshot({ locationId: null, target: before }));
+      primePolicyLocks(row);
+
+      const result = await applyProposal(sql, policyInput({ confirmationLevel: typed }));
+
+      expect(result.kind).toBe('confirmation_mismatch');
+      expect(writes()).toHaveLength(0);
+      expect(mockPatchSettings).not.toHaveBeenCalled();
+    }
+    expect(mockRetained).not.toHaveBeenCalled();
+  });
+
+  it('readiness blocks only the expansion; a contraction applies without reading readiness or a phrase', async () => {
+    mockGetSettings.mockResolvedValue({ readiness: { blockReasons: ['autopilot_unavailable'] } });
+    const manual = policyState();
+    const expansion = policyRow({ locationId: null, before: manual, input: { threshold: 4 } });
+    mockReadPolicySnapshot.mockResolvedValue(
+      policySnapshot({ locationId: null, target: manual, policySuspended: true }),
+    );
+    primePolicyLocks(expansion);
+    sqlReturnQueue.push(
+      updated(1),
+      mkTaggedResult([{ ...expansion, status: PROPOSAL_STATUS.REJECTED, failure_reason: 'expansion_blocked' }]),
+    );
+
+    const refused = await applyProposal(sql, policyInput({ confirmationLevel: 'all locations' }));
+    expect(refused).toMatchObject({
+      kind: 'blocked',
+      blockReasons: ['autopilot_unavailable', 'policy_suspended'],
+    });
+    expect(writes()[0]!.values).toContain(PROPOSAL_FAILURE_REASON.EXPANSION_BLOCKED);
+    expect(mockPatchSettings).not.toHaveBeenCalled();
+
+    resetMockSql();
+    mockGetSettings.mockClear();
+    const fourStar = policyState({ threshold: 4 });
+    const contraction = policyRow({ locationId: null, before: fourStar, input: { threshold: null } });
+    mockReadPolicySnapshot.mockReset();
+    mockReadPolicySnapshot
+      .mockResolvedValueOnce(policySnapshot({ locationId: null, target: fourStar }))
+      .mockResolvedValueOnce(policySnapshot({ locationId: null, target: policyState() }));
+    primePolicyLocks(contraction);
+    primeAppliedTail(contraction);
+
+    const applied = await applyProposal(sql, policyInput());
+    expect(applied.kind).toBe('applied');
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(mockPatchSettings.mock.calls[0]![1]).not.toHaveProperty('confirmationLevel');
+    expect(mockPatchSettings.mock.calls[0]![1]).toMatchObject({ operation: 'set_account_manual' });
+  });
+
+  it('an archived location refuses a new override but applies a manual contraction', async () => {
+    const fourStar = policyState({ threshold: 4 });
+    const override = policyRow({ locationId: LOCATION, before: fourStar, input: { threshold: 5 } });
+    mockReadPolicySnapshot.mockResolvedValue(
+      policySnapshot({ locationId: LOCATION, target: fourStar, targetArchived: true }),
+    );
+    primePolicyLocks(override);
+    sqlReturnQueue.push(
+      updated(1),
+      mkTaggedResult([{ ...override, status: PROPOSAL_STATUS.REJECTED, failure_reason: 'location_inactive' }]),
+    );
+
+    const refused = await applyProposal(sql, policyInput({ expectedVersionToken: LOCATION_TOKEN }));
+    // 4 → 5 is a CONTRACTION, and it is still refused: a new override on an
+    // archived location is refused at all (the shared writer's rule).
+    expect(refused).toMatchObject({ kind: 'rejected', reason: PROPOSAL_FAILURE_REASON.LOCATION_INACTIVE });
+    expect(mockPatchSettings).not.toHaveBeenCalled();
+
+    resetMockSql();
+    const manualRow = policyRow({ locationId: LOCATION, before: fourStar, input: { threshold: null } });
+    mockReadPolicySnapshot.mockReset();
+    mockReadPolicySnapshot
+      .mockResolvedValueOnce(policySnapshot({ locationId: LOCATION, target: fourStar, targetArchived: true }))
+      .mockResolvedValueOnce(policySnapshot({ locationId: LOCATION, target: policyState(), targetArchived: true }));
+    primePolicyLocks(manualRow);
+    primeAppliedTail(manualRow);
+
+    const applied = await applyProposal(sql, policyInput({ expectedVersionToken: LOCATION_TOKEN }));
+    expect(applied.kind).toBe('applied');
+    expect(mockPatchSettings.mock.calls[0]![1]).toMatchObject({
+      operation: 'set_location_manual', locationId: LOCATION,
+    });
+    // A location write sweeps policy proposals on THAT location only.
+    const sweep = writes()[1]!;
+    expect(sweep.text).toContain('location_id = ?');
+    expect(sweep.values).toContain(LOCATION);
+  });
+
+  it('policy Apply marks the proposal stale without a write when the current policy token moved', async () => {
+    const before = policyState();
+    const row = policyRow({ locationId: null, before, input: { threshold: 4 } });
+    mockReadPolicySnapshot.mockResolvedValue(policySnapshot({
+      locationId: null,
+      target: before,
+      versionToken: { accountDefaultRow: { id: POLICY_ROW_ID, updatedAt: POLICY_WRITTEN_AT } },
+    }));
+    primePolicyLocks(row);
+    sqlReturnQueue.push(
+      updated(1),
+      mkTaggedResult([{ ...row, status: PROPOSAL_STATUS.STALE, failure_reason: 'version_mismatch' }]),
+    );
+
+    const result = await applyProposal(sql, policyInput({ confirmationLevel: 'all locations' }));
+
+    expect(result.kind).toBe('stale');
+    expect(mockReadPolicySnapshot).toHaveBeenCalledTimes(1);
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(mockPatchSettings).not.toHaveBeenCalled();
+  });
+
+  it('a known writer refusal becomes an owner-safe result; any other writer error rethrows with nothing recorded', async () => {
+    const fourStar = policyState({ threshold: 4 });
+    const row = policyRow({ locationId: null, before: fourStar, input: { threshold: null } });
+    mockReadPolicySnapshot.mockResolvedValue(policySnapshot({ locationId: null, target: fourStar }));
+    mockPatchSettings.mockRejectedValueOnce(new AutoApprovalExpansionBlockedError(['policy_suspended']));
+    primePolicyLocks(row);
+    sqlReturnQueue.push(
+      updated(1),
+      mkTaggedResult([{ ...row, status: PROPOSAL_STATUS.REJECTED, failure_reason: 'expansion_blocked' }]),
+    );
+
+    const refused = await applyProposal(sql, policyInput());
+    expect(refused).toMatchObject({ kind: 'blocked', blockReasons: ['policy_suspended'] });
+
+    resetMockSql();
+    mockPatchSettings.mockRejectedValueOnce(new AutoApprovalSettingsError('invalid_policy_threshold', 500));
+    primePolicyLocks(row);
+    await expect(applyProposal(sql, policyInput())).rejects.toThrow('invalid_policy_threshold');
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('a repeat policy Apply returns the stored row and reads no policy state', async () => {
+    const row = policyRow({
+      locationId: null, before: policyState(), input: { threshold: 4 }, status: PROPOSAL_STATUS.APPLIED,
+    });
+    sqlReturnQueue.push(mkTaggedResult([row]), mkTaggedResult([{ id: ACCOUNT }]), mkTaggedResult([row]));
+
+    const result = await applyProposal(sql, policyInput());
+
+    expect(result).toMatchObject({ kind: 'applied', repeated: true });
+    expect(sqlCalls).toHaveLength(3);
+    expect(mockReadPolicySnapshot).not.toHaveBeenCalled();
   });
 });

@@ -21,7 +21,7 @@ import { REVIEW_STATUS } from '@/lib/reviews/status';
 import { modelVisibleOperations, type ModelVisibleOperation } from './catalog';
 import { listPendingProposals, listProposalsForTurns } from './proposals';
 import { scrubPastedReview } from './render';
-import { parseReplySegments, TURN_STATUS } from './schema';
+import { parseReplySegments, TURN_STATUS, type PolicyState } from './schema';
 
 type Sql = postgres.Sql;
 
@@ -64,11 +64,17 @@ export interface OperatingRulesProjection {
   locationOverrideExists: boolean;
 }
 
+/** Both scopes' full policy states, each with its own row existence. */
+export interface PolicyStatesProjection {
+  accountDefault: PolicyState;
+  location: PolicyState;
+}
+
 /**
- * `AutoApprovalSettingsResponse` → the two `RuleSummary`s. THE single owner of
- * this projection: the snapshot and the owner-facing summary panel both need
- * it, and two copies of an inheritance rule means the next dial has two places
- * to change and one place to forget.
+ * `AutoApprovalSettingsResponse` → both scopes' full `PolicyState`. THE single
+ * owner of the inheritance rule: `projectOperatingRules` (snapshot and summary
+ * panel) derives from it, and policy previews start from it, so the next dial
+ * has one place to change.
  *
  * The LOCATION reads `effective`, never `override`: a location with no
  * override row still has operating rules, inherited from the account, and
@@ -77,29 +83,64 @@ export interface OperatingRulesProjection {
  * value, null meaning "platform default"), which is what an owner asking "what
  * is my cap" means.
  *
- * `locationOverrideExists` is row EXISTENCE, a distinct fact from inheritance:
- * spec §4 says a dial-only change on a location with no row CREATES one, and
- * the card must say so.
+ * The effective OBJECT is chosen first, and only then are its fields read. The
+ * earlier per-field `effective.threshold ?? account.threshold` read a
+ * deliberate manual override (threshold null) as "unset", and reported the
+ * account's threshold for a location that auto-posts nothing.
+ *
+ * `rowExists` is row EXISTENCE, a distinct fact from inheritance: spec §4 says
+ * a dial-only change on a location with no row CREATES one, and the card must
+ * say so.
  */
+export function projectPolicyStates(
+  settings: AutoApprovalSettingsResponse,
+  locationId: string,
+): PolicyStatesProjection {
+  const account = settings.accountDefault;
+  const accountDefault: PolicyState = {
+    domain: 'policy',
+    threshold: account.threshold,
+    vetoWindowMinutes: account.vetoWindowMinutes,
+    dailyAutoPostCap: account.dailyAutoPostCap,
+    effectiveDailyCap: account.effectiveDailyCap,
+    rowExists: account.exists,
+  };
+  const locationSettings = settings.locations.find((l) => l.locationId === locationId);
+  if (!locationSettings) {
+    return { accountDefault, location: { ...accountDefault, rowExists: false } };
+  }
+  const effective = locationSettings.effective;
+  return {
+    accountDefault,
+    location: {
+      domain: 'policy',
+      threshold: effective.threshold,
+      vetoWindowMinutes: effective.vetoWindowMinutes,
+      dailyAutoPostCap: effective.dailyAutoPostCap,
+      effectiveDailyCap: effective.effectiveDailyCap,
+      rowExists: locationSettings.override.exists,
+    },
+  };
+}
+
+function toRuleSummary(state: PolicyState): RuleSummary {
+  return {
+    threshold: state.threshold,
+    vetoWindowMinutes: state.vetoWindowMinutes,
+    dailyCap: state.effectiveDailyCap,
+  };
+}
+
+/** `AutoApprovalSettingsResponse` → the two `RuleSummary`s, from `projectPolicyStates`. */
 export function projectOperatingRules(
   settings: AutoApprovalSettingsResponse,
   locationId: string,
 ): OperatingRulesProjection {
-  const locationSettings = settings.locations.find((l) => l.locationId === locationId);
+  const states = projectPolicyStates(settings, locationId);
   return {
-    account: {
-      threshold: settings.accountDefault.threshold,
-      vetoWindowMinutes: settings.accountDefault.vetoWindowMinutes,
-      dailyCap: settings.accountDefault.effectiveDailyCap,
-    },
-    location: {
-      threshold: locationSettings?.effective.threshold ?? settings.accountDefault.threshold,
-      vetoWindowMinutes:
-        locationSettings?.effective.vetoWindowMinutes ?? settings.accountDefault.vetoWindowMinutes,
-      dailyCap:
-        locationSettings?.effective.effectiveDailyCap ?? settings.accountDefault.effectiveDailyCap,
-    },
-    locationOverrideExists: locationSettings?.override.exists ?? false,
+    account: toRuleSummary(states.accountDefault),
+    location: toRuleSummary(states.location),
+    locationOverrideExists: states.location.rowExists,
   };
 }
 
@@ -362,7 +403,9 @@ export async function buildSnapshot(db: Sql, input: BuildSnapshotInput): Promise
       avoidFacts: voice?.avoidFacts ?? [],
       highlightFacts: voice?.highlightFacts ?? [],
     },
-    allowedOperations: modelVisibleOperations(input.subscriptionTier),
+    // Readiness is attached to the policy operations, never used to hide them:
+    // it blocks expansions only, and a Copilot owner can still narrow.
+    allowedOperations: modelVisibleOperations(settings.readiness),
     locations: locations.map((l) => ({ id: l.id, name: l.name })),
     metrics: {
       pendingCount: bands.pendingCount,

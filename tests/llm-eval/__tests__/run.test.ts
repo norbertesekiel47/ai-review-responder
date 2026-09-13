@@ -1,8 +1,23 @@
 // tests/llm-eval/__tests__/run.test.ts
 import { describe, expect, it } from 'vitest';
 import { loadEvalSet } from '../load';
-import { runEval } from '../run';
+import { parseRunMode, runEval } from '../run';
 import type { EvalRow } from '../types';
+
+describe('parseRunMode', () => {
+  it('keeps offline as the default and --live as the existing live lane', () => {
+    expect(parseRunMode(['node', 'run.ts'])).toBe('offline');
+    expect(parseRunMode(['node', 'run.ts', '--live'])).toBe('live');
+  });
+
+  it('routes --live --structured-only to the structured lane', () => {
+    expect(parseRunMode(['node', 'run.ts', '--live', '--structured-only'])).toBe('structured');
+  });
+
+  it('rejects --structured-only without --live', () => {
+    expect(() => parseRunMode(['node', 'run.ts', '--structured-only'])).toThrow(/requires --live/);
+  });
+});
 
 describe('runEval (offline)', () => {
   it('scores the seeded set with zero failures and no provider keys', async () => {

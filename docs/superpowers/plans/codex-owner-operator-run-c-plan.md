@@ -1,4 +1,4 @@
-# Owner Operator Run C: implementation plan (root revision 2)
+# Owner Operator Run C: implementation plan (root revision 3: ingestion-origin amendment, verified)
 
 **Base:** `6b2eb580940480c6a9b304f3e69c0d7a3bb04f29`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-c`
@@ -13,6 +13,8 @@
 4. **Gate list.** Spec §12.2 also lists `ci:outbox-seam` and `ci:outbox-status`, but the intake command list does not. Add both to the final gate.
 5. **§12.2 scope.** Some §12.2 bullets belong to other runs or are already done: pasted review, `scope_check`, offboarding purge and weekends capability. T8 marks only the Run C bullets.
 6. **UI name.** The UI name is Console (Harbor). Do not use the old "Island" wording from the ticket.
+7. **Ingestion origin (owner-approved 2026-09-13).** Source inspection (`docs/reviews/codex-owner-operator-run-c/map-gap.md`) disproved persisted import provenance. The owner approved three things: track whether a new review was imported, count only confirmed live reviews, and label reviews excluded because their origin is unknown. There is no migration. The work is a T5 prerequisite (T5.0), not a new tracer. The four earlier approved deltas do not change.
+8. **Source drift corrections.** `src/lib/agents/operator/prompt.ts` owns the Operator prompt version and hash, not `src/lib/responses/prompt-policy.ts`. The model schema uses a regular `z.union` of strict variants with operation literals, not `z.discriminatedUnion`. The reason is that the OpenAI helper must traverse the nullable scope fields.
 
 ## 1. Tracer order and edit leases
 
@@ -26,6 +28,7 @@ T1 (alone) ──► T2 ─┬─► T3 ──► T5 ──► T6 ──► T7 �
 - T2 and T4 can run in parallel after T1. Their files do not overlap.
 - T3 needs T1 (the writer seam) and T2 (the operation phrase and scope rules).
 - T5 needs T3 (the Apply transaction) and T4 (`simulateRule`).
+- T5 starts with T5.0 (ingestion-origin markers). T5.0 lands with its tests before the consequence reader. The count stays at eight tracers.
 - T6 needs the stored proposal and receipt shapes from T5.
 - T7 needs T5 and T6. T8 is last.
 
@@ -40,10 +43,15 @@ T1 (alone) ──► T2 ─┬─► T3 ──► T5 ──► T6 ──► T7 �
 | `src/lib/agents/operator/context.ts` | T2 projection → T5 consequence inputs |
 | `src/lib/agents/operator/version-token.ts` | T3 |
 | `src/lib/llm/{tasks,types,run-task,openai-provider,anthropic-provider}.ts` | T2 |
+| `src/lib/reviews/process-review.ts` + `__tests__/process-review.test.ts`, `__tests__/import-review.integration.test.ts` | T5.0 |
+| `worker/jobs/zernio/zernio-ingest-shared.ts` + `__tests__/zernio-ingest-shared.test.ts`, `__tests__/ingestion-origin.integration.test.ts` (new only if justified) | T5.0 |
+| `docs/directory/{lib-reviews-responses,worker-jobs-b,worker-jobs-c}.md` | T5.0 → T8 |
 | `docs/directory/lib-owner-operator.md` | T2 → T4 → T8 |
 | `e2e/operator.spec.ts`, `e2e/helpers/operator-seed.ts` | T7 |
 
-Each tracer that adds a new file adds its directory row in the same commit, so `ci:directory-map` stays green at every commit. T8 does the final sweep. Opus delegates write all code. Root integrates and reviews.
+Each tracer that adds a new file adds its directory row in the same commit, so `ci:directory-map` stays green at every commit. T8 does the final sweep. Owner update, 2026-09-13: use Codex without external Opus delegates for remaining work. Root integrates and reviews.
+
+Owner-approved supporting surface amendment 2 (2026-09-13): add `scripts/ci/tenant-scope-allowlist.ts` for one exact `agent_run_steps` binding in the policy snapshot query. Its parent run is scoped by account, business and review subject. Independent isolation review and live foreign-account/business/subject tests verified that proof. The checker itself and every other binding stay unchanged. The owner approved the concrete patch; the existing three plan-review rounds remain recorded, with no fourth round claimed and no change to the tracer decomposition or product behavior.
 
 ---
 
@@ -85,12 +93,12 @@ Each tracer that adds a new file adds its directory row in the same commit, so `
    - Each operation owns `confirmationPhrase(after, scope)`. It returns `'4 and 5 star'`, `'5 star only'` or `'off'` for a location, from the after threshold, including an expansion that a dial causes. It returns `'all locations'` for an account.
    - Do not add `clear_location_override`. It belongs to Run E.
 3. **Full effective state.** The shape is `{threshold, vetoWindow, dailyCap, effectiveCap, rowExists}`. The preview includes the effect of creating an override. The describer writes one sentence when it creates an override and names the inherited values.
-4. **`schema.ts`.** Only the model transport input changes. It goes from `z.record(unknown)` to a discriminated union of the strict operation shapes. The final semantic validator stays. The §3.4 count and completion rejection stays. Existing fixtures stay.
-5. **`prompt.ts`.** List the three operations with their `inputShape`. Bump the prompt version. The version hash stays owned by `src/lib/responses/prompt-policy.ts` only.
+4. **`schema.ts`.** Only the model transport input changes. It goes from `z.record(unknown)` to a regular `z.union` of strict proposal variants keyed by operation literals. Do not use `z.discriminatedUnion`, because the OpenAI helper must traverse the nullable scope fields. The final semantic validator stays. The §3.4 count and completion rejection stays. Existing fixtures stay.
+5. **`prompt.ts`.** List the three operations with their `inputShape`. Bump the prompt version. `src/lib/agents/operator/prompt.ts` owns the Operator prompt version and hash; `src/lib/responses/prompt-policy.ts` does not.
 6. **LLM seam.**
    - `run-task.ts`: the request gains the task's output schema. It flows through retries and fallback to both providers. Billing and semantic validation do not change.
    - `openai-provider.ts`: use the installed 6.39.1 `zodResponseFormat` in strict mode. Every field is required, optional fields become nullable, and `additionalProperties` is false.
-   - `anthropic-provider.ts`: use 0.106.0 `output_config.format` with a JSON schema from Zod 4 `toJSONSchema`.
+   - `anthropic-provider.ts`: use the installed 0.100.1 SDK's `output_config.format` with its `zodOutputFormat` helper. The original plan's 0.106.0 version was corrected against the isolated worktree's installed package; no dependency upgrade is required.
    - Both adapters keep refusal, truncation and usage-cost error handling.
    - Build each schema at the registry/provider seam from the authoritative `LLM_TASKS[*].outputSchema` for `triage`, `judge`, `solicitation_ask` and `owner_operator`. Do not hand-write a second shape.
    - The unstructured tasks (reply, insights) send the same requests as before.
@@ -187,25 +195,59 @@ Each tracer that adds a new file adds its directory row in the same commit, so `
 **Blocking edge.** T5.
 **Precedent.** `starMeetsThreshold`, and the grant count per business per UTC day at `auto-approval.ts:217`.
 
+**Amendment note.** The T4 simulator contract does not change. The T5 reader gives it only confirmed live, deduplicated rows. It keeps the `imported` filter as defense in depth.
+
 ---
 
 ## T5: Worker stamping, Apply recomputation and the retained-veto count
 
+### T5.0: Ingestion-origin markers (prerequisite, owner-approved 2026-09-13)
+
+**Contract.**
+- Marker: key `ingestion_origin`, closed enum `live | imported | unknown`. It lives in the existing `agent_run_steps.detail` JSONB of the `review_ingested` step. Write it through the run-spine single writer (`src/lib/agents/run-spine.ts`) in the same transaction as the actual first review insertion. No migration. No run-spine production edits.
+- `processReview` (`src/lib/reviews/process-review.ts:40`): the default lane or `LIVE_INGEST_NEW` writes `live`. `BACKFILL` writes `imported`. Any other explicit lane on a new insert writes `unknown`.
+- `importReview` (`process-review.ts:552`) writes `imported`.
+- Only the winning insert writes a marker. A duplicate or retry that loses `ON CONFLICT … DO NOTHING` writes none. Later updates (`review_updated`) and on-demand generation never create, backfill or relabel an origin.
+- Answered import `insertImportedReview` (`worker/jobs/zernio/zernio-ingest-shared.ts:483`):
+  1. Mint a new UUID before the insert.
+  2. Keep `ON CONFLICT … DO UPDATE … RETURNING id`.
+  3. Treat the row as inserted only when the returned id equals the minted UUID.
+  4. Only for that winner, resolve the billing account through `businesses`. Require `startOrGetActiveRun` to report a newly created run; otherwise throw an invariant failure. Record the `imported` marker with `recordStep` and complete only that new run via `completeRun` in the same transaction.
+  5. Existing rows keep their original provenance.
+- WARNING: the `accountId` parameter of `insertImportedReview` is the Zernio provider account ID. Never use it as the billing tenant.
+- No response, job, publishing or consent change. No new production origin module. Annotate the two current writers only.
+- Retention: the run spine keeps 180 days. Ordinary new reviews in the 30-day received window retain provenance, but a resurrected review resets `detected_at` and its original marker may already be pruned. Absent or pruned markers are `unknown`; never reconstruct them.
+
+**T5.0 behavioral tests.**
+- The first live insert and the first import each commit the marker atomically with the review row. A forced rollback leaves neither.
+- A losing duplicate insert and a content update write no marker and do not rewrite the existing marker.
+- An explicit `BACKFILL` insert records `imported`. Another explicit non-live lane records `unknown`.
+- Answered import: only the real winner gets `imported`. A duplicate import and a live-then-import race keep the first origin.
+- The answered-import marker carries the billing account from `businesses`, never the provider account ID.
+- Update the directory rows in `lib-reviews-responses.md`, `worker-jobs-b.md` and `worker-jobs-c.md` in the same commit if a row's described behavior changes.
+
 **Seams.**
 1. **Consequence reader.** It takes `sql` or `tx` as an explicit parameter (invariant #15). Place database reads in `src/lib/agents/operator/policy-state.ts`, alongside policy snapshots/tokens; keep `consequence.ts` pure. This new module has worker and Apply consumers.
-   - It reads non-deleted reviews received in the last 30 days (`detected_at`) for the scope, excluding imported provenance; return no rows outside `[windowStart, windowEnd)`.
-   - It returns only IDs, stars, the SQL `dayKey`, the timestamp and import provenance. It returns no review body.
-   - It returns `{windowStart, windowEnd, asOf, source}` so the result is always the same.
+   - It reads non-deleted reviews received in the last 30 days (`detected_at`) for the scope. Scope is the billing account, active businesses and the review identity. Return no rows outside `[windowStart, windowEnd)`. Use canonical UTC text and SQL day buckets.
+   - It reads only `review_ingested` markers on the `review_handler`/`review` subject with an exact account, business and review match.
+   - Only nonempty, consistently `live` markers qualify. Consistent `imported` markers go to `excludedImported`. Missing, `unknown`, unrecognized or contradictory markers go to `excludedUnknown`.
+   - Never use connection dates, later generation lanes, external response activity or a lack of drafts to infer live. Missing markers remain unknown.
+   - Deduplicate review IDs before `simulateRule`, so extra step rows cannot inflate counts or cap holds.
+   - It returns only IDs, stars, the SQL `dayKey` and the timestamp for included rows. It returns no review body.
+   - It returns `{windowStart, windowEnd, asOf, source, excludedImported, excludedUnknown}` so the result is always the same.
+   - Excluded reviews are never in `total`, `eligible`, `held` or `busiestDay`.
    - The model never sees these rows.
 2. **`worker/jobs/agent-turn/AgentTurnWorker.ts`.**
    - Use the same scoped read as the snapshot.
    - Build the full before and after state, the policy token and the server exposure class for each autonomy proposal.
    - Store the consequence inside the typed `before`/`after` JSONB as a nested optional server field. Add no migration and no model field.
+   - The stored consequence includes `excludedUnknown`, `excludedImported` and the window. These are server-only fields.
    - **Account aggregate:** dials for each business, before and after. Existing overrides keep their values. Inheritors take the new default.
    - Old voice snapshots and receipts that have `updatedAt` still parse.
 3. **`apply.ts` inside the T3 transaction.**
    - Recompute the old consequence from the locked current rows.
    - Recompute the new consequence from the writer's effective result.
+   - Recompute `excludedUnknown` and the window with the same reader, and write them into the receipt.
    - Compare the committed after state with the stored `after`. Flag any difference on the receipt.
 4. **Retained-veto count, under the same account-locked transaction.**
    - Use a single SQL statement with a lateral latest-grant lookup and `FOR SHARE OF aal` on immutable audit rows only. Never acquire business, review, or response row locks after the account lock. Record `statement_timestamp()::text` as the count\'s `asOf`; it is the actual statement-time count, not a claim to freeze later publisher/veto transitions until commit.
@@ -221,6 +263,11 @@ Each tracer that adds a new file adds its directory row in the same commit, so `
 - **Retained count:** seed duplicate grants plus posted, cancelled and owner-only rows. The count matches a hand count.
 - **Invariant:** after Apply, every existing grant's `veto_window_minutes` is unchanged, and the veto-window gate still reads the original value.
 - The `dayKey` SQL boundary cases (23:59:59.999999 UTC and 00:00:00 UTC) go to the correct days.
+- Only confirmed live reviews count. A foreign-tenant or mismatched-subject marker never qualifies.
+- Absent, unrecognized and conflicting markers are excluded, and each one adds to `excludedUnknown`.
+- Duplicate step rows for one review count once, before caps.
+- The 30-day `[windowStart, windowEnd)` bounds and the day keys do not change with origin filtering.
+- The worker proposal and the Apply receipt recomputation both carry `excludedUnknown` and the window.
 - Legacy voice proposals still parse.
 
 **Blocking edges.** T6 and T7.
@@ -239,12 +286,14 @@ Each tracer that adds a new file adds its directory row in the same commit, so `
   - Veto card: counts plus the spec phrase "Each auto-post waits 30 minutes for you first." (substitute 15 for a 15-minute proposal)
   - Cap card: a sentence with the busiest day's count.
   - Zero counts render as zero.
-- **Receipt:** old and new counts, the retained-veto count and the "actual differs" flag.
+  - Every consequence card and receipt states the 30-day received window and the count excluded because origin is unknown. It shows this even when the included counts are zero.
+- **Receipt:** old and new counts, the retained-veto count, the excluded-unknown count with its window and the "actual differs" flag.
 - Targets come from the stored scope, not from the location selector.
 - Use `repworth-brand-design` and keep the Console (Harbor) tokens. No client code touches `auto_approval_policies`.
 
 **Behavioral tests.**
 - Component tests for each rule above, including a banned-phrase assertion and an order assertion.
+- The card and the receipt render the excluded-unknown count and the window, including at zero included counts.
 - `react-doctor` checks on the changed components.
 
 **Blocking edge.** T7 browser tests.
@@ -285,7 +334,8 @@ Before any live-DB run, confirm the local target is localhost `test_ws4` at migr
 
 Update these files:
 - `docs/directory/lib-owner-operator.md` and `docs/directory/worker-jobs-a.md`: the final row sweep.
-- `docs/context/owner-operator.md` and `CONTEXT-MAP.md`: new terms. The terms are Consequence line, typed scope, policy version token and retained veto window count.
+- `docs/directory/lib-reviews-responses.md`, `worker-jobs-b.md` and `worker-jobs-c.md`: confirm the T5.0 rows.
+- `docs/context/owner-operator.md` and `CONTEXT-MAP.md`: new terms. The terms are Consequence line, typed scope, policy version token, retained veto window count and ingestion origin.
 - Spec §3.5: retain the fixed veto phrase and document the workflow timestamp and UTC simulation bucketing.
 - Spec §12.2: mark the Run C bullets only.
 - Spec §15: add a review-log entry.
@@ -312,4 +362,10 @@ Update these files:
 
 ## 3. Root decisions and remaining questions
 
+**Acceptance-title reconciliation (2026-09-13).** The original63 compound obligations are preserved and mapped in `docs/reviews/codex-owner-operator-run-c/evidence/promise-audit.md`; four actual assertion gaps were filled. The intake's72 entries now name real source test titles, as its schema requires. Live provider and browser execution obligations remain in the verification plan and their dedicated evidence artifacts, since the promised-title scanner searches only src/worker/scripts tests. This is a mechanical evidence correction with no removed acceptance requirement or fourth plan-review round claimed.
+
+**Supporting-test reconciliation (2026-09-13).** The owner's existing authorization to include required supporting tests covers two reviewed-caller tripwires discovered by the full coverage run: `src/__tests__/cost-guard-contract.test.ts` and `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts`. Surface amendment 3 records those exact test paths. Root reviewed the opt-in synthetic structured-eval exception and the imported-review winning-INSERT lock ownership before adding their named callers. No enforcement logic, lock exception, production scope, or tracer contract changes.
+
 No unresolved product delta. The busiest day is the aggregate scope day, with independently enforced per-business caps. Workflow review time is `detected_at` (source precedent above). Account-default retained count covers active inheritors only. Provider JSON-schema compatibility is an implementation check: preserve authoritative Zod semantics and prove both provider requests plus real keyed outputs. No new permission or invented schema guarantee follows from an unsupported provider keyword.
+
+**Owner-approved tradeoff (2026-09-13).** Counts use only reviews with a confirmed live ingestion origin. Reviews inserted before T5.0 ships have no marker, so they are excluded as unknown. Early after deployment, the excluded count can be larger than the counted total. The card shows the excluded count, so it does not hide this. No backfill or heuristic classification is authorized.

@@ -1,11 +1,14 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import type { ProposalView } from '@/lib/agents/operator/proposals';
-import { parseVoiceState } from '@/lib/agents/operator/schema';
+import { parsePolicyState, parseVoiceState } from '@/lib/agents/operator/schema';
+import { PolicyConsequenceLine, PolicyStateDetail } from './PolicyStateDetail';
 import { ReceiptView } from './ReceiptView';
 import {
   AFFECTS_FUTURE_DRAFTS,
+  AFFECTS_FUTURE_ELIGIBLE_REVIEWS,
+  READINESS_WORDING,
   APPLY,
   NOT_NOW,
   OFFERS_REFRESH_PLAN,
@@ -20,6 +23,12 @@ import {
 } from './wording';
 import './operator.css';
 
+const POLICY_TITLES: Readonly<Record<string, string>> = {
+  set_auto_reply_scope: 'Change auto-reply scope',
+  set_veto_window: 'Change the time to stop a reply',
+  set_daily_cap: 'Change the daily auto-reply limit',
+};
+
 export interface ProposalCardProps {
   proposal: ProposalView;
   /** The turn's STORED location — the card's target, never the selector (§3.3). */
@@ -28,7 +37,7 @@ export interface ProposalCardProps {
   locationLabel: (locationId: string) => string;
   /** True when the browser's current scope is not the turn's location (D4). */
   scopeMoved: boolean;
-  onApply: (proposal: ProposalView) => void;
+  onApply: (proposal: ProposalView, confirmationLevel?: string) => void;
   onDecline: (proposal: ProposalView) => void;
   onRefreshPlan: (proposal: ProposalView) => void;
   busy: boolean;
@@ -38,8 +47,9 @@ export interface ProposalCardProps {
 /**
  * One **Proposal** as a Harbor card, rendered ENTIRELY from the stored row.
  *
- * The target is the proposal's own `location_id`, falling back to the turn's
- * stored location — never the browser's current selector (spec §3.3). That is
+ * Policy targets use the proposal's scope, including a null account default.
+ * Voice targets fall back to the turn's stored location, never the current
+ * selector (spec §3.3). That is
  * the whole reason the note exists: the owner may be looking at the Cafe while
  * reading a plan prepared for the Salon, and a card that renamed itself to
  * match the selector would be describing a change it is not about to make.
@@ -55,12 +65,10 @@ export function ProposalCard({
   busy,
   error,
 }: ProposalCardProps) {
-  const targetLocationId = proposal.locationId ?? turnLocationId;
+  const policy = proposal.before.domain === 'policy';
+  const account = policy && proposal.locationId === null;
   const headingId = `op-proposal-${proposal.id}`;
   const reasonId = `${headingId}-reason`;
-
-  const before = parseVoiceState(proposal.before, 'agent_proposals.before');
-  const after = parseVoiceState(proposal.after, 'agent_proposals.after');
 
   const applied = proposal.status === 'applied';
 
@@ -75,33 +83,12 @@ export function ProposalCard({
       {!applied && (
         <span className="badge op-label-chip">{PROPOSAL_LABEL_PENDING[proposal.labelKind]}</span>
       )}
-      <h2 className="card-h2" id={headingId}>{proposal.describe}</h2>
+      <h2 className="card-h2" id={headingId}>{policy ? POLICY_TITLES[proposal.operation] ?? proposal.describe : proposal.describe}</h2>
 
-      <div className="op-kv">
-        <span className="op-kv-label">This location</span>
-        <span className="op-kv-value">{locationLabel(targetLocationId)}</span>
-      </div>
-      {scopeMoved && <p className="op-note">{preparedForNote(locationLabel(targetLocationId))}</p>}
-
-      {/* EXACT before and after of the full voice state (spec §3.3, §6.1).
-          Counts are not enough: replacing one avoided fact with a different
-          one of the same length produced two identical-looking columns, and
-          the owner approved replacement content they never saw. The catalog
-          describer has the same limit ("Keep 3 thing(s) out of every reply",
-          src/lib/agents/operator/catalog.ts:157-171), which is why the card
-          does not lean on it for the values. */}
-      <div className="op-diff">
-        <div className="op-diff-col">
-          <span className="op-kv-label">Now</span>
-          <VoiceStateDetail state={before} other={after} side="before" />
-        </div>
-        <div className="op-diff-col">
-          <span className="op-kv-label">After this change</span>
-          <VoiceStateDetail state={after} other={before} side="after" />
-        </div>
-      </div>
-
-      <p className="op-state-line">{AFFECTS_FUTURE_DRAFTS}</p>
+      <ProposalTarget proposal={proposal} account={account} turnLocationId={turnLocationId}
+        locationLabel={locationLabel} scopeMoved={scopeMoved} />
+      <ProposalPreview proposal={proposal} policy={policy} account={account} />
+      <p className="op-state-line">{policy ? AFFECTS_FUTURE_ELIGIBLE_REVIEWS : AFFECTS_FUTURE_DRAFTS}</p>
 
       <ProposalState
         proposal={proposal}
@@ -115,6 +102,51 @@ export function ProposalCard({
       />
     </section>
   );
+}
+
+function ProposalTarget({ proposal, account, turnLocationId, locationLabel, scopeMoved }:
+  Pick<ProposalCardProps, 'proposal' | 'turnLocationId' | 'locationLabel' | 'scopeMoved'> & { account: boolean }) {
+  const targetLocationId = proposal.locationId ?? turnLocationId;
+  return <>
+    <div className="op-kv">
+      <span className="op-kv-label">{account ? 'Scope' : 'This location'}</span>
+      <span className="op-kv-value">{account ? 'Account default' : locationLabel(targetLocationId)}</span>
+    </div>
+    {account && proposal.affectedLocationCount !== null && <p className="op-note">Affects {proposal.affectedLocationCount} locations that inherit the account default. Locations with their own rule keep it.</p>}
+    {!account && scopeMoved && <p className="op-note">{preparedForNote(locationLabel(targetLocationId))}</p>}
+  </>;
+}
+
+function ProposalPreview({ proposal, policy, account }: { proposal: ProposalView; policy: boolean; account: boolean }) {
+  return <>
+
+    {/* EXACT before and after of the full voice state (spec §3.3, §6.1).
+        Counts are not enough: replacing one avoided fact with a different
+        one of the same length produced two identical-looking columns, and
+        the owner approved replacement content they never saw. The catalog
+        describer has the same limit ("Keep 3 thing(s) out of every reply",
+        src/lib/agents/operator/catalog.ts:157-171), which is why the card
+        does not lean on it for the values. */}
+    <div className="op-diff">
+      <div className="op-diff-col">
+        <span className="op-kv-label">Now</span>
+        {policy
+          ? <PolicyStateDetail state={parsePolicyState(proposal.before, 'proposal.before')} other={parsePolicyState(proposal.after, 'proposal.after')} account={account} />
+          : <VoiceStateDetail state={parseVoiceState(proposal.before, 'proposal.before')} other={parseVoiceState(proposal.after, 'proposal.after')} side="before" />}
+      </div>
+      <div className="op-diff-col">
+        <span className="op-kv-label">After this change</span>
+        {policy
+          ? <PolicyStateDetail state={parsePolicyState(proposal.after, 'proposal.after')} other={parsePolicyState(proposal.before, 'proposal.before')} account={account} />
+          : <VoiceStateDetail state={parseVoiceState(proposal.after, 'proposal.after')} other={parseVoiceState(proposal.before, 'proposal.before')} side="after" />}
+      </div>
+    </div>
+
+    {policy && !account && proposal.before.rowExists === false && proposal.after.rowExists === true && (
+      <p className="op-note">This creates a location rule. It stops inheriting the account default and uses all the settings shown above.</p>
+    )}
+    {policy && proposal.consequence && <PolicyConsequenceLine line={proposal.consequence} operation={proposal.operation} vetoWindowMinutes={parsePolicyState(proposal.after, 'proposal.after').vetoWindowMinutes} />}
+  </>;
 }
 
 /**
@@ -147,81 +179,85 @@ function ProposalState({
 
   return (
     <>
-      {/* THE APPLIED LABEL IS NOT CONDITIONAL ON THE RECEIPT. Apply writes the
-          status and the Receipt in one transaction, so the two always travel
-          together — but a row that somehow arrived applied without one must
-          still SAY it was applied rather than render as a plan the owner has
-          not decided yet. */}
-      {proposal.status === 'applied' && (
-        <>
-          {/* The APPLIED half of the §1 contract, in place of the bare word
-              "Applied": after success the card names what it now IS — an
-              Active rule, or a Remembered fact. */}
-          <p className="op-state-line">{PROPOSAL_LABEL_APPLIED[proposal.labelKind]}</p>
-          {proposal.receipt !== null && (
-            <ReceiptView
-              receipt={proposal.receipt}
-              describe={proposal.describe}
-              locationLabel={locationLabel}
-            />
-          )}
-        </>
-      )}
-
-      {proposal.status === 'superseded' && <p className="op-state-line">{PROPOSAL_SUPERSEDED}</p>}
-
-      {(proposal.status === 'stale'
-        || proposal.status === 'rejected'
-        || proposal.status === 'failed') && (
-        <p className="op-state-line">
-          {/* An owner decline stores NO reason (D5), so a `rejected` row with a
-              null reason reads "Not applied" rather than as a failure. */}
-          {proposal.status === 'rejected' && proposal.failureReason === null
-            ? PROPOSAL_DECLINED
-            : proposalFailureSentence(proposal.failureReason)}
-        </p>
-      )}
+      <ProposalStatusLine proposal={proposal} locationLabel={locationLabel} />
 
       {error !== null && (
         <p className="op-notice" id={reasonId} role="alert">{error}</p>
       )}
 
-      {pending && (
-        <div className="op-actions">
-          <button
-            type="button"
-            className="btn btn-primary op-action"
-            disabled={busy}
-            aria-describedby={error !== null ? reasonId : undefined}
-            onClick={() => onApply(proposal)}
-          >
-            {APPLY}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary op-action"
-            disabled={busy}
-            onClick={() => onDecline(proposal)}
-          >
-            {NOT_NOW}
-          </button>
-        </div>
+      {proposal.requiresConfirmation && proposal.readinessBlockReasons.length > 0 && (
+        <ul className="op-readiness">{proposal.readinessBlockReasons.map((reason) => <li key={reason}>{READINESS_WORDING[reason]}</li>)}</ul>
       )}
+
+      {pending && <PendingProposalActions proposal={proposal} reasonId={reasonId}
+        onApply={onApply} onDecline={onDecline} busy={busy} error={error} />}
 
       {!pending && refreshable && (
         <div className="op-actions">
-          <button
-            type="button"
-            className="btn btn-secondary op-action"
-            disabled={busy}
-            onClick={() => onRefreshPlan(proposal)}
-          >
-            {REFRESH_PLAN}
-          </button>
+          <button type="button" className="btn btn-secondary op-action" disabled={busy}
+            onClick={() => onRefreshPlan(proposal)}>{REFRESH_PLAN}</button>
         </div>
       )}
     </>
   );
+}
+
+function ProposalStatusLine({ proposal, locationLabel }: Pick<ProposalCardProps, 'proposal' | 'locationLabel'>) {
+  switch (proposal.status) {
+    case 'pending': return null;
+    case 'applied':
+      // The applied label survives a missing receipt; only a stored receipt
+      // supplies the immutable record and its actual before/after values.
+      return <>
+        <p className="op-state-line">{PROPOSAL_LABEL_APPLIED[proposal.labelKind]}</p>
+        {proposal.receipt !== null && <ReceiptView receipt={proposal.receipt}
+          describe={proposal.describe} locationLabel={locationLabel} />}
+      </>;
+    case 'superseded': return <p className="op-state-line">{PROPOSAL_SUPERSEDED}</p>;
+    case 'rejected':
+      if (proposal.failureReason === null) return <p className="op-state-line">{PROPOSAL_DECLINED}</p>;
+      return <p className="op-state-line">{proposalFailureSentence(proposal.failureReason)}</p>;
+    case 'stale':
+    case 'failed': return <p className="op-state-line">{proposalFailureSentence(proposal.failureReason)}</p>;
+  }
+}
+
+function PendingProposalActions({ proposal, reasonId, onApply, onDecline, busy, error }:
+  Pick<ProposalCardProps, 'proposal' | 'onApply' | 'onDecline' | 'busy' | 'error'> & { reasonId: string }) {
+  const [confirmation, setConfirmation] = useState('');
+  const confirmationBlocked = proposal.requiresConfirmation &&
+  (confirmation !== proposal.confirmationPhrase || proposal.readinessBlockReasons.length > 0);
+  return <>
+    {proposal.requiresConfirmation && (
+      <div className="op-confirmation">
+        <label htmlFor={`${reasonId}-confirmation`}>Type “{proposal.confirmationPhrase}” to confirm this scope</label>
+        <input id={`${reasonId}-confirmation`} className="input op-confirmation-input" type="text"
+          maxLength={100} value={confirmation} disabled={busy} autoComplete="off" spellCheck={false}
+          aria-describedby={error !== null ? reasonId : undefined}
+          onChange={(event) => setConfirmation(event.target.value)} />
+      </div>
+    )}
+
+    <div className="op-actions">
+      <button
+        type="button"
+        className="btn btn-primary op-action"
+        disabled={busy || confirmationBlocked}
+        aria-describedby={error !== null ? reasonId : undefined}
+        onClick={() => proposal.requiresConfirmation ? onApply(proposal, confirmation) : onApply(proposal)}
+      >
+        {proposal.requiresConfirmation ? 'Confirm and apply' : APPLY}
+      </button>
+      <button
+        type="button"
+        className="btn btn-secondary op-action"
+        disabled={busy}
+        onClick={() => onDecline(proposal)}
+      >
+        {NOT_NOW}
+      </button>
+    </div>
+  </>;
 }
 
 /**

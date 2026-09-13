@@ -28,23 +28,110 @@ vi.mock('@/lib/responses/voice-settings', async (importOriginal) => ({
 }));
 
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
-import { buildSnapshot } from '../context';
+import type {
+  AutoApprovalLocationSettings,
+  AutoApprovalPolicyApiState,
+  AutoApprovalSettingsResponse,
+} from '@/lib/auto-approval/types';
+import { buildSnapshot, projectOperatingRules, projectPolicyStates } from '../context';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const LOCATION = '22222222-2222-4222-8222-222222222222';
 const CONVERSATION = '33333333-3333-4333-8333-333333333333';
 const HISTORICAL_TURN = '44444444-4444-4444-8444-444444444444';
 
+/** Account default: 4 and 5 star, 30-minute window, explicit cap 20. */
+const ACCOUNT_DEFAULT: AutoApprovalPolicyApiState = {
+  policyId: '55555555-5555-4555-8555-555555555555',
+  threshold: 4,
+  exists: true,
+  vetoWindowMinutes: 30,
+  dailyAutoPostCap: 20,
+  effectiveDailyCap: 20,
+  suspended: false,
+  suspendedReason: null,
+};
+
+/** A DELIBERATE manual override: its own row, threshold null, its own dials. */
+const MANUAL_OVERRIDE: AutoApprovalLocationSettings = {
+  locationId: LOCATION,
+  displayName: 'Salon',
+  override: {
+    policyId: '66666666-6666-4666-8666-666666666666',
+    threshold: null,
+    exists: true,
+    vetoWindowMinutes: 15,
+    dailyAutoPostCap: null,
+    effectiveDailyCap: 10,
+    suspended: false,
+    suspendedReason: null,
+  },
+  effective: {
+    threshold: null,
+    source: 'location_override',
+    inherited: false,
+    vetoWindowMinutes: 15,
+    dailyAutoPostCap: null,
+    effectiveDailyCap: 10,
+    suspended: false,
+  },
+};
+
+/** No override row: the effective policy is the account default's. */
+const INHERITING: AutoApprovalLocationSettings = {
+  locationId: LOCATION,
+  displayName: 'Salon',
+  override: {
+    policyId: null,
+    threshold: null,
+    exists: false,
+    vetoWindowMinutes: 15,
+    dailyAutoPostCap: null,
+    effectiveDailyCap: 10,
+    suspended: false,
+    suspendedReason: null,
+  },
+  effective: {
+    threshold: 4,
+    source: 'account_default',
+    inherited: true,
+    vetoWindowMinutes: 30,
+    dailyAutoPostCap: 20,
+    effectiveDailyCap: 20,
+    suspended: false,
+  },
+};
+
+function settings(locations: AutoApprovalLocationSettings[]): AutoApprovalSettingsResponse {
+  return {
+    accountDefault: ACCOUNT_DEFAULT,
+    locations,
+    readiness: {
+      runtimeEnabled: true,
+      providerModerationEnabled: true,
+      providerModerationValidated: true,
+      accountWritable: true,
+      canExpand: false,
+      blockReasons: ['autopilot_unavailable'],
+    },
+    solicitation: { available: false, enabled: false, dailySendCap: null, vetoWindowMinutes: null },
+  };
+}
+
+const SNAPSHOT_INPUT = {
+  accountId: ACCOUNT,
+  locationId: LOCATION,
+  locationName: 'Salon',
+  conversationId: CONVERSATION,
+  sequence: 3,
+  subscriptionTier: SubscriptionTier.COPILOT,
+};
+
 describe('operator context snapshot', () => {
   beforeEach(() => {
     resetMockSql();
     vi.clearAllMocks();
-    getAutoApprovalSettings.mockResolvedValue({
-      accountDefault: { threshold: null, vetoWindowMinutes: 15, effectiveDailyCap: 10 },
-      locations: [],
-      readiness: {},
-      solicitation: {},
-    });
+    getAutoApprovalSettings.mockResolvedValue(settings([INHERITING]));
     getLocationsForAccount.mockResolvedValue([{ id: LOCATION, name: 'Salon' }]);
     readVoiceConfig.mockResolvedValue({
       tone: 'warm',
@@ -123,5 +210,51 @@ describe('operator context snapshot', () => {
       mockSql,
       { accountId: ACCOUNT, locationId: LOCATION },
     );
+  });
+
+  it('a deliberate manual location override stays manual under an enabled account default, in the projection and the snapshot', async () => {
+    // The regression: `effective.threshold ?? account.threshold` read null as
+    // "unset" and reported 4 and 5 star for a location that auto-posts nothing.
+    expect(projectOperatingRules(settings([MANUAL_OVERRIDE]), LOCATION)).toEqual({
+      account: { threshold: 4, vetoWindowMinutes: 30, dailyCap: 20 },
+      location: { threshold: null, vetoWindowMinutes: 15, dailyCap: 10 },
+      locationOverrideExists: true,
+    });
+    expect(projectPolicyStates(settings([MANUAL_OVERRIDE]), LOCATION)).toEqual({
+      accountDefault: {
+        domain: 'policy', threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 20, effectiveDailyCap: 20, rowExists: true,
+      },
+      location: {
+        domain: 'policy', threshold: null, vetoWindowMinutes: 15, dailyAutoPostCap: null, effectiveDailyCap: 10, rowExists: true,
+      },
+    });
+
+    getAutoApprovalSettings.mockResolvedValueOnce(settings([MANUAL_OVERRIDE]));
+    const snapshot = await buildSnapshot(mockSql as unknown as postgres.Sql, SNAPSHOT_INPUT);
+    expect(snapshot.operatingRules.location.threshold).toBeNull();
+    expect(snapshot.operatingRules.account.threshold).toBe(4);
+  });
+
+  it('an inheriting location reports the account default and no row, and so does a location absent from the settings', () => {
+    const inherited = {
+      domain: 'policy', threshold: 4, vetoWindowMinutes: 30, dailyAutoPostCap: 20, effectiveDailyCap: 20, rowExists: false,
+    };
+    expect(projectPolicyStates(settings([INHERITING]), LOCATION).location).toEqual(inherited);
+    expect(projectPolicyStates(settings([]), LOCATION).location).toEqual(inherited);
+    expect(projectOperatingRules(settings([INHERITING]), LOCATION)).toEqual({
+      account: { threshold: 4, vetoWindowMinutes: 30, dailyCap: 20 },
+      location: { threshold: 4, vetoWindowMinutes: 30, dailyCap: 20 },
+      locationOverrideExists: false,
+    });
+  });
+
+  it('the snapshot attaches the settings readiness to the policy operations and still lists them on Copilot', async () => {
+    const snapshot = await buildSnapshot(mockSql as unknown as postgres.Sql, SNAPSHOT_INPUT);
+    expect(snapshot.allowedOperations.find((op) => op.id === 'set_auto_reply_scope')).toMatchObject({
+      kind: 'proposable',
+      scopeRule: 'account_or_location',
+      expansionBlockedBy: ['autopilot_unavailable'],
+    });
+    expect(snapshot.allowedOperations.find((op) => op.id === 'set_tone')).not.toHaveProperty('expansionBlockedBy');
   });
 });

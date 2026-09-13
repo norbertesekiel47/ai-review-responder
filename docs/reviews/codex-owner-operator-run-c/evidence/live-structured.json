@@ -1,0 +1,218 @@
+{
+  "startedAt": "2026-09-13T10:49:04.771Z",
+  "mode": "structured",
+  "total": 4,
+  "passed": 4,
+  "failed": 0,
+  "lanes": {
+    "structured": {
+      "startedAt": "2026-09-13T10:49:04.771Z",
+      "mode": "structured",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "results": [
+        {
+          "id": "triage-mild-positive",
+          "category": "triage",
+          "task": "triage",
+          "promptKind": "contract_probe",
+          "passed": true,
+          "failures": [],
+          "attempts": [
+            {
+              "lane": "primary",
+              "expected": {
+                "provider": "openai",
+                "model": "gpt-4o-mini-2024-07-18"
+              },
+              "provider": "openai",
+              "model": "gpt-4o-mini-2024-07-18",
+              "usage": {
+                "promptTokens": 351,
+                "completionTokens": 14
+              },
+              "latencyMs": 815,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            },
+            {
+              "lane": "fallback",
+              "expected": {
+                "provider": "anthropic",
+                "model": "claude-haiku-4-5-20251001"
+              },
+              "provider": "anthropic",
+              "model": "claude-haiku-4-5-20251001",
+              "usage": {
+                "promptTokens": 675,
+                "completionTokens": 21
+              },
+              "latencyMs": 1448,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            }
+          ]
+        },
+        {
+          "id": "judge-clean-reply",
+          "category": "judge",
+          "task": "judge",
+          "promptKind": "production_prompt",
+          "passed": true,
+          "failures": [],
+          "attempts": [
+            {
+              "lane": "primary",
+              "expected": {
+                "provider": "openai",
+                "model": "gpt-4o-mini-2024-07-18"
+              },
+              "provider": "openai",
+              "model": "gpt-4o-mini-2024-07-18",
+              "usage": {
+                "promptTokens": 465,
+                "completionTokens": 45
+              },
+              "latencyMs": 884,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            },
+            {
+              "lane": "fallback",
+              "expected": {
+                "provider": "anthropic",
+                "model": "claude-haiku-4-5-20251001"
+              },
+              "provider": "anthropic",
+              "model": "claude-haiku-4-5-20251001",
+              "usage": {
+                "promptTokens": 810,
+                "completionTokens": 58
+              },
+              "latencyMs": 1410,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            }
+          ]
+        },
+        {
+          "id": "solicitation-ask-no-note",
+          "category": "solicitation_ask",
+          "task": "solicitation_ask",
+          "promptKind": "production_prompt",
+          "passed": true,
+          "failures": [],
+          "attempts": [
+            {
+              "lane": "primary",
+              "expected": {
+                "provider": "openai",
+                "model": "gpt-4o-mini-2024-07-18"
+              },
+              "provider": "openai",
+              "model": "gpt-4o-mini-2024-07-18",
+              "usage": {
+                "promptTokens": 289,
+                "completionTokens": 85
+              },
+              "latencyMs": 796,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            },
+            {
+              "lane": "fallback",
+              "expected": {
+                "provider": "anthropic",
+                "model": "claude-haiku-4-5-20251001"
+              },
+              "provider": "anthropic",
+              "model": "claude-haiku-4-5-20251001",
+              "usage": {
+                "promptTokens": 494,
+                "completionTokens": 96
+              },
+              "latencyMs": 1620,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            }
+          ]
+        },
+        {
+          "id": "owner-operator-widen-scope",
+          "category": "owner_operator",
+          "task": "owner_operator",
+          "promptKind": "production_prompt",
+          "passed": true,
+          "failures": [],
+          "attempts": [
+            {
+              "lane": "primary",
+              "expected": {
+                "provider": "openai",
+                "model": "gpt-4o-mini-2024-07-18"
+              },
+              "provider": "openai",
+              "model": "gpt-4o-mini-2024-07-18",
+              "usage": {
+                "promptTokens": 2419,
+                "completionTokens": 104
+              },
+              "latencyMs": 1138,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            },
+            {
+              "lane": "fallback",
+              "expected": {
+                "provider": "anthropic",
+                "model": "claude-haiku-4-5-20251001"
+              },
+              "provider": "anthropic",
+              "model": "claude-haiku-4-5-20251001",
+              "usage": {
+                "promptTokens": 5336,
+                "completionTokens": 123
+              },
+              "latencyMs": 1460,
+              "incomplete": null,
+              "schemaPassed": true,
+              "schemaIssues": [],
+              "failures": [],
+              "error": null,
+              "passed": true
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

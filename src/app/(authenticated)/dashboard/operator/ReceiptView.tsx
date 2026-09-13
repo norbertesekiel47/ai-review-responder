@@ -1,7 +1,8 @@
 'use client';
 
-import type { Receipt } from '@/lib/agents/operator/schema';
-import { AFFECTS_FUTURE_DRAFTS, VOICE_FIELD_LABELS } from './wording';
+import type { Receipt, VoiceState } from '@/lib/agents/operator/schema';
+import { AFFECTS_FUTURE_DRAFTS, AFFECTS_FUTURE_ELIGIBLE_REVIEWS, READINESS_WORDING, VOICE_FIELD_LABELS } from './wording';
+import { PolicyStateDetail } from './PolicyStateDetail';
 import './operator.css';
 
 /** Who the Receipt names when the actor's row carried no name (S5 / F10). */
@@ -32,19 +33,11 @@ export function ReceiptView({ receipt, describe, locationLabel }: ReceiptViewPro
   return (
     <div className="op-receipt">
       <p className="op-state-line">
-        {receipt.effectiveNow ? 'Effective now.' : 'Scheduled.'} {AFFECTS_FUTURE_DRAFTS}
+        {receipt.effectiveNow ? 'Effective now.' : 'Scheduled.'} {receipt.affects === 'future_drafts' ? AFFECTS_FUTURE_DRAFTS : AFFECTS_FUTURE_ELIGIBLE_REVIEWS}
       </p>
 
-      <div className="op-diff">
-        <div className="op-diff-col">
-          <span className="op-kv-label">Before</span>
-          <VoiceStateLines state={receipt.before} />
-        </div>
-        <div className="op-diff-col">
-          <span className="op-kv-label">After</span>
-          <VoiceStateLines state={receipt.after} />
-        </div>
-      </div>
+      <ReceiptDiff receipt={receipt} />
+      {receipt.affects === 'future_eligible_reviews' && <PolicyReceiptConsequences receipt={receipt} />}
 
       {receipt.differsFromPreview && (
         <p className="op-note">
@@ -52,43 +45,69 @@ export function ReceiptView({ receipt, describe, locationLabel }: ReceiptViewPro
           &ldquo;After&rdquo; is the state that was actually saved.
         </p>
       )}
-
-      {receipt.remainingBlocked.length > 0 && (
-        <p className="op-note">Still blocked: {receipt.remainingBlocked.join(', ')}.</p>
-      )}
-
-      {/* The record half of the Receipt: what ran, where, when, by whom, from
-          which instruction, under which correlation id.
-
-          `Applied at` and `Applied by`, never a bare `Applied` — the card's
-          own state line is already exactly that word, and a second node
-          reading it makes the screen ambiguous about which one is the status
-          and which one is a row label. */}
-      <dl className="op-kv op-facts">
-        <dt className="op-kv-label">Change</dt>
-        <dd className="op-diff-value">{describe}</dd>
-        <dt className="op-kv-label">Location</dt>
-        <dd className="op-diff-value">{locationLabel(receipt.scope.locationId)}</dd>
-        <dt className="op-kv-label">Applied at</dt>
-        <dd className="op-diff-value">
-          <time dateTime={receipt.appliedAt}>{new Date(receipt.appliedAt).toLocaleString()}</time>
-        </dd>
-        {/* THE PERSON, not the database key. `actorName` is server-written
-            under the same lock as `actorUserId` and frozen at the Apply, so a
-            later rename cannot rewrite history; the uuid never reaches the
-            screen (S5 / F10). `Reference` below stays the turn id — §6.5 calls
-            it a correlation id, and a support reference is legitimately
-            opaque. */}
-        <dt className="op-kv-label">Applied by</dt>
-        <dd className="op-diff-value">{receipt.actorName ?? UNNAMED_ACTOR}</dd>
-        <dt className="op-kv-label">You asked</dt>
-        {/* VERBATIM owner text, as the server stored it (spec §6.5). */}
-        <dd className="op-diff-value">{receipt.ownerText}</dd>
-        <dt className="op-kv-label">Reference</dt>
-        <dd className="op-diff-value">{receipt.turnId}</dd>
-      </dl>
+      <ReceiptReadiness receipt={receipt} />
+      <ReceiptRecord receipt={receipt} describe={describe} locationLabel={locationLabel} />
     </div>
   );
+}
+
+function ReceiptDiff({ receipt }: Pick<ReceiptViewProps, 'receipt'>) {
+  return <div className="op-diff">
+    <div className="op-diff-col">
+      <span className="op-kv-label">Before</span>
+      {receipt.affects === 'future_drafts' ? <VoiceStateLines state={receipt.before} /> : <PolicyStateDetail state={receipt.before} account={receipt.scope.locationId === null} />}
+    </div>
+    <div className="op-diff-col">
+      <span className="op-kv-label">After</span>
+      {receipt.affects === 'future_drafts' ? <VoiceStateLines state={receipt.after} /> : <PolicyStateDetail state={receipt.after} account={receipt.scope.locationId === null} />}
+    </div>
+  </div>;
+}
+
+function PolicyReceiptConsequences({ receipt }: {
+  receipt: Extract<Receipt, { affects: 'future_eligible_reviews' }>;
+}) {
+  return <>
+    <p className="op-body">Old rule: {receipt.before.consequence.eligible} of {receipt.before.consequence.total} eligible; new rule: {receipt.after.consequence.eligible} of {receipt.after.consequence.total} eligible.</p>
+    <p className="op-note">Reviews received {receipt.after.consequence.windowStart.slice(0, 10)} to {receipt.after.consequence.windowEnd.slice(0, 10)}. Excluded {receipt.after.consequence.excludedImported} imported reviews and {receipt.after.consequence.excludedUnknown} reviews whose origin is unknown.</p>
+    <p className="op-body">{receipt.retainedVeto.count} drafts keep their granted veto window.</p>
+    <p className="op-asof">Counted as of <time dateTime={receipt.retainedVeto.asOf}>{new Date(receipt.retainedVeto.asOf).toLocaleString()}</time>.</p>
+    {receipt.scope.locationId === null && <p className="op-note">Affected {receipt.after.affectedLocationCount} locations inheriting the account default.</p>}
+  </>;
+}
+
+function ReceiptReadiness({ receipt }: Pick<ReceiptViewProps, 'receipt'>) {
+  if (receipt.remainingBlocked.length === 0) return null;
+  return <ul className="op-readiness">{receipt.affects === 'future_eligible_reviews'
+    ? receipt.remainingBlocked.map((reason) => <li key={reason}>{READINESS_WORDING[reason]}</li>)
+    : receipt.remainingBlocked.map((reason) => <li key={reason}>{reason}</li>)}</ul>;
+}
+
+/** Immutable who/where/when and the owner's original instruction. */
+function ReceiptRecord({ receipt, describe, locationLabel }: ReceiptViewProps) {
+  return <dl className="op-kv op-facts">
+    <dt className="op-kv-label">Change</dt>
+    <dd className="op-diff-value">{describe}</dd>
+    <dt className="op-kv-label">Location</dt>
+    <dd className="op-diff-value">{receipt.scope.locationId === null ? 'Account default' : locationLabel(receipt.scope.locationId)}</dd>
+    <dt className="op-kv-label">Applied at</dt>
+    <dd className="op-diff-value">
+      <time dateTime={receipt.appliedAt}>{new Date(receipt.appliedAt).toLocaleString()}</time>
+    </dd>
+    {/* THE PERSON, not the database key. `actorName` is server-written
+        under the same lock as `actorUserId` and frozen at the Apply, so a
+        later rename cannot rewrite history; the uuid never reaches the
+        screen (S5 / F10). `Reference` below stays the turn id — §6.5 calls
+        it a correlation id, and a support reference is legitimately
+        opaque. */}
+    <dt className="op-kv-label">Applied by</dt>
+    <dd className="op-diff-value">{receipt.actorName ?? UNNAMED_ACTOR}</dd>
+    <dt className="op-kv-label">You asked</dt>
+    {/* VERBATIM owner text, as the server stored it (spec §6.5). */}
+    <dd className="op-diff-value">{receipt.ownerText}</dd>
+    <dt className="op-kv-label">Reference</dt>
+    <dd className="op-diff-value">{receipt.turnId}</dd>
+  </dl>;
 }
 
 /**
@@ -98,7 +117,7 @@ export function ReceiptView({ receipt, describe, locationLabel }: ReceiptViewPro
  * used to reduce to "3 saved" while the card listed them, so the Receipt and
  * the preview described different things. `null` and `[]` read as "not set".
  */
-function VoiceStateLines({ state }: { state: Receipt['before'] }) {
+function VoiceStateLines({ state }: { state: VoiceState }) {
   const line = (field: (typeof VOICE_FIELD_LABELS)[number]['field']): string => {
     const value = state[field];
     if (value === null) return 'Not set';

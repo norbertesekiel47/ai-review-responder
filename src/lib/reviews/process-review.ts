@@ -32,6 +32,47 @@ export type ProcessResult = 'new' | 'updated' | 'unchanged';
 
 type TxClient = postgres.TransactionSql;
 
+// ── Ingestion origin (Run C, owner-approved 2026-09-13) ──────────────
+// How a NEW review row arrived, recorded as `detail.ingestion_origin` on the
+// run's initial `review_ingested` step — in the SAME transaction as the review
+// INSERT, never best effort. Consequence readers count only `live`; `imported`
+// and `unknown` are explicitly labeled exclusions. Written ONLY by the step
+// that accompanies a genuine insertion: update steps, duplicate/race losers and
+// resurrected rows never carry it, and no history is relabeled. A row whose
+// marker was pruned with the 180-day run spine reads as unknown; nothing here
+// backfills or reclassifies it.
+export const INGESTION_ORIGIN = {
+  LIVE: 'live',
+  IMPORTED: 'imported',
+  UNKNOWN: 'unknown',
+} as const;
+
+type IngestionOrigin = (typeof INGESTION_ORIGIN)[keyof typeof INGESTION_ORIGIN];
+
+// processReview's explicit lane → origin of a row it genuinely inserts. Every
+// production caller omits options (live). BACKFILL is the import lane. The
+// remaining lanes do not prove live arrival on a new insertion, so they record
+// `unknown` rather than guess. Exhaustive: a new lane fails typecheck here.
+function ingestionOriginForNewReview(
+  originLane: GenerateResponseOriginLane | undefined,
+): IngestionOrigin {
+  switch (originLane) {
+    case undefined:
+    case GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW:
+      return INGESTION_ORIGIN.LIVE;
+    case GENERATE_RESPONSE_ORIGIN_LANE.BACKFILL:
+      return INGESTION_ORIGIN.IMPORTED;
+    case GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_UPDATE:
+    case GENERATE_RESPONSE_ORIGIN_LANE.REGENERATE:
+    case GENERATE_RESPONSE_ORIGIN_LANE.ON_DEMAND_GENERATE:
+      return INGESTION_ORIGIN.UNKNOWN;
+    default: {
+      const unmapped: never = originLane;
+      throw new Error(`process-review: unmapped origin lane ${String(unmapped)}`);
+    }
+  }
+}
+
 // ── Per-review processing ────────────────────────────────────────────
 // Pure domain logic: dedup by provider identity, content-hash comparison,
 // state-machine branching. Zero coupling to BullMQ. Operates on a
@@ -77,6 +118,7 @@ export async function processReview(
           businessId,
           correlationId,
           stepKey: 'review_ingested',
+          ingestionOrigin: ingestionOriginForNewReview(options?.originLane),
         });
 
         await enqueueGenerateResponse(tx, {
@@ -215,15 +257,23 @@ async function insertNewReviewRow(
 // outbox discipline: a spine failure fails the job and BullMQ retries.
 // Unchanged/status-only paths deliberately get no spine writes (mirrors
 // the sentiment discipline).
+//
+// The input is discriminated on stepKey: `review_ingested` MUST carry its
+// ingestion origin, and `review_updated` cannot — an update never rewrites how
+// the row originally arrived.
+
+type ReviewRunInput = {
+  reviewId: string;
+  businessId: string;
+  correlationId?: string;
+} & (
+  | { stepKey: 'review_ingested'; ingestionOrigin: IngestionOrigin }
+  | { stepKey: 'review_updated' }
+);
 
 async function startReviewRun(
   tx: TxClient,
-  input: {
-    reviewId: string;
-    businessId: string;
-    correlationId?: string;
-    stepKey: 'review_ingested' | 'review_updated';
-  },
+  input: ReviewRunInput,
 ): Promise<string | null> {
   const [biz] = await tx<{ account_id: string }[]>`
     SELECT account_id FROM businesses WHERE id = ${input.businessId}
@@ -241,7 +291,12 @@ async function startReviewRun(
     businessId: input.businessId,
     correlationId: input.correlationId,
   });
-  await recordStep(tx, { runId, stepKey: input.stepKey });
+  await recordStep(
+    tx,
+    input.stepKey === 'review_ingested'
+      ? { runId, stepKey: input.stepKey, detail: { ingestion_origin: input.ingestionOrigin } }
+      : { runId, stepKey: input.stepKey },
+  );
   return runId;
 }
 
@@ -568,6 +623,7 @@ export async function importReview(
       businessId,
       correlationId,
       stepKey: 'review_ingested',
+      ingestionOrigin: INGESTION_ORIGIN.IMPORTED,
     });
 
     if (runId) {

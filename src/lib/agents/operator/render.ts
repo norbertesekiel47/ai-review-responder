@@ -104,11 +104,22 @@ const COMPLETION_CLAIM_PATTERN =
  * and "input outside the domain" as unreachable branches, which is a branch
  * nothing can test and nothing can trust.
  */
+/** A proposal's target after normalization: the account default has NO `locationId` key. */
+export interface ProposalScope {
+  accountId: string;
+  locationId?: string;
+}
+
 export interface ParsedProposal {
   operation: ProposableOperation;
   /** Narrowed by `operation.parseInput`, never the raw model value. */
   input: Record<string, unknown>;
-  scope: { accountId: string; locationId?: string };
+  /**
+   * NORMALIZED. The wire admits `locationId: null` because a strict provider
+   * schema spells "may be absent" as null; `validateModelOutput` turns null
+   * into absence once, so no consumer has two spellings of "account default".
+   */
+  scope: ProposalScope;
   rationale: string;
 }
 
@@ -118,6 +129,14 @@ export type ValidationResult =
 
 /** One proposal exactly as the model returned it, before the catalog sees it. */
 type ProposedOperation = ModelOutput['proposals'][number];
+
+/** A model proposal with its scope normalized, before the catalog sees it. */
+type NormalizedProposal = Omit<ProposedOperation, 'scope'> & { scope: ProposalScope };
+
+function normalizeProposal(proposal: ProposedOperation): NormalizedProposal {
+  const { accountId, locationId } = proposal.scope;
+  return { ...proposal, scope: locationId == null ? { accountId } : { accountId, locationId } };
+}
 
 /** Built once: the validator only ever asks whether a metric name is a member. */
 const STATUS_METRIC_SET: ReadonlySet<string> = new Set<string>(STATUS_METRICS);
@@ -165,9 +184,13 @@ function validateRefSegments(output: ModelOutput): string[] {
  * location, or one outside the account, is incoherent, and so is emitting one
  * alongside a proposal for the very location the turn is already prepared for.
  */
-function validateScopeCheck(output: ModelOutput, snapshot: Snapshot): string[] {
+function validateScopeCheck(
+  segments: readonly Segment[],
+  proposals: readonly NormalizedProposal[],
+  snapshot: Snapshot,
+): string[] {
   const reasons: string[] = [];
-  for (const segment of output.segments) {
+  for (const segment of segments) {
     if (segment.type !== 'scope_check') continue;
     if (segment.locationId === snapshot.locationId) {
       reasons.push('scope_check names the location this turn is already prepared for');
@@ -176,8 +199,8 @@ function validateScopeCheck(output: ModelOutput, snapshot: Snapshot): string[] {
     }
   }
 
-  const hasScopeCheck = output.segments.some((s) => s.type === 'scope_check');
-  const targetsStoredLocation = output.proposals.some(
+  const hasScopeCheck = segments.some((s) => s.type === 'scope_check');
+  const targetsStoredLocation = proposals.some(
     (p) => p.scope.locationId === snapshot.locationId,
   );
   if (hasScopeCheck && targetsStoredLocation) {
@@ -188,7 +211,7 @@ function validateScopeCheck(output: ModelOutput, snapshot: Snapshot): string[] {
 
 /** One proposal's scope: the right account, and the stored location or the account default. */
 function validateProposalScope(
-  proposal: ProposedOperation,
+  proposal: NormalizedProposal,
   operation: ProposableOperation,
   snapshot: Snapshot,
 ): string[] {
@@ -202,8 +225,8 @@ function validateProposalScope(
   }
   // A location-scoped operation with NO locationId would otherwise store a
   // NULL target and read back as an account-default proposal it is not. Every
-  // Run A operation is `scopeRule: 'location'`, so this is the common case,
-  // not an edge one.
+  // voice operation is `scopeRule: 'location'`, and the scope is already
+  // normalized, so a wire `locationId: null` cannot slip past this as a value.
   if (operation.scopeRule === 'location' && proposal.scope.locationId === undefined) {
     reasons.push(`proposal scope must name the stored location for ${proposal.operation}`);
   }
@@ -217,12 +240,12 @@ function validateProposalScope(
  * repeats either.
  */
 function validateProposals(
-  output: ModelOutput,
+  proposals: readonly NormalizedProposal[],
   snapshot: Snapshot,
 ): { reasons: string[]; proposals: ParsedProposal[] } {
   const reasons: string[] = [];
   const parsedProposals: ParsedProposal[] = [];
-  for (const proposal of output.proposals) {
+  for (const proposal of proposals) {
     const operation = proposableOperation(proposal.operation);
     if (!operation) {
       reasons.push(`proposal names an operation outside the catalog: ${proposal.operation}`);
@@ -262,11 +285,14 @@ function validateProposals(
  * catalog lookup and `parseInput` happen exactly once on the path.
  */
 export function validateModelOutput(output: ModelOutput, snapshot: Snapshot): ValidationResult {
-  const proposalCheck = validateProposals(output, snapshot);
+  // The ONE place a wire `locationId: null` becomes absence. Both scope rules
+  // and the parsed proposals read the normalized scope.
+  const proposals = output.proposals.map(normalizeProposal);
+  const proposalCheck = validateProposals(proposals, snapshot);
   const reasons = [
     ...validateTextSegments(output.segments),
     ...validateRefSegments(output),
-    ...validateScopeCheck(output, snapshot),
+    ...validateScopeCheck(output.segments, proposals, snapshot),
     ...proposalCheck.reasons,
   ];
 
