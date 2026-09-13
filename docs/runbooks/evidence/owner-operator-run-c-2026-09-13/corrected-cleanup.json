@@ -1,0 +1,130 @@
+{
+  "endedAt": "2026-09-13T19:14:00Z",
+  "databaseAndAuth": [
+    {
+      "relation": "accounts",
+      "remaining": 0
+    },
+    {
+      "relation": "users",
+      "remaining": 0
+    },
+    {
+      "relation": "businesses",
+      "remaining": 0
+    },
+    {
+      "relation": "reviews",
+      "remaining": 0
+    },
+    {
+      "relation": "responses",
+      "remaining": 0
+    },
+    {
+      "relation": "policies",
+      "remaining": 0
+    },
+    {
+      "relation": "proposals",
+      "remaining": 0
+    },
+    {
+      "relation": "turns",
+      "remaining": 0
+    },
+    {
+      "relation": "conversations",
+      "remaining": 0
+    },
+    {
+      "relation": "unsupported",
+      "remaining": 0
+    },
+    {
+      "relation": "runs",
+      "remaining": 0
+    },
+    {
+      "relation": "outcomes",
+      "remaining": 0
+    },
+    {
+      "relation": "costs",
+      "remaining": 0
+    },
+    {
+      "relation": "account_audits",
+      "remaining": 0
+    },
+    {
+      "relation": "approval_audits",
+      "remaining": 0
+    },
+    {
+      "relation": "analytics",
+      "remaining": 0
+    },
+    {
+      "relation": "outbox",
+      "remaining": 0
+    },
+    {
+      "relation": "connections",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_email",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_identity",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_sessions",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_identities",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_refresh_tokens",
+      "remaining": 0
+    },
+    {
+      "relation": "captured_steps",
+      "remaining": 0
+    },
+    {
+      "relation": "captured_outbox",
+      "remaining": 0
+    }
+  ],
+  "queueJobs": [
+    {
+      "id": "01a09c2c-4784-751a-a445-83ba0f00e8d8_1",
+      "terminalState": "completed",
+      "removed": true
+    },
+    {
+      "id": "01a09c1f-f6af-76b1-92fe-29fff57a5bf8_1",
+      "terminalState": "completed",
+      "removed": true
+    },
+    {
+      "id": "01a09c2a-b192-768a-9d5d-5398edc468b1_1",
+      "terminalState": "completed",
+      "removed": true
+    }
+  ],
+  "workerFlags": {
+    "OWNER_OPERATOR_ENABLED": true,
+    "AUTO_APPROVAL_ENABLED": false,
+    "JUDGE_ENABLED": true,
+    "MOCK_EXTERNAL_APIS": false
+  },
+  "signedOut": true,
+  "viewportReset": true
+}

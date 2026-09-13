@@ -1,0 +1,119 @@
+{
+  "databaseAndAuth": [
+    {
+      "relation": "accounts",
+      "remaining": 0
+    },
+    {
+      "relation": "users",
+      "remaining": 0
+    },
+    {
+      "relation": "businesses",
+      "remaining": 0
+    },
+    {
+      "relation": "reviews",
+      "remaining": 0
+    },
+    {
+      "relation": "responses",
+      "remaining": 0
+    },
+    {
+      "relation": "policies",
+      "remaining": 0
+    },
+    {
+      "relation": "proposals",
+      "remaining": 0
+    },
+    {
+      "relation": "turns",
+      "remaining": 0
+    },
+    {
+      "relation": "conversations",
+      "remaining": 0
+    },
+    {
+      "relation": "unsupported",
+      "remaining": 0
+    },
+    {
+      "relation": "runs",
+      "remaining": 0
+    },
+    {
+      "relation": "outcomes",
+      "remaining": 0
+    },
+    {
+      "relation": "costs",
+      "remaining": 0
+    },
+    {
+      "relation": "account_audits",
+      "remaining": 0
+    },
+    {
+      "relation": "approval_audits",
+      "remaining": 0
+    },
+    {
+      "relation": "analytics",
+      "remaining": 0
+    },
+    {
+      "relation": "outbox",
+      "remaining": 0
+    },
+    {
+      "relation": "connections",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_email",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_identity",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_sessions",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_identities",
+      "remaining": 0
+    },
+    {
+      "relation": "auth_refresh_tokens",
+      "remaining": 0
+    },
+    {
+      "relation": "captured_steps",
+      "remaining": 0
+    },
+    {
+      "relation": "captured_outbox",
+      "remaining": 0
+    }
+  ],
+  "queueJobs": [
+    {
+      "id": "01a09c3e-9b14-7154-8d14-3da5fb931a2b_1",
+      "state": "completed",
+      "removed": true
+    }
+  ],
+  "flags": {
+    "OWNER_OPERATOR_ENABLED": true,
+    "AUTO_APPROVAL_ENABLED": false,
+    "JUDGE_ENABLED": true,
+    "MOCK_EXTERNAL_APIS": false
+  },
+  "signedOut": true,
+  "viewportReset": true
+}

@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **RUNS A + B + T8 MERGED (#1270 `d8e3f334f` 2026-09-12; #1273 `34857b73b` 2026-09-13; #1276 `099409ae2` 2026-09-13); migration 120 on staging and production; `OWNER_OPERATOR_ENABLED` ON in staging (both lanes, since 2026-09-13 03:04Z), OFF in production; Sentry rule 11 in both projects; §12.1 checkpoint report recorded** (the turn pipeline, the voice-scope proposal, Apply, Decline, receipts and the Operator screen exist and work live on staging). **Run C is in progress and unmerged**: the three auto-approval operations, transaction-aware Apply, historical consequences and provider schema delivery are implemented on its branch; the UI, full verification, staging ride and merge are not signed off. The §13 T8 estimate remains historical; see §15 for Run C progress. · written 2026-09-11 · revised 2026-09-13_
+_Status: **RUNS A + B + T8 + C MERGED (#1270 `d8e3f334f`; #1273 `34857b73b`; #1276 `099409ae2`; #1278 `280d1b013`); migration120 on staging and production; `OWNER_OPERATOR_ENABLED` ON in staging, OFF in production. Run C's full local gate, required CI, corrected staging acceptance and fresh post-merge scope-card repeat all PASS, with complete fixture cleanup.** The §12.2 checkboxes identify established implementation, integration and browser evidence. §12.1's next-draft/secondary-location/full-day observations remain Run D work; naming the pilot owner/window remains BLOCKED-human. Run E is still queued. The §13 T8 estimate is historical; see §15 and the [Run C acceptance evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md). · written 2026-09-11 · revised 2026-09-13_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 
@@ -626,22 +626,28 @@ five-turn sample with p50 just under 10 s.
 
 ### 12.2 Full v1
 
-- Every §4 proposable operation applies with full-state before/after and receipt, including a dial-only operation that creates a location override (receipt shows the created row and the manual threshold).
-- Consequence line: on a fixture account with 10 reviews, the scope card's eligible/held counts equal a hand count; imported reviews are excluded; the receipt carries old-rule and new-rule counts.
-- Asymmetric friction: an expansion card has no plain Apply; a typed scope that does not equal the proposal's `after` is rejected; a contraction card applies in one click.
-- Pasted review: a message containing a quoted review produces the scrubbed marker in the snapshot and the fixed reply segment; the red-team fixture asserts no injected review body reaches the prompt.
-- Location named in the sentence: "turn off auto-reply for the cafe" while the salon is selected yields a `scope_check` chooser and no proposal; the card target always names the stored location even after the selector moves.
-- Veto-window receipt shows the actual count of drafts keeping their old window, matching the rows in the approval audit table.
-- Concurrency tests: form write versus Apply; two proposals on the same scope; first policy-row creation; changed account default under an inheriting location.
-- §8 rules pass as tests. Decline records the actor.
-- "Stop replying on weekends" yields a requested-capability card with no Apply and a stored unsupported request.
-- Two validator fixtures fail the turn: an output that invents a count in text, and an output that claims a change was applied before any click.
-- Summary panel counts match the dashboard's authoritative counts.
-- Offboarding: delete-data purge removes all four tables' rows; purge verification passes; an in-flight turn for an offboarding account fails at step 3.
-- `pnpm lint && pnpm typecheck && pnpm test && pnpm build`, plus `ci:tenant-scope`, `ci:rls-audit`, `ci:outbox-seam`, `ci:outbox-status`, `ci:directory-map` green.
-- Browser evidence at 390px and 1440px, including the error paths (failed turn, stale card, rejected Apply) with backend assertions on the stored state.
+Evidence basis: candidate `a8b934a69434476ce41d056c0d846b03129fe994` passed the full local review gate (15,911 tests passed, 11 skipped). The [implementation evidence](../../reviews/codex-owner-operator-run-c/evidence.md) and [corrected staging acceptance](../../runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md) establish the checked items. The seven operations are covered by implementation/integration tests; this is not a claim that each was separately driven through the deployed worker. The ten-review, Cafe and weekend cases were driven through that worker.
+
+- [x] Every §4 proposable operation applies with full-state before/after and receipt, including a dial-only operation that creates a location override (receipt shows the created row and the manual threshold).
+- [x] Consequence line: on a fixture account with 10 reviews, the scope card's eligible/held counts equal a hand count; imported reviews are excluded; the receipt carries old-rule and new-rule counts.
+- [x] Asymmetric friction: an expansion card has no plain Apply; a typed scope that does not equal the proposal's `after` is rejected; a contraction card applies in one click.
+- [x] Pasted review: a message containing a quoted review produces the scrubbed marker in the snapshot and the fixed reply segment; the red-team fixture asserts no injected review body reaches the prompt.
+- [x] Location named in the sentence: "turn off auto-reply for the cafe" while the salon is selected yields a `scope_check` chooser and no proposal; the card target always names the stored location even after the selector moves.
+- [x] Veto-window receipt shows the actual count of drafts keeping their old window, matching the rows in the approval audit table.
+- [x] Concurrency tests: form write versus Apply; two proposals on the same scope; first policy-row creation; changed account default under an inheriting location.
+- [x] §8 rules pass as tests. Decline records the actor.
+- [x] "Stop replying on weekends" yields a requested-capability card with no Apply and a stored unsupported request.
+- [x] Two validator fixtures fail the turn: an output that invents a count in text, and an output that claims a change was applied before any click.
+- [x] Summary panel counts match the dashboard's authoritative counts.
+- [x] Offboarding: delete-data purge removes all four tables' rows; purge verification passes; an in-flight turn for an offboarding account fails at step 3.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm build`, plus `ci:tenant-scope`, `ci:rls-audit`, `ci:outbox-seam`, `ci:outbox-status`, `ci:directory-map` green.
+- [x] Browser evidence at 390px and 1440px, including the error paths (failed turn, stale card, rejected Apply) with backend assertions on the stored state.
+
+The [Run B evidence](../../reviews/feat-owner-operator-run-b/evidence.md) retains the failed-turn, stale and rejected-Apply captures at both widths. The [Run C local campaign](../../reviews/codex-owner-operator-run-c/evidence/browser-campaign.md) adds policy confirmations, refusals, stale states and backend assertions; those are historical captures, not the final deployed candidate. Corrected Run C staging evidence adds matched UI/worker builds, actual turns, Apply, second-tab replay and cleanup at both widths. The required fresh post-merge repeat passed on squash `280d1b013`: mobile Apply, desktop receipt reload, old/new eligibility5/0of8, one audit and25zero cleanup checks. Both campaigns and the earlier failed attempt remain in the linked acceptance evidence.
 
 ### 12.3 Owner pilot (the customer proof)
+
+**BLOCKED-human:** the founder must name the COO-roster owner and observation window. The [blank COO-format observation template](../../runbooks/owner-operator-pilot-observation-template.md) is prepared; it is not a second roster or a completed customer observation.
 
 Recorded in the COO customer record under the shared scorecard:
 
@@ -823,3 +829,16 @@ not in that row.
   entry, and no production flag changes. Implementation evidence lives in
   `docs/reviews/codex-owner-operator-run-c/evidence.md`; the execution plan is
   `docs/superpowers/plans/codex-owner-operator-run-c-plan.md`.
+
+- 2026-09-13, **Run C verified candidate and release reference (#1278)**. The full
+  local review gate passed at `a8b934a69434476ce41d056c0d846b03129fe994`
+  (15,911 tests passed, 11 skipped); the fourth red-team report is CLEAR with
+  all historical rows retained. Corrected pre-merge staging acceptance passed
+  the exact account-off, Cafe clarification and weekend scheduling turns. The
+  ten-review card/receipt matched the hand count; second-tab Apply returned
+  the same receipt and single audit. All 25 cleanup checks returned zero.
+  [Evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md)
+  preserves the earlier failed candidate separately. Feature squash:
+  `280d1b0137f4f5a3e2cd613abe7464238d0f665e`. Both post-merge staging deployments match;
+  real390px Apply,1440px receipt reload and25zero cleanup checks PASS. Production stays off; the remaining §12.1
+  checkpoints and the COO owner-pilot record are unchanged.
