@@ -677,9 +677,27 @@
       "at": "src/app/(authenticated)/dashboard/operator/OperatorClient.tsx:254",
       "title": "`useTurnSubmission` returns a fresh object every render while both sibling hooks memoize -- the one decomposition product that skipped the file's own stability rule",
       "reason": "Sibling search over the three machines the commit split apart: useOperatorConversation ends in `useMemo` (useOperatorConversation.ts:397-414) and useTurnPoll ends in `useMemo` (useTurnPoll.ts:167-170), but the new file-local useTurnSubmission returns a bare object literal (OperatorClient.tsx:254-263). `submission` therefore changes identity on every render and `startNewConversation`'s `useCallback(..., [conversation, poll, submission])` (OperatorClient.tsx:330) is re-allocated every render. Harmless at HEAD -- OperatorClient declares no `useEffect`, so no dependency array consumes `startNewConversation`, which is why this is P2 -- but this exact file carries a scar from the same class of bug: OperatorClient.test.tsx:17-22 hoists ONE router object because an unstable one made `a response that triggers a state update ... an infinite read loop (RB2-06)`. Remedy: wrap useTurnSubmission's return in `useMemo`, matching its two siblings.\n\nROUND 2 (head 77ce88f0). FIXED — verified by reading, and recorded as unmeasurable rather than measured. `useTurnSubmission` now ends in `return useMemo(() => ({ draft, setDraft, sending, canRetry: lostResponse && pending !== null, send, retry, refreshPlan, clear }), [draft, setDraft, sending, lostResponse, pending, send, retry, refreshPlan, clear])` (OperatorClient.tsx:254-274), matching `useOperatorConversation` (:397-414) and `useTurnPoll` (:167-170). The dependency array is exhaustive — every value the object reads appears in it, `canRetry`'s two inputs included — and `react-hooks/exhaustive-deps` passes in the recorded gate. No mutation can measure it: `OperatorClient` declares no `useEffect`, so no dependency array consumes `startNewConversation`, and reverting the `useMemo` changes only an object identity no assertion can observe. Inventory row R2-04 records that as `excluded` with this reason."
+    },
+    {
+      "id": "RT-B7",
+      "severity": "P2",
+      "duty": 1,
+      "title": "`applyLoadedView`'s `turnId` from the ref vs the render capture is unmeasured across `finishTurn` — the one window where the two differ has no case (B1-27)",
+      "at": "src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts:320",
+      "disposition": "open",
+      "reason": "Elevated from inventory row B1-27 (inconclusive/oracle in rounds 1 and 2) at the round-2 close, by the root. M08 changed the applyLoadedView call at useOperatorConversation.ts:320 from `{ conversationId, turnId: loadRef.current.activeTurnId }` to `{ conversationId, turnId }` (the render capture instead of the ref) and the case `a delayed conversation response never replaces a newly submitted turn` PASSED. The only window in which the two spellings differ is an in-flight conversation read that resolves AFTER finishTurn (useOperatorConversation.ts:360-368) nulled both the state and the ref but bumped only reloadEpoch, not loadRef.current.epoch. No case exercises that window, so the ref-vs-capture property is unmeasured. Not a known defect: P2. Owner decision at the round-2 close, verbatim: \"Round 3: measure the 11 rows, pin B1-27 (Recommended)\". Remedy: one case that holds the GET, drives the poll to terminal so finishTurn runs, resolves the GET, and asserts the observable difference (or an equivalence proof, recorded on B1-27 as `equivalent`). Verified in round 3."
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "AUTH-1",
+      "date": "2026-09-12",
+      "finding_ids": [
+        "RT-B7"
+      ],
+      "text": "I authorize a third round scoped to the 11 skipped rows and RT-B7 (B1-27)."
+    }
+  ],
   "counts": {
     "inventory_total": 87,
     "killed": 49,
@@ -688,10 +706,10 @@
     "inconclusive": 1,
     "skipped_budget": 11,
     "excluded": 26,
-    "findings_total": 6,
+    "findings_total": 7,
     "p0_open": 0,
     "p1_open": 0,
-    "p2_open": 0,
+    "p2_open": 1,
     "accepted_risk": 0,
     "fixed": 6,
     "rejected": 0

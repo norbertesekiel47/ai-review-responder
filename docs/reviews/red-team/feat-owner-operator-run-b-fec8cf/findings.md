@@ -54,6 +54,7 @@ from this report.
 | RT-B4 | P1 | 3 | `docs/superpowers/plans/feat-owner-operator-run-b-handoff.md:27` | The handoff's gate citation is wrong in both halves — neither the SHA nor the fingerprint matches the recorded evidence | **fixed** |
 | RT-B5 | P2 | 2 | `.../__tests__/useProposalWrites.test.tsx:133` | The new suite hardcodes a wording sentence the same commit un-exported, against `wording.ts`'s own stated rule | **fixed** |
 | RT-B6 | P2 | 4 | `src/app/(authenticated)/dashboard/operator/OperatorClient.tsx:254` | `useTurnSubmission` returns a fresh object every render while both sibling hooks memoize | **fixed** |
+| RT-B7 | P2 | 1 | `src/app/(authenticated)/dashboard/operator/useOperatorConversation.ts:320` | `applyLoadedView`'s `turnId` from the ref vs the render capture is unmeasured across `finishTurn` — elevated from oracle row B1-27 at the round-2 close by the root; owner decision "Round 3: measure the 11 rows, pin B1-27 (Recommended)" | **open** (round 3) |
 
 Counts after round 2: **87 inventory rows — 49 killed, 0 confirmed survivors, 0 equivalent, 1 inconclusive
 (oracle), 11 skipped-budget, 26 excluded. 6 findings: 1 P0, 3 P1, 2 P2 — all six `fixed`.** Round 1 read: 83
@@ -212,7 +213,14 @@ the 6 remaining `apply.integration.test.ts` rows were measured and killed.)*
 
 Rendered from `findings.json`'s `authorizations` array.
 
-*(none at round 1 or round 2 — the run-opening authorization is recorded in the section at the end of this file; the checker admits only records that resolve finding ids. All six findings are `fixed`, so no adjudication authorization is owed.)*
+- **AUTH-1** (2026-09-12), finding ids: RT-B7 — "I authorize a third round scoped to the 11 skipped rows and RT-B7 (B1-27)."
+
+> Recorded at the round-2 close. The owner's first answer to "how do you want to close the run" was, verbatim,
+> **"Round 3: measure the 11 rows, pin B1-27 (Recommended)"**; the runner and the checker open a third round only on
+> an authorization whose text names the *third round* (`mutation-runner.mjs:444`, `red-team-status.mjs:284`), so the
+> owner re-issued it in the sentence above. RT-B7 is oracle row B1-27 elevated to a P2 finding so the authorization has
+> a finding id to resolve. Round 3 is scoped to: the 11 `skipped-budget` rows (B1-16, B1-19, B1-20, B1-24, B1-26,
+> B1-30, B1-32, B1-33, B1-37, B1-38, B1-57) and the RT-B7 case.
 
 ## Red-team findings rejected
 
