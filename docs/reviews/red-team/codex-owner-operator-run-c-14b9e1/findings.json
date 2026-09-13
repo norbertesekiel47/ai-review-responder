@@ -5,11 +5,11 @@
   "branch": "codex/owner-operator-run-c",
   "fork_sha": "6b2eb580940480c6a9b304f3e69c0d7a3bb04f29",
   "merge_base_sha": "6b2eb580940480c6a9b304f3e69c0d7a3bb04f29",
-  "head_sha": "4127714519b253e4a0560b9cf561a987af8cf70c",
-  "intake_sha256": "d04fc09fd98c6b5057397a914cdff37b821736bd8e6cf6456b6d05c939b6a25a",
+  "head_sha": "2565c78585d6b08837e01dbb2a4a3ba3c265eff0",
+  "intake_sha256": "316f7acb33ec1e37a5142f489f156c82b1eafeb4d2d4aad42d6274481d97da14",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-09-13T14:14:56.074Z",
+  "round": 3,
+  "generated_at": "2026-09-13T16:13:07.139Z",
   "inventory": [
     {
       "id": "I0001",
@@ -1604,16 +1604,15 @@
       "id": "I0228",
       "file": "src/lib/auto-approval/__tests__/settings.test.ts",
       "test": "auto-approval settings service allows a trialing Autopilot account to expand",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT-P0-1",
-      "reason": "ROOT ARBITER confirmed: immutable settings.test.ts520-531 requests set_account_default threshold5 on TRIALING but asserts only readiness.canExpand. Mutating settings.ts222 from updatePolicyInTransaction to lockAccount bypasses the requested mutation, expansion gates and audit on the exact public PATCH path; baseline and mutant both pass. This is a false write oracle, not an established production failure. Required replacement asserts returned accountDefault threshold5, persisted dbState threshold5 and the actor/account/operation expansion audit. Do not erase this finding with an unrelated second mutation."
+      "outcome": "killed",
+      "reason": "R3-I0228 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/auto-approval/__tests__/settings.test.ts:534. Returned accountDefault fails exists:true/threshold:5 after the actual PATCH write/audit seam is skipped. The fresh baseline also executes the persisted-threshold and single correctly scoped expansion-audit assertions. The mutant stops at the returned-state assertion; it does not separately prove each later assertion. Root restored source and dotenv with matching R3-I0228 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"survived-confirmed-P0\",\"finding_id\":\"RT-P0-1\",\"reason\":\"ROOT ARBITER confirmed: immutable settings.test.ts520-531 requests set_account_default threshold5 on TRIALING but asserts only readiness.canExpand. Mutating settings.ts222 from updatePolicyInTransaction to lockAccount bypasses the requested mutation, expansion gates and audit on the exact public PATCH path; baseline and mutant both pass. This is a false write oracle, not an established production failure. Required replacement asserts returned accountDefault threshold5, persisted dbState threshold5 and the actor/account/operation expansion audit. Do not erase this finding with an unrelated second mutation.\"}"
     },
     {
       "id": "I0229",
       "file": "src/lib/auto-approval/__tests__/settings.test.ts",
       "test": "auto-approval settings service allows past-due grace but blocks expansion after the grace window",
       "outcome": "killed",
-      "reason": "R2-I0229: individual baseline passed, exactly one selected mutant case failed; The new transaction seam locks and reloads but omits the mutation/gate/audit. Each selected test asserts its actual write/audit result or an explicit rejection that becomes resolution. Root restored source and dotenv. "
+      "reason": "R3-I0229 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/auto-approval/__tests__/settings.test.ts:568. The newly added success-leg accountDefault exists/threshold assertion fails before the later expired-grace rejection. This is fresh proof of the corrected success leg; the different round-2 late-rejection kill remains historical. Root restored source and dotenv with matching R3-I0229 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"killed\",\"reason\":\"R2-I0229: individual baseline passed, exactly one selected mutant case failed; The new transaction seam locks and reloads but omits the mutation/gate/audit. Each selected test asserts its actual write/audit result or an explicit rejection that becomes resolution. Root restored source and dotenv. \"}"
     },
     {
       "id": "I0230",
@@ -2767,9 +2766,8 @@
       "id": "I0394",
       "file": "worker/jobs/zernio/__tests__/zernio-ingest-shared.test.ts",
       "test": "reconcileExternallyAnsweredReview — flag-gated import branches flag ON + no-match: INSERTs reviews row + posted response + bumps counter",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT-P0-2",
-      "reason": "Root arbiter confirms wrong relationship oracle: fixed INSERT RETURNING new-review-uuid differs from minted UUID, representing supported conflict return; mutant returns minted ID so caller links posted response to wrong/nonexistent review. Test419-455 checks INSERT fragments/status/counter but omits response review_id binding. Required correction preserves conflict-compatible returned-ID fixture and asserts responseInsert.values[0] equals returned ID. No production defect claimed."
+      "outcome": "killed",
+      "reason": "R3-I0394 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; worker/jobs/zernio/__tests__/zernio-ingest-shared.test.ts:452. The first response INSERT binding contains the minted UUID instead of the distinct fixed INSERT RETURNING new-review-uuid. The new binding assertion fails; no fixture or selector was changed. Root restored source and dotenv with matching R3-I0394 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"survived-confirmed-P0\",\"finding_id\":\"RT-P0-2\",\"reason\":\"Root arbiter confirms wrong relationship oracle: fixed INSERT RETURNING new-review-uuid differs from minted UUID, representing supported conflict return; mutant returns minted ID so caller links posted response to wrong/nonexistent review. Test419-455 checks INSERT fragments/status/counter but omits response review_id binding. Required correction preserves conflict-compatible returned-ID fixture and asserts responseInsert.values[0] equals returned ID. No production defect claimed.\"}"
     },
     {
       "id": "I0395",
@@ -2831,9 +2829,8 @@
       "id": "I0403",
       "file": "worker/jobs/zernio/__tests__/zernio-ingest-shared.test.ts",
       "test": "reconcileExternallyAnsweredReview — consentedImport option (#675) (a) previously-unseen answered review + consentedImport:true → review row inserted + imported posted response inserted",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT-P0-2",
-      "reason": "Root arbiter independently confirmed consentedImport:true changes admission but still requires linking the response to the INSERT RETURNING review ID. Fixed returned ID differs from minted UUID; mutant changes actual response binding while test763-783 checks only SQL/status/counter/log. Group with I0394; preserve both measured pairs and add returned-ID binding assertions without substituting minted identity."
+      "outcome": "killed",
+      "reason": "R3-I0403 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; worker/jobs/zernio/__tests__/zernio-ingest-shared.test.ts:786. Independently, the consented-import response INSERT binds the minted UUID instead of the distinct returned review ID, failing the new relationship assertion. Root restored source and dotenv with matching R3-I0403 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"survived-confirmed-P0\",\"finding_id\":\"RT-P0-2\",\"reason\":\"Root arbiter independently confirmed consentedImport:true changes admission but still requires linking the response to the INSERT RETURNING review ID. Fixed returned ID differs from minted UUID; mutant changes actual response binding while test763-783 checks only SQL/status/counter/log. Group with I0394; preserve both measured pairs and add returned-ID binding assertions without substituting minted identity.\"}"
     },
     {
       "id": "I0404",
@@ -4155,9 +4152,8 @@
       "id": "I0592",
       "file": "src/lib/responses/__tests__/model-pinning.test.ts",
       "test": "LLM model pinning owner_operator task pins both providers to the snapshot models with the output schema",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "Root agrees: detached .describe schema is a meaningful canonical object identity mismatch, baseline passed and mutant exact-one failed, but the only failure diagnostic is the Zod multi-literal getter thrown during Vitest clone. No usable identity assertion survives. Do not substitute unrelated model/maxTokens mutation. Exact corrective test shape: expect(task.outputSchema === OperatorModelOutputSchema).toBe(true), then remeasure the same detached-schema mutant in a separately authorized next pass. This is an oracle fix, not a production P0."
+      "outcome": "killed",
+      "reason": "R3-I0592 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/responses/__tests__/model-pinning.test.ts:83. The same detached .describe schema mutation produces the usable primitive diagnostic expected false to be true. No Zod getter or formatter exception replaces the identity assertion. This measures canonical object identity, not semantic schema equivalence. Root restored source and dotenv with matching R3-I0592 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"inconclusive\",\"inconclusive_class\":\"oracle\",\"reason\":\"Root agrees: detached .describe schema is a meaningful canonical object identity mismatch, baseline passed and mutant exact-one failed, but the only failure diagnostic is the Zod multi-literal getter thrown during Vitest clone. No usable identity assertion survives. Do not substitute unrelated model/maxTokens mutation. Exact corrective test shape: expect(task.outputSchema === OperatorModelOutputSchema).toBe(true), then remeasure the same detached-schema mutant in a separately authorized next pass. This is an oracle fix, not a production P0.\"}"
     },
     {
       "id": "I0593",
@@ -4751,9 +4747,8 @@
       "id": "I0677",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
       "test": "applyProposal (live DB) applyProposal rejects a pending proposal whose location was archived after preparation",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "Individual HEAD baseline fails at apply.integration.test.ts432: readTone is seeded professional and friendly, but the assertion expects null. beforeAll seeds the location; voice reset is only afterEach, so this isolated case lacks the earlier case cleanup. Rejection assertions preceding the no-write assertion pass. No mutant launched. Establish explicit initial voice state before each case or compare the captured initial state; no production defect claimed."
+      "outcome": "killed",
+      "reason": "R3-I0677 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/agents/operator/__tests__/apply.integration.test.ts:433. The direct archived-refusal mutation preserves rejection reason/status/null receipt/null appliedAt, then the new captured-tone comparison after unarchive fails on the forbidden persisted voice write. Root restored source and dotenv with matching R3-I0677 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"inconclusive\",\"inconclusive_class\":\"oracle\",\"reason\":\"Individual HEAD baseline fails at apply.integration.test.ts432: readTone is seeded professional and friendly, but the assertion expects null. beforeAll seeds the location; voice reset is only afterEach, so this isolated case lacks the earlier case cleanup. Rejection assertions preceding the no-write assertion pass. No mutant launched. Establish explicit initial voice state before each case or compare the captured initial state; no production defect claimed.\"}"
     },
     {
       "id": "I0678",
@@ -4766,9 +4761,8 @@
       "id": "I0679",
       "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
       "test": "applyProposal (live DB) applyProposal rolls back the receipt when the voice write throws",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "Individual HEAD baseline at apply.integration.test.ts511 expects null tone after rollback, but beforeAll seedLocation supplied professional and friendly; reset runs only afterEach. Transaction rejection/status/receipt checks pass first. No mutant launched. Capture initial tone before operation and compare after rollback to measure no change independently."
+      "outcome": "killed",
+      "reason": "R3-I0679 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/agents/operator/__tests__/apply.integration.test.ts:510. The outer-executor mutation commits proposal/voice work outside the poisoned callback transaction. After the expected PostgreSQL-origin rejection, the first persisted-state assertion observes applied instead of pending. This is a domain rollback failure, not timeout/pool/setup/type failure. The fresh baseline also passes null receipt/null appliedAt/captured tone and successful retry; the mutant stops at status. Root restored source and dotenv with matching R3-I0679 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"inconclusive\",\"inconclusive_class\":\"oracle\",\"reason\":\"Individual HEAD baseline at apply.integration.test.ts511 expects null tone after rollback, but beforeAll seedLocation supplied professional and friendly; reset runs only afterEach. Transaction rejection/status/receipt checks pass first. No mutant launched. Capture initial tone before operation and compare after rollback to measure no change independently.\"}"
     },
     {
       "id": "I0680",
@@ -4809,17 +4803,15 @@
       "id": "I0685",
       "file": "src/lib/auto-approval/__tests__/settings.integration.test.ts",
       "test": "auto-approval settings writers — live upserts against the 074 indexes threshold upserts hit the same rows without clobbering the dial values",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "Individual HEAD baseline fails settings.integration.test.ts289 because threshold upsert assumes account/location daily caps and veto windows written by prior I0683/I0684. beforeAll seeds tenant/business only, not policies. No mutant launched. Seed the exact preexisting dial state within this case before measuring threshold preservation; preserve the original identity and assertions."
+      "outcome": "killed",
+      "reason": "R3-I0685 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/auto-approval/__tests__/settings.integration.test.ts:310. The threshold-only account conflict update incorrectly sets veto to15 on the independently seeded veto30/cap25 row, and the retained-dial/row-identity object assertion fails. The JSON diagnostic abbreviates object fields; the exact production patch and failure site identify the changed veto contract. Root restored source and dotenv with matching R3-I0685 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"inconclusive\",\"inconclusive_class\":\"oracle\",\"reason\":\"Individual HEAD baseline fails settings.integration.test.ts289 because threshold upsert assumes account/location daily caps and veto windows written by prior I0683/I0684. beforeAll seeds tenant/business only, not policies. No mutant launched. Seed the exact preexisting dial state within this case before measuring threshold preservation; preserve the original identity and assertions.\"}"
     },
     {
       "id": "I0686",
       "file": "src/lib/auto-approval/__tests__/settings.integration.test.ts",
       "test": "auto-approval settings writers — live upserts against the 074 indexes clear on a suspended account default preserves the row; unsuspended clear deletes it",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "Individual HEAD baseline fails the suspended-account-default clear assertion. beforeAll has no policy row; the opening UPDATE therefore suspends zero rows instead of the account default written by preceding cases. No mutant launched. Create the required account default and dial values locally before applying its suspension, preserving the existing preservation/deletion assertions."
+      "outcome": "killed",
+      "reason": "R3-I0686 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/auto-approval/__tests__/settings.integration.test.ts:347. Deleting the independently seeded suspended account default fails the preserved-row/suspension/dial assertion (returned policyId is null). Root restored source and dotenv with matching R3-I0686 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"inconclusive\",\"inconclusive_class\":\"oracle\",\"reason\":\"Individual HEAD baseline fails the suspended-account-default clear assertion. beforeAll has no policy row; the opening UPDATE therefore suspends zero rows instead of the account default written by preceding cases. No mutant launched. Create the required account default and dial values locally before applying its suspension, preserving the existing preservation/deletion assertions.\"}"
     },
     {
       "id": "I0687",
@@ -4944,9 +4936,8 @@
       "id": "I0704",
       "file": "src/lib/reviews/__tests__/import-review.integration.test.ts",
       "test": "importReview against live Postgres importReview leaves the agent run terminal, not running",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "Individual HEAD baseline fails import-review.integration.test.ts165 because it only SELECTs the agent run inserted by prior I0703. beforeAll seeds tenant/business but no review/run. No mutant launched. Invoke importReview within this case before querying its terminal run and persisted marker, retaining the actual marker assertions."
+      "outcome": "killed",
+      "reason": "R3-I0704 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/reviews/__tests__/import-review.integration.test.ts:184. After the case performs its own initial import, the persisted JSONB origin assertion observes unknown instead of imported. The baseline also establishes completed run and non-null ended_at; this mutant measures marker value. Root restored source and dotenv with matching R3-I0704 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"inconclusive\",\"inconclusive_class\":\"oracle\",\"reason\":\"Individual HEAD baseline fails import-review.integration.test.ts165 because it only SELECTs the agent run inserted by prior I0703. beforeAll seeds tenant/business but no review/run. No mutant launched. Invoke importReview within this case before querying its terminal run and persisted marker, retaining the actual marker assertions.\"}"
     },
     {
       "id": "I0705",
@@ -4959,9 +4950,8 @@
       "id": "I0706",
       "file": "src/lib/reviews/__tests__/import-review.integration.test.ts",
       "test": "importReview against live Postgres importReview is idempotent on a second call for the same review",
-      "outcome": "inconclusive",
-      "inconclusive_class": "oracle",
-      "reason": "Individual HEAD baseline fails import-review.integration.test.ts205: its only import call returns new, not unchanged, because first insertion was performed solely by prior I0703. No mutant launched. Perform an explicit first import in this case and then measure the second call plus one-review/one-run/one-imported-marker assertions."
+      "outcome": "killed",
+      "reason": "R3-I0706 at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: individual baseline exit0 and mutant exit1, assert-one-test exit0 for both; src/lib/reviews/__tests__/import-review.integration.test.ts:208. After the case performs its own first import, its second-call result assertion observes new instead of unchanged. The baseline retains one-review/one-run/one-imported-marker checks; this mutant measures the idempotent return value. Root restored source and dotenv with matching R3-I0706 exit0, then R3-FINAL exit0. Historical round-2 adjudication at 4127714519b253e4a0560b9cf561a987af8cf70c: {\"outcome\":\"inconclusive\",\"inconclusive_class\":\"oracle\",\"reason\":\"Individual HEAD baseline fails import-review.integration.test.ts205: its only import call returns new, not unchanged, because first insertion was performed solely by prior I0703. No mutant launched. Perform an explicit first import in this case and then measure the second call plus one-review/one-run/one-imported-marker assertions.\"}"
     },
     {
       "id": "E001",
@@ -5551,8 +5541,8 @@
       "title": "Trial-account expansion test passes when PATCH performs no write",
       "at": "src/lib/auto-approval/__tests__/settings.test.ts:520",
       "duty": 1,
-      "disposition": "open",
-      "reason": "ROOT ARBITER confirmed: immutable settings.test.ts520-531 requests set_account_default threshold5 on TRIALING but asserts only readiness.canExpand. Mutating settings.ts222 from updatePolicyInTransaction to lockAccount bypasses the requested mutation, expansion gates and audit on the exact public PATCH path; baseline and mutant both pass. This is a false write oracle, not an established production failure. Required replacement asserts returned accountDefault threshold5, persisted dbState threshold5 and the actor/account/operation expansion audit. Do not erase this finding with an unrelated second mutation.",
+      "disposition": "fixed",
+      "reason": "Round 3 fixed at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: R3-I0228 kills the original skipped-write-seam mutant at settings.test.ts:534 after a fresh green baseline. The corrected trialing case now checks returned state, persisted threshold and exactly one scoped expansion audit. R3-I0229 independently kills the same fault at its newly added success-leg assertion :568, before the historical late-rejection path. All pairs have exact-one selection and matching root restoration. Historical round-2 open finding: ROOT ARBITER confirmed: immutable settings.test.ts520-531 requests set_account_default threshold5 on TRIALING but asserts only readiness.canExpand. Mutating settings.ts222 from updatePolicyInTransaction to lockAccount bypasses the requested mutation, expansion gates and audit on the exact public PATCH path; baseline and mutant both pass. This is a false write oracle, not an established production failure. Required replacement asserts returned accountDefault threshold5, persisted dbState threshold5 and the actor/account/operation expansion audit. Do not erase this finding with an unrelated second mutation.",
       "arbiter_reasoning": "ROOT ARBITER: CONFIRM I0228 as P0 false write oracle. Immutable settings.test.ts520–531 explicitly requests set_account_default threshold5 onTRIALING but asserts only readiness.canExpand. Newseam settings.ts222 mutation replaces updatePolicyInTransaction with lockAccount, bypassing requested mutation/gates/audit; it is non-equivalent to claimed expansion behavior and runs exactpublicPATCHpath, yet testpasses. Do not narrow/retitle contract or eraseconfirmed survivor withsecondarbitrarymutation. Recordfindingspecifictestgap (notestablishedproductionfailure): need assert persisted/accountDefaultthreshold5 and expectedaudit afterresolvedPATCH."
     },
     {
@@ -5561,8 +5551,8 @@
       "title": "Answered-import tests do not verify the response links to the returned review",
       "at": "worker/jobs/zernio/__tests__/zernio-ingest-shared.test.ts:418",
       "duty": 1,
-      "disposition": "open",
-      "reason": "Root arbiter confirms wrong relationship oracle: fixed INSERT RETURNING new-review-uuid differs from minted UUID, representing supported conflict return; mutant returns minted ID so caller links posted response to wrong/nonexistent review. Test419-455 checks INSERT fragments/status/counter but omits response review_id binding. Required correction preserves conflict-compatible returned-ID fixture and asserts responseInsert.values[0] equals returned ID. No production defect claimed. Also confirmed independently for consented-import case I0403 at line763. Preserve the fixed returned ID distinct from minted ID and assert response INSERT value0 equals that returned ID in both cases.",
+      "disposition": "fixed",
+      "reason": "Round 3 fixed at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: R3-I0394 and R3-I0403 independently kill the original returned-ID mutation at zernio-ingest-shared.test.ts:452 and :786. Both retain a fixed returned review ID distinct from the minted ID and now assert response INSERT value0 equals that returned ID. All pairs have exact-one selection and matching root restoration. Historical round-2 open finding: Root arbiter confirms wrong relationship oracle: fixed INSERT RETURNING new-review-uuid differs from minted UUID, representing supported conflict return; mutant returns minted ID so caller links posted response to wrong/nonexistent review. Test419-455 checks INSERT fragments/status/counter but omits response review_id binding. Required correction preserves conflict-compatible returned-ID fixture and asserts responseInsert.values[0] equals returned ID. No production defect claimed. Also confirmed independently for consented-import case I0403 at line763. Preserve the fixed returned ID distinct from minted ID and assert response INSERT value0 equals that returned ID in both cases.",
       "arbiter_reasoning": "Root CONFIRM I0394 as P0 false relationship oracle. Evidence test419–455 mocks SELECT no match then INSERT RETURNING 'new-review-uuid' distinct from minted UUID; this is a valid concurrent-insert/ON CONFLICT return scenario explicitly supported by insertImportedReview comments475–490 and code537–541. Mutation changes actual executed return, then caller323 feeds wrong ID to insertImportedResponse, which binds reviewId as first value (source622). Test verifies INSERT fragments/status/counter but not response.review_id binding, so wrong or nonexistent review association still passes. Not equivalent; no need second mutation.\nRoot CONFIRM I0403 under same RT-P0-2 relationship-oracle finding. Independently inspected exact test763–783 and measured baseline/mutant exit0/exactone/restored. ConsentedImport flag changes admission, not requirement to link posted response to INSERT's returned review ID; type-valid mutant changes actual binding with no assertion. Group I0394/I0403, retain each inventory outcome/finding reference and exact measurement separately.\nCitation correction from root: at pinned41277145, insertImportedReview returns reviewId at537; insertImportedResponse reviewId binding is623. These corrected symbolic/function anchors supersede incidental numeric citations in the verbatim arbiter history above."
     },
     {
@@ -5571,8 +5561,8 @@
       "title": "Schema identity mismatch loses its assertion diagnostic to a Zod getter",
       "at": "src/lib/responses/__tests__/model-pinning.test.ts:81",
       "duty": 1,
-      "disposition": "open",
-      "reason": "Root agrees: detached .describe schema is a meaningful canonical object identity mismatch, baseline passed and mutant exact-one failed, but the only failure diagnostic is the Zod multi-literal getter thrown during Vitest clone. No usable identity assertion survives. Do not substitute unrelated model/maxTokens mutation. Exact corrective test shape: expect(task.outputSchema === OperatorModelOutputSchema).toBe(true), then remeasure the same detached-schema mutant in a separately authorized next pass. This is an oracle fix, not a production P0."
+      "disposition": "fixed",
+      "reason": "Round 3 fixed at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: R3-I0592 remeasures the original detached-schema identity mutation. Fresh baseline passes; mutant fails model-pinning.test.ts:83 with expected false to be true. Primitive comparison preserves a usable assertion diagnostic without traversing Zod getters. All pairs have exact-one selection and matching root restoration. Historical round-2 open finding: Root agrees: detached .describe schema is a meaningful canonical object identity mismatch, baseline passed and mutant exact-one failed, but the only failure diagnostic is the Zod multi-literal getter thrown during Vitest clone. No usable identity assertion survives. Do not substitute unrelated model/maxTokens mutation. Exact corrective test shape: expect(task.outputSchema === OperatorModelOutputSchema).toBe(true), then remeasure the same detached-schema mutant in a separately authorized next pass. This is an oracle fix, not a production P0."
     },
     {
       "id": "RT-ORACLE-2",
@@ -5580,8 +5570,8 @@
       "title": "Live DB cases rely on previous cases to establish their initial state",
       "at": "src/lib/agents/operator/__tests__/apply.integration.test.ts:432",
       "duty": 1,
-      "disposition": "open",
-      "reason": "Six individual HEAD baselines depend on prior cases: I0677/I0679 expect null tone after refusal/rollback although beforeAll seed has professional and friendly; capture initial tone locally and compare after. I0685/I0686 assume preexisting dial/account-default rows seeded only by earlier tests; establish those exact rows locally before threshold/clear operations. I0704 only queries the previous import run and I0706 assumes a previous first import; perform the first import locally in each case. Exact failures: apply.integration.test.ts432/511, settings.integration.test.ts289/320, import-review.integration.test.ts165/205. No mutants were launched for these red baselines; no production defect is claimed. Preserve every original case identity and behavioral assertion."
+      "disposition": "fixed",
+      "reason": "Round 3 fixed at 2565c78585d6b08837e01dbb2a4a3ba3c265eff0: All six previously red individual baselines now pass independently: I0677/I0679 capture initial tone, I0685/I0686 seed their own account policy/dials, and I0704/I0706 perform their own first import. Each semantic production mutant is killed at the intended persisted-state assertion: apply.integration.test.ts:433/:510, settings.integration.test.ts:310/:347, import-review.integration.test.ts:184/:208. I0679 observes applied instead of pending after deliberate PostgreSQL abort, not an infrastructure error. All pairs have exact-one selection and matching root restoration. Historical round-2 open finding: Six individual HEAD baselines depend on prior cases: I0677/I0679 expect null tone after refusal/rollback although beforeAll seed has professional and friendly; capture initial tone locally and compare after. I0685/I0686 assume preexisting dial/account-default rows seeded only by earlier tests; establish those exact rows locally before threshold/clear operations. I0704 only queries the previous import run and I0706 assumes a previous first import; perform the first import locally in each case. Exact failures: apply.integration.test.ts432/511, settings.integration.test.ts289/320, import-review.integration.test.ts165/205. No mutants were launched for these red baselines; no production defect is claimed. Preserve every original case identity and behavioral assertion."
     }
   ],
   "authorizations": [
@@ -5598,25 +5588,30 @@
     {
       "id": "owner-run-c-third-round-30",
       "date": "2026-09-13",
-      "finding_ids": ["RT-P0-1", "RT-P0-2", "RT-ORACLE-1", "RT-ORACLE-2"],
+      "finding_ids": [
+        "RT-P0-1",
+        "RT-P0-2",
+        "RT-ORACLE-1",
+        "RT-ORACLE-2"
+      ],
       "text": "Request presented: Approve the third mutation-verification round, using Codex only, with a maximum of 30 local test launches. Owner reply: [@Browser](plugin://browser@openai-bundled) I approve and sign in to sentry using in app browser. This authorizes the third round for the eleven corrected cases I0228, I0229, I0394, I0403, I0592, I0677, I0679, I0685, I0686, I0704 and I0706: 22 required launches, maximum 30, no fourth round, no external Claude/Opus delegates and no accepted-risk disposition. Historical round-2 measurements and findings remain unchanged until fresh verification is completed."
     }
   ],
   "counts": {
     "inventory_total": 785,
-    "killed": 379,
-    "survived_confirmed_p0": 3,
+    "killed": 389,
+    "survived_confirmed_p0": 0,
     "equivalent": 0,
-    "inconclusive": 7,
+    "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 396,
     "findings_total": 7,
-    "p0_open": 2,
-    "p1_open": 2,
+    "p0_open": 0,
+    "p1_open": 0,
     "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 3,
+    "fixed": 7,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }
