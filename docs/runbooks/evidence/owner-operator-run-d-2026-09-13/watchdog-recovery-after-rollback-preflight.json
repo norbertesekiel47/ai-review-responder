@@ -1,0 +1,44 @@
+{
+  "kind": "preflight",
+  "captured_at": "2026-09-14T19:17:46.996Z",
+  "candidate": "091d86bc778480dfd3c2cbc9fbbf61017392bbe0",
+  "ids": {
+    "account": "019f43d1-0000-7000-8000-000000000001",
+    "user": "019f43d1-0000-7000-8000-000000000002",
+    "location": "019f43d1-0000-7000-8000-000000000011",
+    "conversation": "019f43d1-0000-7000-8000-000000000031",
+    "turn": "019f43d1-0000-7000-8000-000000000032",
+    "clientKey": "019f43d1-0000-7000-8000-000000000033",
+    "outbox": "019f43d1-0000-7000-8000-000000000034"
+  },
+  "before": {
+    "accounts": 0,
+    "users": 0,
+    "businesses": 0,
+    "conversations": 0,
+    "turns": 0,
+    "outboxes": 0
+  },
+  "auth_identity_created": false,
+  "provider_calls_requested": 0,
+  "observation_restarted": false,
+  "project_id": "kubdiqdhqbhwmqfditeg",
+  "worker_deployment": {
+    "id": "113ceb47-ac01-49fb-8f6d-fd50741c0b04",
+    "status": "SUCCESS",
+    "sha": "091d86bc778480dfd3c2cbc9fbbf61017392bbe0"
+  },
+  "ui_deployment": {
+    "id": "dpl_E9ncrTWQ96hvov9pmYxXPdsFGofM",
+    "state": "READY",
+    "sha": "091d86bc778480dfd3c2cbc9fbbf61017392bbe0",
+    "aliases": [
+      "staging.repworth.net",
+      "rep-worth-env-staging-norbert-esekiels-projects.vercel.app"
+    ]
+  },
+  "runtime_flags_verified_by_runner": {
+    "OWNER_OPERATOR_ENABLED": true,
+    "AUTO_APPROVAL_ENABLED": false
+  }
+}

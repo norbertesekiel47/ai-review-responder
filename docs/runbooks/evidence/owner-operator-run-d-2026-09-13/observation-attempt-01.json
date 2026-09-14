@@ -1,0 +1,13 @@
+{
+  "slot": 1,
+  "planned_at": "2026-09-13T22:46:17.000Z",
+  "message": "Observation 01: Only tell me what needs my attention at Salon. Do not propose or change any settings.",
+  "state": "submitted_and_completed",
+  "registered_at": "2026-09-13 22:42:33 UTC",
+  "attempted_at": "2026-09-13T22:46:34.403Z",
+  "turn_id": "01a09cf3-836c-71c3-b689-2eefd8778f72",
+  "account_id": "019f43d0-0000-7000-8000-000000000001",
+  "location_id": "019f43d0-0000-7000-8000-000000000011",
+  "cleanup": "Retain all attempted IDs and results; delete exact-account runtime rows and terminal jobs after the full-day observation.",
+  "click_completed_at": "2026-09-13T22:46:34.670Z"
+}

@@ -62,7 +62,7 @@ export const STARTER_ACTIONS = [
 ] as const;
 
 /**
- * One sentence per `TURN_FAILURE_REASON` member (seven). Each key is a token
+ * One sentence per `TURN_FAILURE_REASON` member. Each key is a token
  * the worker wrote; none of these is ever a provider message or owner text.
  */
 export const TURN_FAILURE_WORDING: Readonly<Record<string, string>> = {
@@ -73,18 +73,20 @@ export const TURN_FAILURE_WORDING: Readonly<Record<string, string>> = {
   model_output_invalid: 'The answer came back in a form we could not use. Nothing was changed — try asking again in your own words.',
   budget_exceeded: 'This account has reached its daily limit for AI work. Nothing was changed — try again tomorrow.',
   exhausted: 'We tried several times and could not finish this message. Nothing was changed. Start a new conversation to try again.',
+  dispatch_exhausted: 'We could not start this message after several attempts. Nothing was changed. Start a new conversation to try again.',
 };
 
 const TURN_FAILURE_FALLBACK = 'That message did not finish. Nothing was changed — try again.';
 
 /**
- * Which failures are worth offering a fresh conversation for. Both are
+ * Which failures are worth offering a fresh conversation for. These are
  * conversation-level dead ends: a stalled predecessor blocks every successor in
  * the SAME conversation, and an exhausted turn has already been retried.
  */
 export const OFFERS_NEW_CONVERSATION: ReadonlySet<string> = new Set([
   'predecessor_stalled',
   'exhausted',
+  'dispatch_exhausted',
 ]);
 
 /**

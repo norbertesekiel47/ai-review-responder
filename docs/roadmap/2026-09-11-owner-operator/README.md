@@ -1,6 +1,6 @@
 # Owner Operator, version 1 (spec)
 
-_Status: **RUNS A + B + T8 + C MERGED (#1270 `d8e3f334f`; #1273 `34857b73b`; #1276 `099409ae2`; #1278 `280d1b013`); migration120 on staging and production; `OWNER_OPERATOR_ENABLED` ON in staging, OFF in production. Run C's full local gate, required CI, corrected staging acceptance and fresh post-merge scope-card repeat all PASS, with complete fixture cleanup.** The §12.2 checkboxes identify established implementation, integration and browser evidence. §12.1's next-draft/secondary-location/full-day observations remain Run D work; naming the pilot owner/window remains BLOCKED-human. Run E is still queued. The §13 T8 estimate is historical; see §15 and the [Run C acceptance evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md). · written 2026-09-11 · revised 2026-09-13_
+_Status: **RUNS A + B + T8 + C MERGED (#1270 `d8e3f334f`; #1273 `34857b73b`; #1276 `099409ae2`; #1278 `280d1b013`); migration120 on staging and production; `OWNER_OPERATOR_ENABLED` ON in staging, OFF in production. Run C's full local gate, required CI, corrected staging acceptance and fresh post-merge scope-card repeat all PASS, with complete fixture cleanup.** The §12.2 checkboxes identify established implementation, integration and browser evidence. Run D's §12.1 next-draft and secondary-location checks PASS; latency observation is satisfied under the owner's September 14 early-close amendment, with `full_24_hours_elapsed=false`. D recovery and teardown are complete; final verification/review and shipping remain in progress; naming the pilot owner/window remains BLOCKED-human. Run E stays paused until D closes out. The §13 T8 estimate is historical; see §15 and the [Run C acceptance evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md). · written 2026-09-11 · revised 2026-09-14_
 _Owner: Norbert (CEO/CTO) · Budget: named 60-hour exception, 30 committed, 30 conditional_
 _Companions: [architecture.md](architecture.md) (durable commitments, framework posture) · [vision.md](vision.md) (stages beyond v1)_
 
@@ -302,8 +302,8 @@ one, per `ci:outbox-seam`).
 
 Turn states: `accepted → running → completed | failed`.
 
-1. **Claim.** `UPDATE agent_turns SET status='running', attempt = attempt+1, attempt_token = <uuid>, claimed_at = NOW() WHERE id = $1 AND status IN ('accepted','running') AND (claimed_at IS NULL OR claimed_at < NOW() - lease)` returning the row. No row returned: another attempt holds the lease; exit without work. The lease is 120 seconds, above the model timeout.
-2. **Predecessor check.** If the previous `sequence` in the conversation is not `completed` or `failed`, release the claim (`status='accepted'`, `attempt = attempt-1`) and requeue with backoff. This wait does not consume the job's retry budget; a predecessor stuck for more than 10 minutes fails this turn with `predecessor_stalled`.
+1. **Claim.** `UPDATE agent_turns SET status='running', attempt = attempt+1, attempt_token = <uuid>, claimed_at = NOW() WHERE id = $1 AND status IN ('accepted','running') AND (claimed_at IS NULL OR claimed_at < NOW() - lease)` returning the row. No row returned: another attempt holds the lease; exit without work. The deployed lease is **180 seconds**. Each provider call has a 30-second timeout, and the outer two validation attempts may each use primary then fallback: up to 120 seconds of configured provider timeout allowance, plus surrounding database/cost-guard work that is not globally bounded. Run D's [final timing decision](../../runbooks/evidence/owner-operator-run-d-2026-09-13/timing-decision-preparation.md) retains the lease after the owner-approved shorter observation; the earlier 120-second lease sentence was stale.
+2. **Predecessor check.** If the previous `sequence` in the conversation is not `completed` or `failed`, release the claim (`status='accepted'`, `attempt = attempt-1`) and delay the same BullMQ job by **10 seconds**. Run D fences the release and the matching outbox liveness refresh by both turn token and outbox attempt, so a healthy wait does not consume failed retry budget or become stale merely because its creation time crosses the watchdog window. A predecessor still nonterminal after **1,200 seconds (20 minutes)** fails this turn with `predecessor_stalled`. Run D retains both deployed values: the stall limit stays above the confirmed 900-second staging watchdog default, and two observed predecessor waits completed with the same job and no failed retry consumed.
 3. **Authorize again.** Re-resolve `actor_user_id` and `account_id` from the DB: user exists and is not revoked, account subscription writable, account not in an offboarding state that blocks operational UI, `location_id` still active in the account. Any failure: `failed` with reason `unauthorized` or `account_offboarding`, and no context is loaded.
 4. **Snapshot** (§5.3), built for the stored `location_id`.
 5. **Model call** wrapped in `withCostGuard`, task `owner_operator` in `LLM_TASKS`. Reservation precedes the call. Every attempt is billed; a retry after a billed completion is a second billed attempt and is recorded as such. This is not exactly-once inference.
@@ -624,6 +624,12 @@ max(p95 × 1.5 = 14.3 s, 2 × 30 s = 60 s) and 180 s stands; the stall window
 stays above the 900 s watchdog; the 10 s predecessor wait is not lowered on a
 five-turn sample with p50 just under 10 s.
 
+**Run D checkpoint update — evidence collected September 13–14, 2026; final closeout pending.** The T8 table above remains a historical record. On staging candidate `4b13d96621b156a47dbc4140995f45745bc8114d`, item **2 is PASS**: the real Salon tone Apply precedes a newly ingested fictional review and a fresh worker-generated draft, with receipt, stable voice inputs, response/run/outbox/cost binding, and 390px/1440px browser evidence. The prompt is explicitly a source reconstruction, and the draft's literal placeholder signoff remains visible as a quality limitation. Item **6 is PASS**: the Cafe turn was accepted at `21:41:01.569566Z`, the browser selector moved to Salon at `21:41:11.758Z`, and the worker claimed the turn later at `21:41:18.125916Z`; its stored target and Proposal remained Cafe. See [T3 proof](../../runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md#t3--tone-checkpoint-pass) and [T4 proof](../../runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md#t4--secondary-location-checkpoint-pass).
+
+Item **10 is satisfied under the owner's explicit duration amendment**, recorded September 14: “Hm actually everything looks good so far, you can stop the observability and proceed, go ahead”. The [final observation and timing decision](../../runbooks/evidence/owner-operator-run-d-2026-09-13/timing-decision-preparation.md) covers `2026-09-13T21:46:17Z` to `2026-09-14T17:36:31.857381Z` (**19 hours, 50 minutes, 14.857381 seconds**), with **24/24 turns completed**, p50 **6.838317 seconds**, p95 **16.10373645 seconds**, zero recorded submission/outbox/binding anomalies and **238 healthy readiness samples**. Slots 20–24 were cancelled. **`full_24_hours_elapsed=false`; no full-day PASS is claimed.** The 180-second lease, 1,200-second stall limit and 10,000-millisecond recheck delay are retained. Historical samples and the original full-day requirement remain in the evidence.
+
+Item **9 remains BLOCKED-human**, with the [blank COO observation template](../../runbooks/owner-operator-pilot-observation-template.md) prepared. Browser dispatch-failure recovery and scoped fixture teardown are complete. The final gate, independent review, adversarial verification, and D's feature/documentation merges remain outstanding. Run E stays paused until D closes out. No production enablement is claimed.
+
 ### 12.2 Full v1
 
 Evidence basis: candidate `a8b934a69434476ce41d056c0d846b03129fe994` passed the full local review gate (15,911 tests passed, 11 skipped). The [implementation evidence](../../reviews/codex-owner-operator-run-c/evidence.md) and [corrected staging acceptance](../../runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md) establish the checked items. The seven operations are covered by implementation/integration tests; this is not a claim that each was separately driven through the deployed worker. The ten-review, Cafe and weekend cases were driven through that worker.
@@ -715,6 +721,8 @@ reasons — 3. **Total 14–16 hours** beyond the 12 the table provisions for
 not in that row.
 
 ## 14. Open questions
+
+**Run D implementation update (candidate `4b13d96621b156a47dbc4140995f45745bc8114d`; final review pending).** The historical CA1/CA4 findings below are implemented on staging. For CA1, `runOutboxDispatchFailure` and `runOutboxWatchdogRecovery` reconcile the exact failed outbox with its bound turn in the same transaction through `reconcileTurnForFailedOutbox`; live or contended work is deferred, and stale attempts cannot fail a replacement. `OutboxPoller.operator.integration.test.ts` and `OutboxPoller.watchdog.integration.test.ts` cover ownership, rollback, contention and crash recovery. For CA4, `releaseTurnClaim` refreshes the owned outbox's liveness and releases the turn under both fences before the same-job delay; `turn-worker.integration.test.ts` covers healthy waits crossing the old watchdog age, lost ownership, rollback, scheduling failure and recovery. The [paired staging evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md) records real predecessor waits and completion at slots 08 and 16. The final observation satisfies §12.1.10 under the owner's early-close amendment, explicitly with `full_24_hours_elapsed=false`. Browser dispatch-failure recovery and scoped teardown are complete. The final gate, independent review, adversarial verification and shipping remain outstanding.
 
 - Which pinned model for `owner_operator`: the reply-generation primary, or a stronger model for planning quality. Decide at the checkpoint from staging transcripts. **2026-09-11 (Run A):** registered at the reply-generation pair (`OPENAI_MODEL` primary, `ANTHROPIC_MODEL` fallback) with `maxTokens: 1200` and `temperature: 0.2` — 1200 because a reply is an ordered segment list plus up to five proposals with rationales, and 0.2 because a proposal is a contract, not prose. **This run pins the numbers only; the MODEL question stays open at the checkpoint.**
 - Whether the summary panel reads should be one aggregated route or reuse the dashboard payload. **2026-09-12 (Run B): the "reuse" default is REFUTED and the question is closed.** The architecture pass (H1-D) measured the dashboard payload field by field: the rating band buckets ALL rated reviews where the Operator wants pending drafts by star (`readStarBands` is the right reader); the posted count is ABSENT (`totalReviewsHandled` is all-time, `recentReviewCount` a capped *received* sample — `readPosted7d` is the right reader); and the per-location DTO carries no location list. Importing the assembled DTOs would also drag in a 45-second Redis TTL cache plus ranking, velocity and briefs, and two of four fields would still be wrong. Run A's granular helpers — `getPendingApprovalCountsForAccount`, `readPosted7d`, `getAutoApprovalSettings`, `readVoiceConfig`, already wired into `getConversationForOwner` — are the source, and `SummaryPanel.tsx` is a pure renderer over them.
@@ -842,3 +850,27 @@ not in that row.
   `280d1b0137f4f5a3e2cd613abe7464238d0f665e`. Both post-merge staging deployments match;
   real390px Apply,1440px receipt reload and25zero cleanup checks PASS. Production stays off; the remaining §12.1
   checkpoints and the COO owner-pilot record are unchanged.
+
+- 2026-09-14, **Run D implementation and staging evidence; final verification,
+  review and shipping pending.** Candidate `4b13d96621b156a47dbc4140995f45745bc8114d`
+  implements CA1 dispatch/watchdog failure reconciliation and CA4 fenced
+  predecessor liveness refresh. The next-draft and secondary-location checks
+  PASS. The owner explicitly ended observation after 19 hours, 50 minutes,
+  14.857381 seconds: 24/24 turns completed, p50 6.838317 seconds, p95
+  16.10373645 seconds, and 238 healthy readiness samples. Item §12.1.10 is
+  satisfied under that duration amendment; `full_24_hours_elapsed=false`.
+  Constants remain 180 seconds / 1,200 seconds / 10,000 milliseconds.
+  The controlled recovery fixture made no model call; the 390×844 and
+  1440×1000 browser journeys verified persistent failure after reload,
+  navigation to a usable new conversation and return to the stored failure.
+  Cleanup at `2026-09-14T18:02:03.779448Z` removed 101 exact public rows;
+  independent checks returned zero across 15 captured tables and 54 ownership
+  scopes. Auth users, identities, sessions and refresh tokens were zero at
+  `18:02:53.328846Z`. All 27 exact queue jobs were removed and absence verified;
+  the queue remained unpaused, Guardian markers were zero and flag baselines
+  were preserved. The viewport was reset and the campaign tab closed while
+  the user's Vercel tab was preserved. [Run D evidence](../../runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md)
+  retains the observation, recovery limitations and cleanup proofs. D's final
+  gate, independent review, adversarial verification and feature/documentation
+  merges remain outstanding. E stays paused until D closes out; production
+  Operator enablement remains prohibited.

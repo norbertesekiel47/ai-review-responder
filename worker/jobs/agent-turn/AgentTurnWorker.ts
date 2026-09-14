@@ -136,11 +136,15 @@ async function waitOrFailOnPredecessor(
   // DelayedError re-schedules the same job without consuming an attempt,
   // so a conversation with a slow first turn never exhausts its retry
   // budget waiting in line.
-  await releaseTurnClaim(sql, {
+  const released = await releaseTurnClaim(sql, {
     turnId: claimed.turnId,
     accountId: claimed.accountId,
     attemptToken: claimed.attemptToken,
+    leaseSeconds: AGENT_TURN_LEASE_SECONDS,
+    refreshLiveness: true,
+    ...outbox,
   });
+  if (released !== 'released') return true;
   logger.log('agent_turn waiting on predecessor', {
     turn_id: claimed.turnId,
     sequence: claimed.sequence,
@@ -360,11 +364,19 @@ async function handleTurnError(
   // releases nothing. A CRASHED process cannot run this at all; that case
   // still relies on lease expiry plus the watchdog, which is what those two
   // mechanisms are for.
-  await releaseTurnClaim(sql, {
+  const released = await releaseTurnClaim(sql, {
     turnId: claimed.turnId,
     accountId: claimed.accountId,
     attemptToken: claimed.attemptToken,
+    leaseSeconds: AGENT_TURN_LEASE_SECONDS,
+    ...outbox,
   });
+  if (released === 'failed') {
+    logger.warn('agent_turn dispatch exhausted before claim release', { turn_id: claimed.turnId });
+    return;
+  }
+  // A predecessor delay may already have released this token before Redis
+  // rejected moveToDelayed. Preserve that error for the BullMQ retry ladder.
   throw error;
 }
 

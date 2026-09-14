@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "Outbox recovery and tenant-scoped terminal transitions can strand or incorrectly fail an Operator turn.",
+    "Staging verification exercises real worker generation with designated synthetic data."
+  ],
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "Owner Operator turns recover or fail truthfully under dispatch exhaustion and predecessor waiting, with the next-draft and pinned-location checkpoint demonstrated on staging.",
+  "non_goals": [
+    "Run E operations, restore, refusal lanes or migrations",
+    "Production OWNER_OPERATOR_ENABLED changes",
+    "Changes to the generic watchdog window",
+    "A new queue, scheduler, waiting status, provider or dependency",
+    "Naming a COO pilot owner or observation window",
+    "External Claude or Opus development and review delegates"
+  ],
+  "user_visible_behavior": [
+    "A turn whose dispatch budget is exhausted stops preparing and shows a dispatch_exhausted failure with a recovery action.",
+    "A turn waiting behind its predecessor releases its claim and delays the same job without spending retry budget; healthy waits do not trigger redundant watchdog dispatch.",
+    "A staging tone Apply changes the next generated draft for that location.",
+    "A staging turn submitted for a secondary location keeps that target when the selector changes.",
+    "A staging observation records p50/p95 and justifies the lease, stall and wait constants. The owner explicitly ended the original full-day requirement early on 2026-09-14; preserve the measured duration, all24 submissions, and that authorization without claiming24-hour coverage."
+  ],
+  "invariants": [
+    "Accepted turn failure and the winning outbox terminal transition commit or roll back together.",
+    "A valid nonterminal turn retains a recoverable outbox unless both terminalize atomically; live or contended claims defer exhaustion, expired claims are revalidated under lock, and stale attempts, foreign accounts and terminal results are preserved.",
+    "Outbox ownership and the turn attempt token fence predecessor-wait writes.",
+    "A crash during or after waiting remains recoverable by BullMQ or the existing watchdog.",
+    "No settings write or public posting occurs from sending a turn; Apply remains separately authorized.",
+    "Stored location_id owns the turn target; browser selection never retargets accepted work.",
+    "All LLM work stays on the worker and uses the existing cost guard and accounting seam.",
+    "No production flag flip or migration; production remains disabled."
+  ],
+  "edge_cases": [
+    "Redis reports dispatch failure after accepting a job; a live running turn retains a dispatched outbox, and a later crash is terminalized atomically after its lease expires.",
+    "A turn locked by completion defers exhaustion without deadlock or treating contention as absence.",
+    "A stale dispatch callback loses its attempt CAS and writes no turn failure.",
+    "Watchdog exhaustion of an accepted waiting turn is coupled to its failure.",
+    "Healthy predecessor waits cross the old 15-minute age without a watchdog reclaim.",
+    "A superseded outbox attempt or stolen turn token cannot refresh liveness or release another claim.",
+    "Delay scheduling failure or worker crash leaves durable work recoverable.",
+    "The predecessor stall deadline still fails a permanently stuck successor.",
+    "No 24-hour result is inferred from a shorter sample. The owner-approved early close uses the actual measured interval and all24 recorded submissions."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/background/pollers/OutboxPoller.ts markDispatchFailed attempt CAS and runOutboxWatchdogRecovery transaction",
+    "src/lib/agents/operator/turns.ts claimTurn, releaseTurnClaim, fenced completion and accepted/running status vocabulary",
+    "src/lib/shared/outbox.ts exact attempt ownership; Operator claim release additionally handles the legitimate dispatching handoff",
+    "worker/jobs/agent-turn/AgentTurnWorker.ts moveToDelayed plus DelayedError",
+    "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts local schema-ready tenant fixtures",
+    "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts isolated real-DB poller seam",
+    "docs/runbooks/e2e-local-setup.md and Run C sanitized staging evidence"
+  ],
+  "test_seams": [
+    "runOutboxDispatchFailure and runOutboxWatchdogRecovery against disposable local Postgres; existing poller unit tests prove queue-failure wiring without claiming unrelated pending fixtures",
+    "handleAgentTurn through real claim/release/fence queries and a fake BullMQ job",
+    "OperatorClient durable failed-turn rendering",
+    "Signed-in in-app browser at 390px and 1440px plus scoped staging backend readback"
+  ],
+  "allowed_edit_surface": [
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    ".agents/skills/red-team/SKILL.md",
+    ".claude/skills/red-team/SKILL.md",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
+    "worker/background/pollers/OutboxPoller.ts",
+    "worker/background/pollers/__tests__/OutboxPoller*.test.ts",
+    "worker/jobs/agent-turn/**",
+    "src/lib/agents/operator/turns.ts",
+    "src/lib/agents/operator/schema.ts",
+    "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+    "src/lib/agents/operator/__tests__/turns.test.ts",
+    "src/app/(authenticated)/dashboard/operator/wording.ts",
+    "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+    "docs/roadmap/2026-09-11-owner-operator/README.md",
+    "docs/context/owner-operator.md",
+    "docs/directory/worker-jobs-a.md",
+    "docs/directory/worker-background.md",
+    "docs/directory/lib-owner-operator.md",
+    ".claude/reference/lab-notes/history/2026-09.md",
+    ".claude/reference/arch-review-log.md",
+    "docs/superpowers/plans/codex-owner-operator-run-d*",
+    "docs/reviews/codex-owner-operator-run-d/**",
+    "docs/reviews/red-team/codex-owner-operator-run-d/**",
+    "docs/reviews/finding-checklists/*.md",
+    "docs/runbooks/evidence/2026-09-13-owner-operator-run-d*.md",
+    "docs/runbooks/evidence/owner-operator-run-d-2026-09-13/**"
+  ],
+  "tests_to_add": [
+    "watchdog recovery of exhausted dispatching Operator work preserves live claims and other topics",
+    "watchdog recovery of exhausted dispatching work defers a turn locked by completion",
+    "dispatch exhaustion fails only the accepted turn owned by the winning outbox attempt",
+    "dispatch exhaustion rolls back the outbox transition when its turn update fails",
+    "dispatch exhaustion preserves running and terminal turns after an ambiguous enqueue failure",
+    "dispatch exhaustion ignores mismatched account and aggregate identities",
+    "watchdog exhaustion terminalizes an accepted Operator turn in the same transaction",
+    "healthy predecessor waits survive the watchdog window without redispatch or retry spending",
+    "predecessor wait ignores a superseded outbox attempt and a stolen turn token",
+    "predecessor wait rolls back both liveness and claim release on a database failure",
+    "a crashed predecessor wait is recovered by the unchanged watchdog",
+    "predecessor delay failure preserves a retryable turn and outbox",
+    "operator dispatch exhaustion renders a recovery action from the durable transcript",
+    "predecessor wait handles a worker starting before dispatch acknowledgement",
+    "claim release reconciles dispatch exhaustion after a running worker yields",
+    "a worker crash after ambiguous dispatch exhaustion remains recoverable by the watchdog",
+    "dispatch exhaustion defers a locked turn without deadlocking fenced completion"
+  ],
+  "verification_commands": [
+    "pnpm test",
+    "pnpm test:e2e"
+  ],
+  "estimated_prod_lines": 160,
+  "estimated_test_lines": 420,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the Run D feature squash through a PR and realign staging. No schema or flag rollback is needed. Preserve queued work and evidence; remove only fixture-owned records and exact terminal queue jobs after scoped readback.",
+  "observability": [
+    "Turn failure_reason dispatch_exhausted and its matching terminal outbox row",
+    "Existing outbox_failed:agent_turn alert and bounded worker logs without owner text",
+    "Observed turn statuses, attempts and accepted-to-completed latency across the actual owner-approved observation interval; preserve subphase measurement limits and the separate unassigned cost audit",
+    "Next-draft tone provenance and pinned secondary-location snapshot with sanitized browser/backend evidence"
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

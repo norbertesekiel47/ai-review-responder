@@ -1,0 +1,89 @@
+{
+  "deployment_id": "5c8fc180-ad37-4e76-85fd-a8dc913302d7",
+  "query": {
+    "startDate": "2026-09-14T05:49:49Z",
+    "endDate": "2026-09-14T05:50:12Z",
+    "limit": 100
+  },
+  "note": "The provider's substring filter returned no rows; bounded unfiltered window returned four rows, of which these two exactly match the synthetic pair. Retain only matching synthetic worker context.",
+  "logs": [
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"info\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-14T05:49:55.715Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"AgentTurnWorker\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"5a2b1bc4-b9e2-44d9-8beb-9369a81489e6\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43d0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a09e76-fa9e-77a1-8453-006473b7349e_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a09e76-f98e-7327-952f-8c9ce71438d9\",\"sequence\":14}"
+        }
+      ],
+      "message": "agent_turn waiting on predecessor",
+      "severity": "info",
+      "timestamp": "2026-09-14T05:49:55.737054798Z"
+    },
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"info\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-14T05:49:57.745Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"AgentTurnWorker\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"349bec62-d5c6-42f2-a2e7-13b62bcc7818\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43d0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a09e76-f7ba-70df-b157-339d42992934_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a09e76-f6b6-771c-94cd-1d6a0992ced7\",\"proposal_count\":0,\"unsupported_count\":0,\"attempts\":1}"
+        }
+      ],
+      "message": "agent_turn completed",
+      "severity": "info",
+      "timestamp": "2026-09-14T05:49:57.759878205Z"
+    }
+  ]
+}

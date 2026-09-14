@@ -1,0 +1,14 @@
+{
+  "slot": 5,
+  "planned_at": "2026-09-14T02:46:17.000Z",
+  "message": "Observation 05: Only tell me what needs my attention at Salon. Do not propose or change any settings.",
+  "state": "submitted_and_completed",
+  "registered_at": "2026-09-14 02:43:39 UTC",
+  "attempted_at": "2026-09-14T02:46:31.596Z",
+  "turn_id": "01a09dcf-316d-73ee-8119-fa8c36d66966",
+  "account_id": "019f43d0-0000-7000-8000-000000000001",
+  "location_id": "019f43d0-0000-7000-8000-000000000011",
+  "cleanup": "Retain all attempted IDs and results; delete exact-account runtime rows and terminal jobs after the full-day observation.",
+  "preflight_note": "At 02:43Z the browser viewport was 597x860, so desktop account/location controls were absent. Restored 1440x1000 and observed Run D Synthetic Owner and Salon before submission; no authentication reset or request was needed.",
+  "click_completed_at": "2026-09-14T02:46:31.864Z"
+}

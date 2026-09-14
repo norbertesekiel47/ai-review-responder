@@ -1,0 +1,20 @@
+{
+  "kind": "result",
+  "captured_at": "2026-09-14T19:17:48.053Z",
+  "candidate": "091d86bc778480dfd3c2cbc9fbbf61017392bbe0",
+  "synthetic_initial_state": "accepted turn plus aged exhausted dispatching outbox",
+  "actual_dispatch_attempts": 0,
+  "observed_deployed_poller": true,
+  "elapsed_ms": 597,
+  "pair": {
+    "turn_status": "failed",
+    "failure_reason": "dispatch_exhausted",
+    "attempt_token": null,
+    "turn_completed_at": "2026-09-14 19:17:47.567765+00",
+    "outbox_status": "failed",
+    "attempts": 5,
+    "last_error": "Stale dispatching entry exceeded max_attempts",
+    "outbox_completed_at": "2026-09-14 19:17:47.567765+00"
+  },
+  "runner_exit_code": 0
+}
