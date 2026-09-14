@@ -1046,22 +1046,27 @@ describeWithDb(
       await markDispatched(db, firstPayload.outbox_id, 1);
       await handleAgentTurn(db, jobFor(firstPayload));
 
-      const sameTurn = await db<{ id: string; status: string; superseded_by: string | null }[]>`
-        SELECT id, status, superseded_by
+      const sameTurn = await db<{ id: string; tone: string; status: string; superseded_by: string | null }[]>`
+        SELECT id, input ->> 'tone' AS tone, status, superseded_by
         FROM agent_proposals
         WHERE turn_id = ${first.turnId}::uuid AND account_id = ${tenant.accountId}::uuid
-        ORDER BY created_at ASC
       `;
       expect(sameTurn).toHaveLength(2);
       for (const row of sameTurn) {
         expect(row.status).toBe(PROPOSAL_STATUS.PENDING);
         expect(row.superseded_by).toBeNull();
       }
+      // Identify each proposal by its input: transaction timestamps can tie,
+      // so database row order cannot establish the model's proposal order.
+      const firstProposal = sameTurn.find((row) => row.tone === 'warm and brief');
+      const secondProposal = sameTurn.find((row) => row.tone === 'warm, brief and specific');
+      expect(firstProposal).toBeDefined();
+      expect(secondProposal).toBeDefined();
       // Both ids are also the ones the reply points at, in the model's order.
       const firstTurnRow = await readTurn(first.turnId);
       expect(parseReplySegments(firstTurnRow.reply).filter((s) => s.type === 'proposal')).toEqual([
-        { type: 'proposal', proposalId: sameTurn[0]!.id },
-        { type: 'proposal', proposalId: sameTurn[1]!.id },
+        { type: 'proposal', proposalId: firstProposal!.id },
+        { type: 'proposal', proposalId: secondProposal!.id },
       ]);
 
       // A LATER turn is a correction, and supersedes EVERY earlier pending
