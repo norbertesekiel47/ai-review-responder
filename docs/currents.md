@@ -9,7 +9,15 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-13 (Owner Operator Run C #1278 merged; post-merge staging acceptance and cleanup PASS).
+Last updated: 2026-09-14 (tier repricing: Copilot $79/$49, Autopilot $149/$99, extra location = list price).
+
+## Quick summary — Tier repricing: Copilot $79 / $49, Autopilot $149 / $99 (2026-09-14)
+
+Owner decision 2026-09-14. `TIER_CONFIG` (`src/lib/accounts/tier-config.ts`) now reads Copilot list **$79**, founding **$49**, extra location **$79**; Autopilot list **$149**, founding **$99**, extra location **$149**. An extra location costs the full list price on every account, founding included — deliberate.
+
+Every price surface (pricing page, plan picker, billing panel, checkout snapshot) derives from `TIER_CONFIG`; no copy hardcodes an amount. New Stripe Prices were created in both modes, and the six `STRIPE_PRICE_*` variables point at them per environment; `pnpm verify:stripe-prices` is the parity gate. `RETAINED_STRIPE_PRICE_HISTORY` stays empty on purpose: before the rotation, the owner had every customer account removed from production and staging, so no subscription references an old Price. Invariant #9a still holds for any account created from here on.
+
+The Beta comp coupon is unchanged (100% off for 3 months), so an invited tester still checks out at $0 and moves to $49 (Copilot founding) at month four.
 
 ## Quick summary — Owner Operator Run C: policy proposals and measured consequences (2026-09-13, #1278)
 

@@ -150,7 +150,7 @@ describe('price-tier-map', () => {
   });
 
   it('resolves current overage cents from the live ID and never falls grandfathered cents forward', () => {
-    expect(overagePriceIdForStoredCents('copilot', 1500)).toBe(
+    expect(overagePriceIdForStoredCents('copilot', 7900)).toBe(
       'price_copilot_overage',
     );
     expect(overagePriceIdForStoredCents('copilot', 1400)).toBeNull();

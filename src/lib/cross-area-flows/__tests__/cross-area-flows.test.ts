@@ -208,15 +208,15 @@ describe('VAL-CROSS-001: Signup-to-multi-location end-to-end', () => {
       locations_included: 1,
       locations_paid: 1,
       locations_overage_price_cents: activeAccount.locations_overage_price_cents,
-      base_price_cents: 2900,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]); // 2 active locations
 
     const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, activeAccount.id);
-    expect(snapshot.basePriceCents).toBe(2900);
+    expect(snapshot.basePriceCents).toBe(7900);
     expect(snapshot.overageUnits).toBe(1); // 2 locations - 1 included = 1
-    expect(snapshot.overagePriceCents).toBe(1500);
-    expect(snapshot.totalCents).toBe(4400);
+    expect(snapshot.overagePriceCents).toBe(7900);
+    expect(snapshot.totalCents).toBe(15800);
 
     // Step 7: Verify notification channel resolution
     const loc2Id = addResult.businessId as unknown as import('@/lib/shared/ids').LocationId;
@@ -270,15 +270,15 @@ describe('VAL-CROSS-002: Single-location regression', () => {
       locations_included: 1,
       locations_paid: 0,
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 2900,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
     const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
-    expect(snapshot.basePriceCents).toBe(2900); // $29
+    expect(snapshot.basePriceCents).toBe(7900); // $79
     expect(snapshot.overageUnits).toBe(0);
-    expect(snapshot.overagePriceCents).toBe(1500);
-    expect(snapshot.totalCents).toBe(2900);
+    expect(snapshot.overagePriceCents).toBe(7900);
+    expect(snapshot.totalCents).toBe(7900);
 
     // Step 3: adding a second location is allowed with one paid overage unit.
     mockSql.mockResolvedValueOnce([{
@@ -501,49 +501,49 @@ describe('VAL-CROSS-006: Copilot billing + add-location e2e', () => {
       locations_paid: 0,
     });
 
-    // Step 1: initial $29 base, one included location, no overage.
+    // Step 1: initial $79 base, one included location, no overage.
     mockSql.mockResolvedValueOnce([{
       subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 0,
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 2900,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
     const snapshot1 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
-    expect(snapshot1.basePriceCents).toBe(2900);
+    expect(snapshot1.basePriceCents).toBe(7900);
     expect(snapshot1.overageUnits).toBe(0);
-    expect(snapshot1.totalCents).toBe(2900);
+    expect(snapshot1.totalCents).toBe(7900);
 
-    // Step 2: add a second location → $29 + $15 = $44.
+    // Step 2: add a second location → $79 + $79 = $158.
     mockSql.mockResolvedValueOnce([{
       subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 1, // Stripe overage updated
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 2900,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 2 }]);
 
     const snapshot2 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot2.overageUnits).toBe(1);
-    expect(snapshot2.overagePriceCents).toBe(1500);
-    expect(snapshot2.totalCents).toBe(4400);
+    expect(snapshot2.overagePriceCents).toBe(7900);
+    expect(snapshot2.totalCents).toBe(15800);
 
-    // Step 3: archive the second location → back to $29.
+    // Step 3: archive the second location → back to $79.
     mockSql.mockResolvedValueOnce([{
       subscription_tier: SubscriptionTier.COPILOT,
       locations_included: 1,
       locations_paid: 0, // Stripe overage decremented
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 2900,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 1 }]);
 
     const snapshot3 = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot3.overageUnits).toBe(0);
-    expect(snapshot3.totalCents).toBe(2900);
+    expect(snapshot3.totalCents).toBe(7900);
   });
 });
 
@@ -564,29 +564,29 @@ describe('VAL-CROSS-007: Copilot→Autopilot changes prices without changing quo
       locations_included: 1,
       locations_paid: 2,
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 2900,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
     const preUpgrade = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(preUpgrade.overageUnits).toBe(2); // 3 - 1 = 2
-    expect(preUpgrade.totalCents).toBe(2900 + 2 * 1500);
+    expect(preUpgrade.totalCents).toBe(7900 + 2 * 7900);
 
     // Step 2: Autopilot also includes one location, with its own prices.
     mockSql.mockResolvedValueOnce([{
       subscription_tier: SubscriptionTier.AUTOPILOT,
       locations_included: 1,
       locations_paid: 2,
-      locations_overage_price_cents: 2000,
-      base_price_cents: 6900,
+      locations_overage_price_cents: 14900,
+      base_price_cents: 14900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 3 }]);
 
     const postUpgrade = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(postUpgrade.overageUnits).toBe(2);
-    expect(postUpgrade.basePriceCents).toBe(6900);
-    expect(postUpgrade.overagePriceCents).toBe(2000);
-    expect(postUpgrade.totalCents).toBe(6900 + 2 * 2000);
+    expect(postUpgrade.basePriceCents).toBe(14900);
+    expect(postUpgrade.overagePriceCents).toBe(14900);
+    expect(postUpgrade.totalCents).toBe(14900 + 2 * 14900);
   });
 
   it('audit log records tier change', () => {
@@ -753,13 +753,13 @@ Uptown Diner,ChIJ003,casual`;
       locations_included: 1,
       locations_paid: 3,
       locations_overage_price_cents: account.locations_overage_price_cents,
-      base_price_cents: 2900,
+      base_price_cents: 7900,
     }]);
     mockSql.mockResolvedValueOnce([{ count: 4 }]); // 1 primary + 3 CSV locations
 
     const snapshot = await currentBillingSnapshot(mockSql as unknown as Sql, account.id);
     expect(snapshot.overageUnits).toBe(3); // 4 - 1 = 3
-    expect(snapshot.totalCents).toBe(2900 + 3 * 1500);
+    expect(snapshot.totalCents).toBe(7900 + 3 * 7900);
 
     // Step 5: Verify audit log for csv_bulk_import
     mockSql.mockResolvedValueOnce(undefined); // INSERT succeeds

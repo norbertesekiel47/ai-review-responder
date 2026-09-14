@@ -76,9 +76,9 @@ function account(overrides: Record<string, unknown> = {}) {
     subscription_tier: 'copilot',
     subscription_status: 'active',
     price_variant: 'list',
-    base_price_cents: 2900,
+    base_price_cents: 7900,
     locations_paid: 0,
-    locations_overage_price_cents: 1500,
+    locations_overage_price_cents: 7900,
     locations_included: 1,
     stripe_customer_id: CUSTOMER_ID,
     stripe_subscription_id: SUBSCRIPTION_ID,
@@ -100,13 +100,13 @@ function subscription(overrides: Record<string, unknown> = {}) {
           id: 'si_base',
           quantity: 1,
           metadata: {},
-          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 2900 },
+          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 7900 },
         },
         {
           id: 'si_overage',
           quantity: 2,
           metadata: { billing_role: 'overage' },
-          price: { id: 'price_copilot_overage', metadata: {}, unit_amount: 1500 },
+          price: { id: 'price_copilot_overage', metadata: {}, unit_amount: 7900 },
         },
       ],
     },
@@ -237,8 +237,8 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     expect(update.values).toEqual(expect.arrayContaining([
       'copilot', 2800, 1400, 2, 2, ACCOUNT_ID,
     ]));
-    expect(update.values).not.toContain(2900);
-    expect(update.values).not.toContain(1500);
+    // Live Copilot list base and overage cents are both 7900.
+    expect(update.values).not.toContain(7900);
     expectExactSqlCalls(9);
   });
 
@@ -268,7 +268,9 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     queueProjection({
       account: account({
         price_variant: 'founding',
+        // Grandfathered snapshot: both cents differ from the live registry.
         base_price_cents: 1900,
+        locations_overage_price_cents: 1500,
       }),
     });
     mockRetrieveSubscription.mockResolvedValue(subscription({
@@ -303,11 +305,11 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
         data: [
           {
             id: 'si_base', quantity: 1, metadata: {},
-            price: { id: 'price_autopilot_founding', metadata: {}, unit_amount: 4900 },
+            price: { id: 'price_autopilot_founding', metadata: {}, unit_amount: 9900 },
           },
           {
             id: 'si_overage', quantity: 3, metadata: { billing_role: 'overage' },
-            price: { id: 'price_autopilot_overage', metadata: {}, unit_amount: 2000 },
+            price: { id: 'price_autopilot_overage', metadata: {}, unit_amount: 14900 },
           },
         ],
       },
@@ -319,7 +321,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       kind: 'updated', tier: 'autopilot', variant: 'founding', snapshotChanged: true,
     });
     expect(snapshotUpdates()[0]!.values).toEqual(
-      expect.arrayContaining(['autopilot', 4900, 2000, 1, 3]),
+      expect.arrayContaining(['autopilot', 9900, 14900, 1, 3]),
     );
     expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
     expectExactSqlCalls(9);
@@ -527,7 +529,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       items: [
         {
           id: 'si_base', quantity: 1, metadata: {},
-          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 2900 },
+          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 7900 },
         },
         {
           id: 'si_untrusted', quantity: 3, metadata: {},
@@ -545,11 +547,11 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       items: [
         {
           id: 'si_base', quantity: 1, metadata: {},
-          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 2900 },
+          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 7900 },
         },
         {
           id: 'si_cross_tier', quantity: 2, metadata: { billing_role: 'overage' },
-          price: { id: 'price_autopilot_overage', metadata: {}, unit_amount: 2000 },
+          price: { id: 'price_autopilot_overage', metadata: {}, unit_amount: 14900 },
         },
       ],
     },
@@ -558,11 +560,11 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       items: [
         {
           id: 'si_base', quantity: 1, metadata: {},
-          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 2900 },
+          price: { id: 'price_copilot_list', metadata: {}, unit_amount: 7900 },
         },
         {
           id: 'si_invalid_quantity', quantity: 1.5, metadata: { billing_role: 'overage' },
-          price: { id: 'price_copilot_overage', metadata: {}, unit_amount: 1500 },
+          price: { id: 'price_copilot_overage', metadata: {}, unit_amount: 7900 },
         },
       ],
     },
@@ -639,7 +641,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       items: {
         data: [{
           id: 'si_base', quantity: 1, metadata: {},
-          price: { id: 'price_autopilot_list', metadata: {}, unit_amount: 6900 },
+          price: { id: 'price_autopilot_list', metadata: {}, unit_amount: 14900 },
         }],
       },
     }));
@@ -648,14 +650,14 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       items: {
         data: [{
           id: 'stale_base', quantity: 1,
-          price: { id: 'price_copilot_list', unit_amount: 2900 },
+          price: { id: 'price_copilot_list', unit_amount: 7900 },
         }],
       },
     }), FRESH_EVENT_CONTEXT);
 
     expect(outcome).toMatchObject({ kind: 'updated', tier: 'autopilot' });
     expect(snapshotUpdates()[0]!.values).toEqual(
-      expect.arrayContaining(['autopilot', 6900, 2000, 1, 0]),
+      expect.arrayContaining(['autopilot', 14900, 14900, 1, 0]),
     );
     expectExactSqlCalls(9);
   });
@@ -668,7 +670,7 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
       items: {
         data: [{
           id: 'stale_overage', quantity: 99,
-          price: { id: 'price_copilot_overage', unit_amount: 1500 },
+          price: { id: 'price_copilot_overage', unit_amount: 7900 },
         }],
       },
     }), FRESH_EVENT_CONTEXT);
@@ -685,15 +687,15 @@ describe('customer.subscription.updated — WS8 provider-current projection', ()
     queueProjection({
       account: account({
         subscription_tier: 'autopilot',
-        base_price_cents: 6900,
-        locations_overage_price_cents: 2000,
+        base_price_cents: 14900,
+        locations_overage_price_cents: 14900,
       }),
     });
     mockRetrieveSubscription.mockResolvedValue(subscription({
       items: {
         data: [{
           id: 'si_base', quantity: 1, metadata: {},
-          price: { id: 'price_autopilot_list', metadata: {}, unit_amount: 6900 },
+          price: { id: 'price_autopilot_list', metadata: {}, unit_amount: 14900 },
         }],
       },
     }));

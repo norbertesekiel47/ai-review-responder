@@ -74,15 +74,15 @@ export interface TierConfig {
  */
 export const TIER_CONFIG: Record<SubscriptionTierValue, TierConfig> = {
   copilot: {
-    baseByVariant: { list: 2900, founding: 1900 },
+    baseByVariant: { list: 7900, founding: 4900 },
     included: 1,
-    overageCents: 1500,
+    overageCents: 7900,
     multiLocAllowed: true,
   },
   autopilot: {
-    baseByVariant: { list: 6900, founding: 4900 },
+    baseByVariant: { list: 14900, founding: 9900 },
     included: 1,
-    overageCents: 2000,
+    overageCents: 14900,
     multiLocAllowed: true,
   },
 };

@@ -18,12 +18,12 @@ const expectedIds = [
   'price_autopilot_overage',
 ];
 const expectedAmounts: Record<string, number> = {
-  price_copilot_list: 2900,
-  price_copilot_founding: 1900,
-  price_copilot_overage: 1500,
-  price_autopilot_list: 6900,
-  price_autopilot_founding: 4900,
-  price_autopilot_overage: 2000,
+  price_copilot_list: 7900,
+  price_copilot_founding: 4900,
+  price_copilot_overage: 7900,
+  price_autopilot_list: 14900,
+  price_autopilot_founding: 9900,
+  price_autopilot_overage: 14900,
 };
 
 beforeEach(() => {
@@ -47,7 +47,7 @@ afterEach(() => {
 function validPrice(overrides: Partial<Awaited<ReturnType<RetrieveStripePrice>>> = {}) {
   return {
     active: true,
-    unit_amount: 2900,
+    unit_amount: 7900,
     currency: 'usd',
     recurring: { interval: 'month', interval_count: 1 },
     tax_behavior: 'exclusive',
@@ -171,7 +171,7 @@ describe('verifyConfiguredStripePrices', () => {
   it('reports wrong amount, currency, recurring interval, and active state', async () => {
     const retrieve: RetrieveStripePrice = async (priceId) => validPrice({
       active: priceId !== 'price_copilot_list',
-      unit_amount: priceId === 'price_copilot_list' ? 2899 : expectedAmounts[priceId] ?? null,
+      unit_amount: priceId === 'price_copilot_list' ? 7899 : expectedAmounts[priceId] ?? null,
       currency: priceId === 'price_copilot_list' ? 'eur' : 'usd',
       recurring: priceId === 'price_copilot_list'
         ? { interval: 'year', interval_count: 1 }
@@ -183,7 +183,7 @@ describe('verifyConfiguredStripePrices', () => {
     expect(mismatches.filter((mismatch) => mismatch.label === 'copilot/list base'))
       .toEqual([
         { label: 'copilot/list base', field: 'active', expected: true, actual: false },
-        { label: 'copilot/list base', field: 'unit_amount', expected: 2900, actual: 2899 },
+        { label: 'copilot/list base', field: 'unit_amount', expected: 7900, actual: 7899 },
         { label: 'copilot/list base', field: 'currency', expected: 'usd', actual: 'eur' },
         { label: 'copilot/list base', field: 'recurring.interval', expected: 'month', actual: 'year' },
       ]);

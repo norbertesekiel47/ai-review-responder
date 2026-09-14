@@ -11,8 +11,8 @@ describe('onboarding plan options', () => {
     }));
 
     expect(plans.map((plan) => plan.tier)).toEqual(['copilot', 'autopilot']);
-    expect(plans.map((plan) => plan.price)).toEqual(['$29', '$69']);
-    expect(plans.map((plan) => plan.overagePrice)).toEqual(['$15', '$20']);
+    expect(plans.map((plan) => plan.price)).toEqual(['$79', '$149']);
+    expect(plans.map((plan) => plan.overagePrice)).toEqual(['$79', '$149']);
   });
 
   it('uses supplied founding prices without deriving list amounts in the client', () => {
@@ -22,8 +22,8 @@ describe('onboarding plan options', () => {
       trialEnabled: true,
     }));
 
-    expect(plans.map((plan) => plan.price)).toEqual(['$19', '$49']);
-    expect(plans.map((plan) => plan.listPrice)).toEqual(['$29', '$69']);
+    expect(plans.map((plan) => plan.price)).toEqual(['$49', '$99']);
+    expect(plans.map((plan) => plan.listPrice)).toEqual(['$79', '$149']);
     expect(plans[1]).toMatchObject({ purchasable: false });
     expect(plans[1]?.unavailableReason).toMatch(/temporarily unavailable/i);
   });

@@ -353,12 +353,12 @@ describe('createBusinessTx — complete immutable billing snapshot', () => {
     expect(accountsCall.slice(1)).toContain('list');
     expect(accountsCall.slice(1)).toContain('copilot');
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 1500)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 2900)).toBe(true);
+    // List Copilot base and overage are both 7900 cents: expect two writes.
+    expect(accountsCall.slice(1).filter((a: unknown) => a === 7900)).toHaveLength(2);
     expect(accountsCall.slice(1)).toContain(0);
   });
 
-  it('admin founding-window writes the $19 founding Copilot snapshot', async () => {
+  it('admin founding-window writes the $49 founding Copilot snapshot', async () => {
     // The founding-window snapshot survives the shrink; only the tier CHOICE
     // moved to the owner. Admin creation is Copilot in both price variants.
     vi.setSystemTime(new Date('2026-12-31T23:59:59Z'));
@@ -367,7 +367,7 @@ describe('createBusinessTx — complete immutable billing snapshot', () => {
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     expect(accountsCall.slice(1)).toContain('founding');
     expect(accountsCall.slice(1)).toContain('copilot');
-    expect(accountsCall.slice(1)).toContain(1900);
+    expect(accountsCall.slice(1)).toContain(4900);
   });
 
   it('self-serve exact deadline is list Copilot with paid=0', async () => {
@@ -377,8 +377,8 @@ describe('createBusinessTx — complete immutable billing snapshot', () => {
     expect(accountsCall.slice(1)).toContain('list');
     expect(accountsCall.slice(1)).toContain('copilot');
     expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 1500)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 2900)).toBe(true);
+    // List Copilot base and overage are both 7900 cents: expect two writes.
+    expect(accountsCall.slice(1).filter((a: unknown) => a === 7900)).toHaveLength(2);
     expect(accountsCall.slice(1)).toContain(0);
   });
 
@@ -388,7 +388,7 @@ describe('createBusinessTx — complete immutable billing snapshot', () => {
     const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     expect(accountsCall.slice(1)).toContain('founding');
-    expect(accountsCall.slice(1)).toContain(1900);
+    expect(accountsCall.slice(1)).toContain(4900);
   });
 
   it('accounts INSERT includes locations_included and locations_overage_price_cents columns', async () => {

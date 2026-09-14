@@ -121,8 +121,8 @@ function copilotAttempt(overrides: Record<string, unknown> = {}) {
     checkout_attempt_price_variant: 'list',
     checkout_attempt_base_price_id: 'price_copilot_list',
     checkout_attempt_overage_price_id: 'price_copilot_overage',
-    checkout_attempt_base_price_cents: 2900,
-    checkout_attempt_overage_price_cents: 1500,
+    checkout_attempt_base_price_cents: 7900,
+    checkout_attempt_overage_price_cents: 7900,
     checkout_attempt_locations_included: 1,
     checkout_attempt_locations_paid: 0,
     checkout_attempt_overage_quantity: 2,
@@ -284,7 +284,7 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(calls[4]!.text).not.toContain('FOR UPDATE');
     const snapshotWrite = calls[6]!;
     expect(snapshotWrite.values).toEqual(
-      expect.arrayContaining(['autopilot', 4900, 2000, 1, 0, ACCOUNT_ID]),
+      expect.arrayContaining(['autopilot', 9900, 14900, 1, 0, ACCOUNT_ID]),
     );
     const leaseWrite = calls[8]!;
     expect(leaseWrite.text).toMatch(/checkout_attempt_state\s*=\s*'creating'/);
@@ -294,8 +294,8 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
         'founding',
         'price_autopilot_founding',
         'price_autopilot_overage',
-        4900,
-        2000,
+        9900,
+        14900,
         1,
         2,
         30,
@@ -366,8 +366,8 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       checkout_attempt_tier: 'autopilot',
       checkout_attempt_base_price_id: 'price_autopilot_list',
       checkout_attempt_overage_price_id: 'price_autopilot_overage',
-      checkout_attempt_base_price_cents: 6900,
-      checkout_attempt_overage_price_cents: 2000,
+      checkout_attempt_base_price_cents: 14900,
+      checkout_attempt_overage_price_cents: 14900,
     }));
     queueBusinessMirrorSync(SubscriptionTier.AUTOPILOT);
     mockAssertTierPurchasable.mockImplementation(() => {

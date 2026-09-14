@@ -75,9 +75,9 @@ function readTierSnapshot(): TierSnapshot {
 
 function applyCanonicalTier(tier: 'copilot' | 'autopilot', original: TierSnapshot): void {
   const basePriceCents = tier === 'copilot'
-    ? (original.account.price_variant === 'founding' ? 1900 : 2900)
-    : (original.account.price_variant === 'founding' ? 4900 : 6900);
-  const overagePriceCents = tier === 'copilot' ? 1500 : 2000;
+    ? (original.account.price_variant === 'founding' ? 4900 : 7900)
+    : (original.account.price_variant === 'founding' ? 9900 : 14900);
+  const overagePriceCents = tier === 'copilot' ? 7900 : 14900;
   psqlRaw(`
     BEGIN;
     UPDATE accounts

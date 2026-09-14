@@ -74,15 +74,15 @@ describe('GET /api/account/settings plan presentation', () => {
       purchasable: { copilot: true, autopilot: false },
       prices: {
         copilot: {
-          basePriceCents: 1900,
-          listBasePriceCents: 2900,
-          locationsOveragePriceCents: 1500,
+          basePriceCents: 4900,
+          listBasePriceCents: 7900,
+          locationsOveragePriceCents: 7900,
           locationsIncluded: 1,
         },
         autopilot: {
-          basePriceCents: 4900,
-          listBasePriceCents: 6900,
-          locationsOveragePriceCents: 2000,
+          basePriceCents: 9900,
+          listBasePriceCents: 14900,
+          locationsOveragePriceCents: 14900,
           locationsIncluded: 1,
         },
       },

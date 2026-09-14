@@ -11,15 +11,15 @@ describe('pricing server view model', () => {
 
     expect(view.prices).toEqual({
       copilot: {
-        basePriceCents: 2900,
-        listBasePriceCents: 2900,
-        locationsOveragePriceCents: 1500,
+        basePriceCents: 7900,
+        listBasePriceCents: 7900,
+        locationsOveragePriceCents: 7900,
         locationsIncluded: 1,
       },
       autopilot: {
-        basePriceCents: 6900,
-        listBasePriceCents: 6900,
-        locationsOveragePriceCents: 2000,
+        basePriceCents: 14900,
+        listBasePriceCents: 14900,
+        locationsOveragePriceCents: 14900,
         locationsIncluded: 1,
       },
     });
@@ -32,10 +32,10 @@ describe('pricing server view model', () => {
       trialEnabled: true,
     });
 
-    expect(view.prices.copilot.basePriceCents).toBe(1900);
-    expect(view.prices.autopilot.basePriceCents).toBe(4900);
-    expect(view.prices.copilot.locationsOveragePriceCents).toBe(1500);
-    expect(view.prices.autopilot.locationsOveragePriceCents).toBe(2000);
+    expect(view.prices.copilot.basePriceCents).toBe(4900);
+    expect(view.prices.autopilot.basePriceCents).toBe(9900);
+    expect(view.prices.copilot.locationsOveragePriceCents).toBe(7900);
+    expect(view.prices.autopilot.locationsOveragePriceCents).toBe(14900);
     expect(view.purchasable).toEqual({ copilot: true, autopilot: false });
     expect(view.priceVariant).toBe('founding');
     expect(view.trialEnabled).toBe(true);

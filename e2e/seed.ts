@@ -104,8 +104,8 @@ export function getE2eSql(): Sql {
 export const COPILOT_TIER_SNAPSHOT = {
   tier: 'copilot',
   priceVariant: 'list',
-  overagePriceCents: 1500,
-  basePriceCents: 2900,
+  overagePriceCents: 7900,
+  basePriceCents: 7900,
 } as const;
 
 // ── Shared seed builders ─────────────────────────────────────────────────────
