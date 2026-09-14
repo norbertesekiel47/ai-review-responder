@@ -1,0 +1,1616 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-codex-owner-operator-run-d-7749f8",
+  "branch": "codex/owner-operator-run-d",
+  "fork_sha": "a95478037fb662cae6ce2e4cc1eb89671016b492",
+  "merge_base_sha": "a95478037fb662cae6ce2e4cc1eb89671016b492",
+  "head_sha": "8b1c612b08d2b93208b4fbb7102f7d917ea9b9c2",
+  "intake_sha256": "8180678ea1210cfcddd6b9a94ce94c082edee70cb37e1c4004b3004f2066afa0",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-14T18:38:16.731397+00:00",
+  "inventory": [
+    {
+      "id": "D-001",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "operator screen posts a turn with the stored location, shows Preparing your plan and resumes the same turn from URL state after a reload",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:144. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-002",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "operator screen backs off polling and shows the timeout notice with Start a new conversation after four minutes",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:206. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-003",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "operator times out while a poll request remains unresolved",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:244. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-004",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "operator dispatch exhaustion renders a recovery action from the durable transcript",
+      "outcome": "killed",
+      "reason": "A,B at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:287. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Remove the dispatch-exhaustion recovery action eligibility. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-004-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-005",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "operator screen renders each failure reason with its wording and stops polling on 404 operator_disabled",
+      "outcome": "skipped-budget",
+      "reason": "A,B at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:300. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-006",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "operator screen disables the composer under All locations and enables it once a location is chosen",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:337. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-007",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "retry after a lost POST response resumes the original turn",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:364. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-008",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "a POST that never settles releases the composer and offers the same retry",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:408. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-009",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "a refusal the server answered offers no retry and an unusable location says so",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:471. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-010",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "operator renders every stored segment kind in order",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:516. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-011",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "a refused Apply repaints the card from the row the server returned",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:598. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-012",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "terminal failures and requested capabilities survive reload and subsequent turns",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:659. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-013",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "loaded conversations retain identity and starting over stays empty",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:701. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-014",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "a delayed conversation response never replaces a newly submitted turn",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:746. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-015",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "a successful submission aborts the conversation read that was already in flight",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:810. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-016",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "a conversation read that answers after the turn finished resumes the turn it says is still running",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:888. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-017",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "a second Operator turn in an existing conversation refetches the transcript and shows the owner's new message while preparing",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:964. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-018",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx",
+      "test": "Refresh plan preserves the original instruction and location after scope changes",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/OperatorClient.test.tsx:1043. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-019",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "pins account scope and requires the exact phrase, never a plain Apply",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:81. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-020",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "readiness explains and blocks an expansion while leaving Not now available",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:101. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-021",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "a new manual location rule shows every dial, creation, veto wording and one-click Apply",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:110. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-022",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "cap cards show busiest day and policy receipts show actual old/new counts and retained drafts",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:134. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-023",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "location receipts show saved counts, retained-window time and remaining restrictions separately from the preview",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:147. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-024",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "zero included reviews keep the dated consequence, origin exclusions and actual zero receipt counts visible",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:174. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-025",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "keeps the typed phrase and error association while a pending request is busy and then refused",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:205. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-026",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "renders expansions once, after ordinary cards, text and unsupported requests",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:230. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-027",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "proposal card renders the target from the stored location and shows Prepared for the location when the selector moved",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:306. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-028",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "proposal card shows the receipt after Apply and the stale wording with Refresh plan after a version mismatch",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:331. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-029",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "proposal previews expose exact fact replacements before approval",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:435. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-030",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx",
+      "test": "requested capability card has no Apply button",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/ProposalCard.test.tsx:496. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-031",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
+      "test": "sends the typed phrase unchanged and explains a mismatch without losing the pending proposal",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:69. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-032",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
+      "test": "Apply posts the prepared version token and repaints the card from the returned row",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:83. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-033",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
+      "test": "Not now posts no body and still refetches the transcript",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:107. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-034",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
+      "test": "a 409 repaints the card from the stored row AND names the refusal",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:124. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-035",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
+      "test": "a write that never reaches the server says so on the card",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:144. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-036",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
+      "test": "a 404 operator_disabled ends the session rather than marking the card",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:158. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-037",
+      "file": "src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx",
+      "test": "one write at a time: a second Apply while the first is in flight is ignored",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/app/(authenticated)/dashboard/operator/__tests__/useProposalWrites.test.tsx:171. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-038",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "applyProposal writes the receipt, status applied and decided_by_user_id in the same transaction as the voice write",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:240. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-039",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "applyProposal marks sibling pending proposals on the same location stale in the same transaction and leaves other locations alone",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:307. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-040",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "applyProposal rejects a pending proposal whose location was archived after preparation",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:390. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-041",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "applyProposal receipt after equals the committed voice state and flags a difference from the stored after",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:440. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-042",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "applyProposal rolls back the receipt when the voice write throws",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:483. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-043",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "two concurrent applies on one proposal produce one voice write and both return the same receipt",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:525. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-044",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "worker-produced proposals render and apply successfully",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:560. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-045",
+      "file": "src/lib/agents/operator/__tests__/apply.integration.test.ts",
+      "test": "repeat Apply after location archival returns the original receipt without writes",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.integration.test.ts:627. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-046",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "refuses impersonation before reading or changing any proposal or settings",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:192. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-047",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal locks the businesses row before the proposal row and writes only the operation's own fields through updateVoiceConfig",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:200. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-048",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal writes the actor's name on the receipt, falling back to the email",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:233. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-049",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal on an applied proposal returns the stored receipt and executes nothing",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:279. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-050",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal marks the proposal stale without mutation when the current token differs from the prepared token",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:328. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-051",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal marks the proposal stale without mutation when the client's expected token differs from the prepared token",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:353. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-052",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal rejects a proposal whose contract_version is not the catalog's with contract_changed before any lock",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:377. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-053",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal returns proposal_not_found for a proposal of another account",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:416. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-054",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal answers proposal_not_pending for a stale, rejected, superseded or failed proposal",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:428. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-055",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal rejects the proposal unauthorized when the actor is no longer a writable owner",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:457. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-056",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "applyProposal rejects the proposal location_not_found when the location was archived after preparation",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:497. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-057",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "invariants: from any non-pending status applyProposal never writes businesses",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:523. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-058",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "policy Apply locks the account row before the proposal row, reads policy state only after both, and writes one standard-confirmed dial",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:723. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-059",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "policy Apply leaves an expansion pending and writes nothing unless the typed scope matches byte for byte",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:783. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-060",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "readiness blocks only the expansion; a contraction applies without reading readiness or a phrase",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:801. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-061",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "an archived location refuses a new override but applies a manual contraction",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:840. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-062",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "policy Apply marks the proposal stale without a write when the current policy token moved",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:878. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-063",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "a known writer refusal becomes an owner-safe result; any other writer error rethrows with nothing recorded",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:900. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-064",
+      "file": "src/lib/agents/operator/__tests__/apply.test.ts",
+      "test": "a repeat policy Apply returns the stored row and reads no policy state",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/apply.test.ts:921. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-065",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "catalog separates read, proposable, and capture kinds by type and exposes only model-visible operations to the prompt",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:86. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-066",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "invariants: every catalog operation declares a contract version, a label, an effect and a describer",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:165. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-067",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "policy inputs enforce their domains and refuse keys they do not own",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:193. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-068",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "a dial change on a location with no row previews the CREATED manual override, seeded from the account default",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:210. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-069",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "a scope change on a location with no row keeps the account dials and classifies by the new threshold",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:245. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-070",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "an existing location row changes only the named dial, and any widening dimension wins",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:271. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-071",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "account scope previews the account default row, names all locations, and maps to the account writer operations",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:309. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-072",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "policy describeChange renders the full before and after, and explains a created row with its inherited values",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:346. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-073",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "every voice proposable writes exactly the field its operation names, and its preview is that write laid over the current state",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:382. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-074",
+      "file": "src/lib/agents/operator/__tests__/catalog.test.ts",
+      "test": "every policy writerPatch carries one writer operation, the stored target and only its own dial",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/catalog.test.ts:432. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-075",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "exact account phrase applies once, with hand-counted consequences, retained veto, and no posting or cost",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:183. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-076",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "first dial-only override is manual, inherits the other dial, and preserves voice and other-location proposals",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:216. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-077",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "an account-default Apply stales inheriting and overridden location proposals across conversations while voice stays pending",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:229. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-078",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "a zero-included-review Apply receipt persists imported and unknown exclusions with the recomputed reporting window",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:261. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-079",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "readiness rejects expansion while a contraction still commits",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:297. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-080",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "a database abort after all writes rolls back policy, audit, sibling statuses and receipt",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:309. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-081",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "form write versus Apply: same location serializes account before proposal and makes the old token stale",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:319. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-082",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "form write versus Apply: first override serializes account before proposal and makes the old token stale",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:319. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-083",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "form write versus Apply: parent default serializes account before proposal and makes the old token stale",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:319. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-084",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "two prepared proposals racing to create the first policy row commit exactly one receipt and audit",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:341. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-085",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "Apply preceding a concurrent form write preserves its receipt and serializes the form after commit",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:350. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-086",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "an archived target refuses setting an override scope but permits manual contractions and repeated receipts",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:379. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-087",
+      "file": "src/lib/agents/operator/__tests__/policy-apply.integration.test.ts",
+      "test": "a committed form change invalidates the parent token even for an existing location override",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-apply.integration.test.ts:391. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-088",
+      "file": "src/lib/agents/operator/__tests__/policy-state.integration.test.ts",
+      "test": "readPolicySnapshot returns null for a missing account and for a missing or foreign target location",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.integration.test.ts:398. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-089",
+      "file": "src/lib/agents/operator/__tests__/policy-state.integration.test.ts",
+      "test": "account scope counts only confirmed-live reviews of active locations, caps each business independently and labels every exclusion",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.integration.test.ts:411. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-090",
+      "file": "src/lib/agents/operator/__tests__/policy-state.integration.test.ts",
+      "test": "location scope: a manual row replaces the whole default, an inheritor stamps both rows, an archived target keeps its state with no cohort",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.integration.test.ts:467. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-091",
+      "file": "src/lib/agents/operator/__tests__/policy-state.integration.test.ts",
+      "test": "stamps absent rows, then opaque updated_at text read in the same lock-free statement as the values",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.integration.test.ts:504. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-092",
+      "file": "src/lib/agents/operator/__tests__/policy-state.integration.test.ts",
+      "test": "bounds the cohort to [windowEnd - 30 days, windowEnd) and splits 23:59:59.999999 and 00:00:00 UTC into two days",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.integration.test.ts:549. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-093",
+      "file": "src/lib/agents/operator/__tests__/policy-state.integration.test.ts",
+      "test": "readRetainedVetoCount counts one latest grant per scoped auto-policy approval and locks only the audit rows",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.integration.test.ts:596. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-094",
+      "file": "src/lib/agents/operator/__tests__/policy-state.integration.test.ts",
+      "test": "readRetainedVetoCount throws when an approval has no grant, or its LATEST grant has no veto window",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.integration.test.ts:645. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-095",
+      "file": "src/lib/agents/operator/__tests__/policy-state.test.ts",
+      "test": "account target: an overriding location keeps its own state, an inheritor takes the target state",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.test.ts:31. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-096",
+      "file": "src/lib/agents/operator/__tests__/policy-state.test.ts",
+      "test": "location target: the targeted location takes the target state even when it has its own row",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/policy-state.test.ts:58. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-097",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "its account-off example is schema-valid with null scope and threshold, and changes the recorded prompt identity",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/prompt.test.ts:46. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-098",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "the system prompt declares every top-level key and every segment type OperatorModelOutputSchema accepts",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/prompt.test.ts:61. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-099",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "the user envelope carries each proposable input shape on the operation itself, and no shape on reads or captures",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/prompt.test.ts:91. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-100",
+      "file": "src/lib/agents/operator/__tests__/prompt.test.ts",
+      "test": "the user envelope lists every operation the wire schema accepts, with exactly that schema input keys",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/prompt.test.ts:105. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-101",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "insertProposals writes one row per proposal with contract_version and prepared_version_token",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:86. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-102",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "declineProposal sets status rejected and decided_by_user_id with no reason and is idempotent",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:168. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-103",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "declineProposal answers proposal_not_pending for an applied proposal",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:217. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-104",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "proposal view carries receipt, prepared version token, applied_at and failure_reason",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:250. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-105",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "counts only inheriting active locations for the account default",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:354. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-106",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "buildProposalRows stamps a policy proposal from its STORED target snapshot, never the turn location or the model",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:393. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-107",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "policy proposal view derives friction from the stored before/after and never from a stored flag",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:431. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-108",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "a voice proposal view carries no friction",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:471. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-109",
+      "file": "src/lib/agents/operator/__tests__/proposals.test.ts",
+      "test": "markSiblingProposalsStale sweeps only the token domain its write moved",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/proposals.test.ts:485. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-110",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "getTurnForOwner returns null for a turn id that belongs to another account",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:274. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-111",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "createTurn refuses a conversation id that already exists under another account and writes no turn",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:306. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-112",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "getConversationForOwner scopes the most-recent read to the actor and honours an explicit id",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:344. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-113",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "getConversationForOwner reports the location override and its dials, per location",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:403. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-114",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "getConversationForOwner carries each turn its own stored proposals, and none of another account's",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:449. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-115",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "getConversationForOwner returns a null summary for a conversation with no turns",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:550. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-116",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "getConversationForOwner bounds the transcript to the most recent turns",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:571. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-117",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "first-time owner receives a scoped summary and connection CTA before sending",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:599. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-118",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "an unusable ?locationId= answers location_not_found in both branches",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:654. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-119",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "each turn carries its own unsupported requests and no other turn's",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:705. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-120",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "the summary reports the latest zernio connection for the location, account-scoped",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:759. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-121",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "readSummaryEntitlement returns the account's subscription status and null for an unknown account",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:819. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-122",
+      "file": "src/lib/agents/operator/__tests__/reads.integration.test.ts",
+      "test": "a zernio status outside the migration 026 vocabulary is refused, not widened",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/reads.integration.test.ts:874. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-123",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator rejects a text segment that invents a count next to a metric word",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:71. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-124",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator rejects a text segment that claims a change was applied before any click",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:85. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-125",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator applies the count and completion patterns to question segments, not only text",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:101. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-126",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator returns the parsed proposals it already computed, in the model order",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:134. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-127",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator rejects a proposal_ref index with no proposal and a status_ref metric outside the snapshot",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:167. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-128",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator rejects a scope_check that names the stored location or coexists with a proposal for the stored location",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:192. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-129",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator rejects a proposal whose operation is outside the catalog or whose scope is neither the stored location nor the account default",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:220. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-130",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "validator rejects a catalog operation the snapshot does not allow this account to use",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:267. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-131",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "normalizes a wire null locationId to the account default once, before the scope rules and the parsed proposals",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:327. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-132",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "a null locationId never turns a voice operation into an account default",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:357. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-133",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "refuses a policy proposal for another location, another account, the switched target beside a scope_check, or an out-of-domain input",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:366. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-134",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "keeps narrowing policy operations available on Copilot: readiness is attached, not a filter",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:396. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-135",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "materializeReply binds proposal ids by index and freezes every status_ref value",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:418. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-136",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "materializeReply prepends the scrub notice and drops a reference nothing backs",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:474. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-137",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "renderSegments passes a stored proposal id through and resolves no index",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:498. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-138",
+      "file": "src/lib/agents/operator/__tests__/render.test.ts",
+      "test": "scrubber replaces a pasted review block with the marker and leaves ordinary owner text untouched",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/render.test.ts:516. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-139",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "test": "model output schema has no field for counts, approval, confirmation, or receipts",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/schema.test.ts:77. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-140",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "test": "the proposal wire shape is finite: each operation carries exactly its own input, and a null or absent locationId is the account default",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/schema.test.ts:128. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-141",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "test": "the model output schema converts to JSON Schema that meets the strict-provider object rules",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/schema.test.ts:174. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-142",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "test": "a policy state parses with its discriminant, and voice and policy states never parse as each other",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/schema.test.ts:183. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-143",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "test": "status narrowings throw on a value no writer produces",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/schema.test.ts:202. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-144",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "test": "parsePolicyState strips server metadata; the stored parser keeps it and pins its shape",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/schema.test.ts:235. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-145",
+      "file": "src/lib/agents/operator/__tests__/schema.test.ts",
+      "test": "policy and voice receipts are disjoint arms of one parser",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/schema.test.ts:247. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-146",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "snapshot red team: instruction-shaped review bodies never reach the rendered snapshot or prompt",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/snapshot.integration.test.ts:198. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-147",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "snapshot summarises each historical turn's own proposals from the catalog",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/snapshot.integration.test.ts:291. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-148",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "snapshot operating rules report the location override and its dials",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/snapshot.integration.test.ts:352. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-149",
+      "file": "src/lib/agents/operator/__tests__/snapshot.integration.test.ts",
+      "test": "snapshot star bands equal a hand count per location and exclude held drafts",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/snapshot.integration.test.ts:403. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-150",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker claim race: two dispatches of one turn produce one completed turn and one proposal set",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:334. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-151",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "claimTurn turns a second dispatch away inside the lease and lets one in after it expires",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:507. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-152",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker releases its claim on a transient failure so the retry re-claims and completes",
+      "outcome": "skipped-budget",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:554. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-153",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker fails the turn budget_exceeded terminally instead of burning the retry ladder",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:584. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-154",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "claim release reconciles dispatch exhaustion after a running worker yields",
+      "outcome": "killed",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:608. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Skip failed-outbox reconciliation during claim release. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-154-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-155",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker fenced completion discards an attempt whose lease was lost",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:640. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-156",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker predecessor wait releases the claim and delays the job without spending retry budget",
+      "outcome": "skipped-budget",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:673. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-157",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "healthy predecessor waits survive the watchdog window without redispatch or retry spending",
+      "outcome": "killed",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:708. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Suppress the predecessor heartbeat so healthy waits become watchdog-stale. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-157-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-158",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "predecessor wait ignores a superseded outbox attempt and a stolen turn token",
+      "outcome": "killed",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:731. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Remove the turn token fence from release claim selection and update. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-158-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-159",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "predecessor wait rolls back both liveness and claim release on a database failure",
+      "outcome": "killed",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:756. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Suppress the heartbeat asserted within the aborting transaction. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-159-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-160",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "a crashed predecessor wait is recovered by the unchanged watchdog",
+      "outcome": "killed",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:773. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Charge predecessor waits extra attempts instead of refunding the claim. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-160-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-161",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "predecessor delay failure preserves a retryable turn and outbox",
+      "outcome": "killed",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:782. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Skip delay scheduling after a successful release, losing the recoverable Redis error. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-161-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-162",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "predecessor wait handles a worker starting before dispatch acknowledgement",
+      "outcome": "killed",
+      "reason": "A,B at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:795. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Reject the legitimate dispatching handoff before acknowledgement. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-162-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-163",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker fails the turn predecessor_stalled after the stall limit",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:819. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-164",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker step 3 fails the turn unauthorized for a revoked owner and builds no snapshot",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:847. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-165",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker step 3 fails the turn account_offboarding for an offboarding account and builds no snapshot",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:869. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-166",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker retries the model call once on invalid output and fails the turn model_output_invalid on the second failure",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:895. Directly calls the changed local readOutbox helper; added selected columns/returned shape can affect this case\u2019s oracle. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-167",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker supersedes earlier pending proposals with the same operation and scope",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:931. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-168",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker scrubs a pasted review out of the prompt and stores the notice as the first segment",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:984. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-169",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "worker leaves two same-scope proposals from ONE turn both pending, and a later turn supersedes both",
+      "outcome": "skipped-budget",
+      "reason": "A at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1030. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-170",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "createTurn resolves one turn key across two conversations to created and turn_key_conflict without leaking 23505",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1103. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-171",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "createTurn returns the same ids for two concurrent identical POSTs and writes one row",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1132. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-172",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "createTurn stores owner_text byte-for-byte and treats a trimmed repeat as a conflict",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1154. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-173",
+      "file": "src/lib/agents/operator/__tests__/turn-worker.integration.test.ts",
+      "test": "content purge removes account A's owner-operator rows and preserves account B",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turn-worker.integration.test.ts:1203. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-174",
+      "file": "src/lib/agents/operator/__tests__/turns.test.ts",
+      "test": "createTurn assigns the next sequence under the conversation row lock",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turns.test.ts:52. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-175",
+      "file": "src/lib/agents/operator/__tests__/turns.test.ts",
+      "test": "claimTurn binds the lease predicate that makes the Turn claim exclusive",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/agents/operator/__tests__/turns.test.ts:113. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-176",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "pins the OpenAI model to a dated snapshot (no bare alias)",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:10. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-177",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "keeps the Anthropic model pinned",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:15. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-178",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "has pricing for the pinned OpenAI model",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:19. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-179",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "pins the reply_generation task to the snapshot models (no bare alias)",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:24. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-180",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "pins the insights task (review-summary tenant) to the snapshot models (no bare alias)",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:30. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-181",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "review-summary drives the seam and never hard-codes a bare gpt-4o-mini alias",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:37. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-182",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "triage task pins both providers to the pinned snapshots",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:43. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-183",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "judge task pins both providers and its structured-output limits",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:51. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-184",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "pins solicitation_ask to the shared model pair at temperature 0.6",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:62. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-185",
+      "file": "src/lib/responses/__tests__/model-pinning.test.ts",
+      "test": "owner_operator task pins both providers to the snapshot models with the output schema",
+      "outcome": "excluded",
+      "reason": "Discovery-only at src/lib/responses/__tests__/model-pinning.test.ts:73. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-186",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "test": "dispatch exhaustion fails only the accepted turn owned by the winning outbox attempt",
+      "outcome": "killed",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:111. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Remove the dispatch winner\u2019s coupled turn terminalization. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-186-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-187",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "test": "dispatch exhaustion rolls back the outbox transition when its turn update fails",
+      "outcome": "killed",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:129. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Remove the transaction boundary around dispatch/turn failure so injected rollback no longer protects either write. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-187-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-188",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "test": "dispatch exhaustion preserves running and terminal turns after an ambiguous enqueue failure",
+      "outcome": "killed",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:136. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Treat a live running lease as eligible for terminalization. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-188-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-189",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "test": "a worker crash after ambiguous dispatch exhaustion remains recoverable by the watchdog",
+      "outcome": "killed",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:150. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Defer expired running claims forever; crash recovery cannot terminalize them. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-189-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-190",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "test": "dispatch exhaustion defers a locked turn without deadlocking fenced completion",
+      "outcome": "killed",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:178. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Treat a skipped lock as absence, leaving the exhausted outbox failed under live completion. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-190-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-191",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "test": "dispatch exhaustion ignores mismatched account and aggregate identities",
+      "outcome": "killed",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:203. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Remove aggregate-type ownership validation in reconciliation and release. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-191-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-192",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts",
+      "test": "watchdog exhaustion terminalizes an accepted Operator turn in the same transaction",
+      "outcome": "killed",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.operator.integration.test.ts:220. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Green individual baseline; exactly one executed case in each phase; semantic assertion failure under: Skip the watchdog\u2019s Operator turn reconciliation. Raw baseline/mutant JSON retained in /private/tmp/run-d-mutation-measurements/D-192-{baseline,mutant}.json."
+    },
+    {
+      "id": "D-193",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "runs the three watchdog recovery queries inside a transaction",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:90. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-194",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "logs recovered/failed/stale counts when the watchdog acted",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:116. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-195",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "continues to dispatch even if the watchdog transaction throws",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:134. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-196",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "dispatches a claimed pending row to its queue and marks it dispatched",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:144. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-197",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "returns without dispatching when no pending rows are claimed",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:167. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-198",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "parses a JSON-string payload into an object before enqueueing",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:173. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-199",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "marks an unknown-topic row failed and reports to Sentry without enqueueing",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:183. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-200",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "resets the row to pending when enqueue fails and attempts remain",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:197. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-201",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "dead-letters the row to failed when enqueue fails and attempts are exhausted",
+      "outcome": "skipped-budget",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.test.ts:208. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-202",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "re-pends a row when the BullMQ enqueue exceeds the dispatch timeout",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:222. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-203",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "supersedes a cycle stalled past the max duration and starts a fresh one",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:245. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-204",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "calls addBulk once per topic group with every id of that group, then one dispatched UPDATE per group",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:274. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-205",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "on a bulk failure re-pends the whole group (all-or-nothing) with the error, attempt-scoped",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:305. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-206",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "splits a failed group by attempt budget: exhausted rows dead-letter, the rest re-pend",
+      "outcome": "skipped-budget",
+      "reason": "A,B at worker/background/pollers/__tests__/OutboxPoller.test.ts:325. Changed individual test body at the pinned diff; requires measurement independently of production coverage. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-207",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "a bulk failure in one topic group does not stop the next group from dispatching",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:345. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-208",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "an unknown-topic row is failed individually and excluded from the bulk group",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:358. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-209",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "re-claims after a FULL batch and stops on the first short batch",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:383. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-210",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "stops after ONE claim when a full batch has a failed group, leaving the rows re-pended at their first attempt",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:398. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-211",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "does not re-claim when the first batch is already short",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:429. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-212",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.test.ts",
+      "test": "stops re-claiming once the drain budget is spent even though the batch was full",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.test.ts:439. Calls pollOutbox, whose watchdog transaction executes the changed terminalized-row projection/count logic before dispatch; dispatch cases additionally execute the changed explicit-client wiring. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-213",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "test": "keeps a per-job last_error when terminalizing a stale exhausted row",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:169. Direct live-DB invocation of runOutboxWatchdogRecovery executes changed terminalized-row projection and count reconciliation, including preservation/no-op branches. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-214",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "test": "writes the generic reclaim text only when no error was recorded",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:185. Direct live-DB invocation of runOutboxWatchdogRecovery executes changed terminalized-row projection and count reconciliation, including preservation/no-op branches. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-215",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "test": "re-pends a retryable stale row without touching its last_error",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:205. Direct live-DB invocation of runOutboxWatchdogRecovery executes changed terminalized-row projection and count reconciliation, including preservation/no-op branches. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-216",
+      "file": "worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts",
+      "test": "leaves a fresh dispatched row alone",
+      "outcome": "skipped-budget",
+      "reason": "B at worker/background/pollers/__tests__/OutboxPoller.watchdog.integration.test.ts:224. Direct live-DB invocation of runOutboxWatchdogRecovery executes changed terminalized-row projection and count reconciliation, including preservation/no-op branches. Unmeasured: ordinary Run D round-1 budget exhausted at30 supervised launches; no sampling claim or authorization exception."
+    },
+    {
+      "id": "D-217",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "worker flag-off fails the turn operator_disabled and completes the outbox without loading tenant context",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:117. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-218",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "worker fails the turn unauthorized when the location voice row vanished after authorization",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:159. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-219",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "worker fails the turn unauthorized when a policy proposal names a target the policy reader cannot find",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:268. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-220",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "worker stamps a policy proposal from the snapshot of its own target, not the turn location",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:284. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-221",
+      "file": "worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts",
+      "test": "a voice-only turn issues no policy read",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/AgentTurnWorker.test.ts:313. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-222",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts",
+      "test": "writes nothing until the retry ladder is exhausted",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/failed-hook.test.ts:58. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-223",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts",
+      "test": "on exhaustion runs the outbox CAS FIRST and only then fails the turn, in one transaction",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/failed-hook.test.ts:84. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-224",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts",
+      "test": "writes nothing when a newer dispatch has superseded this one",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/failed-hook.test.ts:114. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-225",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts",
+      "test": "swallows a transaction failure rather than letting it escape the hook",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/failed-hook.test.ts:127. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    },
+    {
+      "id": "D-226",
+      "file": "worker/jobs/agent-turn/__tests__/failed-hook.test.ts",
+      "test": "does not log owner text or the provider message",
+      "outcome": "excluded",
+      "reason": "Discovery-only at worker/jobs/agent-turn/__tests__/failed-hook.test.ts:142. Discovery only: this case tests unchanged creation/claim, proposal, Apply, schema parsing, model pinning, snapshot, read, or ordinary UI behavior. Its imported module changed, but its executed export/branch does not reach dispatch exhaustion or claim release; no test body/helper it uses changed."
+    }
+  ],
+  "findings": [],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 226,
+    "killed": 15,
+    "survived_confirmed_p0": 0,
+    "equivalent": 0,
+    "inconclusive": 0,
+    "skipped_budget": 35,
+    "excluded": 176,
+    "findings_total": 0,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "INCOMPLETE_BUDGET"
+}
