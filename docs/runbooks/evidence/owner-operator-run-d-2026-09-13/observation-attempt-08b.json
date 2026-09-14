@@ -1,0 +1,15 @@
+{
+  "slot": 8,
+  "paired_member": "b",
+  "planned_at": "2026-09-14T05:46:17.000Z",
+  "message": "Observation 08B: Only tell me what needs my attention at Salon. Do not propose or change any settings.",
+  "state": "submitted_and_completed",
+  "turn_id": "01a09e74-d531-75a5-9018-96bfa894380d",
+  "attempted_at": "2026-09-14T05:47:29.409Z",
+  "click_completed_at": "2026-09-14T05:47:29.672Z",
+  "pairing_limit": "Initial fill was rejected because the composer was disabled while 08A was pending. No second Send was attempted then. This later submission did not overlap 08A.",
+  "registered_at": "2026-09-14T05:36:24Z",
+  "account_id": "019f43d0-0000-7000-8000-000000000001",
+  "location_id": "019f43d0-0000-7000-8000-000000000011",
+  "cleanup": "Retain all attempted IDs and results; delete exact-account runtime rows and terminal jobs after the full-day observation."
+}

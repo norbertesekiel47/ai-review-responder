@@ -1,0 +1,125 @@
+{
+  "requested_start": "2026-09-14T13:46:35Z",
+  "requested_end": "2026-09-14T13:47:15Z",
+  "deployment_id": "5c8fc180-ad37-4e76-85fd-a8dc913302d7",
+  "logs": [
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"info\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-14T13:46:50.122Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"AgentTurnWorker\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"69d8c656-8b0a-4cc4-80b8-9cb8b9c8b2e2\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43d0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a0a02b-95c8-7122-84b8-83c8c74d01fb_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a0a02b-94c4-7640-9db7-2dbcc7cbf9d1\",\"sequence\":23}"
+        }
+      ],
+      "message": "agent_turn waiting on predecessor",
+      "severity": "info",
+      "timestamp": "2026-09-14T13:46:58.293655574Z"
+    },
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"info\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-14T13:46:53.367Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"AgentTurnWorker\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"8596ff6b-ab57-41ac-bd04-6e61527bef0a\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43d0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a0a02b-92f8-77f3-be95-76fefc5d46f2_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a0a02b-91e3-7229-b476-8e7aa2768796\",\"proposal_count\":0,\"unsupported_count\":0,\"attempts\":1}"
+        }
+      ],
+      "message": "agent_turn completed",
+      "severity": "info",
+      "timestamp": "2026-09-14T13:46:58.293662464Z"
+    },
+    {
+      "attributes": [
+        {
+          "key": "level",
+          "value": "\"info\""
+        },
+        {
+          "key": "timestamp",
+          "value": "\"2026-09-14T13:47:02.498Z\""
+        },
+        {
+          "key": "service",
+          "value": "\"worker\""
+        },
+        {
+          "key": "logger",
+          "value": "\"AgentTurnWorker\""
+        },
+        {
+          "key": "request_id",
+          "value": "\"ee9727b7-6ca0-416e-897e-02ef54fd3c1a\""
+        },
+        {
+          "key": "account_id",
+          "value": "\"019f43d0-0000-7000-8000-000000000001\""
+        },
+        {
+          "key": "worker_job_id",
+          "value": "\"01a0a02b-95c8-7122-84b8-83c8c74d01fb_1\""
+        },
+        {
+          "key": "data",
+          "value": "{\"turn_id\":\"01a0a02b-94c4-7640-9db7-2dbcc7cbf9d1\",\"proposal_count\":0,\"unsupported_count\":0,\"attempts\":1}"
+        }
+      ],
+      "message": "agent_turn completed",
+      "severity": "info",
+      "timestamp": "2026-09-14T13:47:02.514606880Z"
+    }
+  ],
+  "note": "Initial exact-job filter returned no logs. Unfiltered bounded range returned five entries; these three match the exact synthetic turn/job IDs. Attribute timestamp is worker event time; outer timestamp is provider log ingestion time."
+}

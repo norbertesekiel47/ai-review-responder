@@ -1,0 +1,129 @@
+{
+  "query": "-- PREPARATION ONLY: read-only PostgreSQL; not executed.\n-- Run against staging kubdiqdhqbhwmqfditeg only, before fixture teardown.\n-- Query 1: complete cumulative turn/outbox snapshot and recomputable summaries.\n-- Replace attempts_json ONLY with sanitized entries from the UI submission\n-- ledger (see notes). [] deliberately means the UI-attempt denominator is unknown.\n-- observation_end is this capture's database clock. At final capture it MUST be\n-- >= 2026-09-14T21:46:17Z and include the final planned submission's outcome.\nWITH parameters AS MATERIALIZED (\n  SELECT\n    '019f43d0-0000-7000-8000-000000000001'::uuid AS account_id,\n    '2026-09-13T21:46:17Z'::timestamptz AS observation_start,\n    '2026-09-14T21:46:17Z'::timestamptz AS earliest_end,\n    clock_timestamp() AS observation_end,\n    '4b13d96621b156a47dbc4140995f45745bc8114d'::text AS declared_candidate_sha,\n    '[{\"attempt_id\":\"slot-00-a\",\"slot\":0,\"attempted_at\":\"2026-09-13T21:47:44.793Z\",\"account_id\":\"019f43d0-0000-7000-8000-000000000001\",\"turn_id\":\"01a09cbd-9c25-7079-8022-2f0474ae6d59\",\"client_turn_key\":null,\"outcome\":\"completed\",\"http_status\":null}]'::jsonb AS attempts_json\n), submission_ledger AS MATERIALIZED (\n  SELECT l.*,\n    l.account_id = p.account_id AS tenant_matches,\n    l.attempted_at >= p.observation_start AND l.attempted_at <= p.observation_end AS in_window\n  FROM parameters p\n  CROSS JOIN LATERAL jsonb_to_recordset(p.attempts_json) AS l(\n    attempt_id text, slot integer, attempted_at timestamptz,\n    account_id uuid, turn_id text, client_turn_key text,\n    outcome text, http_status integer\n  )\n), scoped_turns AS MATERIALIZED (\n  SELECT t.id AS turn_id, t.account_id, t.conversation_id, t.location_id,\n    t.client_turn_key, t.sequence, t.status, t.failure_reason,\n    t.attempt AS current_turn_attempt, (t.attempt_token IS NOT NULL) AS claim_token_present,\n    t.created_at AS accepted_at, t.claimed_at AS latest_claimed_at, t.completed_at,\n    t.created_at >= p.observation_start AND t.created_at <= p.observation_end AS accepted_in_window,\n    CASE WHEN t.completed_at IS NOT NULL\n      THEN extract(epoch FROM (t.completed_at - t.created_at))::double precision END AS accepted_to_terminal_seconds,\n    CASE WHEN t.claimed_at IS NOT NULL\n      THEN extract(epoch FROM (t.claimed_at - t.created_at))::double precision END AS latest_claim_offset_seconds\n  FROM parameters p\n  JOIN agent_turns t ON t.account_id = p.account_id\n  WHERE (t.created_at >= p.observation_start AND t.created_at <= p.observation_end)\n    OR EXISTS (\n      SELECT 1 FROM submission_ledger l\n      WHERE l.tenant_matches AND (\n        l.turn_id = t.id::text OR l.client_turn_key = t.client_turn_key::text\n      )\n    )\n), turns_with_outbox AS MATERIALIZED (\n  SELECT t.*,\n    o.outbox_rows,\n    o.outbox_count,\n    o.total_dispatch_claims,\n    o.observed_redispatch_claims,\n    o.outbox_identity_mismatches\n  FROM scoped_turns t\n  CROSS JOIN LATERAL (\n    SELECT COALESCE(jsonb_agg(jsonb_build_object(\n      'outbox_id', j.id,\n      'aggregate_type', j.aggregate_type,\n      'aggregate_id', j.aggregate_id,\n      'status', j.status,\n      'attempts', j.attempts,\n      'max_attempts', j.max_attempts,\n      'created_at', j.created_at,\n      'available_at', j.available_at,\n      'latest_dispatched_or_heartbeat_at', j.dispatched_at,\n      'completed_at', j.completed_at,\n      'payload_account_matches', j.payload->>'account_id' = t.account_id::text,\n      'payload_turn_matches', j.payload->>'turn_id' = t.turn_id::text,\n      'payload_conversation_matches', j.payload->>'conversation_id' = t.conversation_id::text,\n      'correlation_id', CASE WHEN j.payload->>'correlation_id' ~ '^[0-9A-Za-z_-]{1,128}$' THEN j.payload->>'correlation_id' END,\n      'last_error_present', NULLIF(j.last_error, '') IS NOT NULL,\n      'last_error_fingerprint_md5', CASE WHEN NULLIF(j.last_error, '') IS NOT NULL THEN md5(j.last_error) END,\n      'created_to_latest_dispatch_or_heartbeat_seconds', CASE WHEN j.dispatched_at IS NOT NULL\n        THEN extract(epoch FROM (j.dispatched_at - j.created_at))::double precision END\n    ) ORDER BY j.created_at, j.id), '[]'::jsonb) AS outbox_rows,\n    count(*) AS outbox_count,\n    COALESCE(sum(j.attempts), 0) AS total_dispatch_claims,\n    COALESCE(sum(greatest(j.attempts - 1, 0)), 0) AS observed_redispatch_claims,\n    count(*) FILTER (WHERE j.aggregate_type <> 'agent_turn'\n      OR j.payload->>'account_id' IS DISTINCT FROM t.account_id::text\n      OR j.payload->>'turn_id' IS DISTINCT FROM t.turn_id::text\n      OR j.payload->>'conversation_id' IS DISTINCT FROM t.conversation_id::text) AS outbox_identity_mismatches\n    FROM job_outbox j\n    WHERE j.topic = 'agent_turn' AND j.aggregate_id = t.turn_id\n    -- Tenant authority is the account-scoped turn's UUID, not JSON payload.\n  ) o\n), completed_samples AS MATERIALIZED (\n  SELECT t.* FROM turns_with_outbox t CROSS JOIN parameters p\n  WHERE t.accepted_in_window AND t.status = 'completed'\n    AND t.completed_at IS NOT NULL\n    AND t.completed_at >= t.accepted_at\n    AND t.completed_at <= p.observation_end\n), status_counts AS (\n  SELECT status, failure_reason, count(*) AS turn_count\n  FROM turns_with_outbox WHERE accepted_in_window GROUP BY status, failure_reason\n), hours AS (\n  SELECT s AS hour_start,\n    least(s + interval '1 hour', p.observation_end) AS hour_end,\n    s + interval '1 hour' <= p.observation_end AS full_hour_elapsed\n  FROM parameters p\n  CROSS JOIN LATERAL generate_series(p.observation_start, p.observation_end, interval '1 hour') s\n), hourly_coverage AS (\n  SELECT h.*,\n    (SELECT count(*) FROM scoped_turns t WHERE t.accepted_in_window\n      AND t.accepted_at >= h.hour_start AND t.accepted_at < h.hour_start + interval '1 hour') AS accepted_turns,\n    (SELECT count(*) FROM completed_samples t\n      WHERE t.accepted_at >= h.hour_start AND t.accepted_at < h.hour_start + interval '1 hour') AS completed_turns,\n    (SELECT count(*) FROM scoped_turns t WHERE t.accepted_in_window AND t.status = 'failed'\n      AND t.accepted_at >= h.hour_start AND t.accepted_at < h.hour_start + interval '1 hour') AS failed_turns,\n    CASE WHEN jsonb_array_length(p.attempts_json) > 0 THEN\n      (SELECT count(*) FROM submission_ledger l WHERE l.tenant_matches AND l.in_window\n        AND l.attempted_at >= h.hour_start AND l.attempted_at < h.hour_start + interval '1 hour')\n    END AS recorded_ui_submissions\n  FROM hours h CROSS JOIN parameters p\n), submissions_with_matches AS (\n  SELECT l.*, (\n    SELECT COALESCE(jsonb_agg(jsonb_build_object(\n      'turn_id', t.turn_id, 'status', t.status, 'failure_reason', t.failure_reason,\n      'accepted_in_window', t.accepted_in_window,\n      'accepted_at', t.accepted_at, 'completed_at', t.completed_at\n    ) ORDER BY t.accepted_at, t.turn_id), '[]'::jsonb)\n    FROM scoped_turns t\n    WHERE l.tenant_matches AND (\n      l.turn_id = t.turn_id::text OR l.client_turn_key = t.client_turn_key::text\n    )\n  ) AS matching_turns\n  FROM submission_ledger l\n)\nSELECT jsonb_build_object(\n  'measurement', jsonb_build_object(\n    'account_id', p.account_id,\n    'observation_start', p.observation_start,\n    'snapshot_at_and_observation_end', p.observation_end,\n    'earliest_eligible_end', p.earliest_end,\n    'full_24_hours_elapsed', p.observation_end >= p.earliest_end,\n    'elapsed_seconds', extract(epoch FROM (p.observation_end - p.observation_start)),\n    'declared_candidate_sha', p.declared_candidate_sha,\n    'deployment_verification', 'Separate retained UI/worker deployment evidence is required',\n    'percentile_method', 'PostgreSQL percentile_cont on unrounded completed accepted-to-completed seconds',\n    'ui_submission_ledger_supplied', jsonb_array_length(p.attempts_json) > 0\n  ),\n  'summary', jsonb_build_object(\n    'durable_turns_accepted_in_window', (SELECT count(*) FROM scoped_turns WHERE accepted_in_window),\n    'recorded_ui_attempts', CASE WHEN jsonb_array_length(p.attempts_json) > 0 THEN\n      (SELECT count(*) FROM submission_ledger WHERE tenant_matches AND in_window) END,\n    'ledger_rows_without_attempt_time', (SELECT count(*) FROM submission_ledger WHERE attempted_at IS NULL),\n    'ledger_tenant_mismatches', (SELECT count(*) FROM submission_ledger WHERE tenant_matches IS DISTINCT FROM true),\n    'ledger_attempts_without_durable_match', (SELECT count(*) FROM submissions_with_matches\n      WHERE tenant_matches AND in_window AND jsonb_array_length(matching_turns) = 0),\n    'ledger_ambiguous_matches', (SELECT count(*) FROM submissions_with_matches WHERE jsonb_array_length(matching_turns) > 1),\n    'completed_latency_n', (SELECT count(*) FROM completed_samples),\n    'completed_latency_min_seconds', (SELECT min(accepted_to_terminal_seconds) FROM completed_samples),\n    'completed_latency_p50_seconds', (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY accepted_to_terminal_seconds) FROM completed_samples),\n    'completed_latency_p95_seconds', (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY accepted_to_terminal_seconds) FROM completed_samples),\n    'completed_latency_max_seconds', (SELECT max(accepted_to_terminal_seconds) FROM completed_samples),\n    'completed_rows_excluded_for_invalid_or_future_timestamp', (SELECT count(*) FROM scoped_turns t\n      WHERE accepted_in_window AND status = 'completed' AND NOT EXISTS\n        (SELECT 1 FROM completed_samples c WHERE c.turn_id = t.turn_id)),\n    'nonterminal_turns', (SELECT count(*) FROM scoped_turns WHERE accepted_in_window AND status IN ('accepted', 'running')),\n    'turns_missing_outbox', (SELECT count(*) FROM turns_with_outbox WHERE accepted_in_window AND outbox_count = 0),\n    'turns_with_multiple_outbox_rows', (SELECT count(*) FROM turns_with_outbox WHERE accepted_in_window AND outbox_count > 1),\n    'outbox_identity_mismatches', (SELECT COALESCE(sum(outbox_identity_mismatches), 0) FROM turns_with_outbox WHERE accepted_in_window),\n    'observed_outbox_redispatch_claims', (SELECT COALESCE(sum(observed_redispatch_claims), 0) FROM turns_with_outbox WHERE accepted_in_window),\n    'full_hours_with_accepted_turn', (SELECT count(*) FROM hourly_coverage WHERE full_hour_elapsed AND accepted_turns > 0),\n    'full_hours_elapsed', (SELECT count(*) FROM hourly_coverage WHERE full_hour_elapsed)\n  ),\n  'status_and_failure_counts', (SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY status, failure_reason), '[]'::jsonb) FROM status_counts s),\n  'hourly_coverage', (SELECT COALESCE(jsonb_agg(to_jsonb(h) ORDER BY hour_start), '[]'::jsonb) FROM hourly_coverage h),\n  'every_retained_turn', (SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY accepted_at, turn_id), '[]'::jsonb) FROM turns_with_outbox t),\n  'every_supplied_submission', (SELECT COALESCE(jsonb_agg(to_jsonb(l) ORDER BY attempted_at NULLS FIRST, attempt_id), '[]'::jsonb) FROM submissions_with_matches l)\n) AS observation_snapshot\nFROM parameters p;\n\n",
+  "rows": [
+    {
+      "observation_snapshot": {
+        "summary": {
+          "nonterminal_turns": 0,
+          "full_hours_elapsed": 0,
+          "completed_latency_n": 1,
+          "recorded_ui_attempts": 1,
+          "turns_missing_outbox": 0,
+          "ledger_ambiguous_matches": 0,
+          "ledger_tenant_mismatches": 0,
+          "outbox_identity_mismatches": 0,
+          "completed_latency_max_seconds": 7.228631,
+          "completed_latency_min_seconds": 7.228631,
+          "completed_latency_p50_seconds": 7.228631,
+          "completed_latency_p95_seconds": 7.228631,
+          "full_hours_with_accepted_turn": 0,
+          "turns_with_multiple_outbox_rows": 0,
+          "durable_turns_accepted_in_window": 1,
+          "ledger_rows_without_attempt_time": 0,
+          "observed_outbox_redispatch_claims": 0,
+          "ledger_attempts_without_durable_match": 0,
+          "completed_rows_excluded_for_invalid_or_future_timestamp": 0
+        },
+        "measurement": {
+          "account_id": "019f43d0-0000-7000-8000-000000000001",
+          "elapsed_seconds": 1156.493436,
+          "observation_start": "2026-09-13T21:46:17+00:00",
+          "percentile_method": "PostgreSQL percentile_cont on unrounded completed accepted-to-completed seconds",
+          "earliest_eligible_end": "2026-09-14T21:46:17+00:00",
+          "full_24_hours_elapsed": false,
+          "declared_candidate_sha": "4b13d96621b156a47dbc4140995f45745bc8114d",
+          "deployment_verification": "Separate retained UI/worker deployment evidence is required",
+          "ui_submission_ledger_supplied": true,
+          "snapshot_at_and_observation_end": "2026-09-13T22:05:33.493436+00:00"
+        },
+        "hourly_coverage": [
+          {
+            "hour_end": "2026-09-13T22:05:33.493436+00:00",
+            "hour_start": "2026-09-13T21:46:17+00:00",
+            "failed_turns": 0,
+            "accepted_turns": 1,
+            "completed_turns": 1,
+            "full_hour_elapsed": false,
+            "recorded_ui_submissions": 1
+          }
+        ],
+        "every_retained_turn": [
+          {
+            "status": "completed",
+            "turn_id": "01a09cbd-9c25-7079-8022-2f0474ae6d59",
+            "sequence": 3,
+            "account_id": "019f43d0-0000-7000-8000-000000000001",
+            "accepted_at": "2026-09-13T21:47:46.471931+00:00",
+            "location_id": "019f43d0-0000-7000-8000-000000000011",
+            "outbox_rows": [
+              {
+                "status": "completed",
+                "attempts": 1,
+                "outbox_id": "01a09cbd-9d1b-7429-8c18-c6c667fb9802",
+                "created_at": "2026-09-13T21:47:46.471931+00:00",
+                "aggregate_id": "01a09cbd-9c25-7079-8022-2f0474ae6d59",
+                "available_at": "2026-09-13T21:47:46.471931+00:00",
+                "completed_at": "2026-09-13T21:47:53.700562+00:00",
+                "max_attempts": 5,
+                "aggregate_type": "agent_turn",
+                "correlation_id": null,
+                "last_error_present": false,
+                "payload_turn_matches": true,
+                "payload_account_matches": true,
+                "last_error_fingerprint_md5": null,
+                "payload_conversation_matches": true,
+                "latest_dispatched_or_heartbeat_at": "2026-09-13T21:47:50.927116+00:00",
+                "created_to_latest_dispatch_or_heartbeat_seconds": 4.455185
+              }
+            ],
+            "completed_at": "2026-09-13T21:47:53.700562+00:00",
+            "outbox_count": 1,
+            "failure_reason": null,
+            "client_turn_key": "180f6ac3-6652-423b-9f90-1635526a837c",
+            "conversation_id": "2d4ae2aa-73df-40e9-8ac8-05a05ce7f8f4",
+            "latest_claimed_at": "2026-09-13T21:47:51.066373+00:00",
+            "accepted_in_window": true,
+            "claim_token_present": true,
+            "current_turn_attempt": 1,
+            "total_dispatch_claims": 1,
+            "observed_redispatch_claims": 0,
+            "outbox_identity_mismatches": 0,
+            "latest_claim_offset_seconds": 4.594442,
+            "accepted_to_terminal_seconds": 7.228631
+          }
+        ],
+        "every_supplied_submission": [
+          {
+            "slot": 0,
+            "outcome": "completed",
+            "turn_id": "01a09cbd-9c25-7079-8022-2f0474ae6d59",
+            "in_window": true,
+            "account_id": "019f43d0-0000-7000-8000-000000000001",
+            "attempt_id": "slot-00-a",
+            "http_status": null,
+            "attempted_at": "2026-09-13T21:47:44.793+00:00",
+            "matching_turns": [
+              {
+                "status": "completed",
+                "turn_id": "01a09cbd-9c25-7079-8022-2f0474ae6d59",
+                "accepted_at": "2026-09-13T21:47:46.471931+00:00",
+                "completed_at": "2026-09-13T21:47:53.700562+00:00",
+                "failure_reason": null,
+                "accepted_in_window": true
+              }
+            ],
+            "tenant_matches": true,
+            "client_turn_key": null
+          }
+        ],
+        "status_and_failure_counts": [
+          {
+            "status": "completed",
+            "turn_count": 1,
+            "failure_reason": null
+          }
+        ]
+      }
+    }
+  ]
+}

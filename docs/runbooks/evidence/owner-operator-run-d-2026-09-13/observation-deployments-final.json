@@ -1,0 +1,125 @@
+{
+  "captured_at": "2026-09-14T17:38:00Z",
+  "capture_time_precision": "minute",
+  "candidate": "4b13d96621b156a47dbc4140995f45745bc8114d",
+  "railway": [
+    {
+      "id": "5c8fc180-ad37-4e76-85fd-a8dc913302d7",
+      "createdAt": "2026-09-13T21:18:55.011Z",
+      "status": "SUCCESS",
+      "commit": "4b13d96621b156a47dbc4140995f45745bc8114d",
+      "branch": "staging"
+    },
+    {
+      "id": "084a19ea-31a0-4a03-a441-15464affc914",
+      "createdAt": "2026-09-13T19:23:17.479Z",
+      "status": "REMOVED",
+      "commit": "280d1b0137f4f5a3e2cd613abe7464238d0f665e",
+      "branch": "staging"
+    },
+    {
+      "id": "4a255a75-2391-4e76-a43c-bd0cbb1238fc",
+      "createdAt": "2026-09-13T18:49:24.979Z",
+      "status": "REMOVED",
+      "commit": "a8b934a69434476ce41d056c0d846b03129fe994",
+      "branch": "staging"
+    },
+    {
+      "id": "453a82f8-62c6-4988-83e8-a6526fbab8ee",
+      "createdAt": "2026-09-13T16:30:00.924Z",
+      "status": "REMOVED",
+      "commit": "fb536c09711ec331262f5efc64ff42f066bec3ba",
+      "branch": "staging"
+    },
+    {
+      "id": "468df3cd-71a2-45a0-8cea-f0643eac2172",
+      "createdAt": "2026-09-13T03:49:21.247Z",
+      "status": "REMOVED",
+      "commit": "f32dd15c7060e134dd926fb0e64df988c5456d0f",
+      "branch": "staging"
+    },
+    {
+      "id": "659129d8-2b11-4041-ae94-bc5b203bc2b5",
+      "createdAt": "2026-09-13T03:42:47.281Z",
+      "status": "REMOVED",
+      "commit": "099409ae2889be5d410b01e22b7f6cd08cc59fc9",
+      "branch": "staging"
+    },
+    {
+      "id": "3c52c955-37ae-4e64-b3c1-b17029f4aa1a",
+      "createdAt": "2026-09-13T03:24:42.716Z",
+      "status": "REMOVED",
+      "commit": "958080edc70443683bda9e02a939bcb7bba5d9a9",
+      "branch": "staging"
+    },
+    {
+      "id": "06e836fd-0984-4d97-977c-b6c2e01f73bc",
+      "createdAt": "2026-09-13T02:59:28.930Z",
+      "status": "REMOVED",
+      "commit": "6c6271de9b295f3ee4b27b37168ff8869c8397a5",
+      "branch": "staging"
+    },
+    {
+      "id": "d3f467b6-b5e8-4922-810e-b062738ef5e2",
+      "createdAt": "2026-09-13T02:37:16.608Z",
+      "status": "REMOVED",
+      "commit": "6c6271de9b295f3ee4b27b37168ff8869c8397a5",
+      "branch": "staging"
+    },
+    {
+      "id": "c3e72c6d-0723-45ee-9a8f-5ad8efb37f10",
+      "createdAt": "2026-09-13T02:11:05.008Z",
+      "status": "REMOVED",
+      "commit": "34857b73b2648932fdf9332119f18ac6aa8c6452",
+      "branch": "staging"
+    }
+  ],
+  "vercel_alias": {
+    "id": "dpl_5nrGY3zR6zAsT78dHVeGpgaarwau",
+    "state": "READY",
+    "commit": "4b13d96621b156a47dbc4140995f45745bc8114d",
+    "aliases": [
+      "staging.repworth.net",
+      "rep-worth-env-staging-norbert-esekiels-projects.vercel.app"
+    ]
+  },
+  "vercel_history": {
+    "pagination": {
+      "count": 5,
+      "next": 1789334336127,
+      "prev": 1789379502005
+    },
+    "deployments": [
+      {
+        "id": "dpl_HqG451VegA7sdAK4ztG28B8Au8yv",
+        "created": 1789379502005,
+        "branch": "docs/phase-h-resume-2026-09-14",
+        "commit": "6dc9127ffb8ab341fee19db151448317c3059a09"
+      },
+      {
+        "id": "dpl_BCTiLHr1TvUnHJoYMQTP7qbzNVf2",
+        "created": 1789363795961,
+        "branch": "main",
+        "commit": "a95478037fb662cae6ce2e4cc1eb89671016b492"
+      },
+      {
+        "id": "dpl_FS8SeSAfjHGQyeKy7f3qjg1ANKDj",
+        "created": 1789363348439,
+        "branch": "docs/research-artifacts-and-codex-config",
+        "commit": "4f89788b7e4e287b4593fb793c3ae08f5e41d8fd"
+      },
+      {
+        "id": "dpl_cUZwmtrbJuLMxkJMgeMFy1GfaiMT",
+        "created": 1789360353487,
+        "branch": "research/stripe-quantity-billing",
+        "commit": "3bf1e4bc8d216057557294fef0f4fd38652c7e53"
+      },
+      {
+        "id": "dpl_5nrGY3zR6zAsT78dHVeGpgaarwau",
+        "created": 1789334336127,
+        "branch": "staging",
+        "commit": "4b13d96621b156a47dbc4140995f45745bc8114d"
+      }
+    ]
+  }
+}

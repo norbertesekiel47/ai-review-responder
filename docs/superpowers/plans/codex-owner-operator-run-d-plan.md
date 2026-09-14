@@ -1,5 +1,7 @@
 # Owner Operator Run D: outbox resilience and checkpoint closure
 
+**Owner-approved amendment, September 14 at17:35Z:** “Hm actually everything looks good so far, you can stop the observability and proceed, go ahead.” The original full-day duration below is superseded by the actual recorded interval, ending with the final database capture at17:36:31.857381Z after19h50m14.857381s. All24 submitted requests completed; slots20–24 are cancelled. Keep the original duration visible as historical intent and report `full_24_hours_elapsed=false`. This changes only the observation duration; recovery verification, teardown, final gates/reviews, shipping, and separate docs closeout remain required. See `observation-owner-early-close.json` in the Run D evidence assets. No additional plan-review round, review budget, product behavior, or production flag change is authorized or needed for this explicit owner decision.
+
 Base: `5927c3eb05c692fe25491e35f2cadf830fa7a5cb` (C closeout #1279). C feature #1278 and its separate closeout are merged before this run starts. Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/codex-owner-operator-run-d`. Intake: `codex-owner-operator-run-d-intake.json` beside this plan. Spec: `docs/roadmap/2026-09-11-owner-operator/README.md`, §5.2, §12.1 items 2/6/10, §14 CA1/CA4.
 
 ## 1. Locked intent, deltas and authority

@@ -1,0 +1,23 @@
+{
+  "decision": "Owner ended the observation early and authorized proceeding with remaining work",
+  "owner_instruction": "Hm actually everything looks good so far, you can stop the observability and proceed, go ahead",
+  "recorded_at": "2026-09-14T17:35:05Z",
+  "original_earliest_end": "2026-09-14T21:46:17Z",
+  "final_database_capture_at": "2026-09-14T17:36:31.857381+00:00",
+  "full_24_hours_elapsed": false,
+  "actual_ui_submissions": 24,
+  "completed_turns": 24,
+  "remaining_scheduled_slots_not_executed": [
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "stopped_process_ids": [
+    57052,
+    57053
+  ],
+  "process_absence_verified": true,
+  "scope": "Ends only the timed observation. Recovery browser check, scoped fixture teardown, final checks/reviews, D feature and documentation shipping remain required. Production enablement remains prohibited."
+}

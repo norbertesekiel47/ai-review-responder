@@ -1,0 +1,121 @@
+{
+  "query": "SELECT jsonb_build_object('captured_at',now(),'prompt_input',jsonb_build_object('schema_version','run-d-tone-prompt-v1','project_id','kubdiqdhqbhwmqfditeg','account',jsonb_build_object('id',a.id,'subscription_tier',a.subscription_tier),'business',jsonb_build_object('id',b.id,'account_id',b.account_id,'name',b.name,'category',b.category,'tone',b.tone,'products_services',b.products_services,'staff_names',b.staff_names,'highlight_facts',b.highlight_facts,'avoid_facts',b.avoid_facts,'sample_responses',b.sample_responses),'review',jsonb_build_object('id',r.id,'business_id',r.business_id,'reviewer_name',r.reviewer_name,'star_rating',r.star_rating,'review_text',r.review_text,'review_date',r.review_date,'detected_language',r.detected_language),'voice_examples','[]'::jsonb,'triage_severity',r.triage_severity),'response',(SELECT jsonb_build_object('id',s.id,'text',s.response_text,'status',s.status,'version',s.version,'provider',s.llm_provider,'model',s.llm_model,'created_at',s.created_at,'approval_method',s.approval_method,'posted_at',s.posted_at) FROM responses s WHERE s.review_id=r.id),'costs',(SELECT jsonb_agg(jsonb_build_object('id',c.id,'provider',c.provider,'endpoint',c.endpoint,'response_id',c.response_id,'cost_usd',c.cost_usd,'latency_ms',c.latency_ms,'input_tokens',c.input_tokens,'output_tokens',c.output_tokens,'created_at',c.created_at,'prompt_version',c.prompt_version,'system_prompt_hash',c.system_prompt_hash)) FROM api_costs c JOIN responses s ON s.id=c.response_id WHERE s.review_id=r.id),'run_steps',(SELECT jsonb_agg(jsonb_build_object('run_id',ar.id,'run_status',ar.status,'started_at',ar.started_at,'step_id',st.id,'step_key',st.step_key,'step_status',st.status,'latency_ms',st.latency_ms,'detail',st.detail,'created_at',st.created_at) ORDER BY st.step_index) FROM agent_runs ar JOIN agent_run_steps st ON st.agent_run_id=ar.id WHERE ar.account_id=a.id AND ar.subject_id=r.id::text),'voice_updated_at',b.updated_at) AS evidence FROM reviews r JOIN businesses b ON b.id=r.business_id JOIN accounts a ON a.id=b.account_id WHERE r.id='01a09caf-8108-73db-8cd3-a5dcf3dc6dce' AND a.id='019f43d0-0000-7000-8000-000000000001';",
+  "evidence": {
+    "costs": [
+      {
+        "id": "01a09caf-92d7-7104-a1ae-053b9c4e0453",
+        "cost_usd": 0.000086,
+        "endpoint": "chat.completions",
+        "provider": "openai",
+        "created_at": "2026-09-13T21:32:27.230359+00:00",
+        "latency_ms": 1372,
+        "response_id": "01a09caf-9893-76dd-8f8c-0a8f41f3d67d",
+        "input_tokens": 320,
+        "output_tokens": 64,
+        "prompt_version": "2026-05-26.1",
+        "system_prompt_hash": "e3386251be0314ce60b90c1eb6062873668939e1b049797da317d91072bb1f48"
+      }
+    ],
+    "response": {
+      "id": "01a09caf-9893-76dd-8f8c-0a8f41f3d67d",
+      "text": "Hi Morgan, \n\nThank you for your wonderful review! We’re delighted to hear that our team made you feel welcome and that you appreciated the clear explanations during your appointment. It’s great to know you left happy with the results. We look forward to seeing you again soon! \n\nBest,  \n[Your Salon Name]",
+      "model": "gpt-4o-mini-2024-07-18",
+      "status": "pending_approval",
+      "version": 1,
+      "provider": "openai",
+      "posted_at": null,
+      "created_at": "2026-09-13T21:32:28.699233+00:00",
+      "approval_method": null
+    },
+    "run_steps": [
+      {
+        "detail": {
+          "ingestion_origin": "live"
+        },
+        "run_id": "01a09caf-81a2-70eb-8061-2c372a96dd78",
+        "step_id": "01a09caf-8288-702c-80d6-7a6a82e9ce15",
+        "step_key": "review_ingested",
+        "created_at": "2026-09-13T21:32:22.333563+00:00",
+        "latency_ms": null,
+        "run_status": "running",
+        "started_at": "2026-09-13T21:32:22.333563+00:00",
+        "step_status": "completed"
+      },
+      {
+        "detail": {
+          "version": 1,
+          "response_id": "01a09caf-9893-76dd-8f8c-0a8f41f3d67d"
+        },
+        "run_id": "01a09caf-81a2-70eb-8061-2c372a96dd78",
+        "step_id": "01a09caf-9a11-723e-a313-a1921046ee9d",
+        "step_key": "draft_generated",
+        "created_at": "2026-09-13T21:32:28.699233+00:00",
+        "latency_ms": null,
+        "run_status": "running",
+        "started_at": "2026-09-13T21:32:22.333563+00:00",
+        "step_status": "completed"
+      },
+      {
+        "detail": {
+          "held": false,
+          "flagged": false,
+          "severity": "low"
+        },
+        "run_id": "01a09caf-81a2-70eb-8061-2c372a96dd78",
+        "step_id": "01a09caf-9aa8-75e2-891a-48522d3b44fb",
+        "step_key": "moderation_checked",
+        "created_at": "2026-09-13T21:32:28.699233+00:00",
+        "latency_ms": null,
+        "run_status": "running",
+        "started_at": "2026-09-13T21:32:22.333563+00:00",
+        "step_status": "completed"
+      },
+      {
+        "detail": {
+          "decision": "held_for_owner"
+        },
+        "run_id": "01a09caf-81a2-70eb-8061-2c372a96dd78",
+        "step_id": "01a09caf-9b76-76bd-9164-2853376d73d8",
+        "step_key": "policy_gate",
+        "created_at": "2026-09-13T21:32:28.699233+00:00",
+        "latency_ms": null,
+        "run_status": "running",
+        "started_at": "2026-09-13T21:32:22.333563+00:00",
+        "step_status": "completed"
+      }
+    ],
+    "captured_at": "2026-09-13T21:36:34.968996+00:00",
+    "prompt_input": {
+      "review": {
+        "id": "01a09caf-8108-73db-8cd3-a5dcf3dc6dce",
+        "business_id": "019f43d0-0000-7000-8000-000000000011",
+        "review_date": "2026-09-13T21:32:21.93+00:00",
+        "review_text": "The team welcomed me kindly, started my appointment on time, and explained each step clearly. I left happy with the result.",
+        "star_rating": 5,
+        "reviewer_name": "Morgan Fictional",
+        "detected_language": "en"
+      },
+      "account": {
+        "id": "019f43d0-0000-7000-8000-000000000001",
+        "subscription_tier": "copilot"
+      },
+      "business": {
+        "id": "019f43d0-0000-7000-8000-000000000011",
+        "name": "Salon",
+        "tone": "warm and brief",
+        "category": "Salon",
+        "account_id": "019f43d0-0000-7000-8000-000000000001",
+        "avoid_facts": [],
+        "staff_names": [],
+        "highlight_facts": [],
+        "sample_responses": [],
+        "products_services": null
+      },
+      "project_id": "kubdiqdhqbhwmqfditeg",
+      "schema_version": "run-d-tone-prompt-v1",
+      "voice_examples": [],
+      "triage_severity": null
+    },
+    "voice_updated_at": "2026-09-13T21:29:40.681862+00:00"
+  }
+}

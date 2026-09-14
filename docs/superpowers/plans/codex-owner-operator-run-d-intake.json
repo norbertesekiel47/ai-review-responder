@@ -22,7 +22,7 @@
     "A turn waiting behind its predecessor releases its claim and delays the same job without spending retry budget; healthy waits do not trigger redundant watchdog dispatch.",
     "A staging tone Apply changes the next generated draft for that location.",
     "A staging turn submitted for a secondary location keeps that target when the selector changes.",
-    "A full 24-hour staging observation records p50/p95 and justifies the lease, stall and wait constants."
+    "A staging observation records p50/p95 and justifies the lease, stall and wait constants. The owner explicitly ended the original full-day requirement early on 2026-09-14; preserve the measured duration, all24 submissions, and that authorization without claiming24-hour coverage."
   ],
   "invariants": [
     "Accepted turn failure and the winning outbox terminal transition commit or roll back together.",
@@ -43,7 +43,7 @@
     "A superseded outbox attempt or stolen turn token cannot refresh liveness or release another claim.",
     "Delay scheduling failure or worker crash leaves durable work recoverable.",
     "The predecessor stall deadline still fails a permanently stuck successor.",
-    "No 24-hour result is inferred from the earlier five-turn checkpoint sample."
+    "No 24-hour result is inferred from a shorter sample. The owner-approved early close uses the actual measured interval and all24 recorded submissions."
   ],
   "existing_patterns_to_follow": [
     "worker/background/pollers/OutboxPoller.ts markDispatchFailed attempt CAS and runOutboxWatchdogRecovery transaction",
@@ -112,7 +112,7 @@
   "observability": [
     "Turn failure_reason dispatch_exhausted and its matching terminal outbox row",
     "Existing outbox_failed:agent_turn alert and bounded worker logs without owner text",
-    "Observed turn statuses, attempts, queue latency and provider latency across a measured 24-hour staging interval",
+    "Observed turn statuses, attempts and accepted-to-completed latency across the actual owner-approved observation interval; preserve subphase measurement limits and the separate unassigned cost audit",
     "Next-draft tone provenance and pinned secondary-location snapshot with sanitized browser/backend evidence"
   ],
   "required_approvals": [

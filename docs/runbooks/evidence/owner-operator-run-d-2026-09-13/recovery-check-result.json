@@ -1,0 +1,78 @@
+{
+  "controlled_fixture": true,
+  "provider_calls": 0,
+  "actual_dispatch_attempts": 0,
+  "candidate": "4b13d96621b156a47dbc4140995f45745bc8114d",
+  "created_at": "2026-09-14T17:50:01.556882Z",
+  "conversation_id": "019f43d0-0000-7000-8000-000000000031",
+  "turn_id": "019f43d0-0000-7000-8000-000000000032",
+  "turn_status": "failed",
+  "failure_reason": "dispatch_exhausted",
+  "outbox_id": "019f43d0-0000-7000-8000-000000000034",
+  "outbox_snapshot": {
+    "status": "failed",
+    "attempts": 5,
+    "inside_transaction": true,
+    "retired_before_commit": true
+  },
+  "after_readback": {
+    "at": "2026-09-14T17:50:43.388963Z",
+    "temporary_outbox_count": 0,
+    "businesses_hash_before_and_after": "09d17f6093133c67f966cfa7c94e0b7e",
+    "policies_hash_before_and_after": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "browser": {
+    "target": "https://staging.repworth.net/dashboard/operator?conversationId=019f43d0-0000-7000-8000-000000000031",
+    "surface": "owner-approved in-app Browser",
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "reload_failure_at": "2026-09-14T17:51:49.053Z",
+      "recovery_url_at": "2026-09-14T17:51:59.745Z",
+      "recovery_url": "https://staging.repworth.net/dashboard/operator",
+      "empty_composer_enabled": true
+    },
+    "desktop": {
+      "width": 1440,
+      "height": 1000,
+      "reload_failure_at": "2026-09-14T17:52:57.130Z",
+      "new_conversation_navigation": true,
+      "composer_input_and_clear": true,
+      "unsent_text": "Recovery composer check",
+      "returned_failure_verified": true
+    },
+    "screenshots": [
+      "run-d-recovery-390.png",
+      "run-d-recovery-new-390.png",
+      "run-d-recovery-1440.png",
+      "run-d-recovery-new-1440.png"
+    ],
+    "limits": [
+      "run-d-recovery-new-390.png captured a blank navigation frame and is excluded from visual PASS evidence. The mobile new-conversation URL and enabled empty composer were independently read before capture. The mobile failure and desktop empty-composer screenshots are retained as visual evidence.",
+      "Mobile full-page capture is 375px wide after scrollbar exclusion; DOM viewport was independently measured as 390px. Fixed navigation overlays part of the stitched full-page image.",
+      "Desktop screenshots have limited image sharpness; accessibility and DOM reads independently confirm the wording and action.",
+      "A post-reload locator wait and later desktop composer locator evaluations timed out; fresh accessibility inspection confirmed the controls, and accessibility input/clear verified the desktop composer without submitting."
+    ]
+  },
+  "failed_fixture_attempts": [
+    {
+      "result": "rolled_back",
+      "fixed_ids_absent": true
+    },
+    {
+      "result": "rolled_back",
+      "stage": "owner_binding",
+      "sqlstate": "42883",
+      "fixed_ids_absent": true
+    }
+  ],
+  "fixture_correction": "users.auth_id is varchar; corrected fixture comparison to text. Product code unchanged.",
+  "signout": {
+    "at": "2026-09-14T17:57:31.266021Z",
+    "sessions": 0,
+    "refresh_tokens": 0,
+    "recovery_proposals": 0,
+    "ui_url": "https://staging.repworth.net/login",
+    "viewport_override_reset": true
+  }
+}

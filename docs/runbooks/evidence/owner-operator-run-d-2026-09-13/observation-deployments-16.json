@@ -1,0 +1,41 @@
+{
+  "captured_at": "2026-09-14 13:49:47 UTC",
+  "candidate_sha": "4b13d96621b156a47dbc4140995f45745bc8114d",
+  "railway": {
+    "project_id": "ad641d0e-dc01-4250-b71c-db1beedb9c8c",
+    "environment_id": "58c06358-8cbe-497f-bec0-df3b47769a10",
+    "service_id": "fb413c72-29b6-4cd1-90c2-26002491e301",
+    "recent_deployments": [
+      {
+        "id": "5c8fc180-ad37-4e76-85fd-a8dc913302d7",
+        "status": "SUCCESS",
+        "created_at": "2026-09-13T21:18:55.011Z",
+        "updated_at": "2026-09-13T21:20:49.298Z",
+        "sha": "4b13d96621b156a47dbc4140995f45745bc8114d",
+        "branch": "staging"
+      },
+      {
+        "id": "084a19ea-31a0-4a03-a441-15464affc914",
+        "status": "REMOVED",
+        "created_at": "2026-09-13T19:23:17.479Z",
+        "updated_at": "2026-09-13T21:20:52.932Z",
+        "sha": "280d1b0137f4f5a3e2cd613abe7464238d0f665e",
+        "branch": "staging"
+      }
+    ]
+  },
+  "vercel": {
+    "requested_alias": "staging.repworth.net",
+    "id": "dpl_5nrGY3zR6zAsT78dHVeGpgaarwau",
+    "state": "READY",
+    "sha": "4b13d96621b156a47dbc4140995f45745bc8114d",
+    "branch": "staging",
+    "created_at": 1789334336127,
+    "ready_at": 1789334416644,
+    "aliases": [
+      "staging.repworth.net",
+      "rep-worth-env-staging-norbert-esekiels-projects.vercel.app"
+    ]
+  },
+  "scope": "Current UI alias and latest worker deployment/history readback; final whole-window UI deployment history remains required."
+}

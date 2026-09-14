@@ -1,0 +1,671 @@
+{
+  "query": "SELECT c.conrelid::regclass::text AS child_table, c.conname AS constraint_name, c.confrelid::regclass::text AS parent_table, pg_get_constraintdef(c.oid) AS definition FROM pg_constraint c WHERE c.contype='f' AND c.confrelid IN ('public.accounts'::regclass,'public.users'::regclass,'public.businesses'::regclass,'public.reviews'::regclass,'public.responses'::regclass,'public.agent_runs'::regclass,'public.agent_turns'::regclass,'public.agent_conversations'::regclass) ORDER BY parent_table,child_table,constraint_name;",
+  "rows": [
+    {
+      "child_table": "account_audit_log",
+      "constraint_name": "account_audit_log_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "account_offboardings",
+      "constraint_name": "account_offboardings_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_conversations",
+      "constraint_name": "agent_conversations_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "agent_outcomes",
+      "constraint_name": "agent_outcomes_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_proposals",
+      "constraint_name": "agent_proposals_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "agent_runs",
+      "constraint_name": "agent_runs_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_turns",
+      "constraint_name": "agent_turns_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "agent_unsupported_requests",
+      "constraint_name": "agent_unsupported_requests_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "analytics_events",
+      "constraint_name": "analytics_events_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "api_costs",
+      "constraint_name": "fk_api_costs_account",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "approval_audit_log",
+      "constraint_name": "fk_approval_audit_log_account",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "auto_approval_policies",
+      "constraint_name": "auto_approval_policies_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "businesses",
+      "constraint_name": "fk_businesses_account",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "channel_enrollments",
+      "constraint_name": "fk_channel_enrollments_account",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "contact_csv_uploads",
+      "constraint_name": "contact_csv_uploads_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "flagged_responses",
+      "constraint_name": "flagged_responses_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "impersonation_sessions",
+      "constraint_name": "impersonation_sessions_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "judge_verdicts",
+      "constraint_name": "judge_verdicts_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "notification_deliveries",
+      "constraint_name": "fk_notification_deliveries_account",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "refusal_events",
+      "constraint_name": "refusal_events_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "review_escalations",
+      "constraint_name": "review_escalations_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "solicitation_asks",
+      "constraint_name": "solicitation_asks_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_batches",
+      "constraint_name": "solicitation_batches_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_outreach",
+      "constraint_name": "solicitation_outreach_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_suppressions",
+      "constraint_name": "solicitation_suppressions_account_id_fkey",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "child_table": "users",
+      "constraint_name": "fk_users_account",
+      "parent_table": "accounts",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) DEFERRABLE INITIALLY DEFERRED"
+    },
+    {
+      "child_table": "agent_proposals",
+      "constraint_name": "agent_proposals_conversation_id_fkey",
+      "parent_table": "agent_conversations",
+      "definition": "FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_turns",
+      "constraint_name": "agent_turns_conversation_id_fkey",
+      "parent_table": "agent_conversations",
+      "definition": "FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_outcomes",
+      "constraint_name": "agent_outcomes_agent_run_id_fkey",
+      "parent_table": "agent_runs",
+      "definition": "FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "agent_run_steps",
+      "constraint_name": "agent_run_steps_agent_run_id_fkey",
+      "parent_table": "agent_runs",
+      "definition": "FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_runs",
+      "constraint_name": "agent_runs_parent_run_tenant_fkey",
+      "parent_table": "agent_runs",
+      "definition": "FOREIGN KEY (account_id, business_id, parent_run_id) REFERENCES agent_runs(account_id, business_id, id) ON DELETE SET NULL (parent_run_id)"
+    },
+    {
+      "child_table": "judge_verdicts",
+      "constraint_name": "judge_verdicts_agent_run_id_fkey",
+      "parent_table": "agent_runs",
+      "definition": "FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "review_escalations",
+      "constraint_name": "review_escalations_agent_run_id_fkey",
+      "parent_table": "agent_runs",
+      "definition": "FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "solicitation_asks",
+      "constraint_name": "solicitation_asks_agent_run_tenant_fkey",
+      "parent_table": "agent_runs",
+      "definition": "FOREIGN KEY (account_id, business_id, agent_run_id) REFERENCES agent_runs(account_id, business_id, id) ON DELETE SET NULL (agent_run_id)"
+    },
+    {
+      "child_table": "solicitation_outreach",
+      "constraint_name": "solicitation_outreach_run_tenant_fk",
+      "parent_table": "agent_runs",
+      "definition": "FOREIGN KEY (account_id, business_id, agent_run_id) REFERENCES agent_runs(account_id, business_id, id) ON DELETE SET NULL (agent_run_id)"
+    },
+    {
+      "child_table": "agent_proposals",
+      "constraint_name": "agent_proposals_turn_id_fkey",
+      "parent_table": "agent_turns",
+      "definition": "FOREIGN KEY (turn_id) REFERENCES agent_turns(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_unsupported_requests",
+      "constraint_name": "agent_unsupported_requests_turn_id_fkey",
+      "parent_table": "agent_turns",
+      "definition": "FOREIGN KEY (turn_id) REFERENCES agent_turns(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "account_audit_log",
+      "constraint_name": "account_audit_log_location_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (location_id) REFERENCES businesses(id)"
+    },
+    {
+      "child_table": "agent_outcomes",
+      "constraint_name": "agent_outcomes_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_proposals",
+      "constraint_name": "agent_proposals_location_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (location_id) REFERENCES businesses(id)"
+    },
+    {
+      "child_table": "agent_runs",
+      "constraint_name": "agent_runs_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "agent_turns",
+      "constraint_name": "agent_turns_location_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (location_id) REFERENCES businesses(id)"
+    },
+    {
+      "child_table": "analytics_events",
+      "constraint_name": "analytics_events_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "api_costs",
+      "constraint_name": "api_costs_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id)"
+    },
+    {
+      "child_table": "api_costs_daily_rollups",
+      "constraint_name": "api_costs_daily_rollups_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "approval_audit_log",
+      "constraint_name": "approval_audit_log_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "approval_links",
+      "constraint_name": "approval_links_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "auto_approval_policies",
+      "constraint_name": "auto_approval_policies_location_account_fk",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (location_id, account_id) REFERENCES businesses(id, account_id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "channel_enrollments",
+      "constraint_name": "channel_enrollments_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "channel_enrollments",
+      "constraint_name": "fk_channel_enrollments_location",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (location_id) REFERENCES businesses(id)"
+    },
+    {
+      "child_table": "competitor_snapshots",
+      "constraint_name": "competitor_snapshots_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "contact_csv_uploads",
+      "constraint_name": "contact_csv_uploads_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "flagged_responses",
+      "constraint_name": "flagged_responses_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "google_connections",
+      "constraint_name": "google_connections_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "judge_verdicts",
+      "constraint_name": "judge_verdicts_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "monthly_impact_emails",
+      "constraint_name": "monthly_impact_emails_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "notification_deliveries",
+      "constraint_name": "notification_deliveries_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "onboarding_demos",
+      "constraint_name": "onboarding_demos_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "onboarding_drip_log",
+      "constraint_name": "onboarding_drip_log_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "ranking_snapshots",
+      "constraint_name": "ranking_snapshots_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "refusal_events",
+      "constraint_name": "refusal_events_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id)"
+    },
+    {
+      "child_table": "responses",
+      "constraint_name": "responses_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "review_escalations",
+      "constraint_name": "review_escalations_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id)"
+    },
+    {
+      "child_table": "review_exceptions",
+      "constraint_name": "review_exceptions_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "reviews",
+      "constraint_name": "reviews_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "satisfaction_responses",
+      "constraint_name": "satisfaction_responses_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_asks",
+      "constraint_name": "solicitation_asks_business_account_fk",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id, account_id) REFERENCES businesses(id, account_id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_batches",
+      "constraint_name": "solicitation_batches_business_account_fk",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id, account_id) REFERENCES businesses(id, account_id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_consent",
+      "constraint_name": "solicitation_consent_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_contacts",
+      "constraint_name": "solicitation_contacts_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_outreach",
+      "constraint_name": "solicitation_outreach_business_account_fk",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id, account_id) REFERENCES businesses(id, account_id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_visits",
+      "constraint_name": "solicitation_visits_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "weekly_summaries",
+      "constraint_name": "weekly_summaries_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "zernio_backfill_runs",
+      "constraint_name": "zernio_backfill_runs_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "zernio_connections",
+      "constraint_name": "zernio_connections_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "zernio_finalize_incidents",
+      "constraint_name": "zernio_finalize_incidents_business_id_fkey",
+      "parent_table": "businesses",
+      "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "api_costs",
+      "constraint_name": "api_costs_response_id_fkey",
+      "parent_table": "responses",
+      "definition": "FOREIGN KEY (response_id) REFERENCES responses(id)"
+    },
+    {
+      "child_table": "approval_audit_log",
+      "constraint_name": "approval_audit_log_response_id_fkey",
+      "parent_table": "responses",
+      "definition": "FOREIGN KEY (response_id) REFERENCES responses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "approval_links",
+      "constraint_name": "approval_links_response_id_fkey",
+      "parent_table": "responses",
+      "definition": "FOREIGN KEY (response_id) REFERENCES responses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "flagged_responses",
+      "constraint_name": "flagged_responses_response_id_fkey",
+      "parent_table": "responses",
+      "definition": "FOREIGN KEY (response_id) REFERENCES responses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "judge_verdicts",
+      "constraint_name": "judge_verdicts_response_id_fkey",
+      "parent_table": "responses",
+      "definition": "FOREIGN KEY (response_id) REFERENCES responses(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "notification_deliveries",
+      "constraint_name": "notification_deliveries_response_id_fkey",
+      "parent_table": "responses",
+      "definition": "FOREIGN KEY (response_id) REFERENCES responses(id)"
+    },
+    {
+      "child_table": "review_exceptions",
+      "constraint_name": "review_exceptions_response_id_fkey",
+      "parent_table": "responses",
+      "definition": "FOREIGN KEY (response_id) REFERENCES responses(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "flagged_responses",
+      "constraint_name": "flagged_responses_review_id_fkey",
+      "parent_table": "reviews",
+      "definition": "FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "judge_verdicts",
+      "constraint_name": "judge_verdicts_review_id_fkey",
+      "parent_table": "reviews",
+      "definition": "FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "responses",
+      "constraint_name": "responses_review_id_fkey",
+      "parent_table": "reviews",
+      "definition": "FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "review_escalations",
+      "constraint_name": "review_escalations_review_id_fkey",
+      "parent_table": "reviews",
+      "definition": "FOREIGN KEY (review_id) REFERENCES reviews(id)"
+    },
+    {
+      "child_table": "review_exceptions",
+      "constraint_name": "review_exceptions_review_id_fkey",
+      "parent_table": "reviews",
+      "definition": "FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "solicitation_outreach",
+      "constraint_name": "solicitation_outreach_attributed_review_id_fkey",
+      "parent_table": "reviews",
+      "definition": "FOREIGN KEY (attributed_review_id) REFERENCES reviews(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "account_audit_log",
+      "constraint_name": "account_audit_log_actor_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (actor_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "account_offboarding_tokens",
+      "constraint_name": "account_offboarding_tokens_consumed_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (consumed_by_user_id) REFERENCES users(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "account_offboarding_tokens",
+      "constraint_name": "account_offboarding_tokens_created_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "account_offboarding_tokens",
+      "constraint_name": "account_offboarding_tokens_revoked_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (revoked_by_user_id) REFERENCES users(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "accounts",
+      "constraint_name": "accounts_owner_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (owner_user_id) REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED"
+    },
+    {
+      "child_table": "admin_audit_log",
+      "constraint_name": "admin_audit_log_actor_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (actor_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "agent_conversations",
+      "constraint_name": "agent_conversations_created_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (created_by_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "agent_proposals",
+      "constraint_name": "agent_proposals_actor_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (actor_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "agent_proposals",
+      "constraint_name": "agent_proposals_decided_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (decided_by_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "agent_turns",
+      "constraint_name": "agent_turns_actor_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (actor_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "analytics_events",
+      "constraint_name": "analytics_events_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "approval_audit_log",
+      "constraint_name": "approval_audit_log_actor_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (actor_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "businesses",
+      "constraint_name": "businesses_onboarded_by_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (onboarded_by) REFERENCES users(id)"
+    },
+    {
+      "child_table": "contact_csv_uploads",
+      "constraint_name": "contact_csv_uploads_attested_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (attested_by_user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "flagged_responses",
+      "constraint_name": "flagged_responses_reviewed_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "impersonation_sessions",
+      "constraint_name": "impersonation_sessions_actor_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (actor_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "impersonation_sessions",
+      "constraint_name": "impersonation_sessions_impersonated_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (impersonated_user_id) REFERENCES users(id)"
+    },
+    {
+      "child_table": "onboarding_demos",
+      "constraint_name": "onboarding_demos_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "child_table": "prospect_demos",
+      "constraint_name": "prospect_demos_created_by_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "child_table": "solicitation_batches",
+      "constraint_name": "solicitation_batches_approved_by_user_id_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "solicitation_batches",
+      "constraint_name": "solicitation_batches_halted_by_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (halted_by) REFERENCES users(id) ON DELETE SET NULL"
+    },
+    {
+      "child_table": "solicitation_send_breaker",
+      "constraint_name": "solicitation_send_breaker_reset_by_fkey",
+      "parent_table": "users",
+      "definition": "FOREIGN KEY (reset_by) REFERENCES users(id)"
+    }
+  ]
+}

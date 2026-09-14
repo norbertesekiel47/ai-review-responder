@@ -1,0 +1,15 @@
+{
+  "slot": 8,
+  "paired_member": "d",
+  "planned_at": "2026-09-14 05:49:19 UTC",
+  "message": "Observation 08D: Only tell me what needs my attention at Salon. Do not propose or change any settings.",
+  "state": "submitted_and_completed",
+  "turn_id": "01a09e76-f98e-7327-952f-8c9ce71438d9",
+  "attempted_at": "2026-09-14T05:49:49.072Z",
+  "click_completed_at": "2026-09-14T05:49:49.346Z",
+  "registered_at": "2026-09-14 05:49:19 UTC",
+  "account_id": "019f43d0-0000-7000-8000-000000000001",
+  "location_id": "019f43d0-0000-7000-8000-000000000011",
+  "method": "Two authenticated browser tabs of the same existing conversation; replacement overlap check after single-tab composer blocked simultaneous input. These are two additional turns within the hard maximum of 30.",
+  "cleanup": "Retain every attempt and result; exact-account runtime rows and terminal jobs removed after the full-day observation."
+}

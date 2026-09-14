@@ -1,0 +1,102 @@
+{
+  "phase": "partial_four_hours_not_full_day",
+  "query": "WITH p AS MATERIALIZED (\n  SELECT '019f43d0-0000-7000-8000-000000000001'::uuid AS account_id,\n    '2026-09-13T21:46:17Z'::timestamptz AS starts_at,\n    clock_timestamp() AS captured_at\n), audit_rows AS MATERIALIZED (\nSELECT c.id AS api_cost_id, c.account_id, c.business_id, c.created_at,\n  c.provider, c.endpoint, c.input_tokens, c.output_tokens, c.cost_usd,\n  c.response_id, c.system_prompt_hash, c.prompt_version, c.latency_ms,\n  'account/location observation-window cost row; no durable turn link'::text AS attribution_limit\nFROM p JOIN api_costs c ON c.account_id = p.account_id\nJOIN businesses b ON b.id = c.business_id AND b.account_id = p.account_id\nWHERE c.endpoint = 'owner-operator' AND c.created_at >= p.starts_at AND c.created_at <= p.captured_at\n), timed_rows AS (\n  SELECT * FROM audit_rows WHERE latency_ms IS NOT NULL AND latency_ms >= 0\n)\nSELECT jsonb_build_object(\n  'attribution', 'Unassigned account/location audit-row latency distribution; not per-turn or per-provider-call attribution',\n  'duplicate_duration_limit', 'All-invalid provider attempts can repeat one whole-call latency across multiple audit rows; do not sum latency_ms or deduplicate by time/latency guesses',\n  'snapshot_at', p.captured_at,\n  'audit_row_count', (SELECT count(*) FROM audit_rows),\n  'timed_audit_row_count', (SELECT count(*) FROM timed_rows),\n  'missing_or_invalid_latency_rows', (SELECT count(*) FROM audit_rows WHERE latency_ms IS NULL OR latency_ms < 0),\n  'audit_row_latency_min_ms', (SELECT min(latency_ms) FROM timed_rows),\n  'audit_row_latency_p50_ms', (SELECT percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms) FROM timed_rows),\n  'audit_row_latency_p95_ms', (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) FROM timed_rows),\n  'audit_row_latency_max_ms', (SELECT max(latency_ms) FROM timed_rows),\n  'raw_unassigned_audit_rows', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY created_at, api_cost_id), '[]'::jsonb) FROM audit_rows r)\n) AS unassigned_cost_audit_snapshot\nFROM p;\n\n",
+  "rows": [
+    {
+      "unassigned_cost_audit_snapshot": {
+        "attribution": "Unassigned account/location audit-row latency distribution; not per-turn or per-provider-call attribution",
+        "snapshot_at": "2026-09-14T01:48:02.466379+00:00",
+        "audit_row_count": 5,
+        "timed_audit_row_count": 5,
+        "audit_row_latency_max_ms": 2144,
+        "audit_row_latency_min_ms": 1535,
+        "audit_row_latency_p50_ms": 1840,
+        "audit_row_latency_p95_ms": 2116.2,
+        "duplicate_duration_limit": "All-invalid provider attempts can repeat one whole-call latency across multiple audit rows; do not sum latency_ms or deduplicate by time/latency guesses",
+        "raw_unassigned_audit_rows": [
+          {
+            "cost_usd": 0.00052,
+            "endpoint": "owner-operator",
+            "provider": "openai",
+            "account_id": "019f43d0-0000-7000-8000-000000000001",
+            "created_at": "2026-09-13T21:47:53.544512+00:00",
+            "latency_ms": 1535,
+            "api_cost_id": "01a09cbd-b541-76e9-b290-b30318e99b3f",
+            "business_id": "019f43d0-0000-7000-8000-000000000011",
+            "response_id": null,
+            "input_tokens": 3003,
+            "output_tokens": 116,
+            "prompt_version": "2026-09-13.4",
+            "attribution_limit": "account/location observation-window cost row; no durable turn link",
+            "system_prompt_hash": "9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032"
+          },
+          {
+            "cost_usd": 0.000479,
+            "endpoint": "owner-operator",
+            "provider": "openai",
+            "account_id": "019f43d0-0000-7000-8000-000000000001",
+            "created_at": "2026-09-13T22:46:45.395018+00:00",
+            "latency_ms": 2144,
+            "api_cost_id": "01a09cf3-998c-746b-8b4a-10c960193d79",
+            "business_id": "019f43d0-0000-7000-8000-000000000011",
+            "response_id": null,
+            "input_tokens": 3106,
+            "output_tokens": 22,
+            "prompt_version": "2026-09-13.4",
+            "attribution_limit": "account/location observation-window cost row; no durable turn link",
+            "system_prompt_hash": "9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032"
+          },
+          {
+            "cost_usd": 0.000485,
+            "endpoint": "owner-operator",
+            "provider": "openai",
+            "account_id": "019f43d0-0000-7000-8000-000000000001",
+            "created_at": "2026-09-13T23:46:41.341747+00:00",
+            "latency_ms": 1840,
+            "api_cost_id": "01a09d2a-7839-7006-a134-e596de438b5c",
+            "business_id": "019f43d0-0000-7000-8000-000000000011",
+            "response_id": null,
+            "input_tokens": 3144,
+            "output_tokens": 22,
+            "prompt_version": "2026-09-13.4",
+            "attribution_limit": "account/location observation-window cost row; no durable turn link",
+            "system_prompt_hash": "9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032"
+          },
+          {
+            "cost_usd": 0.00049,
+            "endpoint": "owner-operator",
+            "provider": "openai",
+            "account_id": "019f43d0-0000-7000-8000-000000000001",
+            "created_at": "2026-09-14T00:46:42.624651+00:00",
+            "latency_ms": 2005,
+            "api_cost_id": "01a09d61-6bbd-72ae-9da5-ab49ee6525e0",
+            "business_id": "019f43d0-0000-7000-8000-000000000011",
+            "response_id": null,
+            "input_tokens": 3182,
+            "output_tokens": 22,
+            "prompt_version": "2026-09-13.4",
+            "attribution_limit": "account/location observation-window cost row; no durable turn link",
+            "system_prompt_hash": "9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032"
+          },
+          {
+            "cost_usd": 0.000496,
+            "endpoint": "owner-operator",
+            "provider": "openai",
+            "account_id": "019f43d0-0000-7000-8000-000000000001",
+            "created_at": "2026-09-14T01:46:38.647514+00:00",
+            "latency_ms": 1676,
+            "api_cost_id": "01a09d98-4ab3-74ec-8940-d5a426aba356",
+            "business_id": "019f43d0-0000-7000-8000-000000000011",
+            "response_id": null,
+            "input_tokens": 3220,
+            "output_tokens": 22,
+            "prompt_version": "2026-09-13.4",
+            "attribution_limit": "account/location observation-window cost row; no durable turn link",
+            "system_prompt_hash": "9a34adb4e8ac78d2970451e04002d29e37edb054cb7026b8a205bb0081c4a032"
+          }
+        ],
+        "missing_or_invalid_latency_rows": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,295 @@
+{
+  "exit_code": 0,
+  "records": [
+    {
+      "campaign": "run-d-job-cleanup",
+      "mode": "remove",
+      "captured_at": "2026-09-14T17:58:21.113Z",
+      "jobs": [
+        {
+          "id": "01a09cac-52a2-773f-aba7-3e2ec11da07d_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789334938803,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09caf-82ca-779c-b401-a49ce70f5ebd_1",
+          "queue": "generate_response",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789335149666,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09cb7-6f4c-7653-a6dc-e338e2f5b6cc_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789335681825,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09cbd-9d1b-7429-8c18-c6c667fb9802_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789336074000,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09cf3-8473-73bc-8236-53660f227a50_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789339605707,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09d2a-63b2-752f-9b98-96addccb7a33_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789343201663,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09d61-5b88-76cc-b494-8bdb351d18e1_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789346802940,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09d98-3b7f-765a-8a04-c57d2c49a207_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789350398959,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09dcf-327f-777f-8dcc-dac26092de0a_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789354000452,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09e06-1aa7-730f-a0ba-8ca70b506e6a_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789357601215,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09e3d-1544-7158-aaea-7ca51ab72640_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789361202510,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09e74-2845-73ee-90ee-3a4bfb9f62e1_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789364814235,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09e74-d64c-70fa-a0c5-9418790c5a69_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789364857313,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09e76-f7ba-70df-b157-339d42992934_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789364997745,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09e76-fa9e-77a1-8453-006473b7349e_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 2,
+          "finishedOn": 1789365008580,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09eaa-df0d-742f-85c4-abb0aef93eb7_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789368399997,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09ee1-ea4d-7548-bb31-55c19f994a60_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789372005947,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09f19-0b14-713d-95c1-6217249acaa7_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789375622045,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09f4f-a1c2-708c-b264-9fa91546684d_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789379198607,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09f86-a216-7218-8dce-a61962c09de5_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789382799834,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09fbd-9f56-72b8-b4d2-38e1b465c5df_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789386406074,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a09ff4-897b-7259-af50-15552b372aa6_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789390006784,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a0a02b-92f8-77f3-be95-76fefc5d46f2_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789393613367,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a0a02b-95c8-7122-84b8-83c8c74d01fb_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 2,
+          "finishedOn": 1789393622498,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a0a062-551f-731c-9b7f-ee01cfeda33c_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789397199731,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a0a099-4230-763b-9bc2-e718ea9613c2_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789400801173,
+          "failedReasonPresent": false,
+          "absent_after": true
+        },
+        {
+          "id": "01a0a0d0-39d8-76dc-bacd-fe09a4fc072e_1",
+          "queue": "agent_turn",
+          "state": "completed",
+          "attemptsMade": 1,
+          "attemptsStarted": 1,
+          "finishedOn": 1789404402273,
+          "failedReasonPresent": false,
+          "absent_after": true
+        }
+      ],
+      "flags": {
+        "OWNER_OPERATOR_ENABLED": "true",
+        "AUTO_APPROVAL_ENABLED": "false",
+        "JUDGE_ENABLED": "true",
+        "MOCK_EXTERNAL_APIS": "false"
+      },
+      "markers": {
+        "repworth:run-d:c48bb6a6:queue-pause": 0,
+        "repworth:run-d:c48bb6a6:queue-pause:guardian-ready": 0,
+        "repworth:run-d:c48bb6a6:queue-pause:guardian-done": 0
+      },
+      "queue_paused": false,
+      "transport_error": false
+    }
+  ]
+}
