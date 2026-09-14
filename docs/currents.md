@@ -9,7 +9,17 @@ This file explains what is actually built in the repository today, how it maps t
 > - [progress-archive/currents-history-2026-04-to-05.md](progress-archive/currents-history-2026-04-to-05.md) — pre-2026-05 (the three "Every File In The Project" dumps, April-era feature deep-dives, the stale "What's Left To Build" fossil).
 > - [progress-archive/currents-history-2026-05-to-2026-08-14.md](progress-archive/currents-history-2026-05-to-2026-08-14.md) — 2026-05-22 → 2026-08-15 (billing/locations UX through the Architecture pass).
 
-Last updated: 2026-09-13 (Owner Operator Run C #1278 merged; post-merge staging acceptance and cleanup PASS).
+Last updated: 2026-09-14 (Owner Operator Run D #1291 merged; recovery and checkpoint evidence recorded).
+
+## Quick summary — Owner Operator Run D: recoverable turns and checkpoint closure (2026-09-14, #1291)
+
+Exhausted dispatches now resolve the exact bound Operator turn and outbox together. A live or contended claim keeps recoverable work; a failed transaction leaves an exhausted dispatch eligible for watchdog recovery. Healthy predecessor waits refresh only their owned dispatch while releasing the turn, then delay the same job without spending failed retries. A durable `dispatch_exhausted` result offers a new conversation instead of leaving the owner waiting indefinitely.
+
+**The new shape:** lifecycle reconciliation in `src/lib/agents/operator/turns.ts`; dispatch/watchdog ownership in `worker/background/pollers/OutboxPoller.ts`; fenced waits in `worker/jobs/agent-turn/AgentTurnWorker.ts`; failure vocabulary in `src/lib/agents/operator/schema.ts` and Console wording in `src/app/(authenticated)/dashboard/operator/wording.ts`. Existing modules remain the owners; no migration, new flag or dependency was added.
+
+Staging proved tone Apply affecting the next worker-generated draft, the stored secondary-location target surviving a selector change, and durable recovery at 390px and 1440px. The corrected deployed watchdog also resolved an exhausted dispatch left by rollback, followed by independent zero-residual cleanup. [Run D evidence](runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md) keeps the original campaign separate from that corrected-code check and owns post-merge deployment evidence.
+
+Observation closed under the owner's duration amendment after **19h 50m 14.857381s**, with **24/24 completed turns**, p50 **6.838317s** and p95 **16.10373645s**. This was not a full 24-hour run. The 180s lease, 1,200s predecessor limit and 10s recheck remain. Feature #1291, squash `fb91cd2f4a3769f5ac35227cf58751720d83b381`, passed the final local gate and required CI. The campaign ran with the Operator enabled in staging. No production enablement or flag change was made. The named owner/window in spec §12.1 item 9 remains **BLOCKED-human**. Run E may resume only after this separate documentation closeout merges.
 
 ## Quick summary — Owner Operator Run C: policy proposals and measured consequences (2026-09-13, #1278)
 

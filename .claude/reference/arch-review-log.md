@@ -1,5 +1,7 @@
 # Architecture review log
 
+- **PR #1291** — Owner Operator Run D (2026-09-14, squash `fb91cd2f4a3769f5ac35227cf58751720d83b381`): Keeps Operator lifecycle writes in `turns.ts` and dispatch/watchdog decisions in OutboxPoller. Winning exhaustion and bound-turn failure share one transaction; live/contended claims remain recoverable, including rollback to exhausted dispatching. Healthy predecessor waits fence claim release and liveness by token/dispatch attempt; delay failures preserve retry. Adds owner recovery wording and bounded D-only verifier admission safeguards with preserved grant history. No migration, env var, flag change, dependency or new production module; two local outbox-status annotations distinguish claim-yield/heartbeat states from the canonical dedup set. Counter 1→2. Next pass: inspect cross-owner lock ordering, rollback recovery eligibility and the accumulating named verifier exceptions.
+
 2026-09-13 — **Owner Operator Run D (staging candidate; not merged):** Couples dispatch exhaustion to the bound accepted/expired Operator turn in the winning outbox transaction. Live or contended claims retain a recoverable dispatched outbox; predecessor waits refresh the exact dispatch attempt atomically with claim release, including worker delivery before enqueue acknowledgement. Delay failures preserve retries. Adds `dispatch_exhausted` recovery wording and isolated real-DB crash/lock/rollback proofs. No migration or production flag flip. Full-day staging evidence and merge are pending; counter remains 1 until the separate post-merge closeout records this run.
 
 2026-09-13 — **#1278 (Owner Operator Run C; squash `280d1b0137f4f5a3e2cd613abe7464238d0f665e`):** Completes the seven-operation v1 catalog with auto-reply scope, veto window and daily cap. Exposes the existing policy writer to caller-owned transactions; Operator Apply locks the account before proposals, compares both parent/override version stamps, validates exact stored confirmation phrases and records immutable old/new consequences and retained veto counts. A single policy snapshot reader uses confirmed-live ingestion markers, with imported and unknown exclusions; both initial-ingestion writers record provenance on the existing run spine. The provider seam carries each task's registered JSON schema. Console cards show full effective rules, changed scope, readiness and asymmetric confirmation. No migration, production flag flip, Apply-triggered generation or posting. Named caller guards and the owner-approved tenant query entry document the supporting surfaces. Post-merge matched deployments, real scope Apply and complete cleanup passed; evidence: `docs/runbooks/evidence/2026-09-13-owner-operator-run-c-evidence.md`. Counter0→1. Next pass: inspect provenance retention/unknown exclusions, shared-writer lock ownership and the scoped verifier exceptions.
@@ -299,7 +301,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** — reset by the **2026-09-12 pass**
+**Merges since last architecture pass: 2** — reset by the **2026-09-12 pass**
 (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-09-12/`.
 
@@ -356,6 +358,7 @@ Prior passes: `PATHFINDER-2026-08-26/`, `-08-24/`, `-08-22/`, `-08-18/`, `-08-15
 
 Merges since the 2026-09-12 pass:
 
+- #1291 — Owner Operator Run D, `fb91cd2f4a3769f5ac35227cf58751720d83b381`: production dispatch/turn recovery and fenced predecessor waiting (counts: yes).
 - #1278 — Owner Operator Run C, `280d1b0137f4f5a3e2cd613abe7464238d0f665e`: production policy Apply, consequence provenance, provider schemas and Console cards (counts: yes).
 
 ---
