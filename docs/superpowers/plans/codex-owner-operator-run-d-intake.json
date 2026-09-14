@@ -61,6 +61,10 @@
     "Signed-in in-app browser at 390px and 1440px plus scoped staging backend readback"
   ],
   "allowed_edit_surface": [
+    ".agents/skills/red-team/scripts/mutation-runner.mjs",
+    ".agents/skills/red-team/SKILL.md",
+    ".claude/skills/red-team/SKILL.md",
+    "scripts/ci/__tests__/red-team-mutation-runner.test.ts",
     "worker/background/pollers/OutboxPoller.ts",
     "worker/background/pollers/__tests__/OutboxPoller*.test.ts",
     "worker/jobs/agent-turn/**",
@@ -85,6 +89,8 @@
     "docs/runbooks/evidence/owner-operator-run-d-2026-09-13/**"
   ],
   "tests_to_add": [
+    "watchdog recovery of exhausted dispatching Operator work preserves live claims and other topics",
+    "watchdog recovery of exhausted dispatching work defers a turn locked by completion",
     "dispatch exhaustion fails only the accepted turn owned by the winning outbox attempt",
     "dispatch exhaustion rolls back the outbox transition when its turn update fails",
     "dispatch exhaustion preserves running and terminal turns after an ambiguous enqueue failure",

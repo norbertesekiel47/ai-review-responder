@@ -164,3 +164,27 @@ Staging campaign **PASS under the owner's explicit duration amendment**, with ze
 ### Post-campaign review correction
 
 The subsequent independent async review found a recovery gap after rollback of the new dispatch-exhaustion transaction (D-A1). Local red/green verification now proves that an aged exhausted Operator dispatching row can be recovered through the existing reconciler, with live/contended claims preserved and other topics unchanged; four focused suites pass57 tests. This correction was made after the campaign candidate above and requires its own scoped deployment check. It does not reopen the observation or retroactively claim staging proof for the corrected code. See [D-REV1](../../superpowers/plans/codex-owner-operator-run-d-deviations.md#d-rev1--recover-the-final-dispatch-after-reconciliation-rollback).
+
+The follow-up [runner](owner-operator-run-d-2026-09-13/watchdog-recovery-after-rollback-runner.mjs) is prepared but not yet executed. It verifies the exact deployed staging SHA and project, creates a minimal synthetic accepted turn beside an aged exhausted dispatching outbox using the production enqueue helper, observes the actual deployed poller for at most20 seconds, and removes all six exact rows in a guarded transaction. It requests no model work and creates no Auth identity; the synthetic location is archived to avoid unrelated location schedulers. This checks recovery of the durable rollback state, not injection of a live database outage or an alert-delivery drill. Existing mobile/desktop rendering evidence applies to the unchanged failure vocabulary and UI.
+
+| Follow-up preflight | State |
+|---|---|
+| Target staging `kubdiqdhqbhwmqfditeg`; production `udeyaqnvpojbwgoaxwdg` never a fixture target | Fixed in runner; runtime readback pending |
+| Worker candidate contains D-A1; UI/worker deployment identities recorded | Pending deployment |
+| Operator enabled and auto-approval disabled baseline | Pending runtime readback |
+| All fixed fixture IDs absent | Pending runtime readback |
+| Actual deployed watchdog terminalizes the pair with matching timestamps | Unproven |
+| Exact cleanup plus independent absence query | Unproven |
+
+Follow-up teardown ledger, registered before fixture creation:
+
+| Fixture | Fixed ID | Removal and verification | State |
+|---|---|---|---|
+| Synthetic account | `019f43d1-0000-7000-8000-000000000001` | Exact ID/owner/name guard; deferred-FK transaction; independent absence query | Planned; not created |
+| Synthetic public user, no Auth identity | `019f43d1-0000-7000-8000-000000000002` | Exact ID/account/email guard; independent absence query | Planned; not created |
+| Archived synthetic location | `019f43d1-0000-7000-8000-000000000011` | Exact ID/account/email guard; independent absence query | Planned; not created |
+| Conversation | `019f43d1-0000-7000-8000-000000000031` | Exact ID/account guard; independent absence query | Planned; not created |
+| Turn (client key ends033) | `019f43d1-0000-7000-8000-000000000032` | Exact ID/account guard; independent absence query | Planned; not created |
+| Outbox | `019f43d1-0000-7000-8000-000000000034` | Exact ID/aggregate/account guard before parent deletion; independent absence query | Planned; not created |
+
+Follow-up verdict: **PENDING**. The original campaign and its completed teardown above remain intact; this later correction is not yet claimed staging-verified.

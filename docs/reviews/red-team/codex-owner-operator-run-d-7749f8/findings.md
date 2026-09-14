@@ -309,3 +309,15 @@ The per-case reason records scope and direction. Excluded discovery rows remain 
 ## Machine artifacts
 
 Authoritative sidecar: `findings.json` beside this report. Local raw measurements: `/private/tmp/run-d-mutation-measurements/`; frozen discovery/scope: `/private/tmp/run-d-inventory.json`; semantic specs: `/private/tmp/run-d-measurement-specs.json`; static measurements: `/private/tmp/run-d-static-measurements.json`; existing restoration journal: `.feature/red-team-journal.json`. Scratch data is not a substitute for committed verdict/inventory evidence. The sidecar checker is expected to block on INCOMPLETE_BUDGET.
+
+## Owner authorization appended after round 1
+
+- ID: `owner-run-d-second-pass-200`
+- Date: 2026-09-14
+- Finding IDs: none (execution-budget continuation, not accepted risk).
+
+> Question: May I make the Run D-only verifier change described in /private/tmp/run-d-next-pass-proposal.md and run its second adversarial pass, capped at 200 local test launches? This covers the 35 unmeasured cases, the recovery correction and verifier safeguards, includes only the named supporting paths, preserves earlier evidence, uses Codex only, and grants no third round.
+>
+> Owner: Go for it
+
+This authorization permits the named Run D-only second pass with at most200 supervised local launches and the named supporting paths. It preserves this historical round-1 report and grants no third round. Round-1 status remains INCOMPLETE_BUDGET until fresh measurements resolve the remaining cases.

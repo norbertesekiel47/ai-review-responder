@@ -1595,7 +1595,14 @@
     }
   ],
   "findings": [],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "owner-run-d-second-pass-200",
+      "date": "2026-09-14",
+      "finding_ids": [],
+      "text": "Question: May I make the Run D-only verifier change described in /private/tmp/run-d-next-pass-proposal.md and run its second adversarial pass, capped at 200 local test launches? This covers the 35 unmeasured cases, the recovery correction and verifier safeguards, includes only the named supporting paths, preserves earlier evidence, uses Codex only, and grants no third round.\nOwner: Go for it"
+    }
+  ],
   "counts": {
     "inventory_total": 226,
     "killed": 15,

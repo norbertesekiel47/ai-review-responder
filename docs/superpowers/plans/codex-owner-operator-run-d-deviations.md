@@ -51,3 +51,13 @@ The four focused poller/watchdog/worker suites pass **57 tests**, including new 
 The original staging campaign remains evidence for candidate `4b13d96621b156a47dbc4140995f45745bc8114d`. It does not verify this later recovery correction; a scoped deployment check is required before shipping. The observation remains closed. The locked recovery invariant and allowed product paths are unchanged, so this is an accepted review correction, not another plan-review round.
 
 **Verdict:** ACCEPT — restore the promised recoverable-work invariant within the existing D poller and test seams. Follow-up review, final gate and scoped staging verification remain required.
+
+## D-RT1 — Owner-authorized finite second-pass budget
+
+The first adversarial pass discovered226 test identities and traced50 to changed bodies/helpers or D production hunks;176 discovery-only cases were explicitly excluded. It spent the ordinary30 launches on15 green-baseline/semantic-mutation pairs, all killed and restored. The35 remaining cases require at least70 launches, so the ordinary30-launch second-round budget cannot finish the finite inventory.
+
+The owner approved the exact Run D-only proposal with “Go for it,” permitting at most200 supervised local launches in round2 for those remaining cases, D-A1 and its callers, and the verifier safeguards. The verbatim approval, original inventory digest, preserved-history contract and four existing supporting paths are recorded in [second-pass-authorization.md](../../reviews/codex-owner-operator-run-d/second-pass-authorization.md). The nonexistent script mirror named in the draft is omitted rather than created. This is the third explicitly authorized surface amendment; product paths and the observation end are unchanged.
+
+The grant is tied to D's branch, second round, original evidence, exact committed owner approval and a pinned corrected HEAD. Every other budget, isolation and restoration safeguard remains. No third round or accepted-risk disposition is authorized. The first report remains INCOMPLETE_BUDGET until fresh measurements resolve the unmeasured cases.
+
+**Verdict:** ACCEPT — explicit owner approval for the finite next pass and narrowly named verifier support, with prior evidence retained.

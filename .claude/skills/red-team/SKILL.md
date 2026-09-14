@@ -250,6 +250,23 @@ committed admission and matching launch journal. This grants no fifth round,
 extra provider calls, accepted-risk disposition or exception to isolation,
 restoration, timeouts, per-test mutation limits or incomplete-status rules.
 
+**Owner-approved Run D second pass (2026-09-14).** Only
+`codex/owner-operator-run-d`, round 2, may use the exact committed grant
+`owner-run-d-second-pass-200` for at most **200 supervised local launches**.
+Admission descends from corrected baseline
+`bd23d56e542a825da1dc16b2c0375127ded2443c`; the finite supporting-path list,
+committed intake amendment, original 226 inventory identities and complete
+round-1 JSON evidence are checked. Only the exact owner grant may append to
+that JSON before measurement; committed Markdown retains the original bytes
+as a prefix. The first launch pins HEAD and grant before supervisor release;
+each subsequent launch rejects drift and permits only journaled mutations.
+Keep scratch files ignored or outside the worktree: untracked files also
+block this scoped pass. Missing or malformed permission fails before the
+first launch, and Run D cannot open or launch a third round, including when
+the approval text says “no third round.” Fresh report results append while
+preserving all prior evidence. Isolation, root finalization, timeouts,
+per-test mutation limits and honest incomplete statuses remain required.
+
 ## Duty 2 — fragile assertions
 
 Scan the changed tests for assertions on incidental structure. Each is **P1**,

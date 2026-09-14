@@ -304,6 +304,241 @@ describe('the owner-approved Run C fourth round', () => {
   });
 });
 
+describe('the owner-approved Run D second pass', () => {
+  const report = 'docs/reviews/red-team/codex-owner-operator-run-d-7749f8/findings.json';
+  const markdown = report.replace('.json', '.md');
+  const intakePath = 'docs/superpowers/plans/codex-owner-operator-run-d-intake.json';
+  const support = [
+    '.agents/skills/red-team/scripts/mutation-runner.mjs', '.agents/skills/red-team/SKILL.md',
+    '.claude/skills/red-team/SKILL.md', 'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+  ];
+  const addedTests = [
+    'watchdog recovery of exhausted dispatching Operator work preserves live claims and other topics',
+    'watchdog recovery of exhausted dispatching work defers a turn locked by completion',
+  ];
+  const approval = {
+    id: 'owner-run-d-second-pass-200', date: '2026-09-14', finding_ids: [],
+    text: 'Question: May I make the Run D-only verifier change described in /private/tmp/run-d-next-pass-proposal.md and run its second adversarial pass, capped at 200 local test launches? This covers the 35 unmeasured cases, the recovery correction and verifier safeguards, includes only the named supporting paths, preserves earlier evidence, uses Codex only, and grants no third round.\nOwner: Go for it',
+  };
+
+  function prepare(approve = true): void {
+    git('branch', '-m', 'codex/owner-operator-run-d');
+    write('.gitignore', '.feature/\nred-team-home/\n');
+    const inventory = JSON.parse(readFileSync(resolve(process.cwd(), report), 'utf8')).inventory
+      .slice(0, 226).map(({ id, file, test }: { id: string; file: string; test: string }) => (
+        { id, file, test, outcome: 'skipped-budget', reason: 'Original fixture evidence' }
+      ));
+    const historical = {
+      mode: 'feature', branch: 'codex/owner-operator-run-d', round: 1,
+      head_sha: '8b1c612b08d2b93208b4fbb7102f7d917ea9b9c2', inventory,
+      counts: { discovered: 226, skipped_budget: 226 },
+      findings: [{ id: 'original', reason: 'Original finding evidence' }], authorizations: [],
+    };
+    const intake = { version: 1, goal: 'Run D recovery', allowed_edit_surface: ['src/gate.ts'], tests_to_add: ['original test'] };
+    write(report, JSON.stringify(historical));
+    write(markdown, '# Original Run D evidence\n\nPreserve this trailing newline.\n');
+    write(intakePath, JSON.stringify(intake));
+    git('add', '.gitignore', report, markdown, intakePath);
+    git('commit', '-qm', 'corrected Run D baseline with original evidence');
+    const baseline = git('rev-parse', 'HEAD');
+    const blob = git('rev-parse', `HEAD:${report}`);
+    const markdownBlob = git('rev-parse', `HEAD:${markdown}`);
+    runner = join(repo, '.feature/fixture-run-d-runner.mjs');
+    mkdirSync(dirname(runner), { recursive: true });
+    // Replace immutable fixture objects only, never add a runtime bypass.
+    writeFileSync(runner, readFileSync(RUNNER, 'utf8')
+      .replace("const RUN_D_BASELINE = 'bd23d56e542a825da1dc16b2c0375127ded2443c';", `const RUN_D_BASELINE = '${baseline}';`)
+      .replace("const RUN_D_HISTORY_BLOB = '6cacfba8fcfddd2fe6c2832e8a1d51c8e88d93f0';", `const RUN_D_HISTORY_BLOB = '${blob}';`)
+      .replace("const RUN_D_MARKDOWN_BLOB = '52625d75432e613c6ae6c7f535219c81d1f9d9ec';", `const RUN_D_MARKDOWN_BLOB = '${markdownBlob}';`));
+    if (approve) {
+      write(report, JSON.stringify({ ...historical, authorizations: [approval] }));
+      write(markdown, `${read(markdown)}\nOwner authorization appended.\n`);
+      write(intakePath, JSON.stringify({ ...intake,
+        allowed_edit_surface: [...support, ...intake.allowed_edit_surface],
+        tests_to_add: [...addedTests, ...intake.tests_to_add],
+      }));
+      git('add', report, markdown, intakePath);
+      git('commit', '-qm', 'exact owner grant and scoped intake amendment');
+    }
+    write('.feature/red-team-journal.json', JSON.stringify({
+      version: 1, round: 2, runs: 0, mutations: [], dotenv: { open: false, files: [] }, supervisors: [],
+    }));
+  }
+
+  function expectRefused(count = 0): void {
+    const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+      'require("node:fs").writeFileSync(".feature/child-launched","yes")');
+    expect(result.status).toBe(1);
+    expect(journal().runs).toBe(count);
+    expect(existsSync(join(repo, '.feature/child-launched'))).toBe(false);
+  }
+
+  it('pins Run D HEAD and grant from zero before the first child can execute', () => {
+    prepare();
+    const result = run('run', ...HOME_FLAG(), '--', process.execPath, '-e',
+      'const j=JSON.parse(require("node:fs").readFileSync(".feature/red-team-journal.json","utf8"));process.exit(j.runs===1&&j.budgetAuthorization?.maxRuns===200&&j.budgetAuthorization?.firstRun===1&&j.supervisors.at(-1)?.active===true?0:9)');
+    expect(result.status).toBe(0);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toMatchObject({
+      id: approval.id, maxRuns: 200, firstRun: 1, headSha: git('rev-parse', 'HEAD'),
+    });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expect(journal().runs).toBe(2);
+  });
+
+  it.each(['missing', 'uncommitted', 'text', 'date', 'duplicate', 'extra field', 'finding ids', 'malformed']) (
+    'refuses Run D %s approval before the first child launches', (mismatch) => {
+      prepare(!['missing', 'uncommitted'].includes(mismatch));
+      const sidecar = JSON.parse(read(report));
+      if (mismatch === 'uncommitted') sidecar.authorizations.push(approval);
+      if (mismatch === 'text') sidecar.authorizations[0].text = 'Owner: Go for it';
+      if (mismatch === 'date') sidecar.authorizations[0].date = '2026-09-15';
+      if (mismatch === 'duplicate') sidecar.authorizations.push(approval);
+      if (mismatch === 'extra field') sidecar.authorizations[0].maxRuns = 201;
+      if (mismatch === 'finding ids') sidecar.authorizations[0].finding_ids = ['waived'];
+      write(report, mismatch === 'malformed' ? '{' : JSON.stringify(sidecar));
+      if (mismatch !== 'uncommitted') {
+        git('add', report);
+        git('commit', '--allow-empty', '-qm', 'invalid grant');
+      }
+      expectRefused();
+      expect(journal().supervisors).toEqual([]);
+    },
+  );
+
+  it.each(['identity', 'inventory length', 'outcome', 'count', 'finding', 'report head', 'report round', 'markdown bytes', 'markdown missing']) (
+    'preserves original Run D history by rejecting altered %s', (mismatch) => {
+      prepare();
+      const sidecar = JSON.parse(read(report));
+      if (mismatch === 'identity') sidecar.inventory[0].test = 'different test';
+      if (mismatch === 'inventory length') sidecar.inventory.pop();
+      if (mismatch === 'outcome') sidecar.inventory[0].outcome = 'killed';
+      if (mismatch === 'count') sidecar.counts.skipped_budget = 0;
+      if (mismatch === 'finding') sidecar.findings[0].reason = 'rewritten finding';
+      if (mismatch === 'report head') sidecar.head_sha = '0'.repeat(40);
+      if (mismatch === 'report round') sidecar.round = 2;
+      if (mismatch === 'markdown bytes') write(markdown, read(markdown).replace('newline.\n', 'newline.X'));
+      if (mismatch === 'markdown missing') git('rm', '-q', markdown);
+      write(report, JSON.stringify(sidecar));
+      git('add', report);
+      if (mismatch !== 'markdown missing') git('add', markdown);
+      git('commit', '-qm', 'tampered historical evidence');
+      expectRefused();
+    },
+  );
+
+  it.each(['malformed', 'missing support', 'extra support', 'duplicate support', 'goal', 'missing recovery test']) (
+    'rejects a Run D intake with %s before granting any budget', (mismatch) => {
+      prepare();
+      const intake = JSON.parse(read(intakePath));
+      if (mismatch === 'missing support') intake.allowed_edit_surface.shift();
+      if (mismatch === 'extra support') intake.allowed_edit_surface.push('src/**');
+      if (mismatch === 'duplicate support') intake.allowed_edit_surface.push(support[0]);
+      if (mismatch === 'goal') intake.goal = 'unrelated work';
+      if (mismatch === 'missing recovery test') intake.tests_to_add.shift();
+      write(intakePath, mismatch === 'malformed' ? '{' : JSON.stringify(intake));
+      git('add', intakePath);
+      git('commit', '-qm', 'invalid intake');
+      expectRefused();
+    },
+  );
+
+  it.each(['ancestry', 'committed production', 'unstaged', 'staged', 'untracked']) (
+    'rejects Run D %s scope drift at startup', (mismatch) => {
+      prepare();
+      if (mismatch === 'ancestry') {
+        const unrelated = git('commit-tree', git('rev-parse', 'HEAD^{tree}'), '-m', 'unrelated history');
+        git('update-ref', 'HEAD', unrelated);
+      } else if (mismatch === 'untracked') write('src/foreign.ts', 'untracked code');
+      else {
+        write('src/gate.ts', 'export const allow = () => true;');
+        if (mismatch !== 'unstaged') git('add', 'src/gate.ts');
+        if (mismatch === 'committed production') git('commit', '-qm', 'unexpected product edit');
+      }
+      expectRefused();
+    },
+  );
+
+  it.each(['HEAD', 'approval', 'branch', 'round', 'journal grant', 'missing pin', 'first run']) (
+    'rejects Run D %s drift after pinning and preserves its launch count', (mismatch) => {
+      prepare();
+      expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+      if (mismatch === 'HEAD') git('commit', '--allow-empty', '-qm', 'new head');
+      if (mismatch === 'approval') {
+        const sidecar = JSON.parse(read(report));
+        sidecar.authorizations[0].text = 'new grant';
+        write(report, JSON.stringify(sidecar));
+        git('add', report);
+        git('commit', '-qm', 'change grant');
+      }
+      if (mismatch === 'branch') git('branch', '-m', 'codex/other');
+      const value = JSON.parse(read('.feature/red-team-journal.json'));
+      if (mismatch === 'round') value.round = 1;
+      if (mismatch === 'journal grant') value.budgetAuthorization.maxRuns = 201;
+      if (mismatch === 'missing pin') delete value.budgetAuthorization;
+      if (mismatch === 'first run') value.budgetAuthorization.firstRun = 2;
+      writeJournal(value);
+      expectRefused(1);
+    },
+  );
+
+  it('allows a journaled Run D mutant and restores it while refusing unjournaled replacement', () => {
+    prepare();
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    write('.feature/mutant.ts', 'export const allow = () => true;');
+    expect(run('mutate', '--file', 'src/gate.ts', '--mutant', join(repo, '.feature/mutant.ts')).status).toBe(0);
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    write('src/gate.ts', 'export const allow = () => false;');
+    expectRefused(2);
+    write('src/gate.ts', read('.feature/mutant.ts'));
+    expect(run('finalize').status).toBe(0);
+    expect(read('src/gate.ts')).toBe('export const allow = (n: number) => n > 0;\n');
+  });
+
+  it('allows Run D launch 200 and refuses 201 without granting a third round from denial text', () => {
+    prepare();
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    writeJournal({ ...journal(), runs: 199 });
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expectRefused(200);
+    expect(run('round-start').stderr).toContain('grants no third round');
+    expect(journal().runs).toBe(200);
+    write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 3 }));
+    expectRefused(200);
+  });
+
+  it.each([-1, 0.5, '0', null])('rejects malformed Run D run count %s', (runs) => {
+    prepare();
+    write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), runs }));
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(1);
+    expect(journal().runs).toBe(runs);
+    expect(journal().supervisors).toEqual([]);
+  });
+
+  it.each([0, 3, 4, '2', null])('refuses Run D round %s from zero without a fallback launch', (round) => {
+    prepare();
+    write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round }));
+    expectRefused();
+    expect(journal().supervisors).toEqual([]);
+  });
+
+  it('refuses to retroactively pin a Run D budget after an unpinned launch count', () => {
+    prepare();
+    writeJournal({ ...journal(), runs: 1 });
+    expectRefused(1);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+  });
+
+  it.each(['other branch', 'first round'])('preserves ordinary launches and cap for %s', (scope) => {
+    prepare();
+    if (scope === 'other branch') git('branch', '-m', 'codex/other');
+    else write('.feature/red-team-journal.json', JSON.stringify({ ...journal(), round: 1 }));
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+    expect(JSON.parse(read('.feature/red-team-journal.json')).budgetAuthorization).toBeUndefined();
+    writeJournal({ ...journal(), runs: 30 });
+    expectRefused(30);
+  });
+});
+
 describe('the vitest oracle helpers', () => {
   // `-t` is a REGULAR EXPRESSION filter. An unescaped title selects the wrong
   // set of tests, and a kill counted from that run proves nothing.

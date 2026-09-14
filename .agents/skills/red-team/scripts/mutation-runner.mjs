@@ -113,6 +113,101 @@ const RUN_C_FOURTH_PATHS = new Set([
   'docs/reviews/finding-checklists/spec-correctness.md',
 ]);
 
+const RUN_D_BRANCH = 'codex/owner-operator-run-d';
+const RUN_D_BASELINE = 'bd23d56e542a825da1dc16b2c0375127ded2443c';
+const RUN_D_HISTORY_BLOB = '6cacfba8fcfddd2fe6c2832e8a1d51c8e88d93f0';
+const RUN_D_MARKDOWN_BLOB = '52625d75432e613c6ae6c7f535219c81d1f9d9ec';
+const RUN_D_REPORT = 'docs/reviews/red-team/codex-owner-operator-run-d-7749f8/findings.json';
+const RUN_D_MARKDOWN = 'docs/reviews/red-team/codex-owner-operator-run-d-7749f8/findings.md';
+const RUN_D_INTAKE = 'docs/superpowers/plans/codex-owner-operator-run-d-intake.json';
+const RUN_D_AUTHORIZATION = 'owner-run-d-second-pass-200';
+const RUN_D_TEXT = 'Question: May I make the Run D-only verifier change described in /private/tmp/run-d-next-pass-proposal.md and run its second adversarial pass, capped at 200 local test launches? This covers the 35 unmeasured cases, the recovery correction and verifier safeguards, includes only the named supporting paths, preserves earlier evidence, uses Codex only, and grants no third round.\nOwner: Go for it';
+const RUN_D_SUPPORT_PATHS = [
+  '.agents/skills/red-team/scripts/mutation-runner.mjs',
+  '.agents/skills/red-team/SKILL.md',
+  '.claude/skills/red-team/SKILL.md',
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
+];
+const RUN_D_ADDED_TESTS = [
+  'watchdog recovery of exhausted dispatching Operator work preserves live claims and other topics',
+  'watchdog recovery of exhausted dispatching work defers a turn locked by completion',
+];
+const RUN_D_EXTENSION_PATHS = new Set([
+  ...RUN_D_SUPPORT_PATHS, RUN_D_REPORT, RUN_D_MARKDOWN, RUN_D_INTAKE,
+  'docs/superpowers/plans/codex-owner-operator-run-d-deviations.md',
+  'docs/superpowers/plans/codex-owner-operator-run-d-plan.md',
+  'docs/reviews/codex-owner-operator-run-d/async-round-1.md',
+  'docs/reviews/codex-owner-operator-run-d/async-round-2.md',
+  'docs/reviews/codex-owner-operator-run-d/second-pass-authorization.md',
+  'docs/reviews/codex-owner-operator-run-d/budget-extension-review.md',
+  'docs/reviews/codex-owner-operator-run-d/spec-correctness-round-1.md',
+  'docs/reviews/codex-owner-operator-run-d/standards-maintainability-round-1.md',
+  'docs/reviews/finding-checklists/async.md',
+  'docs/reviews/finding-checklists/spec-correctness.md',
+  'docs/reviews/finding-checklists/standards-maintainability.md',
+  'docs/runbooks/evidence/2026-09-13-owner-operator-run-d-evidence.md',
+  'docs/runbooks/evidence/owner-operator-run-d-2026-09-13/watchdog-recovery-after-rollback-preflight.json',
+  'docs/runbooks/evidence/owner-operator-run-d-2026-09-13/watchdog-recovery-after-rollback-result.json',
+  'docs/runbooks/evidence/owner-operator-run-d-2026-09-13/watchdog-recovery-after-rollback-cleanup.json',
+  'docs/runbooks/evidence/owner-operator-run-d-2026-09-13/watchdog-recovery-after-rollback-runner.mjs',
+  '.claude/reference/lab-notes/history/2026-09.md',
+]);
+
+/** One finite second pass; neither a report rewrite nor an intake expansion grants more work. */
+function authorizedRunDBudget(root, journal) {
+  if (journal.round !== 2 || !Number.isInteger(journal.runs) || journal.runs < 0) return null;
+  try {
+    if (git(root, ['branch', '--show-current']) !== RUN_D_BRANCH) return null;
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    if (git(root, ['merge-base', RUN_D_BASELINE, headSha]) !== RUN_D_BASELINE) return null;
+    const changed = git(root, ['diff', '--name-only', '--no-renames', RUN_D_BASELINE, headSha]);
+    if (changed.split('\n').filter(Boolean).some((path) => !RUN_D_EXTENSION_PATHS.has(path))
+      || !onlyJournaledChanges(root, journal)
+      || git(root, ['ls-files', '--others', '--exclude-standard'])) return null;
+    if (git(root, ['rev-parse', `${RUN_D_BASELINE}:${RUN_D_REPORT}`]) !== RUN_D_HISTORY_BLOB
+      || git(root, ['rev-parse', `${RUN_D_BASELINE}:${RUN_D_MARKDOWN}`]) !== RUN_D_MARKDOWN_BLOB) return null;
+    const historical = JSON.parse(git(root, ['show', RUN_D_HISTORY_BLOB]));
+    const admission = JSON.parse(git(root, ['show', `${headSha}:${RUN_D_REPORT}`]));
+    if (admission?.mode !== 'feature' || admission.branch !== RUN_D_BRANCH || admission.round !== 1
+      || admission.head_sha !== '8b1c612b08d2b93208b4fbb7102f7d917ea9b9c2'
+      || !Array.isArray(admission.inventory) || admission.inventory.length !== 226
+      || !unchangedPrefix(historical.authorizations, admission.authorizations)
+      || admission.authorizations.length !== historical.authorizations.length + 1) return null;
+    const identities = admission.inventory.map((row) => ({ id: row?.id, file: row?.file, test: row?.test }));
+    if (sha256(JSON.stringify(identities)) !== 'fa3b864a18eee4f2d9fbb7e64c630e53d6d54b90da8a410a88c0d128c6b1c032') return null;
+    const authorization = admission.authorizations.at(-1);
+    if (authorization?.id !== RUN_D_AUTHORIZATION || authorization.date !== '2026-09-14'
+      || authorization.text !== RUN_D_TEXT
+      || Object.keys(authorization).sort().join(',') !== 'date,finding_ids,id,text'
+      || !Array.isArray(authorization.finding_ids) || authorization.finding_ids.length !== 0
+      || admission.authorizations.filter((entry) => entry?.id === RUN_D_AUTHORIZATION).length !== 1) return null;
+    const { authorizations: _oldGrants, ...oldEvidence } = historical;
+    const { authorizations: _newGrants, ...newEvidence } = admission;
+    if (JSON.stringify(oldEvidence) !== JSON.stringify(newEvidence)) return null;
+    const historicalMarkdown = execFileSync('git', ['cat-file', 'blob', RUN_D_MARKDOWN_BLOB], { cwd: root });
+    const admissionMarkdown = execFileSync('git', ['show', `${headSha}:${RUN_D_MARKDOWN}`], { cwd: root });
+    if (!admissionMarkdown.subarray(0, historicalMarkdown.length).equals(historicalMarkdown)) return null;
+    const originalIntake = JSON.parse(git(root, ['show', `${RUN_D_BASELINE}:${RUN_D_INTAKE}`]));
+    const intake = JSON.parse(git(root, ['show', `${headSha}:${RUN_D_INTAKE}`]));
+    const { allowed_edit_surface: originalSurface, tests_to_add: originalTests, ...originalContract } = originalIntake;
+    const { allowed_edit_surface: surface, tests_to_add: tests, ...contract } = intake;
+    if (!Array.isArray(originalSurface) || !Array.isArray(surface)
+      || !Array.isArray(originalTests)
+      || JSON.stringify(tests) !== JSON.stringify([...RUN_D_ADDED_TESTS, ...originalTests])
+      || surface.some((path) => typeof path !== 'string')
+      || JSON.stringify(originalContract) !== JSON.stringify(contract)
+      || JSON.stringify([...surface].sort())
+        !== JSON.stringify([...new Set([...originalSurface, ...RUN_D_SUPPORT_PATHS])].sort())) return null;
+    const grant = { id: authorization.id, maxRuns: 200, sha256: sha256(JSON.stringify(authorization)), headSha };
+    if ((journal.runs > 0 && !journal.budgetAuthorization)
+      || (journal.budgetAuthorization && (!sameGrant(journal.budgetAuthorization, grant)
+        || journal.budgetAuthorization.firstRun !== 1))) return null;
+    return grant;
+  } catch {
+    return null;
+  }
+}
+
 /** Pure shape check shared with the checker; matching prose alone grants nothing. */
 export function runCFourthAuthorization(sidecar) {
   if (sidecar?.mode !== 'feature' || sidecar.branch !== 'codex/owner-operator-run-c'
@@ -254,7 +349,7 @@ function authorizedRunCBudget(root, journal) {
 
 function authorizedBudget(root, journal) {
   if (journal.round === 4) return authorizedRunCFourthBudget(root, journal);
-  if (journal.round === 2) return authorizedRunCBudget(root, journal);
+  if (journal.round === 2) return authorizedRunDBudget(root, journal) ?? authorizedRunCBudget(root, journal);
   if (journal.round !== 1) return null;
   try {
     if (git(root, ['branch', '--show-current']) !== 'feat/1185') return null;
@@ -663,6 +758,13 @@ function cmdRoundStart(root) {
     return 1;
   }
   const round = (journal.round ?? 0) + 1;
+  // The Run D grant itself says "no third round"; the legacy text matcher
+  // must never interpret that denial as permission to open another round.
+  if (round >= 3 && (git(root, ['branch', '--show-current']) === RUN_D_BRANCH
+    || journal.budgetAuthorization?.id === RUN_D_AUTHORIZATION)) {
+    console.error('round-start: REFUSED — Run D authorization grants no third round');
+    return 1;
+  }
   // Two rounds is still what a run reaches on its own. A THIRD opens only on an
   // owner authorization already recorded in the sidecar. Only the explicitly
   // approved Run C fourth-round contract below extends that ceiling.
@@ -778,6 +880,12 @@ async function cmdRun(root, parsed) {
   if (argv.length === 0) usage('run needs the command after `--`');
   const journal = readJournal(root);
   const authorization = authorizedBudget(root, journal);
+  const runDBranch = git(root, ['branch', '--show-current']) === RUN_D_BRANCH;
+  if (((runDBranch && journal.round !== 1) || journal.budgetAuthorization?.id === RUN_D_AUTHORIZATION)
+    && (!authorization || journal.round !== 2 || authorization.id !== RUN_D_AUTHORIZATION)) {
+    console.error('run: Run D second-pass authorization, evidence or pinned HEAD invalid; refusing launch');
+    return 1;
+  }
   if ((journal.round >= 4 || journal.budgetAuthorization?.id === RUN_C_FOURTH_AUTHORIZATION)
     && (!authorization || journal.round !== 4 || !Number.isInteger(journal.runs) || journal.runs < 0)) {
     console.error('run: Run C fourth-round authorization or pinned HEAD invalid; refusing launch');
