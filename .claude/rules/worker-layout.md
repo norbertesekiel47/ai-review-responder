@@ -14,6 +14,7 @@ paths:
 
 ## Traps
 
+- **An exhaustion rollback can strand an already committed dispatch claim.** Prove the next recovery cycle can still select that state; do not stop at atomic rollback. Operator mechanics: lab-notes/worker-crash-net-cost-guard.md “Operator recovery after dispatch-exhaustion rollback”.
 - **BullMQ rejects `:` in job IDs** — OutboxPoller uses `_` separator.
 - **`CleanupAbandonedSignupsPoller`**: re-validate ALL predicates inside the tx with `SELECT FOR UPDATE`. `deleteUser()` is irreversible and non-transactional.
 - **Three transactions hold a lock across an external call ON PURPOSE (#415) — do not "fix" them.** `publisher/edit-publish.ts` (review+response `FOR UPDATE` across Zernio delete→post→409-verify; stops `processReview` superseding mid-edit; ≈45 s+), `billing/UpdateStripeOverageWorker.ts` (billing lock + account row across Stripe retrieve+mutation — the same-account serialization guarantee of record, `worker/index.ts` boot comment; ≈2–3 min worst case at concurrency 1), `CleanupAbandonedSignupsPoller.ts` (signup lock across `deleteUser`, 10 s; releasing first lets a completing signup lose its Auth identity). A lock that CAN be released first follows `NotificationFailoverPoller.tryClaimAlert`: claim row committed, provider call outside the tx, per-claim idempotency key, failed send KEEPS the claim. WHY: lab-notes/postgres.md "Locks across external calls".
