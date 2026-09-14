@@ -321,3 +321,73 @@ Authoritative sidecar: `findings.json` beside this report. Local raw measurement
 > Owner: Go for it
 
 This authorization permits the named Run D-only second pass with at most200 supervised local launches and the named supporting paths. It preserves this historical round-1 report and grants no third round. Round-1 status remains INCOMPLETE_BUDGET until fresh measurements resolve the remaining cases.
+
+
+# Run D round 2 — current verdict: CLEAR
+
+The scoped second pass is **CLEAR**: every in-scope inventory candidate now has a valid mutation kill. The complete inventory has **278 identities: 102 killed and176 explicitly excluded discovery rows**. There are no unresolved oracle/infra cases, skipped-budget cases, confirmed survivors or new severity findings from this verifier. This verdict does not replace root's adjudication of the concurrent reviewers or the final post-report gate.
+
+| Severity | Open findings | Disposition |
+|---|---:|---|
+| P0 | 0 | No confirmed fake oracle or new correctness/false-documentation defect established |
+| P1 | 0 | No new scoped fragile assertion, lost coverage or operational gap established |
+| P2 | 0 | None recorded |
+
+## Immutable provenance and history preservation
+
+Admission HEAD is `f1e74cd7c1310055f830f81a4bbd3667c5c964af`; fork and merge base remain `a95478037fb662cae6ce2e4cc1eb89671016b492`. The full admission gate passed with fingerprint `ccb3e22a95f368b5a9453bff97efdaa8f53abd088c13733de4576301c41cc9a1`, retained at `/private/tmp/run-d-second-pass-admission-gate.log`. Product/test/runner bytes match corrected candidate `091d86bc778480dfd3c2cbc9fbbf61017392bbe0`; the final admission adds only approved evidence/review documents. The JSON sidecar hashes the current amended intake.
+
+Everything above this appended section is the exact committed admission Markdown, including all round1 findings/inventory/provenance and the owner authorization. The original round1 JSON is permanently identified by blob `6cacfba8fcfddd2fe6c2832e8a1d51c8e88d93f0` at corrected baseline commit `bd23d56e542a825da1dc16b2c0375127ded2443c`; original Markdown blob `52625d75432e613c6ae6c7f535219c81d1f9d9ec` is retained within that exact prefix. All226 original JSON identities remain in their original order. Unchanged historical killed/excluded rows remain byte-equivalent as objects; measured rows retain prior reasons/outcomes as explicit historical evidence before the new measurement. Fifty-two new identities append. No old result or authorization was silently erased.
+
+## Duty 1 — inventory, supervision and final measurement
+
+The second-pass inventory was frozen before launches:35 previously unmeasured cases,5 previously killed direct watchdog correction callers (D157,D160,D187,D189,D192),2 new recovery integration cases, and50 expanded verifier safeguard cases. That is92 measurement candidates requiring at least184 supervised launches. Original discovery exclusions remain176; no unrelated unchanged code front was reopened.
+
+Actual round2 usage was **191/200 supervised launches**:96 baselines and95 mutants. One baseline matched two parameter cases and was refused as an oracle; three first mutants needed replacements. Every resolving baseline/mutant pair executed exactly one case. Ninety-two valid semantic kills resolve all92 candidates measured this round. Together with10 retained round1 kills outside the remeasurement set, the final unique killed count is102. No case received more than two mutants. No third round was opened or authorized; nine launches remain unused.
+
+Root invoked every launch and ran the existing finalizer after every case, including interrupted batches and correction attempts. Root's final whole-pass restoration confirmed191 process groups empty,95 mutations restored, dotenv closed and clean porcelain before any final report bytes. Final journal: `/private/tmp/run-d-round2-journal-final.json`; prior closed30-launch journal: `/private/tmp/run-d-round1-journal-final.json`.
+
+To verify the verifier itself without weakening campaign supervision, the outer CLI was an immutable byte-for-byte copy of the committed runner, SHA256 `989d7b9d7dfd4d074bd16a4756c115176da36dba8720728c59b0432cae0f242e`. Every outer invocation checked this copy against the pinned Git blob and checked HEAD. The mutation journal changed only the tracked source read by the disposable fixture tests. Root restored with the same original outer implementation. The fixed existing allowlist, validated localhost5499/test_ws4 database, scrubbed dotenv,120-second timeout, launch cap and exact-one safeguards remained enforced throughout.
+
+The admission-negative mutants turn the Run D command's rejection branch into an actual grant. This is a single semantic fail-closed-to-fail-open mutation spanning the mutable binding declaration and rejection branch. These measurements demonstrate that every prohibited fixture case rejects that admission failure; they do not claim isolated sensitivity to each redundant internal predicate. Positive admission tests also kill rejection of a valid grant, the cap test kills launch201 permission, and ordinary-path cases kill denial of their normal launch allowance.
+
+## First-attempt limits and resolution
+
+| Case | Initial measurement | Resolving evidence |
+|---|---|---|
+| D164 | First mutant changed the later `failTurnUnauthorized` helper. The revoked-owner fixture returns earlier through `generateAndAssemble` reauthorization. The globally non-equivalent mutant did not execute here; provisional oracle, not confirmedP0 or equivalent. | Second mutant changes the executed unauthorized ternary. Assertion observes exhausted instead of unauthorized at turn-worker integration line863. Green/exact-one baseline and semantic kill. |
+| D206 | First mutant removed the exhausted update, and the test indexed undefined. Conservatively treated as a test-side TypeError oracle, not a kill. | Second mutant retains both updates and removes only the exhausted CAS predicate. The explicit guard assertion fails at poller unit line341. Green/exact-one baseline and semantic kill. |
+| D216 | First mutant weakened the retryable recovery query. The fresh fixture has attempts5 and therefore never enters that branch. Provisional unexecuted-branch oracle, not confirmedP0 or equivalent. | Second mutant removes the applicable exhausted dispatched-row age fence. The fixture becomes failed instead of dispatched at watchdog integration line234. Green/exact-one baseline and semantic kill. |
+| D269 | Escaped but unanchored title for count0 also selected count0.5. Assert-one-test rejected that two-case baseline before mutation. | The end-anchored title selects only the string0 case. Green/exact-one baseline and fail-open admission mutation kill at verifier test line512. |
+
+The initial result files remain in `/private/tmp/run-d-round2-measurements/`; resolving pairs are separately preserved in `/private/tmp/run-d-round2-alternate-measurements/`. None was overwritten or miscounted as a kill.
+
+Two scratch preparation corrections spent zero launches: the driver's exact-key assertion initially omitted the runner's already-existing DATABASE_POOL_URL alias, and initial alternate-driver generation had a syntax error before any runner call. Both were corrected before execution. No allowlist was widened: both database aliases were validated in memory against the same local value. The15 obsolete round1 environment-output logs were deleted after their local DB URL retention was identified; all result/journal evidence remains. Round2 never persisted the raw environment output.
+
+## Duties 2–5 — scoped findings
+
+**Fragile assertions:** inspected the added correction and verifier tests plus the changed watchdog SQL assertion. The recovery tests observe terminal state, matching timestamps, live/contended preservation and unrelated-topic exclusion. The verifier tests exercise committed history, grant shape, scope, cap, ordinary fallback and process admission in disposable repositories. No newly introduced rendered-string-count, absence-of-tag proxy, or ordering-without-contract assertion was established. D206's unsafe indexing was treated conservatively during mutation classification and resolved through its explicit guard assertion; the valid kill is not attributed to that TypeError.
+
+**Docs versus reality:** inspected pinned corrected source and the committed follow-up runner/preflight/result/cleanup evidence. The actual staged poller changed the accepted/aged exhausted-dispatching pair to failed/dispatch_exhausted with matching completion timestamp `2026-09-14T19:17:47.567765Z`, attempts5 and tokenNULL. Six fixture entities were absent at the first cleanup readback; the retained independent SQL checks all ten account/identity/work scopes as zero at `19:18:21.401216Z`. The runner seeds the durable rollback state through the production enqueue helper and waits for the deployed poller; it does not call the reconciler itself, request model work, create Auth, or represent a live outage injection. Its code retains cleanup ownership across timeout and uncertain seed acknowledgement. The documents accurately separate this backend proof from the original unchanged UI/campaign evidence and distinguish the597ms single capture from a latency distribution. The original shorter-than24-hour observation amendment and measurement limits remain intact. No browser or remote provider call was repeated by this verifier.
+
+**Sibling search:** searched the pinned production poller for `dispatching`, `attempts >= max_attempts`, `dispatched_at`, and `reconcileTurnForFailedOutbox`; inspected the failure callback, normal claim, retryable watchdog and both exhausted recovery branches. The new exhausted-dispatching arm is limited to agent_turn and retains the existing two-minute/null timestamp fence; other topics keep their behavior. Searched the runner for `authorizedRunDBudget`, `RUN_D_AUTHORIZATION`, `round-start`, and the Run D invalid-admission guard; inspected both opening and launching so denial text cannot grant round3. Existing Run C/ordinary paths remain outside the D grant. No missed sibling was established within these correction/safeguard patterns.
+
+**Operational completeness:** the corrected terminal path uses the same transaction/reconciler, bounded last_error class and outbox_failed:agent_turn health signal already inspected in round1. Its identity, subsystem/finding filter, error level, topic/count/window title, documented first-seen cadence and Discord destination remain consistent. The verifier's rejected local CLI admission is a command failure, not a new deployed service alert path. No signal/rule mismatch was established; no delivery drill or recurring-page guarantee is claimed.
+
+## Final authorizations and archived execution authority
+
+The final JSON contains no accepted-risk authorizations: `authorizations: []`, consistent with zero findings and zero waived risks. The completed execution grant `owner-run-d-second-pass-200` remains verbatim in the historical admission prefix above and in the immutable admission JSON at commit `f1e74cd7c1310055f830f81a4bbd3667c5c964af`, path `docs/reviews/red-team/codex-owner-operator-run-d-7749f8/findings.json`. The closed journal binds that admission HEAD, exact grant digest and200-launch cap; all191 launches retain their original authorization.
+
+### Owner-approved final record-format exception — 2026-09-14
+
+> Question: D’s 92 checks are complete, using 191 of the 200 approved launches. May I make the reviewed report-format correction in /private/tmp/run-d-final-report-format-proposal.md: keep your test-budget approval in the permanent history, and leave the final risk-waiver list empty because no findings were waived? This needs no code changes or extra tests.
+>
+> Owner: Yes, make the report-format correction
+
+Native Codex reviewer `/root/run_d_budget_review` approved this format under that explicit owner exception after independently checking the admission object, grant digest, original226 identities, historical Markdown prefix, zero accepted risk and closed191-launch journal. This changes only the final recording location of completed execution authority. No result, finding, measured HEAD, intake hash, budget, round, checker or product source changed; no further launch was authorized or performed. The unchanged runner would refuse additional launches against the edited final report or a moved HEAD.
+
+## Final machine evidence
+
+The JSON sidecar is schema1 and derives CLEAR from278 rows,102 killed,176 excluded, zero inconclusive/skipped-budget/open findings. Full discovery and scope: `/private/tmp/run-d-round2-inventory.json`; semantic specifications: `/private/tmp/run-d-round2-specs.json`; primary result pairs: `/private/tmp/run-d-round2-measurements/`; corrected pairs: `/private/tmp/run-d-round2-alternate-measurements/`. Original immutable inventory and measurements remain represented by the admission prefix and pinned historical Git objects. Only these two report artifacts are changed by this verifier; root owns committing evidence and refreshing the full gate afterward.
+
+**Report-format correction:** the first read-only status check rejected the completed execution grant at `.agents/skills/feature/scripts/red-team-status.mjs:405` because that final authorization list requires finding IDs and only exempts the older Run C work grant. The owner-approved exception above archives the exact completed D grant in permanent admission evidence and leaves the final risk-waiver list empty. No findings were fabricated and no checker machinery changed. Root ran the unchanged status checker successfully: round2, CLEAR,278 inventory rows,0 findings. The final post-report gate remains separate and required.
