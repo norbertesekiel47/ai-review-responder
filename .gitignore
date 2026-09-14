@@ -203,3 +203,6 @@ gates/
 # Local generation output and scratch renders (see docs/brand-asset-library/README.md, "Adding material")
 output/
 tmp/
+
+# Stray file from a tool writing to the literal SQLite name ":memory:"
+:memory:*
