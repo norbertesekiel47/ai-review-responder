@@ -153,7 +153,9 @@ demoed, or hinted at with a date. When an owner asks for one, the line is:
 - [ ] You have a **RepWorth admin account with two-factor authentication
   (MFA) enrolled**. The onboarding form refuses to work without MFA. Norbert
   sets this up — do it days before your first meeting, not the morning of.
-- [ ] You've clicked through the admin onboarding form (`/admin/businesses/new`)
+- [ ] You've clicked through the admin onboarding form
+  (`https://admin.repworth.net/admin/businesses/new` — the **Admin app**, not
+  `repworth.net`; the old admin pages there were retired in the admin split)
   once against a made-up test business so the meeting isn't your first time
   seeing it. It is **three fields** — owner email, owner name, business name —
   and nothing else. Ask Norbert to clean up the test afterwards.
@@ -245,7 +247,8 @@ Cover, in your own words:
 ### Step 2 — Create their account (2 min, you drive, screen NOT shared for this part)
 
 On **your** screen (don't share it — the admin console shows internal tools),
-open **`/admin/businesses/new`**. It is **three fields**:
+open **`https://admin.repworth.net/admin/businesses/new`** (the Admin app —
+sign in there with your password and authenticator code). It is **three fields**:
 
 1. **Owner email** — the one they actually read. Everything downstream depends
    on this being right: the invite, the approval emails, the digest.
@@ -561,8 +564,9 @@ confidence; ten minutes of on-call fiddling destroys it.
 
 ### Resending the invite email (you can do this yourself)
 
-Open the business in the admin console (`/admin/businesses/[id]`) and use
-**Resend invite**. It sends the same invitation email to the same address.
+Open the business in the Admin app (`https://admin.repworth.net/admin/businesses/[id]`)
+and use **Resend invite** in the **Owner invite** panel (it shows only while the
+account has not paid yet). It sends the same invitation email to the same address.
 
 Two things to know:
 
