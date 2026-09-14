@@ -1,5 +1,8 @@
 sandbox_mode = "workspace-write"
 
+web_search = "live"
+model_verbosity = "high"
+model_reasoning_summary = "detailed"
 [features]
 hooks = true
 
@@ -22,3 +25,6 @@ url = "https://mcp.context7.com/mcp"
 required = false
 startup_timeout_sec = 15
 tool_timeout_sec = 60
+
+[sandbox_workspace_write]
+network_access = true
