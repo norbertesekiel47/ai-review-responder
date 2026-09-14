@@ -1,0 +1,31 @@
+{
+  "kind": "cleanup",
+  "captured_at": "2026-09-14T19:17:48.798Z",
+  "remaining": {
+    "accounts": 0,
+    "users": 0,
+    "businesses": 0,
+    "conversations": 0,
+    "turns": 0,
+    "outboxes": 0
+  },
+  "independent_readback": {
+    "project_id": "kubdiqdhqbhwmqfditeg",
+    "query": "SELECT NOW()::text AS captured_at,\n (SELECT count(*)::int FROM accounts WHERE id='019f43d1-0000-7000-8000-000000000001') AS accounts,\n (SELECT count(*)::int FROM users WHERE id='019f43d1-0000-7000-8000-000000000002' OR account_id='019f43d1-0000-7000-8000-000000000001') AS users,\n (SELECT count(*)::int FROM businesses WHERE id='019f43d1-0000-7000-8000-000000000011' OR account_id='019f43d1-0000-7000-8000-000000000001') AS businesses,\n (SELECT count(*)::int FROM agent_conversations WHERE id='019f43d1-0000-7000-8000-000000000031' OR account_id='019f43d1-0000-7000-8000-000000000001') AS conversations,\n (SELECT count(*)::int FROM agent_turns WHERE id='019f43d1-0000-7000-8000-000000000032' OR client_turn_key='019f43d1-0000-7000-8000-000000000033' OR account_id='019f43d1-0000-7000-8000-000000000001') AS turns,\n (SELECT count(*)::int FROM job_outbox WHERE id='019f43d1-0000-7000-8000-000000000034' OR aggregate_id='019f43d1-0000-7000-8000-000000000032' OR payload->>'account_id'='019f43d1-0000-7000-8000-000000000001') AS outboxes,\n (SELECT count(*)::int FROM agent_proposals WHERE account_id='019f43d1-0000-7000-8000-000000000001') AS proposals,\n (SELECT count(*)::int FROM api_costs WHERE account_id='019f43d1-0000-7000-8000-000000000001') AS costs,\n (SELECT count(*)::int FROM agent_runs WHERE account_id='019f43d1-0000-7000-8000-000000000001') AS runs,\n (SELECT count(*)::int FROM auth.users WHERE email='run-d-rollback-bd23d56e@e2e.repworth.net') AS auth_users;",
+    "rows": [
+      {
+        "captured_at": "2026-09-14 19:18:21.401216+00",
+        "accounts": 0,
+        "users": 0,
+        "businesses": 0,
+        "conversations": 0,
+        "turns": 0,
+        "outboxes": 0,
+        "proposals": 0,
+        "costs": 0,
+        "runs": 0,
+        "auth_users": 0
+      }
+    ]
+  }
+}
