@@ -160,3 +160,7 @@ Automatic approval review initially rejected the database deletion because it qu
 ## Verdict
 
 Staging campaign **PASS under the owner's explicit duration amendment**, with zero open unproven staging paths and teardown complete at **2026-09-14T18:02:53.328846Z**. Tone, pinned location, observation and controlled browser recovery checks passed. No full 24-hour observation is claimed. Run D's final gate, independent review, adversarial verification and shipping remain outstanding; this campaign verdict does not close those feature workflow steps.
+
+### Post-campaign review correction
+
+The subsequent independent async review found a recovery gap after rollback of the new dispatch-exhaustion transaction (D-A1). Local red/green verification now proves that an aged exhausted Operator dispatching row can be recovered through the existing reconciler, with live/contended claims preserved and other topics unchanged; four focused suites pass57 tests. This correction was made after the campaign candidate above and requires its own scoped deployment check. It does not reopen the observation or retroactively claim staging proof for the corrected code. See [D-REV1](../../superpowers/plans/codex-owner-operator-run-d-deviations.md#d-rev1--recover-the-final-dispatch-after-reconciliation-rollback).

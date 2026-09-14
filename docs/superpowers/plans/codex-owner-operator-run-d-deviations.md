@@ -39,3 +39,15 @@ The intake and plan now carry this owner-approved duration amendment. Retain the
 Final browser recovery proof, fixture cleanup, gates, independent and adversarial reviews, feature merge and separate documentation closeout are still owed. E remains paused until D closeout. The earlier D-DOC1/full-day wording remains historical; this decision supersedes its duration requirement.
 
 **Verdict:** ACCEPT — explicit owner approval changes the duration requirement, with the actual interval and unchanged remaining acceptance work recorded.
+
+## D-REV1 — Recover the final dispatch after reconciliation rollback
+
+Independent async review D-A1 identified a continuation missing from the new coupled exhaustion transaction. If reconciliation aborts after the terminal outbox update, rollback correctly leaves the turn accepted and its outbox dispatching at its final attempt. Existing pending claims and watchdog predicates never take ownership of that pair. The inherited generic omission becomes an additional failure path of D's new transaction.
+
+Root reproduced this by extending the existing rollback integration case: after the injected database failure, age the exact dispatch and run the production watchdog. The original code leaves the pair stuck; the correction terminalizes the exact Operator pair atomically. The existing terminal watchdog query now also includes exhausted `agent_turn` dispatching rows beyond the existing two-minute stale-claim fence, or with no dispatch timestamp. Other topics retain their existing predicates, and no timing or attempt budget changes. The same reconciler preserves live or contended claims as recoverable dispatched work.
+
+The four focused poller/watchdog/worker suites pass **57 tests**, including new live-claim, other-topic, missing-timestamp and contended-completion coverage. The SQL-shape unit assertion was updated for the status-specific fallback error wording; live-DB assertions still prove existing errors are preserved. Root also corrected a pre-existing sibling-proposal test that inferred model order from tied transaction timestamps; it now identifies proposals by their distinct inputs and asserts exact reply order.
+
+The original staging campaign remains evidence for candidate `4b13d96621b156a47dbc4140995f45745bc8114d`. It does not verify this later recovery correction; a scoped deployment check is required before shipping. The observation remains closed. The locked recovery invariant and allowed product paths are unchanged, so this is an accepted review correction, not another plan-review round.
+
+**Verdict:** ACCEPT — restore the promised recoverable-work invariant within the existing D poller and test seams. Follow-up review, final gate and scoped staging verification remain required.

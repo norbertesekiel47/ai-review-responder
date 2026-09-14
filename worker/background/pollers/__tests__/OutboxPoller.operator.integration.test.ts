@@ -131,6 +131,19 @@ describeWithDb('Operator dispatch exhaustion through the production phase', { en
     const aborting = abortingExecutor(db, (tx) => tx`SELECT 1 / 0`);
     await expect(failDispatch([fixture.outboxId], aborting)).rejects.toMatchObject({ code: '22012' });
     expect(await readPair(fixture.turnId, fixture.outboxId)).toMatchObject({ turn_status: 'accepted', outbox_status: 'dispatching', attempts: 5, failure_reason: null, turn_completed: null, outbox_completed: null });
+
+    // Once the database recovers, the rolled-back final dispatch still needs
+    // an owner. A fresh dispatch is left alone; an aged one fails atomically.
+    await runOutboxWatchdogRecovery(db, 900, logger);
+    expect(await readPair(fixture.turnId, fixture.outboxId)).toMatchObject({ turn_status: 'accepted', outbox_status: 'dispatching' });
+    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '3 minutes' WHERE id = ${fixture.outboxId}::uuid`;
+    await runOutboxWatchdogRecovery(db, 900, logger);
+    const recovered = await readPair(fixture.turnId, fixture.outboxId);
+    expect(recovered).toMatchObject({ turn_status: 'failed', failure_reason: 'dispatch_exhausted', outbox_status: 'failed', attempts: 5 });
+    expect(recovered.turn_completed).not.toBeNull();
+    expect(recovered.turn_completed).toBe(recovered.outbox_completed);
+    const [outbox] = await db<{ last_error: string }[]>`SELECT last_error FROM job_outbox WHERE id = ${fixture.outboxId}::uuid`;
+    expect(outbox?.last_error).toBe('Stale dispatching entry exceeded max_attempts');
   });
 
   it('dispatch exhaustion preserves running and terminal turns after an ambiguous enqueue failure', async () => {
@@ -145,6 +158,50 @@ describeWithDb('Operator dispatch exhaustion through the production phase', { en
       const f = fixtures[i]!;
       expect(await readPair(f.turnId, f.outboxId)).toMatchObject({ ...before[i], outbox_status: i === 0 ? 'dispatched' : 'failed', attempts: 5, outbox_completed: i === 0 ? null : expect.any(String) });
     }
+  });
+
+  it('watchdog recovery of exhausted dispatching Operator work preserves live claims and other topics', async () => {
+    const live = await seedTurn();
+    const otherTopic = await seedTurn();
+    const missingTimestamp = await seedTurn();
+    await claimTurn(db, { turnId: live.turnId, accountId: tenant.accountId, leaseSeconds: 180 });
+    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '3 minutes' WHERE id = ANY(${[live.outboxId, otherTopic.outboxId]}::uuid[])`;
+    await db`UPDATE job_outbox SET topic = 'generate_response' WHERE id = ${otherTopic.outboxId}::uuid`;
+    await db`UPDATE job_outbox SET dispatched_at = NULL WHERE id = ${missingTimestamp.outboxId}::uuid`;
+
+    await runOutboxWatchdogRecovery(db, 900, logger);
+    expect(await readPair(live.turnId, live.outboxId)).toMatchObject({ turn_status: 'running', outbox_status: 'dispatched', attempts: 5, outbox_completed: null });
+    expect(await readPair(otherTopic.turnId, otherTopic.outboxId)).toMatchObject({ turn_status: 'accepted', outbox_status: 'dispatching', attempts: 5, outbox_completed: null });
+    const recovered = await readPair(missingTimestamp.turnId, missingTimestamp.outboxId);
+    expect(recovered).toMatchObject({ turn_status: 'failed', outbox_status: 'failed', failure_reason: 'dispatch_exhausted', attempts: 5 });
+    expect(recovered.turn_completed).not.toBeNull();
+    expect(recovered.turn_completed).toBe(recovered.outbox_completed);
+  });
+
+  it('watchdog recovery of exhausted dispatching work defers a turn locked by completion', async () => {
+    const fixture = await seedTurn();
+    await claimTurn(db, { turnId: fixture.turnId, accountId: tenant.accountId, leaseSeconds: 180 });
+    await db`UPDATE job_outbox SET dispatched_at = NOW() - INTERVAL '3 minutes' WHERE id = ${fixture.outboxId}::uuid`;
+    let announceLock!: () => void;
+    let releaseLock!: () => void;
+    const locked = new Promise<void>((resolve) => { announceLock = resolve; });
+    const released = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const completion = db.begin(async (tx) => {
+      await tx`SELECT id FROM agent_turns WHERE id = ${fixture.turnId}::uuid AND account_id = ${tenant.accountId}::uuid FOR UPDATE`;
+      announceLock();
+      await released;
+      await tx`UPDATE agent_turns SET status = 'completed', completed_at = NOW() WHERE id = ${fixture.turnId}::uuid AND account_id = ${tenant.accountId}::uuid`;
+      await tx`UPDATE job_outbox SET status = 'completed', completed_at = NOW() WHERE id = ${fixture.outboxId}::uuid AND status = 'dispatched' AND attempts = 5`;
+    });
+    try {
+      await locked;
+      await runOutboxWatchdogRecovery(db, 900, logger);
+      expect(await readPair(fixture.turnId, fixture.outboxId)).toMatchObject({ turn_status: 'running', outbox_status: 'dispatched', attempts: 5 });
+    } finally {
+      releaseLock();
+      await completion;
+    }
+    expect(await readPair(fixture.turnId, fixture.outboxId)).toMatchObject({ turn_status: 'completed', outbox_status: 'completed', attempts: 5 });
   });
 
   it('a worker crash after ambiguous dispatch exhaustion remains recoverable by the watchdog', async () => {

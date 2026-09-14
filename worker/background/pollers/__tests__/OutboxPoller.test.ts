@@ -107,7 +107,7 @@ describe('OutboxPoller.pollOutbox', () => {
     // #719 for three months. Live-DB proof of the value-level behavior is in
     // OutboxPoller.watchdog.integration.test.ts; this pins the SQL shape.
     expect(sqlText(mockTx.mock.calls[1])).toContain(
-      "COALESCE(NULLIF(last_error, ''), 'Stale dispatched entry exceeded max_attempts')",
+      "COALESCE(NULLIF(last_error, ''), CASE WHEN status = 'dispatching'",
     );
     expect(sqlText(mockTx.mock.calls[2])).toContain("status = 'dispatching'");
     expect(sqlText(mockTx.mock.calls[2])).toContain("INTERVAL '2 minutes'");

@@ -128,15 +128,24 @@ export async function runOutboxWatchdogRecovery(
     // recording anything. This writes nothing new itself, so the
     // bounded-class-only PII contract (worker/jobs/csv-ingest/failed-hook.ts)
     // is honored by construction.
+    // A failed reconciliation can roll the final dispatch attempt back to
+    // dispatching. Recover that Operator pair after the existing claim fence;
+    // otherwise no pending claim or dispatched watchdog can own it again.
     const [terminated] = await tx<{ count: string; operator_ids: string[] | null }[]>`
       WITH terminated AS (
         UPDATE job_outbox
         SET status = 'failed',
-            last_error = COALESCE(NULLIF(last_error, ''), 'Stale dispatched entry exceeded max_attempts'),
+            last_error = COALESCE(NULLIF(last_error, ''), CASE WHEN status = 'dispatching'
+              THEN 'Stale dispatching entry exceeded max_attempts'
+              ELSE 'Stale dispatched entry exceeded max_attempts' END),
             completed_at = NOW()
-        WHERE status = 'dispatched'
-          AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs})
-          AND attempts >= max_attempts
+        WHERE attempts >= max_attempts
+          AND (
+            (status = 'dispatched'
+              AND dispatched_at < NOW() - make_interval(secs => ${watchdogStaleSecs}))
+            OR (topic = ${QUEUE_NAMES.AGENT_TURN} AND status = 'dispatching'
+              AND (dispatched_at IS NULL OR dispatched_at < NOW() - INTERVAL '2 minutes'))
+          )
         RETURNING id, topic
       )
       SELECT COUNT(*)::text AS count,
