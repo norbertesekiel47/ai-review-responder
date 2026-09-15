@@ -134,6 +134,40 @@ export type ValidationResult =
   | { ok: true; output: ModelOutput; proposals: ParsedProposal[]; restoreRequests: ParsedRestoreRequest[] }
   | { ok: false; reasons: string[] };
 
+// Diagnostic labels only: never return a reason or its model-controlled suffix.
+// Keep every current semantic reason represented; a future unmatched reason
+// remains private and is reported as unknown_semantic_rejection.
+const SEMANTIC_REJECTION_PREFIXES = [
+  ['a text segment states a count next to a metric word;', 'invented_count'],
+  ['a question segment states a count next to a metric word;', 'invented_count'],
+  ['a text segment claims a completion;', 'completion_claim'],
+  ['a question segment claims a completion;', 'completion_claim'],
+  ['duplicate refusal_ref reason', 'duplicate_refusal_ref'],
+  ['status_ref names a metric outside the snapshot:', 'unknown_status_metric'],
+  ['proposal_ref points at a proposal index that was not returned', 'invalid_proposal_ref'],
+  ['scope_check names the location this turn is already prepared for', 'scope_check_current_location'],
+  ['scope_check names a location outside this account', 'scope_check_foreign_location'],
+  ['a scope_check and a proposal for the stored location cannot coexist', 'scope_check_with_proposal'],
+  ['proposal scope names another account', 'proposal_foreign_account'],
+  ['proposal scope is neither the stored location nor the account default', 'proposal_foreign_location'],
+  ['proposal scope must name the stored location for ', 'proposal_location_required'],
+  ['restore_last is not available for this account', 'restore_unavailable'],
+  ['restore_last input must be empty', 'restore_input_not_empty'],
+  ['proposal names an operation outside the catalog:', 'unknown_operation'],
+  ['proposal names an operation this account may not use:', 'operation_unavailable'],
+  ['proposal input is outside the domain for ', 'invalid_operation_input'],
+] as const;
+
+type SemanticRejectionCode = typeof SEMANTIC_REJECTION_PREFIXES[number][1]
+  | 'unknown_semantic_rejection';
+
+/** One closed code per reason, preserving order and count without logging prose. */
+export function semanticRejectionCodes(reasons: readonly string[]): SemanticRejectionCode[] {
+  return reasons.map((reason) =>
+    SEMANTIC_REJECTION_PREFIXES.find(([prefix]) => reason.startsWith(prefix))?.[1]
+      ?? 'unknown_semantic_rejection');
+}
+
 /** One proposal exactly as the model returned it, before the catalog sees it. */
 type ProposedOperation = ModelOutput['proposals'][number];
 

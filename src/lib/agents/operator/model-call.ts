@@ -11,7 +11,7 @@ import type { LLMCallResult } from '@/lib/llm/types';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import type { Snapshot } from './context';
 import { buildOperatorPrompt, operatorSystemPromptHash, OWNER_OPERATOR_PROMPT_VERSION } from './prompt';
-import { validateModelOutput, type ParsedProposal, type ParsedRestoreRequest } from './render';
+import { semanticRejectionCodes, validateModelOutput, type ParsedProposal, type ParsedRestoreRequest } from './render';
 import { OperatorModelOutputSchema, type ModelOutput } from './schema';
 
 type Sql = postgres.Sql;
@@ -181,6 +181,8 @@ export async function generateOperatorReply(
       turn_id: input.turnId,
       attempt,
       reason_count: validated.reasons.length,
+      // The shared logger retains scalars but drops arrays.
+      rejection_codes: semanticRejectionCodes(validated.reasons).join(','),
     });
   }
 

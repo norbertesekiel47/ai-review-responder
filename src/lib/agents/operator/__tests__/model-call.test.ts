@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { runLlmTask, recordApiCost, calculateCostUsd, withCostGuard, capturedCents } = vi.hoisted(() => {
   const capturedCents: number[] = [];
@@ -97,6 +97,34 @@ function validReply() {
 }
 
 describe('operator model call', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('logs only closed rejection codes with the existing attempt metadata for semantic failures', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const privateMetric = 'PRIVATE_METRIC_DO_NOT_LOG';
+    runLlmTask.mockResolvedValue({ ...validReply(), structured: {
+      segments: [{ type: 'status_ref', metric: privateMetric }],
+      proposals: [], unsupported: [],
+    } });
+
+    const result = await generateOperatorReply(sql, {
+      accountId: ACCOUNT, locationId: LOCATION, subscriptionTier: 'copilot',
+      snapshot, ownerText: 'Show the pending work.', turnId: TURN,
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'model_output_invalid', attempts: 2 });
+    expect(warn.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([1, 2].map((attempt) =>
+      expect.objectContaining({
+        message: 'owner_operator output rejected by validator',
+        data: { turn_id: TURN, attempt, reason_count: 1, rejection_codes: 'unknown_status_metric' },
+      })));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(privateMetric);
+    // Diagnosis changes neither the validation retry nor billing behavior.
+    expect(runLlmTask).toHaveBeenCalledTimes(2);
+    expect(recordApiCost).toHaveBeenCalledTimes(2);
+    expect((runLlmTask.mock.calls[1]![1] as { user: string }).user).toContain(privateMetric);
+  });
+
   it('returns indexed restore requests separately from ordinary proposals after one billed validation', async () => {
     const reply = validReply();
     runLlmTask.mockResolvedValueOnce({ ...reply, structured: {

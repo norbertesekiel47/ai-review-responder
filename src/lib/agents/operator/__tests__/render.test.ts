@@ -4,6 +4,7 @@ import {
   REVIEW_TEXT_REMOVED_MARKER,
   renderSegments,
   scrubPastedReview,
+  semanticRejectionCodes,
   validateModelOutput,
 } from '../render';
 import { modelVisibleOperations } from '../catalog';
@@ -69,6 +70,42 @@ const toneProposal = {
 };
 
 describe('operator output validator', () => {
+  it('distinguishes completion, scope and reference rejection diagnostics from real validation', () => {
+    const result = validateModelOutput(output({
+      segments: [
+        { type: 'text', text: 'I have updated your tone.' },
+        { type: 'scope_check', locationId: LOCATION },
+        { type: 'proposal_ref', index: 0 },
+      ],
+    }), snapshot);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Expected semantic rejection');
+    expect(semanticRejectionCodes(result.reasons)).toEqual([
+      'completion_claim', 'invalid_proposal_ref', 'scope_check_current_location',
+    ]);
+  });
+
+  it('never copies model-controlled reason suffixes or unknown reasons into diagnostic codes', () => {
+    const privateText = 'PRIVATE_SENTINEL\n{"owner_text":"DO_NOT_LOG"}';
+    const codes = semanticRejectionCodes([
+      `status_ref names a metric outside the snapshot: ${privateText}`,
+      `proposal names an operation outside the catalog: ${privateText}`,
+      `proposal names an operation this account may not use: ${privateText}`,
+      `proposal scope must name the stored location for ${privateText}`,
+      `proposal input is outside the domain for ${privateText}`,
+      privateText,
+      '__proto__',
+    ]);
+    expect(codes).toEqual([
+      'unknown_status_metric', 'unknown_operation', 'operation_unavailable',
+      'proposal_location_required', 'invalid_operation_input',
+      'unknown_semantic_rejection', 'unknown_semantic_rejection',
+    ]);
+    expect(JSON.stringify(codes)).not.toContain('PRIVATE_SENTINEL');
+    expect(JSON.stringify(codes)).not.toContain('DO_NOT_LOG');
+    expect(semanticRejectionCodes([])).toEqual([]);
+  });
+
   it('keeps ordinary proposals separate from indexed Restore requests in a mixed refusal reply', () => {
     const ready = { ...snapshot, allowedOperations: modelVisibleOperations({ blockReasons: [] }) };
     const restore = { ...toneProposal, operation: 'restore_last', input: {} };
