@@ -34,6 +34,8 @@ export interface ProposalWrites {
   errors: Record<string, string>;
   /** Retained until a durable read places this new card, even outside the transcript window. */
   preparedProposal: ProposalView | null;
+  /** Server write responses override older timeline reads, including rejected writes. */
+  updatedProposals: Record<string, ProposalView>;
   write: (proposal: ProposalView, action: 'apply' | 'decline' | 'restore', confirmationLevel?: string) => Promise<void>;
 }
 
@@ -52,6 +54,7 @@ export function useProposalWrites({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [preparedProposal, setPreparedProposal] = useState<ProposalView | null>(null);
+  const [updatedProposals, setUpdatedProposals] = useState<Record<string, ProposalView>>({});
   const writing = useRef(false);
 
   /**
@@ -90,6 +93,7 @@ export function useProposalWrites({
           : writtenProposal(result.body);
         if (row !== null) {
           patchProposal(row);
+          setUpdatedProposals((current) => ({ ...current, [row.id]: row }));
           setPreparedProposal((current) => action === 'restore' || current?.id === row.id ? row : current);
         }
         if (result.kind === 'error') {
@@ -110,5 +114,6 @@ export function useProposalWrites({
     [onDisabled, patchProposal, reloadTranscript],
   );
 
-  return useMemo(() => ({ busyId, errors, preparedProposal, write }), [busyId, errors, preparedProposal, write]);
+  return useMemo(() => ({ busyId, errors, preparedProposal, updatedProposals, write }),
+    [busyId, errors, preparedProposal, updatedProposals, write]);
 }

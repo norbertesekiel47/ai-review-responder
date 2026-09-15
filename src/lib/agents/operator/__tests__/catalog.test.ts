@@ -168,9 +168,9 @@ describe('operator catalog', () => {
     expect(clear.describeChange(input, suspended, target)).toContain('suspension');
   });
 
-  it('catalog separates read, proposable, and capture kinds by type and exposes only model-visible operations to the prompt', () => {
-    // Three kinds, and the discriminant is what separates them: only a
-    // `proposable` carries the write-shaped members, so a read or a capture
+  it('catalog separates read, proposable, capture, and prepare kinds by type and exposes only model-visible operations to the prompt', () => {
+    // The discriminant separates the kinds: only a
+    // `proposable` carries the write-shaped members, so other kinds
     // cannot be registered as immediately executable.
     expect(new Set(Object.values(CATALOG).map((op) => op.kind)))
       .toEqual(new Set(['read', 'proposable', 'capture', 'prepare']));
@@ -180,14 +180,14 @@ describe('operator catalog', () => {
         expect(typeof op.preview).toBe('function');
         expect(op.scopeRule).toBe(op.domain === 'voice' || op.id === 'clear_location_override' ? 'location' : 'account_or_location');
       } else {
-        // Narrowing proves the absence: a read/capture has no such members.
+        // Narrowing proves the absence: non-proposable kinds have no such members.
         expect('parseInput' in op).toBe(false);
         expect('preview' in op).toBe(false);
         expect(typeof op.describe).toBe('string');
       }
     }
     // `proposableOperation` is the only door to the write-shaped members, and
-    // it refuses a read, a capture and an unregistered id alike.
+    // it refuses reads, captures, preparations and unregistered ids alike.
     expect(proposableOperation('set_tone')?.domain).toBe('voice');
     expect(proposableOperation('set_daily_cap')?.domain).toBe('policy');
     expect(proposableOperation('read_pending_work')).toBeNull();

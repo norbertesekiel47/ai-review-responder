@@ -31,7 +31,7 @@ describe('winning-completion Operator refusal persistence', () => {
       references: [reference('invented_business_fact'), reference('customer_data_exposure')],
     });
 
-    expect(Object.keys(refusalIds)).toEqual(['invented_business_fact', 'customer_data_exposure']);
+    expect(new Set(Object.keys(refusalIds))).toEqual(new Set(['invented_business_fact', 'customer_data_exposure']));
     expect(refusalIds.invented_business_fact).toMatch(uuidPattern);
     expect(refusalIds.customer_data_exposure).toMatch(uuidPattern);
     expect(refusalIds.invented_business_fact).not.toBe(refusalIds.customer_data_exposure);

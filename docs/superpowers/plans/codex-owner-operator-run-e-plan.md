@@ -31,8 +31,8 @@ No production Operator enablement. No new direct keyed probes: the prior five-ca
 
 - `catalog.ts:164`: single policy writer patch; `operation-inputs.ts`: strict ordinary schemas. Put per-operation inverse derivation with the catalog and a cohesive restore preparation module. Existing `proposals.ts` owns persistence; reuse its inserts/views rather than duplicating a second proposal engine.
 - `auto-approval/settings.ts:229,465,662`: gate-before-write, final-state calculation, suspended clear and mutation dispatcher. Extend this module's internal reply input rather than a new policy writer. Keep its public form contract byte-for-byte compatible.
-- `apply.ts:292,412,476`: scope locks, shared writer, actual-state receipt; restore branches supply server-derived inputs into this same protocol.
-- `turns.ts:483`: fenced completion; refusal and model restore persistence occur after the fence in the same transaction, with existing outbox ownership.
+- `src/lib/agents/operator/apply.ts` (`applyProposal`): scope locks, shared writer, actual-state receipt; restore branches supply server-derived inputs into this same protocol.
+- `src/lib/agents/operator/turns.ts` (`completeTurnFenced`): fenced completion; refusal and model restore persistence occur after the fence in the same transaction, with existing outbox ownership.
 - `refusals/write.ts`: sole ledger writer; `vocabulary.ts`: closed source/category vocabulary; ADR0023: category-only Restraint.
 - New `restore.ts` is justified because source-receipt resolution and idempotent preparation serve both route and worker; scattering them into both composition roots would duplicate authority. A small pure refusal map is justified by schema validation, worker materialization and deterministic owner rendering. Other files remain in existing modules unless a concrete size/seam issue justifies extraction.
 - Additions exceed 150 lines because the ticket introduces two observable post-v1 behaviors, migration compatibility and their race/rollback coverage. No dependency, table or framework is added.

@@ -89,7 +89,8 @@ export function RulesTimeline({ locationId, locationLabel, revision, onDisabled,
   const pending = uniqueProposals([
     ...(local && !localSourceLoaded && (locationId === null || local.locationId === locationId) ? [local] : []),
     ...(page?.pendingRestores ?? []),
-  ]).filter((row) => !page?.proposals.some((applied) => applied.id === row.id));
+  ]).map((row) => cards.updatedProposals[row.id] ?? row)
+    .filter((row) => row.status !== 'applied' && !page?.proposals.some((applied) => applied.id === row.id));
   const card = (row: ProposalView) => <ProposalCard
     key={row.id} proposal={row} turnLocationId={row.locationId ?? ''} locationLabel={locationLabel}
     scopeMoved={false} busy={cards.busyId === row.id} error={cards.errors[row.id] ?? null}

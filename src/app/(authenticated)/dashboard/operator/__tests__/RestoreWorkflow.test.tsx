@@ -119,6 +119,46 @@ describe('Operator Restore workflow', () => {
     expect(JSON.parse(posts(fetcher)[1]?.[1].body)).toEqual({ expectedVersionToken: TOKEN });
   });
 
+  it.each(['prepared here', 'loaded after refresh'])('adopts a rejected timeline Apply and refreshes its Restore source: %s', async (mode) => {
+    let prepared = mode === 'loaded after refresh';
+    let stale = false;
+    let refreshed = false;
+    const fresh = () => ({ ...restored(), id: 'ffffffff-ffff-4fff-8fff-ffffffffffff', describe: 'Restore: refreshed reply tone' });
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('/conversation')) return response(conversation([]));
+      if (url.includes('/rules-timeline')) return response({
+        proposals: [proposal()], pendingRestores: prepared && !stale ? [refreshed ? fresh() : restored()] : [], nextCursor: null,
+      });
+      if (url.endsWith(`/${SOURCE}/restore`)) {
+        refreshed = stale;
+        prepared = true;
+        stale = false;
+        return response({ proposal: refreshed ? fresh() : restored(), repeated: false });
+      }
+      if (url.endsWith(`/${RESTORE}/apply`)) {
+        stale = true;
+        return response({ error: 'version_mismatch', proposal: { ...restored(), status: 'stale', failureReason: 'version_mismatch' } }, 409);
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const user = userEvent.setup();
+    render(<OperatorClient />);
+    await user.click(screen.getByRole('button', { name: 'Rules timeline' }));
+    if (!prepared) await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await user.click(await screen.findByRole('button', { name: 'Apply' }));
+    await waitFor(() => {
+      const card = within(screen.getByRole('region', { name: 'Restore: previous reply tone' }));
+      expect(card.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
+      expect(card.getByRole('button', { name: 'Refresh plan' })).toBeEnabled();
+    });
+    await user.click(screen.getByRole('button', { name: 'Refresh plan' }));
+    expect(await screen.findByRole('heading', { name: 'Restore: refreshed reply tone' })).toBeInTheDocument();
+    expect(posts(fetcher).at(-1)?.[0]).toBe(`/api/operator/proposals/${SOURCE}/restore`);
+    expect(JSON.parse(posts(fetcher).at(-1)?.[1].body)).toEqual({});
+    expect(refreshed).toBe(true);
+  });
+
   it('keeps an out-of-window prepared restore actionable immediately and after loading persisted timeline history', async () => {
     let prepared = false;
     const fetcher = vi.fn(async (url: string) => {
