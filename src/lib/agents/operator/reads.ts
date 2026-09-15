@@ -69,7 +69,7 @@ async function hydrateProposalReferences(
     turn,
     ids: turn.segments.flatMap((segment) => segment.type === 'proposal' ? [segment.proposalId] : []),
   }));
-  const missing = new Set(references.flatMap(({ ids }) => ids).filter((id) => !byId.has(id)));
+  const missing = new Set(references.flatMap(({ ids }) => ids.filter((id) => !byId.has(id))));
   if (missing.size > 0) {
     const referenced = await listProposalsByIds(sql, { accountId, proposalIds: [...missing] });
     for (const proposal of referenced) byId.set(proposal.id, proposal);
